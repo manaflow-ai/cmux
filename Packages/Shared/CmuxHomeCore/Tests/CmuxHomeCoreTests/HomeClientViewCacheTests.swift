@@ -45,7 +45,7 @@ import Testing
         var snapshot = HomeCacheSnapshot()
         snapshot.drafts = [Self.austin: "restored"]
         var ran = false
-        view.restore(snapshot) {
+        view.restore(snapshot) { _ in
             view.scheduleWrite()
             ran = true
         }

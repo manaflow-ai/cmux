@@ -75,6 +75,21 @@ public struct UsesCombine {
         self.assertIn('namespace-enum', result.stdout)
         self.assertIn('namespace-type', result.stdout)
 
+    def test_a_scoped_enum_import_is_not_a_namespace_enum(self):
+        # `import enum Module.Type` names another module's type; the next `{` (here the actor's)
+        # is not its body.
+        result = self.lint('''import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+@preconcurrency import enum CmuxSafeConcurrency.OtherError
+
+actor Session {
+    static let limit = 1
+    var count = 0
+}
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('ERROR', result.stdout)
+
     def test_real_cases_and_value_factories_remain_allowed(self):
         result = self.lint('''public enum Choice {
     case first, second

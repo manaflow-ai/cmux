@@ -86,6 +86,20 @@ case "$host" in *unreachable*)
   echo "ssh: connect to host $host port 22: Connection refused" >&2
   exit 255;;
 esac
+# The host's update lease (host_lock.rs hold_lease): held until stdin closes.
+case "$script" in *"echo ACPMUX_UPDATE_LOCKED"*)
+  echo ACPMUX_UPDATE_LOCKED
+  exec cat >/dev/null;;
+esac
+# A step fenced for that lease (host_lock.rs fence) runs the script inside the fence.
+case "$script" in *ACPMUX_UPDATE_LOCK_LOST*)
+  script=$(printf '%s\n' "$script" | awk 'body { lines[n++] = $0 } /exit 75; }$/ && !seen { seen = 1; getline; body = 1 } END { for (i = 0; i < n - 1; i++) print lines[i] }');;
+esac
+# An update's step first reads the daemon unit's environment (host_update.rs
+# SERVICE_ENV, which ends at its first unindented `fi`).
+case "$script" in "acpmux_env=\$(command -v systemctl"*)
+  script=$(printf '%s\n' "$script" | awk 'past { print } !past && $0 == "fi" { past = 1 }');;
+esac
 case "$script" in
   # `acp host update`'s probe (c9e045f2e48): this machine's own `uname -sm`,
   # so the update pushes this binary, then a daemon on an older build.
@@ -931,7 +945,8 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("computer_use"),
             &json!("cloud_machine"),
             &json!("notifications"),
-            &json!("browser_import")
+            &json!("browser_import"),
+            &json!("tailnet")
         ],
         "{status}"
     );

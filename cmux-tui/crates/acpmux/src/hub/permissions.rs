@@ -72,8 +72,11 @@ impl Hub {
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
+                    // A close in progress (`kill`) ended it on purpose, even before its
+                    // status reads closed.
                     let intentional =
-                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                        matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed)
+                            || session.closing.load(Ordering::SeqCst);
                     // An agent host's exit was logged before its ack.
                     if host_seq.is_none() {
                         self.append(
@@ -83,8 +86,9 @@ impl Hub {
                             json!({"code": code}),
                         );
                     }
+                    // Never over a close that landed after the read above.
                     if !intentional {
-                        self.set_status(&session, SessionStatus::Disconnected);
+                        self.set_status_unless_closed(&session, SessionStatus::Disconnected);
                     }
                 }
             }

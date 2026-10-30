@@ -17,8 +17,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 
@@ -317,6 +320,38 @@ class WakeupExtTests(unittest.TestCase):
         hits = self.wakeups(**{"Packages/macOS/CmuxNext/Sources/CmuxNextKit/Tick.swift":
                                "import Foundation\nlet t = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in }\n"})
         self.assertEqual(hits, [])
+
+
+class WakeupAuditLoadTests(unittest.TestCase):
+    """check_own() runs measure() on one thread per range of a merge push, and each thread's wakeup-ext loads
+    wakeup-audit.py on first use. The load put the module in sys.modules before it ran, so the second thread got a
+    half-run module: `AttributeError: module 'cmux_next_wakeup_audit' has no attribute 'WEB_SKIP_DIRS'` at
+    guardrails.wakeup_lang, and wakeup-ext judged nothing on 3 of 6 replays of a merge push (2026-10-29)."""
+
+    NAME = "cmux_next_wakeup_audit"
+
+    def setUp(self):
+        saved = sys.modules.pop(self.NAME, None)
+        self.addCleanup(lambda: sys.modules.__setitem__(self.NAME, saved) if saved else sys.modules.pop(self.NAME, None))
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        # A load that takes a while, as wakeup-audit.py's does (it compiles its rules): the race window, made wide.
+        self.slow = Path(temporary.name) / "slow-wakeup-audit.py"
+        self.slow.write_text("import time\ntime.sleep(0.5)\nWEB_SKIP_DIRS = {'test'}\n")
+
+    def test_a_second_thread_waits_for_the_load_instead_of_reading_a_half_run_module(self):
+        first: list = []
+        with mock.patch.object(guardrails, "WAKEUP_AUDIT", str(self.slow)):
+            loader = threading.Thread(target=lambda: first.append(guardrails.wakeup_audit()))
+            loader.start()
+            deadline = time.monotonic() + 5
+            while self.NAME not in sys.modules and time.monotonic() < deadline:
+                time.sleep(0.005)
+            self.assertIn(self.NAME, sys.modules, "control: the first thread is loading")
+            # The old load returned sys.modules' entry at once: AttributeError here.
+            self.assertEqual(guardrails.wakeup_audit().WEB_SKIP_DIRS, {"test"})
+            loader.join()
+        self.assertIs(first[0], sys.modules[self.NAME])
 
 
 @contextlib.contextmanager

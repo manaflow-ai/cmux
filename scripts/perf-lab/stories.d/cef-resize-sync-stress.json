@@ -7,12 +7,12 @@
   "engine": "chromium",
   "config": "bench",
   "metrics": [
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.(commit_p95|commit_max|frame_p95|frame_p99)", "unit": "ms",
+    {"name": "cef_resize_sync\\.(off|on|on0|host)\\.[^.]+\\.[^.]+\\.(commit_p95|commit_max|frame_p95|frame_p99)", "unit": "ms",
      "better": "lower"},
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower"},
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.[a-z0-9_]+\\.missed_runs", "unit": "count",
+    {"name": "cef_resize_sync\\.(off|on|on0|host)\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower"},
+    {"name": "cef_resize_sync\\.(off|on|on0|host)\\.[^.]+\\.[^.]+\\.[a-z0-9_]+\\.missed_runs", "unit": "count",
      "better": "lower"},
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.failed", "unit": "count", "better": "lower"}
+    {"name": "cef_resize_sync\\.(off|on|on0|host)\\.failed", "unit": "count", "better": "lower"}
   ],
   "repeats": 1,
   "seconds": 2400,

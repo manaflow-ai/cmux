@@ -18,7 +18,39 @@ import Testing
             CGPoint(x: origin.x + ($0.x - box.minX) * scale, y: origin.y + (box.maxY - $0.y) * scale)
         })
         expected.closeSubpath()
-        #expect(OutlinePath.launchMark(in: rect).cgPath == expected)
+        // Element by element, each point within a millionth of a point: the old construction's
+        // `addLines(between:)` and the replayed move and line calls print the same path but need not be
+        // bit-equal (`CGPath ==` compares the stored floats; fleet run a2ab5dc2).
+        #expect(Self.same(Self.elements(of: OutlinePath.launchMark(in: rect).cgPath), Self.elements(of: expected)))
+    }
+
+    /// One path element: its type and its points.
+    private struct Element {
+        let type: CGPathElementType
+        let points: [CGPoint]
+    }
+
+    private static func same(_ lhs: [Element], _ rhs: [Element]) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { left, right in
+            left.type == right.type && left.points.count == right.points.count
+                && zip(left.points, right.points).allSatisfy { abs($0.x - $1.x) < 1e-6 && abs($0.y - $1.y) < 1e-6 }
+        }
+    }
+
+    private static func elements(of path: CGPath) -> [Element] {
+        var elements: [Element] = []
+        path.applyWithBlock { pointer in
+            let element = pointer.pointee
+            let count = switch element.type {
+            case .moveToPoint, .addLineToPoint: 1
+            case .addQuadCurveToPoint: 2
+            case .addCurveToPoint: 3
+            case .closeSubpath: 0
+            @unknown default: 0
+            }
+            elements.append(Element(type: element.type, points: (0..<count).map { unsafe element.points[$0] }))
+        }
+        return elements
     }
 
     @Test func theStatusGlyphsDrawTheSamePaths() {

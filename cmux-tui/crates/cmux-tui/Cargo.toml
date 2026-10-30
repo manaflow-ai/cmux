@@ -63,7 +63,6 @@ path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
 cmux-blocking.workspace = true
-cmux-lock-rank.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # Generated client request types (cmux_ipc::client, p05-ipc task 028).

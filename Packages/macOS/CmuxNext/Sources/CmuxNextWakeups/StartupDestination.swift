@@ -26,7 +26,8 @@ public enum StartupDestination: Sendable, Equatable, CustomStringConvertible {
 
     /// The main-thread destination of a post (`on: .main`): its work is main-actor code.
     public struct Main: Sendable {
-        private init() {}
+        /// The main thread (the same value as ``main``).
+        public init() {}
 
         /// The main thread.
         public static var main: Main { Main() }

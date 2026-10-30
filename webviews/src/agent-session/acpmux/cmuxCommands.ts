@@ -40,7 +40,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   },
   {
     name: "status",
-    description: "Show the effective harness session status.",
+    description: "",
+    descriptionKey: "composer.slashStatus",
     source: "cmux",
     action: "status",
   },

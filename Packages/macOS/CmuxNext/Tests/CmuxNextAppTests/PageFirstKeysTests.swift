@@ -89,13 +89,14 @@ import Testing
         }
     }
 
-    /// A page's own chord with no cmux action in a browser page (Cmd-K) reaches the page first, so
-    /// its `preventDefault` keeps it; in the Chromium Host it comes back only if left unhandled.
+    /// A page's own chord with no cmux action in a browser page (Cmd-U) reaches the page first, so
+    /// its `preventDefault` keeps it; in the Chromium Host it comes back only if left unhandled. (Cmd-K is
+    /// not one: it is Search Agent Chats everywhere but a terminal, a window-level key, #19870.)
     @Test func aPageChordWithNoCmuxActionReachesThePage() throws {
-        let decision = try Self.decision(Key(name: "Cmd-K", characters: "k", keyCode: 40), facts: Self.chromium)
+        let decision = try Self.decision(Key(name: "Cmd-U", characters: "u", keyCode: 32), facts: Self.chromium)
         switch decision {
         case .deliver, .offerToPage: break
-        default: Issue.record("Cmd-K did not reach the page first: \(decision)")
+        default: Issue.record("Cmd-U did not reach the page first: \(decision)")
         }
     }
 

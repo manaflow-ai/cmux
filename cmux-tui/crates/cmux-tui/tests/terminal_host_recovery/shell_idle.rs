@@ -383,9 +383,22 @@ fn shell_idle_a_heredoc_at_a_secondary_prompt_is_not_idle() {
     assert!(screen.contains("..."), "no continuation prompt: {screen:?}");
     type_text(&harness, surface, "a line of the heredoc\r");
     assert_not_idle(&harness, Duration::from_millis(1_000), "a heredoc at PS2");
-    // The heredoc ends: the primary prompt after it reads idle again.
+    // The heredoc ends. Its Returns were answered by continuation prompts,
+    // which pay no line (no mark tells them from a multi-line PS1's lines), so
+    // they stay owed: the terminal stays not idle (the accepted cost: the close
+    // asks).
     type_text(&harness, surface, "EOF\r");
-    wait_for_idle(&harness);
+    // The primary prompt after it drew (the first one is on screen already).
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let screen = wait_for_screen(&harness.socket, surface, PROMPT);
+        if screen.matches(PROMPT).count() >= 2 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no prompt after the heredoc: {screen:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_not_idle(&harness, Duration::from_millis(500), "after a heredoc");
 }
 
 /// Guard: Ghostty's own integration (the one the daemon injects) marks PS2

@@ -55,6 +55,10 @@ pub(super) fn spawn(
             // An error that committed records (a held agent message: "held, do not send it
             // again") waits for them too; its answer stays the error.
             let saved = hub.wait_written(writes).await;
+            // The reply follows every event published before it on this connection: a turn's
+            // `session/update`s reach the client before its `session/prompt` result. After the
+            // write wait, right before the reply: every event published until now precedes it.
+            conn.events_handed_on(&hub).await;
             crate::hub::request_writes::answer(result, saved, kept)
         })
     };

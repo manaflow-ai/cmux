@@ -50,29 +50,38 @@ impl Hub {
     /// The person marked the chat unread (`_acpmux/markUnread`): sets `unread` and tells every
     /// client. A client that shows it keeps it unread until it hides and shows it again.
     pub fn mark_unread(&self, session: &Session) {
-        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        let was_read = !std::mem::replace(&mut meta.unread, true);
-        drop(meta);
-        if was_read {
+        // Changed and logged in one step: a restart rebuilds the mark from this record
+        // (`meta_replay.rs`). The status is read from `m`: the meta lock is held here.
+        // The person's change: `_acpmux/markUnread` answers once this record is on disk
+        // (`request_writes.rs`: the append notes it).
+        let logged = self.change_logged(session, "status", |m| {
+            (!std::mem::replace(&mut m.unread, true))
+                .then(|| json!({"status": m.status.to_string(), "read": false}))
+        });
+        if logged.is_some() {
             self.save_meta(session);
-            // The person's change: `_acpmux/markUnread` answers once this record is on disk
-            // (`request_writes.rs`), and a restart rebuilds the mark from it.
-            let status = json!({"status": session.status().to_string(), "read": false});
-            self.append(session, "mux", "status", status);
         }
     }
 
     /// The person saw the chat: clears `unread` and tells every client.
     fn mark_seen(&self, session: &Session) {
-        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        let was_unread = std::mem::replace(&mut meta.unread, false);
-        drop(meta);
-        if was_unread {
+        // A chat switch to a read chat changes nothing: no append lock on that path. Only once
+        // caught up: before, a replay may still bring back an unread mark this must clear.
+        if session.caught_up.load(Ordering::SeqCst)
+            && !session.meta.lock().unwrap_or_else(|e| e.into_inner()).unread
+        {
+            return;
+        }
+        // It tells the clients, and the chat switch does not wait for it: a lost read mark
+        // only shows the dot again (`request_writes.rs`: unnoted).
+        let logged = request_writes::unnoted(|| {
+            self.change_logged(session, "status", |m| {
+                std::mem::replace(&mut m.unread, false)
+                    .then(|| json!({"status": m.status.to_string(), "read": true}))
+            })
+        });
+        if logged.is_some() {
             self.save_meta(session);
-            // It tells the clients, and the chat switch does not wait for it: the mark is in
-            // session.json (`request_writes.rs`: unnoted).
-            let status = json!({"status": session.status().to_string(), "read": true});
-            request_writes::unnoted(|| self.append(session, "mux", "status", status));
         }
     }
 }

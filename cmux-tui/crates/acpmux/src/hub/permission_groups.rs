@@ -461,13 +461,23 @@ impl Hub {
         json!({"active":false})
     }
 
+    /// Changes `session`'s permission policy or rules with `change`, which returns the message
+    /// of the `kind` record that logs it (one step, `Hub::change_logged`), then ends what the old
+    /// ones allowed.
     pub(super) fn permission_policy_changed(
         &self,
         session: &Session,
-        change: impl FnOnce(&mut SessionMeta),
+        kind: &str,
+        change: impl FnOnce(&mut SessionMeta) -> Value,
     ) {
         let mut state = session.permissions.lock_or_recover();
-        change(&mut session.meta.lock_or_recover());
+        self.change_logged(session, kind, |m| Some(change(m)));
+        self.permissions_reset(session, &mut state);
+    }
+
+    /// What a policy or rules change ends: the chat allowance, and each open group's answers
+    /// (a new revision).
+    fn permissions_reset(&self, session: &Session, state: &mut PermissionState) {
         state.chat_allowed = false;
         self.append(session, "mux", "permission_chat_allowance", json!({"active":false}));
         for g in state.groups.iter_mut().filter(|g| !g.terminal()) {
@@ -478,7 +488,8 @@ impl Hub {
 
     pub(crate) fn permission_defaults_changed(&self) {
         for session in self.sessions() {
-            self.permission_policy_changed(&session, |_| {});
+            let mut state = session.permissions.lock_or_recover();
+            self.permissions_reset(&session, &mut state);
         }
     }
 }

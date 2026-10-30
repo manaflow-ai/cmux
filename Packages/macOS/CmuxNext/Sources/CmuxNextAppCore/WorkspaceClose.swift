@@ -9,7 +9,8 @@ public import CmuxNextDaemonService
 /// workspace, so its terminals need not wait out the reap grace period. A
 /// daemon with only `terminal-reap-v1` detaches them and reaps them later;
 /// an older daemon gets each shown terminal closed first.
-public enum WorkspaceClose {
+public struct WorkspaceClose {
+    public init() {}
     public typealias Terminal = (id: TerminalID, incarnation: TerminalIncarnation?)
 
     /// Told of every workspace a close path is about to close (the App
