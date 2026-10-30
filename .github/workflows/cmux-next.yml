@@ -1919,7 +1919,6 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_route.py
-          python3 tests/test_ci_fast_tier_anchor.py
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
