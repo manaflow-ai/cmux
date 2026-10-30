@@ -2446,7 +2446,8 @@ export class AcpmuxDirectClient {
     if (typeof params?.sessionId !== "string" || params.sessionId !== this.actingSessionId) return;
     this.stopAfterSeq = undefined;
     this.stoppingEnded();
-    const reason = typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
+    const reason =
+      typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
     this.notice(translate("queue.stopRefused", { reason }));
   }
 
