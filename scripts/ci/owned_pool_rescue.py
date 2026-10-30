@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Move a pull request CI run off a busy persistent macOS pool.
+"""Watch persistent macOS pools and recover eligible completed or non-PR runs.
+
+An active run at an open pull request's current head is never cancelled.
+Actions refuses re-runs while that run is active; retrying one job would also
+retain its upstream placement output. Such a watch reports the limitation
+and leaves the run intact. Completed refusals may still retry failed jobs.
+Cancellation policies below apply only to non-PR runs or stale PR runs.
 
 pr_runner_pool.py picks one pool per run. When that pool is owned (a
 `glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent), the jobs
@@ -18,9 +24,9 @@ picker chose a persistent pool, that job uploads a marker artifact
 for the janitor's count); no marker means the run is on an
 ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
 run finishes. If a job on the persistent pool is still queued with no runner
-after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
-pull request head has not moved, cancels the run, waits for it to finish, and
-re-runs it. The re-run is attempt 2, which runs `changes` again: the picker
+after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it reports the
+queue alarm. An active current-head PR is left intact. An eligible non-PR
+run is cancelled, waited out, and re-run. The re-run is attempt 2, which runs `changes` again: the picker
 places it like attempt 1 without queueing (pr_runner_pool.LAST_OWNED_ATTEMPT),
 on the owned machines free now and Blacksmith for the rest. The sweeper finds
 attempt 2 among the unfinished CI runs (owned_reruns()) and watches it the way
@@ -44,7 +50,7 @@ helper Xcode step also counts, without a time limit, because a missing pin is
 a machine fault even when a helper build succeeded first. The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
-re-runs its failed jobs. Only a run still going at the watch's end, or main's
+re-runs its failed jobs. Only a non-PR run still going at the watch's end, or main's
 full-suite run (whose failure would open main's red-CI issue), is cancelled
 first.
 That attempt 2 reuses attempt 1's outputs, so its owned jobs take the owned
@@ -866,10 +872,6 @@ class GitHub:
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
 
-    def rerun_job(self, job_id: int) -> None:
-        """Re-run one queued job and its dependents without cancelling its run."""
-        self.request("POST", f"/actions/jobs/{job_id}/rerun")
-
 @dataclasses.dataclass
 class Target:
     run_id: int
@@ -1111,7 +1113,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # the run to re-run it killed every healthy sibling (run
                 # 36198335113: two refused app-host shards cost five running
                 # shards and the CLI product tests, all re-run on Blacksmith).
-                # Let the siblings finish; at the deadline, cancel as before.
+                # Let the siblings finish; active current-head PRs also stay intact
+                # at the deadline. Eligible non-PR runs retain their cancel policy.
                 # Main's run still cancels at once: a run that ends in failure
                 # makes ci-main-full-suite.yml open the red-CI issue before
                 # the re-run starts, and a cancelled one does not.
@@ -1196,7 +1199,7 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
            deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
-    """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+    """Retry completed refusals; never cancel an active current-head PR. Returns what happened.
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
     keeping what passed, and needs no cancel when the run already finished.
@@ -1249,27 +1252,6 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
         return f"not rescued: {moved}"
-
-    # Keep an open pull-request run intact. Re-running one stuck job and its
-    # dependents lets Actions re-evaluate the current placement while healthy
-    # siblings continue producing their checks.
-    # Older test doubles do not expose this endpoint; production GitHub does.
-    if target.pr_number and target.event == "pull_request" and not refusal:
-        rerun_job = getattr(api, "rerun_job", None)
-        if rerun_job is not None:
-            jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
-            include_blacksmith = target.side and not target.nightly
-            candidates = [job for job in jobs
-                          if job_pool(job)
-                          and queued_pool(job, include_blacksmith_macos=include_blacksmith)
-                          and waiting_for_runner(job)
-                          and job.get("id")]
-            if candidates:
-                candidate = max(candidates, key=lambda job: queued_seconds(job, now(), None))
-                rerun_job(int(candidate["id"]))
-                return (f"re-dispatched job {candidate.get('name') or candidate['id']} of run "
-                        f"{target.run_id}; {next_attempt(target)}")
-
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
@@ -1283,6 +1265,12 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: the run already finished"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+    if target.pr_number:
+        # Actions cannot re-run a queued job while its run is active, and a
+        # job-level retry would retain the successful upstream placement.
+        # Never cancel an open PR at its current head to obtain a new attempt.
+        return ("not rescued: the current pull-request run is active; Actions requires "
+                "it to finish before re-running with fresh placement")
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
