@@ -269,6 +269,19 @@ class FixImportsTests(unittest.TestCase):
         self.assertIn('name: "CmuxNextCompat",\n            dependencies: ["CmuxNextDaemon"]\n        ),', fixed)
         self.assertEqual(lint.manifest_targets(fixed)["CmuxNextCompat"][1], {"CmuxNextDaemon"})
 
+    def test_a_target_in_a_block_comment_declares_nothing(self):
+        # Review of c9beb1af: a commented-out duplicate after the real declaration replaced its span, so the
+        # duplicate's dependencies were read as the target's and an undeclared import passed.
+        text = self.manifest_text().replace(
+            "    ]\n)\n",
+            '    ]\n)\n/*\n        .target(\n            name: "CmuxNextCompat",\n'
+            '            dependencies: ["CmuxNextDaemon"]\n        ),\n*/\n', 1)
+        self.assertIn("/*", text)
+        self.assertEqual(lint.manifest_targets(text)["CmuxNextCompat"][1], set())
+        fixed = lint.add_dependency(text, "CmuxNextCompat", "CmuxNextDaemon")
+        self.assertIn('name: "CmuxNextCompat",\n            dependencies: ["CmuxNextDaemon"]\n        ),', fixed)
+        self.assertTrue(fixed.endswith('dependencies: ["CmuxNextDaemon"]\n        ),\n*/\n'))
+
     def test_a_name_followed_by_other_arguments_keeps_its_comma_once(self):
         text = self.manifest_text().replace('name: "CmuxNextCompat"\n',
                                             'name: "CmuxNextCompat",\n            path: "Sources/Compat"\n')

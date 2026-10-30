@@ -642,6 +642,17 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
+    def test_an_annotated_or_set_baseline_is_read_so_a_dropped_line_is_still_seen(self):
+        # Review of c9beb1af: `IMPORT_BASELINE: frozenset[str] = ...` read as None, which dropped_baseline_pairs took
+        # as "nothing dropped", so a push that rewrote the line that way and dropped a pair passed the gate.
+        spec = importlib.util.spec_from_file_location("prepush_gate_baseline", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for source in (b'IMPORT_BASELINE: frozenset[str] = frozenset(("A: B",))\n',
+                       b'IMPORT_BASELINE = frozenset({"A: B"})\n'):
+            self.assertEqual(gate.import_baseline(source), frozenset({"A: B"}), source)
+        self.assertIsNone(gate.import_baseline(b"IMPORT_BASELINE: frozenset[str]\n"))
+
     def test_a_push_that_drops_a_baseline_line_without_declaring_the_import_is_refused(self):
         # Review of a37b4cce: the installed checker still lists the pair, so it reported neither a missing import nor
         # a stale line, and a push that only deleted the pair from IMPORT_BASELINE passed; CI's pushed checker failed.

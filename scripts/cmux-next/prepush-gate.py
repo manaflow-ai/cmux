@@ -415,7 +415,7 @@ def _literal(node: ast.AST, names: dict[str, str] | None = None):
     names = names or {}
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, (ast.Tuple, ast.List)):
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         return tuple(_literal(e, names) for e in node.elts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         return _literal(node.left, names) + _literal(node.right, names)
@@ -437,8 +437,10 @@ def import_baseline(source: bytes) -> frozenset[str] | None:
     """The IMPORT_BASELINE of the dependency check's SOURCE, parsed and never executed; None when unreadable."""
     try:
         for node in ast.parse(source.decode("utf-8")).body:
-            if (isinstance(node, ast.Assign) and len(node.targets) == 1
-                    and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "IMPORT_BASELINE"):
+            # `IMPORT_BASELINE = ...` or, annotated, `IMPORT_BASELINE: frozenset[str] = ...` (review of c9beb1af)
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if (
+                isinstance(node, ast.AnnAssign) and node.value is not None) else []
+            if len(targets) == 1 and isinstance(targets[0], ast.Name) and targets[0].id == "IMPORT_BASELINE":
                 return frozenset(_literal(node.value))
     except (SyntaxError, UnicodeDecodeError, ValueError, TypeError):
         return None

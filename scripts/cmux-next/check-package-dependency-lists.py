@@ -214,19 +214,49 @@ def closing(text: str, start: int) -> int:
     return -1
 
 
+def without_comments(text: str) -> str:
+    """TEXT with its `//` and (nested) `/* */` comments blanked to spaces, newlines kept, so every index still points
+    at the same character; string literals are left as they are."""
+    out = list(text)
+    i = 0
+    while i < len(text):
+        if text[i] == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            end = len(text) if end < 0 else end
+            out[i:end] = " " * (end - i)
+            i = end
+        elif text.startswith("/*", i):
+            start, depth, i = i, 1, i + 2
+            while i < len(text) and depth:
+                if text.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif text.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+            out[start:i] = [c if c == "\n" else " " for c in text[start:i]]
+        else:
+            i += 1
+    return "".join(out)
+
+
 def target_spans(text: str) -> dict[str, tuple[str, int, int]]:
     """{name: (kind, the index of its `(`, the index of the `)` that closes it)} for each target the manifest
     declares (`.target(`, `.testTarget(`, `.executableTarget(`), its arguments on that line or on the next ones
     (review of 6e507c72: `.target(name: "CmuxNextMallocZone")` on one line was never read). A `.target(name:)`
-    inside another target's call is a dependency, not a declaration; a `//` comment declares nothing."""
+    inside another target's call is a dependency, not a declaration; a `//` or `/* */` comment declares nothing
+    (review of c9beb1af: a commented-out duplicate after the real one replaced its span)."""
+    text = without_comments(text)
     spans = {}
     inside = -1  # the end of the last target's call: a match before it is nested in that call
     for match in re.finditer(r"\.(target|testTarget|executableTarget)\(", text):
         open_at = match.end() - 1
         if open_at < inside:
-            continue
-        line_start = text.rfind("\n", 0, match.start()) + 1
-        if "//" in text[line_start:match.start()]:
             continue
         close_at = closing(text, open_at)
         if close_at < 0:
