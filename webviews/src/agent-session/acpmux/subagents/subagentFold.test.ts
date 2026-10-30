@@ -833,3 +833,85 @@ test("a stale root parent on a known child's progress does not promote its grand
     ["grandchild", "child"],
   ]);
 });
+
+describe("an authoritative spawnAgent parent repairs agents already recorded", () => {
+  const spawnFrom = (fold: SubagentFold, senderThreadId: string, acpmux: Record<string, unknown>) => {
+    seq += 1;
+    const update = {
+      sessionUpdate: "subagent_spawned",
+      _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } },
+    };
+    const msg = { method: "session/update", params: { update, _meta: { acpmux } } };
+    return fold.reduce({ seq, at: seq * 1000, msg }, update);
+  };
+
+  test("a root sender's corrected null parent un-nests a worker persisted under a stale parent", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "lead", parent: null }] });
+    // An older acpmux recorded the direct worker under its sibling.
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "worker", parent: "lead" }] });
+    fold.takeRows();
+    // Rust's spawn_authoritative replays it with the corrected parent: null for a root sender.
+    spawnFrom(fold, "root-native", { subagents: [{ id: "worker", parent: null }] });
+
+    expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+      ["lead", null],
+      ["worker", null],
+    ]);
+    expect(
+      fold
+        .views()
+        .lead?.flatMap((row) => row.subagents ?? [])
+        .map(({ id }) => id) ?? [],
+    ).toEqual([]);
+    expect(
+      fold
+        .takeRows()
+        .flatMap((row) => row.subagents ?? [])
+        .map(({ id }) => id),
+    ).toContain("worker");
+  });
+
+  test("a parent that arrives late takes the worker recorded before it", () => {
+    const fold = new SubagentFold();
+    // The sender's own spawn has not arrived yet: the worker is left parentless.
+    spawnFrom(fold, "lead", { subagents: [{ id: "worker", parent: null }] });
+    spawnFrom(fold, "root-native", { subagents: [{ id: "lead", parent: null }] });
+    fold.takeRows();
+    spawnFrom(fold, "lead", { subagents: [{ id: "worker", parent: "lead" }] });
+
+    expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+      ["worker", "lead"],
+      ["lead", null],
+    ]);
+    expect(
+      fold
+        .views()
+        .lead?.flatMap((row) => row.subagents ?? [])
+        .map(({ id }) => id),
+    ).toEqual(["worker"]);
+    const root = fold.takeRows().find((row) => row.subagents?.some(({ id }) => id === "lead"));
+    expect(root?.subagents?.map(({ id }) => id)).toEqual(["lead"]);
+  });
+
+  test("a non-spawn collaboration from the root does not un-nest a grandchild", () => {
+    const fold = new SubagentFold();
+    spawnFrom(fold, "root-native", { subagents: [{ id: "child", parent: null }] });
+    spawnFrom(fold, "child", { subagents: [{ id: "grandchild", parent: "child" }] });
+    seq += 1;
+    const update = {
+      sessionUpdate: "subagent_progress",
+      _meta: { codex: { collaboration: { tool: "wait", senderThreadId: "root-native" } } },
+    };
+    const msg = {
+      method: "session/update",
+      params: { update, _meta: { acpmux: { subagents: [{ id: "grandchild", action: "Checking" }] } } },
+    };
+    fold.reduce({ seq, at: seq * 1000, msg }, update);
+
+    expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+      ["child", null],
+      ["grandchild", "child"],
+    ]);
+  });
+});
