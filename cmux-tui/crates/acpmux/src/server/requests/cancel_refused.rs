@@ -29,28 +29,34 @@ fn reason(e: &RpcError) -> Option<&str> {
     e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
 }
 
+/// How long a Stop forwarded to a peer waits for the peer's answer: the cancel grace of the peer's
+/// own forced end (`hub/cancel.rs`). It waits on the connection's notification worker, so a peer
+/// that never answers holds no slot past this.
+const FORWARD_ANSWER: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The Stop of peer `peer`'s chat, which `conn` named `key`, sent on as a request (every acpmux
-/// answers one, `{}` once the cancel reaches the agent). It runs on the connection's own
-/// notification worker, which bounds how many wait at once (`NOTIFICATION_WORK_LIMIT`). Any error
-/// is told to `conn`, never followed by a second cancel: the request may have reached the peer
-/// and stopped this turn before its answer was lost, and a second cancel would stop the next. The
-/// one exception is the peer's `connection.busy` (its request limit), which it answers without
-/// handling the request: then the notification goes, as before this.
+/// answers one, `{}` once the cancel reaches the agent), awaited on the connection's own
+/// notification worker (`NOTIFICATION_WORK_LIMIT`) for at most [`FORWARD_ANSWER`]. Any error, its
+/// `connection.busy` and a missing answer included, is told to `conn` and never followed by a
+/// second cancel: the request may have reached the peer and stopped this turn before its answer
+/// was lost, and a second cancel would stop the next one. The person presses Stop again.
 pub(super) async fn forward(
     conn: &Conn,
     peer: Arc<crate::peer::Peer>,
     key: &str,
     forwarded: Value,
 ) {
-    let e = match peer.request(method::SESSION_CANCEL, forwarded.clone()).await {
-        Ok(_) => return,
-        Err(e) if reason(&e) == Some("connection.busy") => {
-            match peer.notify(method::SESSION_CANCEL, forwarded).await {
-                Ok(()) => return,
-                Err(e) => e,
-            }
-        }
-        Err(e) => e,
+    let answer =
+        tokio::time::timeout(FORWARD_ANSWER, peer.request(method::SESSION_CANCEL, forwarded)).await;
+    let e = match answer {
+        Ok(Ok(_)) => return,
+        Ok(Err(e)) => e,
+        Err(_) => RpcError::internal(format!(
+            "{} did not answer the Stop within {}s; it may still stop",
+            peer.name,
+            FORWARD_ANSWER.as_secs()
+        ))
+        .with_data(json!({"reason": "peer.cancel_unanswered"})),
     };
     tracing::debug!(conn = %conn.id, peer = %peer.name, "forwarded cancel refused: {e}");
     conn.send(&Message::notification(

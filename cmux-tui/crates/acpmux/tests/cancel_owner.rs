@@ -304,3 +304,106 @@ async fn a_peers_refusal_of_a_forwarded_stop_reaches_the_sender() {
     a.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// How a fake peer answers a forwarded Stop.
+#[derive(Clone, Copy)]
+enum Answer {
+    /// Never: a link that is up but whose daemon is stuck.
+    Never,
+    /// Its request limit (`connection.busy`), as a daemon answers before it handles anything.
+    Busy,
+}
+
+/// A fake peer serving one session `lane`: every `session/cancel` it gets, request or
+/// notification, is sent on as its params, and answered as `answer` says.
+async fn fake_peer(answer: Answer) -> (u16, mpsc::UnboundedReceiver<Value>) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (cancels, received) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let cancels = cancels.clone();
+            tokio::spawn(async move {
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let (request_id, m, params) = match Message::parse(&text) {
+                        Ok(Message::Request { id, method, params }) => (Some(id), method, params),
+                        Ok(Message::Notification { method, params }) => (None, method, params),
+                        _ => continue,
+                    };
+                    let Some(request_id) = request_id else {
+                        if m == method::SESSION_CANCEL {
+                            let _ = cancels.send(params.unwrap_or(Value::Null));
+                        }
+                        continue;
+                    };
+                    let session = json!({"sessionId": "remote-lane", "name": "lane", "harness": "fake", "status": "running"});
+                    let reply = match m.as_str() {
+                        method::SESSION_CANCEL => {
+                            let _ = cancels.send(params.unwrap_or(Value::Null));
+                            match answer {
+                                Answer::Never => continue,
+                                Answer::Busy => Message::err(
+                                    request_id,
+                                    acpmux::rpc::RpcError::new(
+                                        -32000,
+                                        "connection request limit reached",
+                                    )
+                                    .with_data(
+                                        json!({"reason": "connection.busy", "retryable": true}),
+                                    ),
+                                ),
+                            }
+                        }
+                        method::INITIALIZE => Message::ok(
+                            request_id,
+                            json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                                "version": "0", "build": "fake", "origin": "peer"}}}),
+                        ),
+                        method::MUX_WATCH => {
+                            Message::ok(request_id, json!({"sessions": [session]}))
+                        }
+                        _ => Message::ok(request_id, json!({})),
+                    };
+                    let line = reply.to_line();
+                    if ws.send(Ws::Text(line.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (port, received)
+}
+
+/// A Stop forwarded to a peer that never answers, or answers that it is busy: the sender hears
+/// so, and the peer gets the Stop once. A second cancel after a lost answer could stop the turn
+/// after the one the person stopped.
+#[tokio::test]
+async fn a_forwarded_stop_with_no_answer_or_a_busy_peer_is_heard_and_never_sent_twice() {
+    for (name, answer, reason) in [
+        ("silent", Answer::Never, "peer.cancel_unanswered"),
+        ("busy", Answer::Busy, "connection.busy"),
+    ] {
+        let (port, mut cancels) = fake_peer(answer).await;
+        let a = hub();
+        let url = format!("ws://127.0.0.1:{port}");
+        a.add_peer(name, &url, Some("tok".into()), None, true).await.unwrap();
+        until_connected(&a, name).await;
+        let mut ca = Client::new(&a, Origin::LocalApp, ConnAuth::LocalApp);
+        let key = format!("{name}/lane");
+        ca.notify(method::SESSION_CANCEL, json!({"sessionId": key})).await;
+        let told = ca.wait_for(method::MUX_CANCEL_REFUSED, |_| true).await;
+        assert_eq!(told["sessionId"], key, "{name}: {told}");
+        assert_eq!(told["reason"], reason, "{name}: {told}");
+        assert_eq!(told["peer"], name, "{name}: {told}");
+        let first =
+            cancels.try_recv().unwrap_or_else(|e| panic!("{name}: no Stop reached it: {e}"));
+        assert_eq!(first["sessionId"], "remote-lane", "{name}: {first}");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(cancels.try_recv().is_err(), "{name}: the Stop was sent twice");
+        a.shutdown_all().await;
+    }
+}
