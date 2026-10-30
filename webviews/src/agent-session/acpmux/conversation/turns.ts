@@ -638,7 +638,11 @@ function shapeTurn(
   for (let at = turn.length - 1; at > end && lastSummary < 0; at -= 1)
     if (turn[at]!.kind === "turnSummary") lastSummary = at - end - 1;
   const offers = retryable && !live;
-  const resumable = offers && lastSummary < 0 && isStopped(summary);
+  // A late/replayed result can sit beside the stopped turn. Only a summary carrying this turn's
+  // identity may authorize Continue; legacy records without ids retain the existing behavior.
+  const summaryBelongsToTurn =
+    summary.turnId === undefined || user.turnId === undefined || summary.turnId === user.turnId;
+  const resumable = offers && lastSummary < 0 && summaryBelongsToTurn && isStopped(summary);
   // A failed last turn goes on with Continue when it did work (it keeps what the turn had done) or
   // has no prompt to send again; one where nothing ran is sent again with Retry (errorRecovery.ts).
   // A notice-started turn has no prompt to send again, so it goes on too; acpmux's own retry attempt
@@ -674,8 +678,13 @@ function shapeTurn(
   // flight on the one live line under them, timed from the summary.
   const tail = turn.slice(end + 1);
   // Its version moves past any acpmux gives the row (VERSION_SPAN), so the memoized footer redraws.
-  if (offers && lastSummary >= 0 && isStopped(tail[lastSummary]!)) {
-    const stopped = tail[lastSummary]!;
+  const tailSummary = tail[lastSummary];
+  // A tail summary is a turn the agent started on its own, so it names another turn than the prompt's.
+  // One naming the prompt's own turn (or this turn's summary's) is that turn's result replayed: no Continue.
+  const tailIsItsOwnTurn =
+    tailSummary?.turnId === undefined || (tailSummary.turnId !== user.turnId && tailSummary.turnId !== summary.turnId);
+  if (offers && lastSummary >= 0 && tailIsItsOwnTurn && isStopped(tailSummary)) {
+    const stopped = tailSummary;
     tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
   }
   // A turn the agent started on its own that failed has no prompt of its own to send again: Continue.
