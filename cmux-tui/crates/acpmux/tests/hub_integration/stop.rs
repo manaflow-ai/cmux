@@ -168,6 +168,31 @@ async fn after_the_persons_stop_their_prompt_runs_next_and_agents_wait_for_it() 
     .expect("the agent's message never went in after the person's turn");
 }
 
+/// After the person's Stop, an inbox digest of the agent messages it holds waits held too: it
+/// neither steers nor starts a turn (`inbox_digest.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_the_persons_stop_an_inbox_digest_of_the_held_messages_waits_held() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-holds-digest").await;
+    let run = c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    queued(&mut c, from_agent(&id, "p-a", "first words")).await;
+    queued(&mut c, from_agent(&id, "p-b", "second words")).await;
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    assert_eq!(c.response(run).await.0.unwrap()["stopReason"], "cancelled");
+    let made = c.request("_acpmux/inbox_digest", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["digested"], 2, "{made}");
+    assert_eq!(made["delivery"], "queued", "a digest under the hold steers into nothing: {made}");
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(held(&summary(&hub, &id)), [(digest, true)]);
+    let started = hub.events(&id, 0, 10_000).unwrap();
+    let turns = started.iter().filter(|e| e.kind == "turn_started").count();
+    assert_eq!(turns, 1, "a turn started after the person's Stop");
+}
+
 #[tokio::test]
 async fn session_cancel_as_a_request_is_answered() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
