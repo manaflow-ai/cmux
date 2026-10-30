@@ -55,16 +55,19 @@ export function useDiffKeys(
         return;
       }
       if (event.key === "v" && !event.shiftKey) {
-        // The picked file while it shows, else the first file in view: the same Viewed toggle the
-        // file header draws, so the keys and the button never disagree.
-        const sections = fileSections(scroller);
+        // The picked file while any of its edit sections shows, else the first section in view: a
+        // file edited more than once has a section (and header) per edit, and `fileSections` keeps
+        // only the first of them. The toggle is keyed by path, so any shown section's button does.
+        const sections = [...scroller.querySelectorAll<HTMLElement>(".acpmux-diff-file")];
         const box = scroller.getBoundingClientRect();
         const shows = (section: HTMLElement) => {
           const { top, bottom } = section.getBoundingClientRect();
           return bottom > box.top && top < box.top + scroller.clientHeight;
         };
-        const picked = sections.find((section) => section.dataset.path === selectedFile());
-        const section = picked && shows(picked) ? picked : sections.find(shows);
+        const pickedPath = selectedFile();
+        const section =
+          sections.find((candidate) => candidate.dataset.path === pickedPath && shows(candidate)) ??
+          sections.find(shows);
         event.preventDefault();
         section?.querySelector<HTMLButtonElement>("[data-viewed-toggle]")?.click();
         return;

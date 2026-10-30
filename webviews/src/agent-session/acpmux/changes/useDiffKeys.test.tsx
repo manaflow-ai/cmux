@@ -45,6 +45,9 @@ function Panel({ selected }: { selected?: string }) {
         <section className="acpmux-diff-file" data-path="a.ts">
           <button type="button" data-viewed-toggle="" id="viewed-a" />
         </section>
+        <section className="acpmux-diff-file" data-path="a.ts" id="a-second-edit">
+          <button type="button" data-viewed-toggle="" id="viewed-a2" />
+        </section>
         <section className="acpmux-diff-file" data-path="b.ts">
           <button type="button" data-viewed-toggle="" id="viewed-b" />
         </section>
@@ -64,8 +67,9 @@ function setup(selected?: string) {
   // File a is scrolled above the view, b is showing.
   document.querySelector<HTMLElement>('[data-path="a.ts"]')!.getBoundingClientRect = rect(-200, -10);
   document.querySelector<HTMLElement>('[data-path="b.ts"]')!.getBoundingClientRect = rect(20, 80);
+  document.getElementById("a-second-edit")!.getBoundingClientRect = rect(500, 600);
   const clicks: string[] = [];
-  for (const id of ["viewed-a", "viewed-b"])
+  for (const id of ["viewed-a", "viewed-a2", "viewed-b"])
     document.getElementById(id)!.addEventListener("click", () => clicks.push(id));
   return { document, clicks };
 }
@@ -90,10 +94,18 @@ test("v marks the first file in view viewed", () => {
   expect(event.defaultPrevented).toBe(true);
 });
 
-test("v follows the picked file while it shows, and skips one scrolled out of view", () => {
+test("v follows the picked file while it shows", () => {
   const picked = setup("b.ts");
   press(picked.document, "v");
   expect(picked.clicks).toEqual(["viewed-b"]);
+});
+
+test("v finds a file whose later edit shows although its first edit scrolled away", () => {
+  const { document, clicks } = setup("a.ts");
+  document.getElementById("a-second-edit")!.getBoundingClientRect = rect(10, 60);
+  document.querySelector<HTMLElement>('[data-path="b.ts"]')!.getBoundingClientRect = rect(70, 95);
+  press(document, "v");
+  expect(clicks).toEqual(["viewed-a2"]);
 });
 
 test("a modified v is left to the app", () => {
