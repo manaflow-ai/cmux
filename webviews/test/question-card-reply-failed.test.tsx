@@ -235,7 +235,7 @@ test.each([
   [
     "local submit",
     { code: -32602, message: "invalid answer", data: { code: "transport.intent_invalid" } },
-    "transport.refused",
+    "transport.intentInvalid",
   ],
   [
     "daemon",
