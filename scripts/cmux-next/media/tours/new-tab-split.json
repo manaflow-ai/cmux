@@ -27,13 +27,18 @@
    "shot": false
   },
   {
-   "title": "New Tab",
-   "cmux": [
-    "tab",
-    "new-page"
-   ],
+   "title": "New Tab (Cmd-T)",
    "wait": 2.5,
-   "shot": false
+   "shot": false,
+   "rpc": {
+    "method": "debug.key",
+    "params": {
+     "key": "t",
+     "modifiers": [
+      "command"
+     ]
+    }
+   }
   },
   {
    "title": "Type s",

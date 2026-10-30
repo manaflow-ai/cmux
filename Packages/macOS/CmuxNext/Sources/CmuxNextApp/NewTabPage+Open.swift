@@ -219,7 +219,7 @@ extension NewTabPage {
         }
         if services.pages.provider(.nativeNewTab) == nil {
             // Each tab's view owns its model, made from the pane that shows the tab on its first show.
-            services.pages.register(WebPageTab(.nativeNewTab, symbol: "square.grid.2x2", title: services.registry.descriptor(for: action)?.title ?? "",
+            services.pages.register(WebPageTab(.nativeNewTab, symbol: "square.grid.2x2", title: Strings.untitledBrowser,
                                                view: { [weak services] key in services?.paneController(showingTab: key).map { nativeView(key, in: $0) } }))
         }
         let opened = services.pages.open(.nativeNewTab, in: pane.pane.id, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
