@@ -13,14 +13,15 @@ Runs on cmux-lawrence-2 through
 `nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-external-open.py'`
 with an isolated HOME and Chief home under /tmp; it launches the app itself and ends with
 quitEndSessions, endAgents and the tag's acpmux daemon shutdown. Reads NX_APP, NX_APP_TAG, NX_APP_STOP,
-NX_ARTIFACTS.
+NX_ARTIFACTS. `--socket PATH` checks an app already running (started with LaunchServices, as
+`capture-host launch` or `open -g -n` does) instead, and leaves it running.
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 
-APP, TAG = os.environ["NX_APP"], os.environ["NX_APP_TAG"]
+ATTACH = sys.argv[2] if len(sys.argv) == 3 and sys.argv[1] == "--socket" else None
+APP, TAG = (None, None) if ATTACH else (os.environ["NX_APP"], os.environ["NX_APP_TAG"])
 OUT, STOP = os.environ.get("NX_ARTIFACTS", "/tmp/home-external-open"), os.environ.get("NX_APP_STOP", "")
-SOCK = "/tmp/cmux-debug-%s.sock" % TAG
-ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
+SOCK = ATTACH or "/tmp/cmux-debug-%s.sock" % TAG
 os.makedirs(OUT, exist_ok=True)
 SCRATCH = tempfile.mkdtemp(prefix="h27897-", dir="/tmp")
 HOME, CHIEF = os.path.join(SCRATCH, "home"), os.path.join(SCRATCH, "chief")
@@ -93,24 +94,46 @@ def dock_pane():
     return (panes or [{}])[0].get("pane")
 
 
-os.makedirs(os.path.join(CHIEF, "optchat"), exist_ok=True)
-os.makedirs(HOME, exist_ok=True)
-open(os.path.join(CHIEF, "optchat", "settings.json"), "w").write('{"backup": {"remote": false}}\n')
-open(os.path.join(CHIEF, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
-open(os.path.join(SCRATCH, "cmux.json"), "w").write("{}")
-open(os.path.join(SCRATCH, "ghostty"), "w").write("")
-env = {k: v for k, v in os.environ.items() if k in ("USER", "LOGNAME", "TMPDIR", "SHELL", "LANG")}
-env.update({"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-            "CMUX_NEXT_CONFIG_FILE": os.path.join(SCRATCH, "cmux.json"), "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
-            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1500,940", "CMUX_NEXT_ONBOARDING_COMPUTER_USE": "mock",
-            "CMUX_NEXT_CHIEF_HOME": CHIEF, "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"})
-env.pop("CMUX_NEXT_CLASSIC_HOME", None)
-if os.path.exists(SOCK):
-    os.unlink(SOCK)
-app = subprocess.Popen([os.path.join(APP, "Contents/MacOS/cmux DEV")], env=env, cwd=OUT, stdin=subprocess.DEVNULL,
-                       stdout=open(os.path.join(OUT, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
-print("launched pid %d" % app.pid, flush=True)
+def launch():
+    """Starts the tagged app with an isolated HOME and Chief home; returns its process."""
+    os.makedirs(os.path.join(CHIEF, "optchat"), exist_ok=True)
+    os.makedirs(HOME, exist_ok=True)
+    open(os.path.join(CHIEF, "optchat", "settings.json"), "w").write('{"backup": {"remote": false}}\n')
+    open(os.path.join(CHIEF, "migration.json"), "w").write('{"status": "test home: nothing to import"}\n')
+    open(os.path.join(SCRATCH, "cmux.json"), "w").write("{}")
+    open(os.path.join(SCRATCH, "ghostty"), "w").write("")
+    global ENV
+    ENV = env = {k: v for k, v in os.environ.items() if k in ("USER", "LOGNAME", "TMPDIR", "SHELL", "LANG")}
+    env.update({"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
+                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
+                "CMUX_NEXT_CONFIG_FILE": os.path.join(SCRATCH, "cmux.json"), "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
+                "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1500,940", "CMUX_NEXT_ONBOARDING_COMPUTER_USE": "mock",
+                "CMUX_NEXT_CHIEF_HOME": CHIEF, "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1"})
+    env.pop("CMUX_NEXT_CLASSIC_HOME", None)
+    if os.path.exists(SOCK):
+        os.unlink(SOCK)
+    app = subprocess.Popen([os.path.join(APP, "Contents/MacOS/cmux DEV")], env=env, cwd=OUT, stdin=subprocess.DEVNULL,
+                           stdout=open(os.path.join(OUT, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
+    print("launched pid %d" % app.pid, flush=True)
+    return app
+
+
+def stop(app):
+    rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
+    try:
+        app.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        print("app pid %d did not quit within 60 s" % app.pid, flush=True)
+    rpc("action.run", {"id": "endAgents"}, timeout=10)
+    acpmux = os.path.join(APP, "Contents/Resources/bin/acpmux")
+    for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
+        if os.path.isdir(acp):
+            subprocess.run([acpmux, "daemon", "shutdown", "--end-agents"], env=dict(ENV, ACPMUX_HOME=acp), capture_output=True, timeout=30)
+    if STOP:
+        subprocess.run([STOP], capture_output=True, timeout=180)
+
+
+app = None if ATTACH else launch()
 try:
     poll(lambda: os.path.exists(SOCK) and (rpc("debug.windows") or {}).get("windows"), 240)
     shown = poll(lambda: (lambda r: None if refused(r) else r)(run("home.show")), 120)
@@ -135,17 +158,8 @@ try:
     check("Home's panes and tabs are unchanged by the open", back == before, {"before": before, "after": back})
     shot("3-home-after")
 finally:
-    rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
-    try:
-        app.wait(timeout=60)
-    except subprocess.TimeoutExpired:
-        print("app pid %d did not quit within 60 s" % app.pid, flush=True)
-    rpc("action.run", {"id": "endAgents"}, timeout=10)
-    for acp in (os.path.join(CHIEF, "acpmux"), os.path.join(HOME, ".acpmux")):
-        if os.path.isdir(acp):
-            subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=dict(env, ACPMUX_HOME=acp), capture_output=True, timeout=30)
-    if STOP:
-        subprocess.run([STOP], capture_output=True, timeout=180)
+    if app:
+        stop(app)
     shutil.rmtree(SCRATCH, ignore_errors=True)
 
 print("%d failed: %s" % (len(failures), failures) if failures else "all checks passed", flush=True)
