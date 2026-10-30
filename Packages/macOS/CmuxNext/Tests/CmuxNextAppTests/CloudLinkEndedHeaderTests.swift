@@ -110,6 +110,37 @@ struct CloudLinkEndedHeaderTests {
         await resolver.finish()
     }
 
+    /// The same stale answer must not model the machine as paused either: the click's connect is
+    /// starting it, so the header reads Connecting (live), not Offline, and keeps its running
+    /// cost. The record's other fields still apply.
+    @Test func aListReadThatBeganBeforeAConnectKeepsTheMachineLive() async {
+        let resolver = GateLinkResolver()
+        let id = "vm-fence-live-\(UUID().uuidString.prefix(8))"
+        var running = CloudMachine(id: id, status: .running, displayName: "Fenced VM")
+        let since = Date(timeIntervalSince1970: 1_700_000_000)
+        running.runningSince = since
+        let session = CloudMachineSession(machine: running,
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
+                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.disconnect() }
+        let atRead = session.connects
+        session.connect(origin: .user)
+        var opened = resolver.opened.makeAsyncIterator()
+        _ = await opened.next()
+
+        var paused = CloudMachine(id: id, status: .paused, displayName: "Renamed VM")
+        paused.pauseReason = .idle
+        session.listed(paused, connectsAtRead: atRead)
+        #expect(session.machine.status == .running, "the stale paused status is not taken")
+        #expect(session.machine.status.isLive)
+        #expect(session.machine.pauseReason == nil)
+        #expect(session.machine.runningSince == since, "its running cost stays")
+        #expect(session.machine.title == "Renamed VM", "the record's other fields apply")
+        let header = CloudCreationRows.machine(session, compatibility: nil)
+        #expect(header.status == .connecting, "live while the click's connect starts it, not Offline")
+        await resolver.finish()
+    }
+
     /// The provider failed the machine: "Failed to start", also when its link ended too.
     @Test func aMachineTheProviderFailedStillReadsFailedToStart() async {
         let session = Self.session(status: .failed)
