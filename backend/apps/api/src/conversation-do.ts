@@ -645,6 +645,13 @@ export class ConversationDO extends OwnerDO<Head> {
   }
 
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
+  /** An open multipart slot whose intent failed with no upload of it left alive: it goes at once (the Worker refunds its bytes). */
+  async dropUploadSlot(entity: string, id: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    const slot = store.slotIn(this.sqlStore, id, "open")
+    if (slot?.mode === "multipart") store.removeSlot(this.sqlStore, id)
+  }
+
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return
     const slot = store.slotIn(this.sqlStore, id, "uploading")

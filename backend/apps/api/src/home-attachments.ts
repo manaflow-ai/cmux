@@ -66,6 +66,7 @@ interface ConversationAttachments {
   settleSlot(entity: string, id: string): Promise<void>
   setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
   queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void>
+  dropUploadSlot(entity: string, id: string): Promise<void>
   claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
   releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
   renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
@@ -307,15 +308,29 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   if (mode === "multipart") {
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
     // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
-    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } })
+    const owner = conversationOf(env, conversation)
+    // An intent that failed while no upload of it lives gives its slot and reservation back at once (best effort: the
+    // slot's expiry does both anyway). A live upload keeps them: the slot is its record until expiry aborts it.
+    const release = async () => {
+      await owner.dropUploadSlot(conversation, slot.id).catch(() => undefined)
+      await users.refundAttachmentQuota(caller.user, slotId).catch(() => undefined)
+    }
+    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } }).catch(async (e: unknown) => {
+      await release()
+      throw e
+    })
     // The owner keeps the upload on the slot, or, when the slot can no longer take it, queues it for an abort.
     // A failed or lost owner call aborts it here; when that abort fails too, the owner is asked once more to queue it.
-    const owner = conversationOf(env, conversation)
     const recorded = await owner.setMultipartUpload(conversation, slot.id, upload.uploadId, slot.object_key).catch(async (e: unknown) => {
-      await upload.abort().catch(async (abortError: unknown) => {
-        console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(abortError).slice(0, 200) }))
-        await owner.queueMultipartAbort(conversation, slot.object_key, upload.uploadId).catch(() => undefined)
-      })
+      const aborted = await upload.abort().then(
+        () => true,
+        async (abortError: unknown) => {
+          console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(abortError).slice(0, 200) }))
+          await owner.queueMultipartAbort(conversation, slot.object_key, upload.uploadId).catch(() => undefined)
+          return false
+        }
+      )
+      if (aborted) await release()
       throw e
     })
     if (!recorded) {
