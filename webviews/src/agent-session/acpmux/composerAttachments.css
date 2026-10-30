@@ -76,12 +76,20 @@
   mask-image: none;
 }
 /* Under the strip, the prompt, its placeholder and the shell field (with its glyph) start one gap
-   down instead of the field's own top inset, so entering shell mode still moves nothing. */
-.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-field, .acpmux-shell-field) {
+   down instead of the field's own top inset, so entering shell mode still moves nothing.
+   Shell mode draws its padding, its glyph and its height from one top inset (composerStates.css), so
+   the band re-points that inset rather than the padding it feeds: its height follows the gap too, in
+   both looks (this sits on the shell prompt, inside either look's box, so it wins by proximity). A
+   band that moved only the padding left the field a minimum of one line in the insets it no longer
+   had, so it stood taller than the prompt it replaced. */
+.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
 }
-.acpmux-attachments ~ .acpmux-composer-field-menu :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
+.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
   top: var(--acpmux-attach-gap);
+}
+.acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-shell-prompt {
+  --acpmux-shell-inset-top: var(--acpmux-attach-gap);
 }
 .acpmux-attachment {
   position: relative;
@@ -164,6 +172,7 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   pointer-events: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* An image the engine could not draw: the thumbnail's own size, a picture glyph over a short note,
    never an empty checker that reads like a transparent image. */
@@ -185,6 +194,7 @@
 .acpmux-attachment-failed-text {
   font-size: var(--text-caption);
   line-height: 1.2;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A pasted or dropped file still being read (composer/attachmentIntake.tsx PendingChip): there in
    the paste's frame, an image as a thumbnail-sized tile with a dimmed picture glyph, so the strip
@@ -237,12 +247,13 @@
   flex: none;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-text);
   font: inherit;
   font-size: var(--text-caption);
   cursor: pointer;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-retry:hover {
   background: color-mix(in srgb, var(--agent-text) 20%, transparent);
@@ -270,6 +281,7 @@
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-document {
   display: grid;
@@ -337,6 +349,7 @@
   left: 24px;
   top: 38px;
   font-size: calc(var(--text-body) * 24 / 13);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-pdf-sheet-lines {
   position: absolute;
@@ -375,6 +388,7 @@
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-pdf-viewer-bar {
   display: flex;
@@ -385,7 +399,7 @@
   border-bottom: 0.5px solid var(--agent-border);
 }
 .acpmux-pdf-viewer-bar .acpmux-image-viewer-title { flex: 1; min-width: 0; font-weight: var(--weight-emphasis); }
-.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.acpmux-pdf-viewer-bar .acpmux-image-viewer-count { color: var(--agent-muted); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-pdf-viewer-preview {
   display: grid;
   place-items: center;
@@ -419,7 +433,7 @@
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 /* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
    stray button under the thumbnail. */
@@ -459,6 +473,20 @@
 .acpmux-attachment-note {
   color: var(--agent-muted);
   font-size: var(--text-detail);
+  white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* Reorder instructions and status belong to the accessibility tree only. Keep this local to the
+   attachment strip so a missing or late global utility stylesheet can never expose them as UI. */
+.acpmux-attachment-voiceover-only {
+  position: absolute;
+  inline-size: var(--cmux-hairline);
+  block-size: var(--cmux-hairline);
+  margin: calc(-1 * var(--cmux-hairline));
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 /* The prompt's context menu host wraps the field without a box of its own. */
@@ -503,6 +531,7 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-pasted-lines {
   color: var(--agent-muted);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;
@@ -519,5 +548,47 @@ button.acpmux-attachment-pasted-open:hover {
   cursor: grabbing;
   opacity: 0.85;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
+}
+
+/* One file body in the composer and transcript. The name yields before its extension or size. */
+.acpmux-attachment-file:has(> .acpmux-file-chip) {
+  max-width: min(340px, 72vw);
+  padding: 0;
+}
+.acpmux-file-chip {
+  --acpmux-file-chip-gap: 6px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--acpmux-file-chip-gap);
+  min-width: 0;
+  max-width: min(340px, 72vw);
+  height: 32px;
+  padding: 0 8px;
+  color: var(--agent-text);
+  vertical-align: middle;
+}
+.acpmux-file-chip--removable { padding-right: 32px; }
+.acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
+.acpmux-file-chip .acpmux-file-chip__name { display: flex; min-width: 0; }
+.acpmux-file-chip .acpmux-file-chip__head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-file-chip .acpmux-file-chip__tail { flex: none; overflow: visible; }
+.acpmux-file-chip .acpmux-file-chip__size {
+  flex: none;
+  overflow: visible;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.cv-user__files { --acpmux-file-chip-radius: 6px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.cv-user__files > .acpmux-file-chip {
+  border-radius: var(--acpmux-file-chip-radius);
+  background: var(--agent-control);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong);
 }

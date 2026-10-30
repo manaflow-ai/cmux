@@ -134,6 +134,7 @@ extension FeedStore {
         item.isRead = index % 4 != 0
         item.opensTerminal = item.kind == .needsInput
         item.macID = index % 3 == 0 ? "mac-stress-b" : "mac-stress-a"
+        item.tabTitle = ["Fix login redirect", "Pricing page", "Feed perf", "Release notes", "zsh", "Claude", "Docs"][index % 7]
         if index % 9 == 4 { item.replies = ["Ship it after the e2e retry passes."] }
         return item
     }

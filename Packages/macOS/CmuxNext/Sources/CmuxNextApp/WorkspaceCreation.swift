@@ -111,20 +111,42 @@ enum WorkspaceCreation {
         guard opensPage(spawn, on: daemon, tabs: tabs), let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
             if let session = spawn.firstSession {
-                // A session of this Mac never opens in a workspace of another machine (cx-k21v).
-                guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
-                guard let localHost = tabs.localHost else { throw DaemonError.notConnected }
-                // A chat of this Mac's acpmux: its tab shows it as soon as the tree lists it.
-                let record = AgentSessionRef(host: localHost, hostName: tabs.localHostName, session: session)
-                let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
-                                                        origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
-                // One mutation id for every send: a tab the daemon made after the deadline replays.
-                _ = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+                _ = try await sessionTab(session, in: created, on: daemon, tabs: tabs)
             } else {
                 if let token = spawn.inputToken, spawn.firstChat == nil { tabs.firstPageTokens[created.workspace] = token }
                 _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
             }
             return created.key.rawValue
         }
+    }
+
+    /// `session`'s chat as the first tab of `created` (the New Tab page's first chat, and
+    /// `agent.openSessionWorkspace`'s only tab: no terminal beside it, Leo 2026-10-28). The record
+    /// is on `host` (this Mac's acpmux, or a Chief home's `chief:<id>`); `linked` binds the tab
+    /// like a `cmux://session/<id>` link (its page refuses a session the daemon does not have).
+    /// Returns the tab's key.
+    @MainActor
+    static func sessionTab(_ session: String, in created: WorkspaceMutationResult, host: String? = nil, linked: Bool = false,
+                           on daemon: DaemonService, tabs: AgentTabStore) async throws -> String {
+        guard let connection = daemon.connection, let localHost = tabs.localHost else { throw DaemonError.notConnected }
+        guard tabs.holdsTabs(daemon) else { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
+        // A session of this Mac never opens in a workspace of another machine (cx-k21v).
+        guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
+        if let refusal = AgentTabStore.hostRefusal(host, localHost: localHost, chiefHost: tabs.chiefHost, daemonIsLocal: true) {
+            throw AgentTabRefusal(message: refusal)
+        }
+        // A chat of that acpmux: its tab shows it as soon as the tree lists it.
+        let record = AgentSessionRef(host: host ?? localHost, hostName: tabs.localHostName, session: session)
+        let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
+                                                origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
+        // One mutation id for every send: a tab the daemon made after the deadline replays.
+        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+        let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
+        if linked {
+            tabs.sessions[key] = session
+            tabs.linkedSessions.insert(key)
+            tabs.track(key, in: daemon.store)
+        }
+        return key
     }
 }

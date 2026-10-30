@@ -36,10 +36,11 @@
 //! | `scene` | `mount`, `ops` (ABI scene ops) |
 //! | `log` | `level`, `message` |
 //! | `done` | `cb`, `ok`, `body` |
-//! | `fatal` | `reason` (`memory`, `interrupt`, `engine`), `entry`; the host exits 70 right after |
+//! | `fatal` | `reason` (`memory`, `interrupt`, `cpu-budget`, `engine`), `entry`; the host exits 70 right after |
 //!
 //! Limits per VM ([`vm::Limits`]): 32 MiB of engine memory, 250 ms per entry
-//! point (job-queue drain included), 64 calls pending; a call past the cap
+//! point (job-queue drain included), 2 s of VM time in any 10 s
+//! ([`vm::CpuBudget`]; none for `--profile script`), 64 calls pending; a call past the cap
 //! is answered locally with `app.limit`. Timers live in the host: the read on
 //! fd 3 blocks until the next timer is due, never longer, never shorter.
 //! Exit codes: [`host_loop::exit`].
@@ -56,4 +57,4 @@ pub mod vm;
 
 pub use protocol::{AppInfo, FatalReason, FromHost, ToHost};
 #[cfg(feature = "engine")]
-pub use vm::{AppVm, InitParams, Limits, VmError};
+pub use vm::{AppVm, CpuBudget, InitParams, Limits, VmError};

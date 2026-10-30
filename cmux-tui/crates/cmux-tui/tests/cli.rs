@@ -3695,6 +3695,9 @@ mod browser_devices;
 #[path = "cli/browser_profiles.rs"]
 mod browser_profiles;
 #[cfg(unix)]
+#[path = "cli/caller_selector.rs"]
+mod caller_selector;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3761,6 +3764,9 @@ mod left_dock_undock;
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
+#[cfg(unix)]
+#[path = "cli/newtab_agent_identity.rs"]
+mod newtab_agent_identity;
 #[cfg(unix)]
 #[path = "cli/remote_update_need.rs"]
 mod remote_update_need;
@@ -3846,65 +3852,6 @@ fn state_cli_rooms_status_and_closed_history_round_trip_through_a_real_daemon() 
     let reopened = state_cli(&server, None, &["closed", item["id"].as_str().unwrap(), "reopen"]);
     assert!(reopened.to_string().contains("\"kind\":\"workspace\""), "{reopened}");
     workspace_id_named(&server, "beta");
-}
-
-#[cfg(unix)]
-#[test]
-fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
-    let server = HeadlessServer::start("state-cli-groups");
-    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
-    state_cli(&server, None, &["workspace", "create", "--name", "beta", "--empty"]);
-    let alpha = workspace_id_named(&server, "alpha");
-    let beta = workspace_id_named(&server, "beta");
-    let snapshot = state_cli_topology(&server);
-    let terminal = snapshot["terminals"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|terminal| terminal["id"].as_str())
-        .find(|terminal| workspace_of_terminal(&snapshot, terminal) == alpha)
-        .expect("alpha has a terminal")
-        .to_string();
-    let tab = snapshot["terminals"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["id"] == terminal.as_str())
-        .unwrap()["tab_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    // Without a selector, status lands in the caller's workspace even when
-    // another workspace is focused.
-    state_cli(&server, None, &["workspace", &beta, "focus"]);
-    state_cli(&server, Some(&terminal), &["workspace", "status", "set", "caller", "yes"]);
-    let mine = state_cli(&server, Some(&terminal), &["workspace", "status", "list"]);
-    assert_eq!(mine[0]["workspace_id"], alpha, "{mine}");
-    assert_eq!(mine[0]["entries"][0]["key"], "caller");
-    let focused = state_cli(&server, None, &["workspace", "current", "status", "list"]);
-    assert!(
-        focused.as_array().unwrap().iter().all(|entry| entry["workspace_id"] != alpha),
-        "{focused}"
-    );
-
-    // Tab groups: created over v2, then addressed by name.
-    state_cli(&server, None, &["tab", &tab, "pin"]);
-    state_cli(&server, None, &["tab", &tab, "unpin"]);
-    state_cli(
-        &server,
-        None,
-        &["tab", "group", "create", "--tabs", &tab, "--name", "agents", "--color", "green"],
-    );
-    let group = state_cli(&server, None, &["tab", "group", "agents", "show"]);
-    assert_eq!(group["name"], "agents");
-    assert_eq!(group["color"], "green");
-    assert_eq!(group["tab_ids"], serde_json::json!([tab]));
-    state_cli(&server, None, &["tab", "group", "agents", "update", "--collapse"]);
-    let groups = state_cli(&server, None, &["tab", "group", "list"]);
-    assert_eq!(groups[0]["collapsed"], true, "{groups}");
-    state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
-    assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
 
 #[cfg(unix)]

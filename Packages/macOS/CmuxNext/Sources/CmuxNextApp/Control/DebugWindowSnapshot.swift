@@ -171,7 +171,7 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect))
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {
@@ -211,6 +211,31 @@ enum DebugWindowSnapshot {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.capture_backdrop` (DEBUG builds): shows `pattern` (`checker`, `stripes`,
+    /// `image:/absolute/path`; `none` removes it) just behind the window `window` or `kind` names,
+    /// as for a snapshot, so a snapshot of that window composites it behind the window and its
+    /// translucency and glass show (``CaptureBackdropPanel``). Returns `pattern`, `window_number`
+    /// and `backdrop_number` (null after `none`).
+    @MainActor
+    static func captureBackdrop(_ params: [String: JSONValue], pattern: CaptureBackdropPattern?, image: Data?,
+                                services: AppServices) -> JSONValue {
+        let name = params["pattern"]?.stringValue ?? ""
+        guard name == "none" || pattern != nil else {
+            return .object(["error": .string("pattern must be checker, stripes, image:/absolute/path or none")])
+        }
+        guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
+        var picture: NSImage?
+        if case .image(let url) = pattern {
+            guard let image, let decoded = NSImage(data: image) else { return .object(["error": .string("no image at \(url.path)")]) }
+            picture = decoded
+        }
+        let backdrop = window.setCaptureBackdrop(pattern, image: picture)
+        return .object(["pattern": .string(name), "window_number": JSONValue(window.windowNumber),
+                        "backdrop_number": backdrop.map { JSONValue($0.windowNumber) } ?? .null])
+    }
+    #endif
 
     /// The refusal HUD's message while it shows, else null.
     static func hudMessage(_ services: AppServices) -> JSONValue {

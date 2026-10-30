@@ -1,0 +1,17 @@
+{
+  "id": "delegation-one-subagent-per-ask",
+  "group": "delegation",
+  "owner": "a25575",
+  "about": "two independent asks in one message get one subagent each, not one subagent for both",
+  "turns": [
+    {
+      "text": "two things: bump the ghostty submodule to its latest fork main, and the cmux-tui README still documents the removed --legacy-relay flag, take it out",
+      "checks": [
+        {"type": "called", "cmd": "spawn", "re": "(?i)ghostty"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)legacy-relay|README"},
+        {"type": "no_question"},
+        {"type": "judge", "rubric": "Passes when the Chief starts two separate subagents (two spawn calls, or one spawn call whose tasks list holds two separate tasks), one for the ghostty submodule bump and one for the README fix, and tells the user in a line per subagent who does what. Fails when one task holds both asks, when it does either task itself with many tool calls, or when it asks the user anything."}
+      ]
+    }
+  ]
+}

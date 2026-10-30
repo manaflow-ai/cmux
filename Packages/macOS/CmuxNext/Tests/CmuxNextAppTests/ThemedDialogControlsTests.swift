@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxTheme
 import Testing
 
 /// Dialogs paint the theme, never macOS's blue (cx-wqn5): New Message's highlighted suggestion
@@ -11,6 +12,12 @@ import Testing
 struct ThemedDialogControlsTests {
     @Test func newMessageDrawsTheThemeNotTheAccent() throws {
         let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 120))
+        // The list draws in its own neutral (no accent) theme: the app theme is process-wide, and a
+        // suite that applies an accent theme to it (the sidebar galleries' Soft Blue) left this
+        // check reading that theme's blue selection, which is the theme's fill, not the system's.
+        let scope = ThemeScope(level: .room)
+        scope.setOverride(ThemeSpec("neutral"), input: .ghosttyDefault, animated: false)
+        scope.root(list)
         list.show([.contact(HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team))])
         #expect(list.table.numberOfRows == 1)
         #expect(list.highlighted == 0)
