@@ -17,6 +17,11 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  packed-sha256:
+    description: "With `pack-to`, the sha256 of what was packed, for `r2-cache.sh publish` to check."
+    value: ${{ steps.pack.outputs.sha256 }}
+
 runs:
   using: composite
   steps:
@@ -42,6 +47,7 @@ runs:
       run: |
         "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" save "$CACHE_PATH" "$CACHE_KEY"
     - name: Pack for the R2 store
+      id: pack
       if: ${{ inputs.backend == 'r2' && inputs.pack-to != '' }}
       shell: bash
       env:

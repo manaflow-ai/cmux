@@ -1384,7 +1384,8 @@ class Wiring(unittest.TestCase):
 
         def accepts(key):
             script = saved["run"].replace("scripts/ci/r2-cache.sh publish", "true")
-            env = {"PATH": "/usr/bin:/bin", "KEY": key, "GITHUB_SHA": sha, "RUNNER_TEMP": "/nonexistent"}
+            env = {"PATH": "/usr/bin:/bin", "KEY": key, "GITHUB_SHA": sha, "SHA256": "0" * 64,
+                   "RUNNER_TEMP": "/nonexistent"}
             return subprocess.run(["bash", "-c", script], env=env, capture_output=True).returncode == 0
 
         good = f"admission-derived-data-v1-macOS-ARM64-6f83899097cf4b805962dc271dafa4b3-j14-{sha}"

@@ -10,7 +10,8 @@ name: Seed DerivedData (pool)
 # R2, it packs the archive r2-cache.sh would upload and puts it in this run's
 # artifacts. `save`, on an ephemeral Linux runner no variable can move, holds
 # the ci-cache-writer R2 keys and uploads those archives under the keys the
-# old steps saved them under. `attribute`, beside it, holds the write token
+# old steps saved them under, and only the exact artifact (by id) and bytes
+# (by sha256) this lane's build handed over. `attribute`, beside it, holds the write token
 # that starts ci-compile-attribution.yml when the build fails.
 #
 # The job id `seed` is load-bearing: glaeda's job-started hook classes this
@@ -74,17 +75,23 @@ jobs:
     # job's canonical root (Prepare admission build paths).
     timeout-minutes: 120
     outputs:
-      # The save and attribute jobs act on these. A re-run of only the save
-      # job keeps this job's outputs, so the artifact names carry the attempt
-      # that uploaded them.
+      # The save and attribute jobs act on these. Each archive is bound to this
+      # job: the save job downloads the artifact by the id its upload returned
+      # (not by name, which another job of the run could upload over), and
+      # publishes it only with the sha256 its pack gave. An id is empty when
+      # that upload did not run or failed. A re-run of only the save job keeps
+      # these outputs, so it still fetches this attempt's artifacts.
       build: ${{ steps.build.outcome }}
-      attempt: ${{ github.run_attempt }}
       seed-key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
-      seed-packed: ${{ steps.seed-upload.outcome }}
-      swift-packages-packed: ${{ steps.swift-package-upload.outcome }}
+      seed-artifact: ${{ steps.seed-upload.outputs.artifact-id }}
+      seed-sha256: ${{ steps.seed-pack.outputs.packed-sha256 }}
+      swift-packages-artifact: ${{ steps.swift-package-upload.outputs.artifact-id }}
+      swift-packages-sha256: ${{ steps.swift-package-pack.outputs.packed-sha256 }}
       swiftpm-manifests-key: ${{ steps.swiftpm-manifest-key.outputs.key }}
-      swiftpm-manifests-packed: ${{ steps.swiftpm-manifest-upload.outcome }}
-      git-seed-packed: ${{ steps.git-seed-upload.outcome }}
+      swiftpm-manifests-artifact: ${{ steps.swiftpm-manifest-upload.outputs.artifact-id }}
+      swiftpm-manifests-sha256: ${{ steps.swiftpm-manifest-pack.outputs.packed-sha256 }}
+      git-seed-artifact: ${{ steps.git-seed-upload.outputs.artifact-id }}
+      git-seed-sha256: ${{ steps.git-seed.outputs.sha256 }}
     env:
       # The macOS 15 pool compiles with its own Xcode, as a pull request run
       # pr_runner_pool.py overflows there does; every other pool, the lane's.
@@ -558,25 +565,22 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 30
-    env:
-      # The suffix `seed` gave this lane's artifacts, in the attempt that uploaded them.
-      PACKED: ${{ inputs.pool }}${{ inputs.root && format('-root-{0}', inputs.root) || '' }}-${{ needs.seed.outputs.attempt }}
     steps:
-      # Only r2-cache.sh, and the lockfile that names the `spm-` key.
+      # r2-cache.sh, the lockfile that names the `spm-` key, and the index the
+      # SwiftPM manifest key's inputs come from (every Package.swift and
+      # submodule pointer), so not sparse. No submodules: their pointers are
+      # in the index.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: |
-            scripts/ci
-            cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
 
       - name: Download packed Swift packages
         id: swift-package-download
-        if: needs.seed.outputs.swift-packages-packed == 'success'
+        if: needs.seed.outputs.swift-packages-artifact != ''
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: r2-pack-swift-packages-${{ env.PACKED }}
+          artifact-ids: ${{ needs.seed.outputs.swift-packages-artifact }}
           path: ${{ runner.temp }}/r2-pack/swift-packages
 
       # nightly.yml's exact `spm-` key, computed here from the lockfile rather
@@ -590,19 +594,22 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
           KEY: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
-        run: scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/swift-packages" "$KEY"
+          SHA256: ${{ needs.seed.outputs.swift-packages-sha256 }}
+        run: scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/swift-packages" "$KEY" "$SHA256"
 
       - name: Download packed SwiftPM manifest cache
         id: swiftpm-manifest-download
-        if: needs.seed.outputs.swiftpm-manifests-packed == 'success'
+        if: needs.seed.outputs.swiftpm-manifests-artifact != ''
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: r2-pack-swiftpm-manifests-${{ env.PACKED }}
+          artifact-ids: ${{ needs.seed.outputs.swiftpm-manifests-artifact }}
           path: ${{ runner.temp }}/r2-pack/swiftpm-manifests
 
-      # The key names the Mac's toolchain, so it comes from the build; only
-      # that key's shape is accepted.
+      # The key's last part names this commit's manifests, so this job computes
+      # it from its own checkout. Its toolchain part hashes the Mac's
+      # `xcodebuild -version`, which no Linux runner can compute, so only that
+      # part, and the macOS runner OS and arch, come from the build.
       - name: Save SwiftPM manifest cache
         if: steps.swiftpm-manifest-download.outcome == 'success'
         continue-on-error: true
@@ -612,24 +619,27 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
           KEY: ${{ needs.seed.outputs.swiftpm-manifests-key }}
+          SHA256: ${{ needs.seed.outputs.swiftpm-manifests-sha256 }}
         run: |
           set -euo pipefail
-          [[ "$KEY" =~ ^swiftpm-manifests-v1-macOS-(ARM64|X64)-[0-9a-f]{16}-[0-9a-f]{32}$ ]] \
-            || { echo "::error::not a SwiftPM manifest cache key: $KEY"; exit 1; }
-          scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/swiftpm-manifests" "$KEY"
+          inputs="$(scripts/ci/swiftpm-manifest-cache.sh inputs)"
+          [[ "$KEY" =~ ^swiftpm-manifests-v1-macOS-(ARM64|X64)-[0-9a-f]{16}-${inputs}$ ]] \
+            || { echo "::error::not this commit's SwiftPM manifest cache key (inputs $inputs): $KEY"; exit 1; }
+          scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/swiftpm-manifests" "$KEY" "$SHA256"
 
       - name: Download packed seed
         id: seed-download
-        if: needs.seed.outputs.seed-packed == 'success'
+        if: needs.seed.outputs.seed-artifact != ''
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: r2-pack-seed-${{ env.PACKED }}
+          artifact-ids: ${{ needs.seed.outputs.seed-artifact }}
           path: ${{ runner.temp }}/r2-pack/seed
 
       # Not continue-on-error, as before: a seed that was built and not saved
-      # fails the run, and seed_decide.py counts only a saved one. The key
-      # names the build's fingerprint and width, so it comes from the build;
-      # only this commit's admission seed key is accepted.
+      # fails the run, and seed_decide.py counts only a saved one. The key's
+      # fingerprint (32 hex over the Mac's xcodebuild -version and build
+      # paths) and width (-j) need the Mac, so they come from the build, in
+      # exactly that shape; the commit is this run's.
       - name: Save seed
         if: steps.seed-download.outcome == 'success'
         env:
@@ -638,19 +648,20 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
           KEY: ${{ needs.seed.outputs.seed-key }}
+          SHA256: ${{ needs.seed.outputs.seed-sha256 }}
         run: |
           set -euo pipefail
-          [[ "$KEY" =~ ^admission-derived-data-v1-macOS-(ARM64|X64)-[0-9a-f]{16,64}-j[0-9]{1,3}-${GITHUB_SHA}$ ]] \
+          [[ "$KEY" =~ ^admission-derived-data-v1-macOS-(ARM64|X64)-[0-9a-f]{32}-j[1-9][0-9]{0,2}-${GITHUB_SHA}$ ]] \
             || { echo "::error::not this commit's DerivedData seed key: $KEY"; exit 1; }
-          scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/seed" "$KEY"
+          scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/seed" "$KEY" "$SHA256"
 
       - name: Download packed git object seed
         id: git-seed-download
-        if: needs.seed.outputs.git-seed-packed == 'success'
+        if: needs.seed.outputs.git-seed-artifact != ''
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: r2-pack-git-seed-${{ env.PACKED }}
+          artifact-ids: ${{ needs.seed.outputs.git-seed-artifact }}
           path: ${{ runner.temp }}/r2-pack/git-seed
 
       # git-seed-v1-<commit>: this job names it, not the build.
@@ -663,7 +674,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        run: scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/git-seed" "git-seed-v1-$GITHUB_SHA"
+          SHA256: ${{ needs.seed.outputs.git-seed-sha256 }}
+        run: scripts/ci/r2-cache.sh publish "$RUNNER_TEMP/r2-pack/git-seed" "git-seed-v1-$GITHUB_SHA" "$SHA256"
 
   # The seed's Build is main's compile verdict for the push. When it fails,
   # start ci-compile-attribution.yml now rather than when the slowest pool

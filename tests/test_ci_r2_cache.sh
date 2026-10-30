@@ -229,13 +229,16 @@ RUNNER_OS=Linux RUNNER_ARCH=X64 output_of publish "$WORK/packed2" split-tool-one
 [[ "$(cat "$NS_MAC/latest/split-tool-")" == "split-tool-one" ]] || fail "publish must repair a published key's pointer"
 echo "PASS: a published key is not packed again and publish repairs its pointers"
 
+# A refusal fails the step, and uploads nothing.
+refuses() { if output_of "$@" >/dev/null; then fail "publish must fail when it refuses: $*"; fi; }
+
 # Publish uploads only the key the caller names, and only a well-formed record.
-RUNNER_OS=Linux RUNNER_ARCH=X64 output_of publish "$WORK/packed" split-tool-other "$digest" >/dev/null
+RUNNER_OS=Linux RUNNER_ARCH=X64 refuses publish "$WORK/packed" split-tool-other "$digest"
 grep -q "nothing was packed for split-tool-other" "$WORK/log" || fail "publish must refuse a key that was not packed"
 ls "$NS_MAC/objects/" | grep -q '^split-tool-other' && fail "publish uploaded a key that was not packed"
 cp -R "$WORK/packed" "$WORK/forged"
 printf 'namespace=v1/../../x\nextension=tar.zst\n' > "$WORK/forged/split-tool-one.packed"
-RUNNER_OS=Linux RUNNER_ARCH=X64 output_of publish "$WORK/forged" split-tool-one "$digest" >/dev/null
+RUNNER_OS=Linux RUNNER_ARCH=X64 refuses publish "$WORK/forged" split-tool-one "$digest"
 grep -q "is not a pack record\|does not match" "$WORK/log" || fail "publish must refuse a record with another namespace shape"
 env -u AWS_SECRET_ACCESS_KEY RUNNER_OS=Linux RUNNER_ARCH=X64 bash "$SCRIPT" publish "$WORK/packed" split-tool-one "$digest" >"$WORK/log" 2>&1 \
   || fail "a publish without credentials must not fail the job"
@@ -249,16 +252,18 @@ cp "$WORK/packed/split-tool-one.packed" "$WORK/swapped/"
 for archive in "$WORK"/packed/split-tool-one.tar.*; do
   { cat "$archive"; printf 'tampered'; } > "$WORK/swapped/${archive##*/}"
 done
-RUNNER_OS=Linux RUNNER_ARCH=X64 GITHUB_RUN_ID=60 output_of publish "$WORK/swapped" split-tool-swap "$digest" >/dev/null
-ls "$NS_MAC/objects/" | grep -q '^split-tool-swap' && fail "publish uploaded bytes the build did not pack"
+before="$(ls -l "$NS_MAC/objects/" "$NS_MAC/latest/")"
+RUNNER_OS=Linux RUNNER_ARCH=X64 GITHUB_RUN_ID=60 refuses publish "$WORK/swapped" split-tool-one "$digest"
+grep -q "does not match what was packed" "$WORK/log" || fail "publish must name a digest mismatch"
+[[ "$before" == "$(ls -l "$NS_MAC/objects/" "$NS_MAC/latest/")" ]] || fail "publish touched the bucket for bytes the build did not pack"
 cp "$WORK"/packed/split-tool-one.* "$WORK/swapped/" 2>/dev/null
 for name in "$WORK"/swapped/split-tool-one.*; do mv "$name" "${name/split-tool-one/split-tool-swap}"; done
-RUNNER_OS=Linux RUNNER_ARCH=X64 GITHUB_RUN_ID=60 output_of publish "$WORK/swapped" split-tool-swap "0000000000000000000000000000000000000000000000000000000000000000" >/dev/null
+RUNNER_OS=Linux RUNNER_ARCH=X64 GITHUB_RUN_ID=60 refuses publish "$WORK/swapped" split-tool-swap "0000000000000000000000000000000000000000000000000000000000000000"
 grep -q "does not match" "$WORK/log" || fail "publish must refuse a digest that does not match"
 ls "$NS_MAC/objects/" | grep -q '^split-tool-swap' && fail "publish uploaded under a mismatched digest"
-RUNNER_OS=Linux RUNNER_ARCH=X64 output_of publish "$WORK/swapped" split-tool-swap >/dev/null 2>&1 && \
-  ls "$NS_MAC/objects/" | grep -q '^split-tool-swap' && fail "publish uploaded with no digest"
-grep -q "usage\|digest" "$WORK/log" || fail "publish without a digest must refuse"
+RUNNER_OS=Linux RUNNER_ARCH=X64 refuses publish "$WORK/swapped" split-tool-swap
+grep -q "usage" "$WORK/log" || fail "publish without a digest must refuse"
+ls "$NS_MAC/objects/" | grep -q '^split-tool-swap' && fail "publish uploaded with no digest"
 echo "PASS: publish refuses an archive or digest the build did not hand over"
 
 # Only macOS caches go through pack and publish: a record naming any other
@@ -267,7 +272,8 @@ mkdir -p "$WORK/linux"
 : > "$WORK/linuxout"
 RUNNER_OS=Linux RUNNER_ARCH=X64 GITHUB_OUTPUT="$WORK/linuxout" bash "$SCRIPT" pack "$WORK/src" split-tool-linux "$WORK/linux" >/dev/null 2>&1
 linux_digest="$(sed -n 's/^sha256=//p' "$WORK/linuxout")"
-RUNNER_OS=Linux RUNNER_ARCH=X64 output_of publish "$WORK/linux" split-tool-linux "$linux_digest" >/dev/null
+[[ "$linux_digest" =~ ^[0-9a-f]{64}$ ]] || fail "pack must output a digest on any OS"
+RUNNER_OS=Linux RUNNER_ARCH=X64 refuses publish "$WORK/linux" split-tool-linux "$linux_digest"
 grep -q "is not a pack record" "$WORK/log" || fail "publish must refuse a namespace other than v1/macOS-ARM64 or v1/macOS-X64"
 [[ ! -e "$WORK/store/bucket/v1/Linux-X64/objects" ]] || fail "publish uploaded a non-macOS namespace"
 echo "PASS: publish pins the namespace to v1/macOS-(ARM64|X64)"

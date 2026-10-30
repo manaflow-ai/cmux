@@ -4,7 +4,7 @@
 #   r2-cache.sh restore <dir> <key> [<restore-prefix>...]
 #   r2-cache.sh save    <dir> <key>
 #   r2-cache.sh pack    <dir> <key> <out>
-#   r2-cache.sh publish <out> <key>
+#   r2-cache.sh publish <out> <key> <sha256>
 #
 # Restores read a public URL and need no credentials, so any runner and any
 # pull request can use them. Saves sign with the bucket's S3 credentials and
@@ -15,10 +15,14 @@
 # never holds the credentials (seed-derived-data-pool.yml: an owned Mac builds,
 # an ephemeral Linux runner uploads). `pack` needs no credentials: it writes
 # <out>/<key>.tar.zst (or .tar.gz) exactly as `save` would upload it, and
-# <out>/<key>.packed naming the builder's namespace. When the public URL
-# already serves the key it packs nothing, as `save` uploads nothing then.
-# `publish` uploads what `pack` left in <out> under that namespace and
-# publishes the pointers, exactly as `save` does after it packs.
+# <out>/<key>.packed naming the builder's namespace, and outputs `sha256`,
+# the digest of those two files. When the public URL already serves the key it
+# packs nothing, as `save` uploads nothing then. `publish` uploads what `pack`
+# left in <out> under that namespace and publishes the pointers, exactly as
+# `save` does after it packs, but only when the files still have the digest
+# `pack` gave: the caller hands it over out of band (a job output), so bytes
+# that reached <out> any other way are refused. Only macOS caches travel this
+# way, so the namespace must be v1/macOS-ARM64 or v1/macOS-X64.
 #
 # Layout under CI_CACHE_R2_PUBLIC_URL (and the same keys in the bucket):
 #   v1/<os>-<arch>/objects/<key>.tar.zst|.tar.gz   the archived directory
@@ -29,8 +33,8 @@ mode="${1:-}"
 dir="${2:-}"
 key="${3:-}"
 case "$mode" in restore|save|pack|publish) ;; *) mode="" ;; esac
-if [[ -z "$mode" || -z "$dir" || -z "$key" ]] || [[ "$mode" == "pack" && -z "${4:-}" ]]; then
-  echo "usage: r2-cache.sh restore|save <dir> <key> [<restore-prefix>...] | pack <dir> <key> <out> | publish <out> <key>" >&2
+if [[ -z "$mode" || -z "$dir" || -z "$key" ]] || [[ ( "$mode" == "pack" || "$mode" == "publish" ) && -z "${4:-}" ]]; then
+  echo "usage: r2-cache.sh restore|save <dir> <key> [<restore-prefix>...] | pack <dir> <key> <out> | publish <out> <key> <sha256>" >&2
   exit 2
 fi
 shift 3
@@ -268,6 +272,20 @@ save() {
   store "$(archive_extension)"
 }
 
+sha256_of() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
+
+# The digest of what `pack` left for $key in OUT: its record and its archive,
+# if any, by name, so neither can be swapped or added afterwards unnoticed.
+packed_digest() { # <out>
+  (
+    cd "$1" || exit 1
+    local name
+    for name in "$key.packed" "$key.tar.zst" "$key.tar.gz"; do
+      [[ ! -e "$name" ]] || sha256_of "$name"
+    done
+  ) | sha256_of | cut -d' ' -f1
+}
+
 published() { # <extension>; whether the public URL serves $key's archive now
   # A query the CDN has never seen, so a cached answer for this key (adoption
   # probes it before the build) cannot stand in for the bucket's.
@@ -298,22 +316,35 @@ pack() { # <out>
     pack_archive "$extension" "$out/$key.$extension"
   fi
   printf 'namespace=%s\nextension=%s\n' "$namespace" "$extension" > "$out/$key.packed"
+  set_output sha256 "$(packed_digest "$out")"
 }
 
-publish() {
-  local out="$dir" packed value extension archive=""
+publish() { # <sha256>
+  local out="$dir" expected="$1" packed value extension archive="" actual
   credentials || return 0
   packed="$out/$key.packed"
+  # A refusal fails the step: the caller downloaded what it was told was packed,
+  # so anything else here is not a miss but a broken handoff.
   if [[ ! -f "$packed" ]]; then
-    echo "::warning::r2-cache: nothing was packed for $key in $out; nothing saved"
-    return 0
+    echo "::error::r2-cache: nothing was packed for $key in $out; nothing saved"
+    return 1
+  fi
+  if ! [[ "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "::error::r2-cache: publish needs the sha256 pack gave for $key; nothing saved"
+    return 1
+  fi
+  actual="$(packed_digest "$out")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "::error::r2-cache: what is in $out for $key (sha256 $actual) does not match what was packed ($expected); nothing saved"
+    return 1
   fi
   value="$(sed -n 's/^namespace=//p' "$packed" | head -n 1)"
   extension="$(sed -n 's/^extension=//p' "$packed" | head -n 1)"
-  # The builder's namespace, not this runner's: a Linux job publishes a macOS cache.
-  if ! [[ "$value" =~ ^v1/[A-Za-z0-9_]+-[A-Za-z0-9_]+$ ]] || ! [[ "$extension" == "tar.zst" || "$extension" == "tar.gz" ]]; then
-    echo "::warning::r2-cache: $packed is not a pack record; nothing saved"
-    return 0
+  # The builder's namespace, not this runner's: a Linux job publishes a macOS
+  # cache. Only the macOS namespaces: nothing else is packed for publish.
+  if ! [[ "$value" =~ ^v1/macOS-(ARM64|X64)$ ]] || ! [[ "$extension" == "tar.zst" || "$extension" == "tar.gz" ]]; then
+    echo "::error::r2-cache: $packed is not a pack record of a macOS cache; nothing saved"
+    return 1
   fi
   namespace="$value"
   [[ ! -f "$out/$key.$extension" ]] || archive="$out/$key.$extension"
@@ -324,5 +355,5 @@ case "$mode" in
   restore) restore "$@" || { echo "r2-cache: restore failed; treating as a miss"; set_output cache-hit false; } ;;
   save) save ;;
   pack) pack "$1" ;;
-  publish) publish ;;
+  publish) publish "$1" ;;
 esac
