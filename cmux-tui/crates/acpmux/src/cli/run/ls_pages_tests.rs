@@ -215,21 +215,15 @@ async fn a_cursor_that_comes_again_and_again_is_an_error_not_a_loop() {
 /// that page and goes on, each row once (the old single request listed them all).
 #[tokio::test]
 async fn a_cursor_a_chat_and_its_peer_copy_share_is_read_past() {
-    let mut rows = sessions(6, 1);
-    for row in &mut rows {
-        row.as_object_mut().unwrap().remove("peer");
-    }
-    let mut copy = rows[1].clone();
-    copy["peer"] = json!("peer-1");
-    rows.insert(2, copy);
+    let rows = with_a_peer_copy();
     let list = RefCell::new(rows.clone());
-    // Three rows ending on the copy, then a page of one: the copy again, under the same cursor.
-    let want = Plan { want: Some(4), ..plan(3) };
+    // Four rows ending on the copy, then a page of one: the copy again, under the same cursor.
+    let want = Plan { want: Some(5), ..plan(4) };
     let got = read_all(&list, want, usize::MAX, &Seen::default()).await.unwrap();
     let keys: Vec<_> =
         got.rows.iter().map(|r| (r["sessionId"].clone(), r["peer"].clone())).collect();
     let all: Vec<_> = rows.iter().map(|r| (r["sessionId"].clone(), r["peer"].clone())).collect();
-    assert_eq!(keys, all[..4]);
+    assert_eq!(keys, all[..5]);
     let whole = read_all(&list, plan(3), usize::MAX, &Seen::default()).await.unwrap();
     assert_eq!(whole.rows.len(), 7);
 }
@@ -265,4 +259,61 @@ async fn a_cursor_against_a_daemon_too_old_for_pages_is_refused() {
     let one = Plan { one: true, ..plan(10) };
     let e = read(json!({}), Some("k1.1".into()), one, keep, old).await.unwrap_err();
     assert!(e.to_string().contains("too old to page"), "{e}");
+}
+
+/// Rows 0 and 1, then a chat here and its copy on a peer in one millisecond, then rows 3 to 5.
+fn with_a_peer_copy() -> Vec<Value> {
+    let mut rows = sessions(6, 1);
+    for row in &mut rows {
+        row.as_object_mut().unwrap().remove("peer");
+    }
+    let mut copy = rows[2].clone();
+    copy["peer"] = json!("peer-1");
+    rows.insert(3, copy);
+    rows
+}
+
+fn key(row: &Value) -> (Value, Value) {
+    (row["sessionId"].clone(), row["peer"].clone())
+}
+
+/// A script paging one row at a time with `--cursor` gets past the copy: every row comes, the
+/// copy perhaps twice, and the pages end.
+#[tokio::test]
+async fn one_row_pages_by_cursor_get_past_a_peer_copy() {
+    let rows = with_a_peer_copy();
+    let list = RefCell::new(rows.clone());
+    let (mut got, mut cursor, mut calls) = (Vec::new(), None, 0);
+    loop {
+        calls += 1;
+        assert!(calls < 20, "{got:?}");
+        let one = Plan { one: true, ..plan(1) };
+        let page = read(json!({}), cursor, one, keep, daemon(&list, usize::MAX)).await.unwrap();
+        got.extend(page.rows.iter().map(key));
+        match page.next {
+            Some(Value::String(next)) => cursor = Some(next),
+            next => {
+                assert_eq!(next, Some(Value::Null));
+                break;
+            }
+        }
+    }
+    let mut unique = got.clone();
+    unique.dedup();
+    assert_eq!(unique, rows.iter().map(key).collect::<Vec<_>>(), "{got:?}");
+}
+
+/// Rows that fit one to a page but not two: past a shared cursor a page of one makes no way and
+/// a wider one is too large to send. The read halves and widens a bounded number of times and
+/// ends in an error, never goes on for ever.
+#[tokio::test]
+async fn a_widened_page_too_large_to_send_ends_in_an_error() {
+    let mut rows = with_a_peer_copy();
+    for row in &mut rows {
+        row["title"] = json!("t".repeat(6_000));
+    }
+    let list = RefCell::new(rows);
+    let want = Plan { want: Some(6), ..plan(4) };
+    let e = read_all(&list, want, 10_000, &Seen::default()).await.unwrap_err();
+    assert!(e.to_string().contains("again and again"), "{e}");
 }

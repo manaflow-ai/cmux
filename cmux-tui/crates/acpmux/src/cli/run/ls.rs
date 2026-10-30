@@ -46,7 +46,7 @@ pub struct LsArgs {
     limit: Option<u64>,
     /// Read one page: the sessions after the `nextCursor` a paged `--json` listing printed
     /// (`--limit` of them, else 1000), and the page's own `nextCursor`. An empty one is the
-    /// first page.
+    /// first page. A page may repeat the row the last one ended on, never skip one.
     #[arg(long, value_name = "CURSOR")]
     cursor: Option<String>,
     /// Select comma-separated fields from each session record; a dotted path reads a nested

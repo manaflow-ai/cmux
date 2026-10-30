@@ -71,8 +71,12 @@ where
     F: FnMut(Value) -> Fut,
     Fut: Future<Output = Result<Value>>,
 {
-    let (mut size, mut cursor, mut widen, mut repeats) = (plan.size.max(1), cursor, 0u64, 0);
-    let (mut rows, mut seen, mut cursors) = (Vec::new(), HashSet::new(), HashSet::new());
+    let (mut size, mut widen, mut repeats) = (plan.size.max(1), 0u64, 0);
+    let (mut rows, mut seen) = (Vec::new(), HashSet::new());
+    // The cursors followed, the one the read starts from too: a page that hands it back made no
+    // way past it.
+    let mut cursors: HashSet<String> = cursor.iter().cloned().collect();
+    let mut cursor = cursor;
     loop {
         let left = plan.want.map(|want| want.saturating_sub(rows.len()));
         let ask = match left {
@@ -89,7 +93,7 @@ where
             Ok(reply) => reply,
             Err(e) => match too_large(&e) {
                 Some(_) if ask > 1 => {
-                    size = ask / 2;
+                    (size, widen) = (ask / 2, 0);
                     continue;
                 }
                 Some(bytes) => return Err(one_row_too_large(bytes).into()),
@@ -139,16 +143,17 @@ where
             (Some(_), next) | (None, next @ None) => {
                 return Ok(Pages { rows, next: Some(next.map_or(Value::Null, Value::String)) });
             }
-            (None, Some(next)) if plan.one => {
-                return Ok(Pages { rows, next: Some(Value::String(next)) });
-            }
             (None, Some(next)) => next,
         };
         // A cursor that comes again: it names a session id and time, which a chat here and its
-        // copy on a peer may share (`session_pages.rs`), so the page after it starts at the copy
-        // again. A wider page gets past it; a daemon that keeps giving one cursor is an error,
-        // never a loop.
+        // copy on a peer may share (`session_pages.rs`, until #28182), so the page after it
+        // starts at the copy again. A wider page gets past it: it may hold a row the last page
+        // ended on, never skips one. A daemon that keeps giving one cursor is an error, never a
+        // loop.
         if cursors.insert(next.clone()) {
+            if plan.one {
+                return Ok(Pages { rows, next: Some(Value::String(next)) });
+            }
             widen = 0;
         } else {
             repeats += 1;
