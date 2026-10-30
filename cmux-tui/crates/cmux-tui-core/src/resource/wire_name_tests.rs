@@ -26,22 +26,15 @@ fn wire_name_round_trips_through_serde() {
 
 #[test]
 fn exported_settings_socket_operations_are_resource_wire_names() {
-    let schema: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../schemas/settings/settings-schema.json"
-    ))
-    .expect("generated settings schema");
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../schemas/settings/settings-schema.json"))
+            .expect("generated settings schema");
     let rows = schema["rows"].as_array().expect("settings rows");
-    let expected = [
-        "settings.list",
-        "settings.get",
-        "settings.set",
-        "settings.reset",
-    ];
+    let expected = ["settings.list", "settings.get", "settings.set", "settings.reset"];
     for row in rows {
         let key = row["key"].as_str().expect("settings row key");
-        let operations = row["surfaces"]["socket"]["operations"]
-            .as_array()
-            .expect("socket operations");
+        let operations =
+            row["surfaces"]["socket"]["operations"].as_array().expect("socket operations");
         let names: Vec<_> = operations
             .iter()
             .map(|operation| operation.as_str().expect("operation name"))
