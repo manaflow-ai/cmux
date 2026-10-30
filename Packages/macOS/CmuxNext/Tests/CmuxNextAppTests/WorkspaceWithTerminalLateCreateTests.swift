@@ -24,7 +24,7 @@ struct WorkspaceWithTerminalLateCreateTests {
     import json, sys, threading, time
     print('{"ok":true}', file=sys.stderr, flush=True)
     delay, start = float(sys.argv[1]), time.time()
-    commands, workspaces, lock = [], {}, threading.Lock()
+    commands, workspaces, lock, started = [], {}, threading.Lock(), {}
     def reply(frame, data):
         with lock:
             print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
@@ -46,15 +46,16 @@ struct WorkspaceWithTerminalLateCreateTests {
             # A busy daemon: every ask is answered once the slow start ends, the first one included.
             threading.Timer(max(0.0, start + delay - time.time()), made, args=(frame,)).start()
         elif command == 'create-terminal':
-            # The first terminal starts late too: answered after the client's start deadline, once per mutation id.
-            def started(frame=frame):
+            # The first terminal's start ends once, 1.5 s after its first ask; an ask after that is replayed at once.
+            started['terminal'] = started.get('terminal') or time.time()
+            def answer(frame=frame):
                 key = 'term-' + (frame.get('mutation_id') or 'unkeyed')
                 with lock:
                     replayed = key in workspaces
                     workspaces.setdefault(key, 0)
                 reply(frame, {'surface': 7, 'terminal_id': frame.get('terminal_id'), 'pane': 3, 'screen': 2,
                               'key': frame.get('key'), 'lifecycle': 'running', 'replayed': replayed})
-            threading.Timer(1.5, started).start()
+            threading.Timer(max(0.0, started['terminal'] + 1.5 - time.time()), answer).start()
         elif command == 'test-commands':
             reply(frame, {'commands': commands, 'workspaces': len([k for k in workspaces if not str(k).startswith('term-')]),
                           'terminals': len([k for k in workspaces if str(k).startswith('term-')])})
@@ -72,9 +73,9 @@ struct WorkspaceWithTerminalLateCreateTests {
         let repair = EmptyWorkspaceRepair(store: DaemonStore(), create: { _ in nil }, close: { _ in }, cause: { _ in .tabClosed },
                                           canCreate: { true }, epoch: { 1 }, isLive: { true })
         let key = WorkspaceKey.generate()
-        // The first terminal as every workspace-with-a-terminal caller makes it (Cmd-N, Open Folder, fork, teams).
+        // The first terminal as every workspace-with-a-terminal caller makes it (Open Folder, fork, teams, incognito).
         let made = try await WorkspaceCreation.create(key, name: "late", on: connection, repair: repair) { created in
-            _ = try await connection.createTerminalWaitingForStart(in: created, cwd: "/tmp")
+            _ = try await WorkspaceCreation.firstTerminal(in: created, cwd: "/tmp", on: connection)
             return created.rawValue
         }
         let recorded = try await connection.request(Recorded())

@@ -8,7 +8,8 @@ import Testing
 /// does: sent again under its client keys, which the daemon replays, until the reply.
 ///
 /// Socket boundary: a scripted daemon on the real JSON-lines transport. It makes one row per client-minted `pane_id`
-/// and answers each `new-row` only after its own start delay, longer than the client's start deadline.
+/// and its start ends once, `delay` after the first ask (longer than the client's start deadline); an ask after
+/// that is replayed at once, as cmux-tui replays a keyed creation.
 struct NewRowLateStartTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
@@ -16,9 +17,9 @@ struct NewRowLateStartTests {
     }
 
     private static let script = #"""
-    import json, sys, threading
+    import json, sys, threading, time
     print('{"ok":true}', file=sys.stderr, flush=True)
-    rows, panes, lock = [], {}, threading.Lock()
+    rows, panes, lock, started = [], {}, threading.Lock(), None
     caps = ['terminal-placement-env-v1', 'terminal-env-v1', 'rows-v1', 'row-client-keys-v1']
     def reply(frame, data):
         with lock:
@@ -37,7 +38,10 @@ struct NewRowLateStartTests {
             reply(frame, {'app': 'cmux-tui', 'protocol': 12, 'generation': 'new-row-late-start-test', 'capabilities': caps})
         elif command == 'new-row':
             rows.append(frame)
-            threading.Timer(float(sys.argv[1]), made, args=(frame,)).start()
+            # One start: it ends `delay` after the first ask; an ask after that is replayed at once.
+            if started is None:
+                started = time.time()
+            threading.Timer(max(0.0, started + float(sys.argv[1]) - time.time()), made, args=(frame,)).start()
         elif command == 'test-rows':
             reply(frame, {'rows': rows, 'panes': len(panes)})
         else:

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -92,20 +93,27 @@ extension DaemonConnection {
         }
     }
 
-    /// Runs `send` again while it misses its reply or start deadline: each pass waits out one whole deadline
-    /// and repeats one keyed change the daemon replays. It ends on the reply, the daemon's refusal or any other
-    /// error, the connection's end (`notConnected`, `connectionClosed`) or the task's cancellation
-    /// (`CancellationError`), never on a client clock (principled-audit R5, R-L5).
+    /// Runs `send` again while it misses its reply or start deadline, and repeats one keyed change the daemon
+    /// replays. It ends on the reply, the daemon's refusal or any other error, the connection's end (`notConnected`,
+    /// `connectionClosed`) or the task's cancellation (`CancellationError`), never on a client clock (principled-audit
+    /// R5, R-L5). A re-send only repairs a lost request, so it is spaced by full-jitter exponential backoff
+    /// (``lateReplyBackoff``, R-L4), never at the fixed deadline: a hung daemon gets no retry storm.
     static func waitingThroughLateReplies<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
-        // wakeup-allow: each pass waits for one reply or its deadline; it ends on a reply, a refusal, the connection's end or cancellation
+        var backoff = lateReplyBackoff()
+        // wakeup-allow: each pass waits for one reply or its deadline, then a jittered backoff; it ends on a reply, a refusal, the connection's end or cancellation
         while true {
             do {
                 return try await send()
             } catch let error as DaemonError where error.isLateStart {
-                try Task.checkCancellation()
-                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); asking again with its client ids")
+                // concurrency-allow: Backoff.wait is an async sleep after a late reply, not a blocking wait.
+                try await backoff.wait(owner: "DaemonConnection.lateReply")
             }
         }
+    }
+
+    /// The spacing of late-reply re-sends: full jitter from 1 s, doubling, capped at 30 s.
+    static func lateReplyBackoff() -> Backoff { .fullJitter(initial: .seconds(1), maximum: .seconds(30)) }
     }
 
     /// A pane creation (`split`, `new-pane`, `new-pane-right`, `new-row`) with its client-minted ids: waited
