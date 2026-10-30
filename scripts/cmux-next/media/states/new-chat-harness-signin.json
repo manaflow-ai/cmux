@@ -21,6 +21,19 @@
       "wait": 1
     },
     {
+      "title": "Record pre-send harness auth checks",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "acp_log",
+          "limit": 100
+        }
+      },
+      "record": "file",
+      "shot": false,
+      "wait": 0
+    },
+    {
       "title": "Focus the composer",
       "rpc": {
         "method": "debug.agent_pane",

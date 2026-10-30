@@ -5067,17 +5067,37 @@ function AcpmuxPane() {
   );
   const authEpoch = authRouteVersion;
   const authObservation = snapshot.isWorking ? 1 : 0;
+  // Before the first prompt there is no session id, so ask acpmux about the exact harness the
+  // composer displays. An unknown target answer stays unknown; it must never become a sign-in card.
+  const authQuery = snapshot.sessionId
+    ? { sessionId: snapshot.sessionId }
+    : healthHarness && healthLocal
+      ? { target: { harness: healthHarness } }
+      : undefined;
   const {
     auth: sessionAuth,
     pending: authPending,
     recheck: recheckSession,
   } = useSessionAuth(
-    snapshot.sessionId ? { sessionId: snapshot.sessionId } : undefined,
+    authQuery,
     readAuth,
     authEpoch,
     healthRecheck,
     authObservation,
   );
+  const targetSignInHealth: HarnessHealth | undefined =
+    !snapshot.sessionId &&
+    !!healthHarness &&
+    sessionAuth.state === "signedOut" &&
+    sessionAuth.harness === healthHarness &&
+    sessionAuth.login?.kind === "terminal" &&
+    !!sessionAuth.login.command
+      ? {
+          id: healthHarness,
+          auth: "signedOut",
+          login: sessionAuth.login.command,
+        }
+      : undefined;
   useEffect(() => {
     settleRoute(snapshot.sessionId, authPending);
   }, [authPending, settleRoute, snapshot.sessionId]);
@@ -9924,7 +9944,7 @@ function AcpmuxPane() {
         )}
         {!harnessCard && (
           <HarnessHealthNotice
-            health={harnessHealth}
+            health={harnessHealth ?? targetSignInHealth}
             harness={healthHarness}
             name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
             {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}

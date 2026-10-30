@@ -55,6 +55,16 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
           cmuxAcpmuxMockNative: {
             "harness.health": { health: { id: "claude", auth: "signedOut", login: "claude auth login" } },
           },
+          cmuxAcpmuxMockSessionAuth: {
+            state: "signedOut",
+            source: "authCheck",
+            evidenceAt: Date.now(),
+            harness: "claude",
+            host: null,
+            routeId: null,
+            fromSessionId: null,
+            login: { kind: "terminal", command: "claude auth login" },
+          },
           cmuxGalleryLog: [],
           unsentDrafts: unsent,
           webkit: {
@@ -128,6 +138,11 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       const daemon = await page.evaluate(
         () => (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog,
       );
+      expect(
+        daemon.some(
+          ({ method }) => method === "acpmux _acpmux/session/auth",
+        ),
+      ).toBe(true);
       expect(daemon.some(({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt")).toBe(false);
       await page.close();
     });
