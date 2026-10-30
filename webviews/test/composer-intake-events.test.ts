@@ -183,6 +183,39 @@ test("a file with a known path is its link at once, and a cancelled one stays ou
   expect([...ready].sort((a, b) => a - b)).toEqual([0, 1, 3]);
 });
 
+// Review (Astra): a slow image the host knows the path of still held its siblings' upload.
+test("a file's upload never waits for a sibling image the host knows the path of", async () => {
+  const decoded = slowImageEngine();
+  const fileChip = signal();
+  const uploaded: string[][] = [];
+  const ready: string[] = [];
+  const taken = intakeFiles(
+    [png("shot.png"), zip("notes.zip")],
+    {
+      allowImages: true,
+      localPaths: async (files) =>
+        files.map((file, index) => (index === 0 ? { path: `/Users/me/${file.name}` } : undefined)) as never,
+      upload: async (files) => {
+        uploaded.push(files.map((file) => file.name));
+        return { paths: files.map((file) => `/tmp/${file.name}`) };
+      },
+    },
+    {
+      ready: (index, chip) => {
+        ready.push(`${index} ${chip.kind}`);
+        if (index === 1) fileChip.fire();
+      },
+    },
+  );
+  await fileChip.fired;
+  expect(uploaded).toEqual([["notes.zip"]]);
+  expect(ready).toEqual(["1 link"]);
+  decoded();
+  const result = await taken;
+  expect(ready).toEqual(["1 link", "0 image"]);
+  expect(result.attachments.find((chip) => chip.kind === "image")?.originalPath).toBe("/Users/me/shot.png");
+});
+
 // Review (Codex): an image is a chip as soon as its preview is made, while its original still
 // uploads; removing that chip stops the upload (the intake's `cancelled` asks per file).
 test("an image whose chip is gone stops its original's upload", async () => {
