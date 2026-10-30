@@ -23,9 +23,10 @@ import Testing
         let clock: TestClock
 
         /// Shows the card on `row`, `after` seconds after the last show (default: a rested pointer).
-        func present(row: CGFloat, sliding: Bool, after: CFTimeInterval = 1, body: NSView? = nil) {
+        func present(row: CGFloat, sliding: Bool, after: CFTimeInterval = 1, body: NSView? = nil,
+                     placement: HoverCardPlacement = .beside) {
             clock.time += after
-            panel.present(body: body ?? self.body, anchor: anchor(row), placement: .beside, parent: parent, themeAnchor: nil,
+            panel.present(body: body ?? self.body, anchor: anchor(row), placement: placement, parent: parent, themeAnchor: nil,
                           sliding: sliding, applyTheme: {})
         }
 
@@ -67,6 +68,19 @@ import Testing
         let panel = HoverCardPanel()
         panel.now = { clock.time }
         return Fixture(parent: parent, panel: panel, body: body, clock: clock)
+    }
+
+    @Test func aSidebarCardFirstShowIsFullyVisibleAtRest() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = Self.fixture()
+        defer { f.tearDown() }
+
+        f.present(row: 0, sliding: false, placement: .besideRow)
+        #expect(f.panel.isVisible)
+        #expect(f.panel.alphaValue == 1, "the first frame must be fully visible after the dwell")
+        #expect(f.slideStart == nil, "the first frame must already be at its resting position")
+        #expect(CATransform3DIsIdentity(try #require(f.panel.contentView?.layer).sublayerTransform))
     }
 
     @Test func aFirstShowSlidesOutOfItsTargetAndARetargetSlidesTheCardOver() throws {

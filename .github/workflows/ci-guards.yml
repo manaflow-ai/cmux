@@ -549,6 +549,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: python3 tests/test_web_complexity_source_enumeration.py
 
+      # The machine join E2E harness: redaction, origin refusal and failure paths
+      # (fake fetch and fake acpmux; no network, no secret).
+      - name: Validate the machine join E2E harness
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/machine-join-e2e.test.ts
+
       - name: Set up Python 3.9 for nightly prune compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -569,6 +575,10 @@ jobs:
             --no-input \
             "${packages[@]}"
           echo "$RUNNER_TEMP/workflow-guard-venv/bin" >> "$GITHUB_PATH"
+
+      - name: Validate the machine join E2E workflow's secret scope
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_machine_join_e2e_workflow.py
 
       - name: Validate Blacksmith Testbox broker trust boundary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
