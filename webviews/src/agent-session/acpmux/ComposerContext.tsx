@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -36,11 +36,13 @@ import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
-import { translate as t } from "./i18n";
+import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
+import { machineLoadWarning, type MachineResources } from "./machineResources";
+import { useComposerSettings } from "./composerSettings";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -69,11 +71,19 @@ type Location = {
   repo?: ProjectRepo;
   section?: string;
   disabled?: boolean;
+  warning?: boolean;
 };
-type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string; cloudMachine?: CloudMachine };
+type Computer = Location & {
+  kind: EnvironmentKind;
+  connected?: boolean;
+  state?: string;
+  cloudMachine?: CloudMachine;
+  resources?: MachineResources;
+};
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
+const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
@@ -88,6 +98,7 @@ export function ComposerContext({
   peerKinds = NO_PEER_KINDS,
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
+  peerResources = NO_PEER_RESOURCES,
   environments = false,
   started = false,
   onProject,
@@ -110,6 +121,8 @@ export function ComposerContext({
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
+  closeOnTrustAsk = false,
+  showMachineLoadWarnings,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -121,6 +134,8 @@ export function ComposerContext({
   /// Each peer's link state (`AcpmuxSnapshot.peerStates`): a machine still connecting or down is
   /// listed greyed with it, and is not a pick.
   peerStates?: Record<string, string>;
+  /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
+  peerResources?: Record<string, MachineResources>;
   /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
   /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
   environments?: boolean;
@@ -171,7 +186,13 @@ export function ComposerContext({
   onCloudMachine?(machine: CloudMachine): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
+  /// Gallery seam; the persisted composer setting is used when omitted.
+  showMachineLoadWarnings?: boolean;
 }) {
+  const t = useT();
+  const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
   const shownMachines = cloudMachines ?? accountMachines;
@@ -179,13 +200,34 @@ export function ComposerContext({
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
   const computers = useMemo(() => {
-    const listed = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
+    const listed = availableComputers(
+      summary,
+      sessions,
+      peers,
+      peerKinds,
+      localName,
+      peerConnected,
+      peerStates,
+      peerResources,
+    );
     if (!newChat) return listed;
     const detail = t(CONTEXT_LABELS.cloud);
     return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
       isCloudMachineRow(row) ? { ...row, detail } : row,
     );
-  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines]);
+  }, [
+    summary,
+    sessions,
+    peers,
+    peerKinds,
+    peerConnected,
+    peerStates,
+    peerResources,
+    localName,
+    newChat,
+    shownMachines,
+    t,
+  ]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
   // the app's Cloud machines are read again.
   const onRefreshMachines =
@@ -201,16 +243,32 @@ export function ComposerContext({
     const sections = environmentSections(computers);
     return orderEnvironments(computers).map(({ detail: _kind, ...computer }) => {
       const ready = environmentReady(computer);
+      const warning = machineLoadWarning(
+        computer.resources,
+        showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings,
+      );
       return {
         ...computer,
         section: t(SECTION_LABELS[sections.get(computer.id) ?? "fleet"]),
         // An account Cloud machine acpmux does not list says what a pick does, and is a pick.
         ...(ready
           ? {}
-          : { ...(isCloudMachineRow(computer) ? {} : { disabled: true }), detail: environmentStateLabel(computer) }),
+          : {
+              ...(isCloudMachineRow(computer) ? {} : { disabled: true }),
+              detail: environmentStateLabel(computer),
+            }),
+        ...(ready && warning
+          ? {
+              warning: true,
+              detail:
+                warning.kind === "load"
+                  ? t("composer.machineHighLoad", { busy: warning.busy, cores: warning.cores })
+                  : t("composer.machineLowMemory", { free: formatFreeMemory(warning.freeGB) }),
+            }
+          : {}),
       };
     });
-  }, [computers]);
+  }, [computers, composerSettings.showMachineLoadWarnings, showMachineLoadWarnings, t]);
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
   // own computer shows in the render that shows it (it followed in an effect, a frame late: the
@@ -221,6 +279,16 @@ export function ComposerContext({
   if (picked.key !== pickKey) setPicked({ key: pickKey });
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
+  // A Cloud machine picked while it was paused or not yet linked (pickCloudMachine below), until
+  // acpmux lists it ready, another machine is picked, or the chat changes. A change drops it for
+  // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
+  // machine the account stops listing ends it for good too (it does not come back with the
+  // machine), and one that failed to start stops it moving.
+  const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string } | undefined>(undefined);
+  const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
+  if (waitingPick && !waitMachine) setWaiting(undefined);
+  const waiting = waitMachine ? waitingPick : undefined;
+  const waitFailed = waitMachine?.stage === "failed";
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer !== "local" || !projectChoices) return known;
@@ -243,6 +311,21 @@ export function ComposerContext({
       ? undefined
       : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
+  // The machine the pick waits for, once acpmux lists it ready: its own row, not the account's.
+  const arrived =
+    waiting && !waitFailed
+      ? computers.find(
+          (computer) =>
+            !computer.cloudMachine &&
+            computer.label.toLowerCase() === waiting.name.toLowerCase() &&
+            environmentReady(computer),
+        )
+      : undefined;
+  const arrive = useRef<(id: string) => void>(() => undefined);
+  const arrivedId = arrived?.id;
+  useEffect(() => {
+    if (arrivedId) arrive.current(arrivedId);
+  }, [arrivedId]);
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
@@ -280,14 +363,21 @@ export function ComposerContext({
         });
       }
     : undefined;
-  // An account Cloud machine acpmux does not list runs its machine action: no chat starts on it here.
+  // An account Cloud machine acpmux does not list runs its machine action (resume or open); the
+  // chat cannot start there until acpmux links it. The pick waits for that (`waiting`): the
+  // control names the machine as starting, and the chat moves there once its row is ready, so a
+  // paused machine is one pick, not a pick, a wait and the same pick again.
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
-    if (machine && !readOnly) onCloudMachine(machine);
+    if (machine && !readOnly) {
+      onCloudMachine(machine);
+      setWaiting({ key: pickKey, id: machine.id, name: machine.name });
+    }
     return machine !== undefined;
   };
   const pickComputer = (id: string) => {
     if (pickCloudMachine(id)) return;
+    if (waiting) setWaiting(undefined);
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
@@ -295,6 +385,14 @@ export function ComposerContext({
       else onComputer?.(id);
     }
   };
+  arrive.current = (id) => {
+    setWaiting(undefined);
+    pickComputer(id);
+  };
+  // The machine control's name: the machine a Cloud pick waits for, as starting, else the current one.
+  const waitingName = waiting
+    ? `${waiting.name} · ${t(waitFailed ? "switch.failedShort" : "composer.envStarting")}`
+    : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
   // A first computer is discoverable without Labs, including from a started local chat.
@@ -404,12 +502,18 @@ export function ComposerContext({
               value={
                 sandboxPicked
                   ? t("composer.sandboxed")
-                  : (savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
+                  : (waitingName ?? savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
               }
               face={
                 // Sandboxed picked (hq#3367): the control names it where the machine was.
                 sandboxPicked ? (
                   <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                ) : waiting && waitingName ? (
+                  <LocationFace
+                    icon={<EnvironmentIcon kind="cloud" name={waiting.name} />}
+                    value={waitingName}
+                    chevron
+                  />
                 ) : (
                   <LocationFace
                     icon={
@@ -431,14 +535,19 @@ export function ComposerContext({
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
+              closeOnTrustAsk={closeOnTrustAsk}
             />
           ) : (
             <LocationPicker
               label={t(CONTEXT_LABELS.computer)}
               menu="Computer"
               kind="computer"
-              icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
-              value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              icon={
+                <ComputerIcon
+                  name={waiting?.name ?? (currentComputer?.kind === "local" ? undefined : currentComputer?.label)}
+                />
+              }
+              value={waitingName ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               options={menuComputers}
               selected={selectedComputer}
               disabled={computerDisabled}
@@ -454,16 +563,24 @@ export function ComposerContext({
                       {
                         id: "cloud",
                         label: t(CONTEXT_LABELS.newCloudMachine),
+                        // What one gives, as the environment picker's row says it.
+                        detail: t("composer.newCloudMachineDetail"),
                         onSelect: () => onboardingConnect?.("cloud"),
                       },
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
                         { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                        { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                        {
+                          id: "cloud",
+                          label: t(CONTEXT_LABELS.newCloudMachine),
+                          detail: t("composer.newCloudMachineDetail"),
+                          onSelect: () => onConnect("cloud"),
+                        },
                       ]
                     : undefined
               }
+              closeOnTrustAsk={closeOnTrustAsk}
               onPick={pickComputer}
             />
           )}
@@ -475,14 +592,14 @@ export function ComposerContext({
 }
 
 function BranchPicker({ branch }: { branch: string }) {
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
   return (
     <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
-        <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup side={side} flip={flip} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
           <MenuRadioGroup value={branch} onValueChange={() => undefined}>
             <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
               <span className="acpmux-menu-text">
@@ -529,6 +646,7 @@ function availableComputers(
   localName: string | undefined,
   peerConnected: Record<string, boolean>,
   peerStates: Record<string, string>,
+  peerResources: Record<string, MachineResources>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -536,9 +654,17 @@ function availableComputers(
   const current = summary ? [summary] : [];
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
-    computers.push({ ...machine, detail });
+    computers.push({
+      ...machine,
+      detail,
+      ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
+    });
   }
   return computers;
+}
+
+function formatFreeMemory(gb: number): string {
+  return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
 }
 
 function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
@@ -672,6 +798,7 @@ function LocationPicker({
   extras,
   onPick,
   onOpen,
+  closeOnTrustAsk = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -690,13 +817,19 @@ function LocationPicker({
   /// The folder popover's last row, Choose folder…: the host's folder panel.
   onBrowse?(): void;
   /// Rows after the choices that run something instead of picking (the connect flows).
-  extras?: { id: string; label: string; onSelect(): void }[];
+  extras?: { id: string; label: string; detail?: string; onSelect(): void }[];
   onPick(id: string): void;
   /// The list opened, and every few seconds while it stays open (useMachineRefresh).
   onOpen?(): void;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const { control, anchor, open, setOpen, side } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
@@ -704,6 +837,11 @@ function LocationPicker({
   const press = usePopoverTrigger(open, changeOpen);
   const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
+  useEffect(() => {
+    if (!closeOnTrustAsk || !open) return;
+    setPopoverOpen(false);
+    setQuery("");
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   useMachineRefresh(open && !disabled, onOpen);
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(
@@ -766,7 +904,7 @@ function LocationPicker({
         label={label}
         className="acpmux-menu acpmux-location-menu"
         side={side}
-        flip={false}
+        flip={flip}
       >
         <Combobox
           suggestions={suggestions}
@@ -810,6 +948,7 @@ function LocationPicker({
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}
                 data-ready={folder?.disabled ? "false" : undefined}
+                data-warning={folder?.warning ? "true" : undefined}
                 aria-disabled={folder?.disabled ? true : undefined}
               >
                 <span className="acpmux-menu-label">{folder?.label ?? path}</span>
@@ -842,7 +981,14 @@ function LocationPicker({
               extra.onSelect();
             }}
           >
-            {extra.label}
+            {extra.detail ? (
+              <span className="acpmux-menu-text">
+                <span className="acpmux-menu-label">{extra.label}</span>
+                <span className="acpmux-menu-description">{extra.detail}</span>
+              </span>
+            ) : (
+              extra.label
+            )}
           </button>
         ))}
         {onBrowse && (

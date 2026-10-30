@@ -50,7 +50,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { formatDuration } from "../conversation/turns";
-import { useT } from "../i18n";
+import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
@@ -58,6 +58,7 @@ import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
+import { subagentProgress } from "./subagentProgress";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
@@ -124,6 +125,7 @@ export const SubagentTray = memo(function SubagentTray({
   enters?: boolean;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const listId = useId();
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
@@ -352,6 +354,7 @@ export const SubagentTray = memo(function SubagentTray({
                 ? toolDetail(t, item.agent.action, true)
                 : (item.agent.action ?? item.agent.kind)
           }
+          progress={subagentProgress(t, language, item.agent).join(" · ")}
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}

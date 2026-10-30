@@ -5,6 +5,7 @@
 use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, bail};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// The work `--host` names: `auto` an agent lane, `auto-build` a build; any
@@ -81,7 +82,7 @@ pub async fn resolve(
     here_if_none: bool,
 ) -> Result<Option<String>> {
     if let Some(name) = name {
-        let list = client.request(method::MUX_SESSIONS, json!({})).await?;
+        let list = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
         match running_on(&list, name).as_slice() {
             [] => {}
             [host] if reuse => return Ok(host.clone()),
@@ -97,7 +98,7 @@ pub async fn resolve(
     }
     let mut params = json!({"work": work});
     if off_interactive {
-        params["offInteractive"] = json!(true);
+        params.set("offInteractive", json!(true));
     }
     let v = client.request("_acpmux/place", params).await?;
     let (Some(pick), Some(placed)) =

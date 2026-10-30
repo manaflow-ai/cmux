@@ -27,6 +27,7 @@ const ROW_ICON = rowIconSize(12);
 export function AgentLine({
   name,
   detail,
+  progress,
   status,
   state,
   time,
@@ -51,6 +52,8 @@ export function AgentLine({
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
   detail?: string;
+  /// Reported agent counts, warnings and usage; separate from the current action.
+  progress?: string;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -108,7 +111,7 @@ export function AgentLine({
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
-      aria-label={label}
+      aria-label={label && progress ? `${label} · ${progress}` : label}
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
       disabled={!onOpen}
@@ -131,6 +134,7 @@ export function AgentLine({
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {progress && <span className="acpmux-agent-line__progress">{progress}</span>}
       </span>
       {trayColumns ? (
         <>
