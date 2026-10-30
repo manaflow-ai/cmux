@@ -15,7 +15,6 @@ interface Rpc {
   exec(c: unknown, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<Reply>
   snapshot(c: unknown, machine: string, name: string): Promise<Reply>
   destroy(c: unknown, machine: string): Promise<Reply>
-  ownerExec(c: unknown, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number, as: "work" | "root"): Promise<Reply>
 }
 const rpc = (exports as unknown as { PlatformMachines: Rpc }).PlatformMachines
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, cb: (instance: any) => Promise<T>) => Promise<T>
@@ -158,71 +157,6 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.boot({ user: unplanned, team: personalTeamIdFor(unplanned) }, nameOf())).toMatchObject({ ok: false, code: "cloud.plan.required" })
   })
 
-  /** A machine `c` created through its own op (not a platform builder), bound the way its VM agent binds it. */
-  const ownMachine = async (c: { user: string; team: string }, bind = true) => {
-    const stub = cloudStub(c.team)
-    const created = reply(await stub.submit(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, frame("cloud.machine.create", { size: SIZE })))
-    const machine = created.value.machine.id as string
-    if (bind) {
-      const file = await bindFile(stub, machine)
-      const { body } = await bindBody(c, machine, file.json.bind_token)
-      expect(await stub.bindMachine(c.team, body)).toMatchObject({ ok: true })
-    }
-    return { machine, stub }
-  }
-
-  it("ownerExec runs on the caller's own machine, as the work user or root, once it runs", async () => {
-    const c = caller()
-    const pending = await ownMachine(c, false)
-    expect(await rpc.ownerExec(c, pending.machine, "true", null, 10_000, "work")).toMatchObject({ ok: false, code: "cloud.machine.not_running", retryable: true })
-    const { machine, stub } = await ownMachine(c)
-    expect(await rpc.ownerExec(c, machine, "true", null, 10_000, "work")).toEqual({ ok: true, value: { exitCode: 0, stdout: "", stderr: "" } })
-    // Root gets the command as sent (the fake guest knows this one), with stdin.
-    expect(await rpc.ownerExec(c, machine, "bash -c 'true'", new Uint8Array([1, 2, 3]), 10_000, "root")).toMatchObject({ ok: true, value: { exitCode: 0 } })
-    const ctl = (await stub.fakeControl({})) as any
-    expect(ctl.execs.slice(-2).map((e: { kind: string }) => e.kind)).toEqual(["probe", "probe"])
-    // Audited without the command or its stdin.
-    expect(ctl.audit.at(-1)).toMatchObject({ action: "owner.exec", machine, who: `platform:${c.user}`, outcome: "exit 0" })
-    expect(JSON.stringify(ctl.audit.at(-1))).not.toContain("bash")
-    // A provider refusal answers retryable, never its error body.
-    expect(await rpc.ownerExec(c, machine, "echo hi", null, 10_000, "root")).toMatchObject({ ok: false, code: "cloud.provider.unavailable", retryable: true })
-  })
-
-  it("ownerExec: a teammate may, another team's caller finds nothing, a member who left is refused", async () => {
-    const creator = { user: caller().user, team: SHARED_TEAM }
-    const stub = cloudStub(SHARED_TEAM)
-    await inDO(stub, async (instance) => {
-      instance.creatorIsMember = async () => true
-    })
-    const { machine } = await ownMachine(creator)
-    expect(await rpc.ownerExec(creator, machine, "true", null, 10_000, "work")).toMatchObject({ ok: true })
-    // A teammate on the same team, as classic /api/vm and the link's owner answer.
-    const teammate = { user: caller().user, team: SHARED_TEAM }
-    expect(await rpc.ownerExec(teammate, machine, "true", null, 10_000, "work")).toMatchObject({ ok: true })
-    // Another team: only its own team's machines, so the id is not found there.
-    const outsider = caller()
-    expect(await rpc.ownerExec(outsider, machine, "true", null, 10_000, "work")).toMatchObject({ ok: false, code: "cloud.machine.not_found", retryable: false })
-    await inDO(stub, async (instance) => {
-      instance.creatorIsMember = async () => false
-    })
-    expect(await rpc.ownerExec(teammate, machine, "true", null, 10_000, "work")).toMatchObject({ ok: false, code: "auth.forbidden", retryable: false })
-    expect(await rpc.ownerExec(creator, machine, "true", null, 10_000, "work")).toMatchObject({ ok: false, code: "auth.forbidden" })
-    const ctl = (await stub.fakeControl({})) as any
-    expect(ctl.audit.filter((e: { action: string; machine: string }) => e.action === "owner.exec" && e.machine === machine).map((e: { who: string }) => e.who).sort()).toEqual([`platform:${creator.user}`, `platform:${teammate.user}`].sort())
-  })
-
-  it("ownerExec validates its arguments before reaching any team", async () => {
-    const c = caller()
-    const m = `vm_${"a".repeat(20)}`
-    expect(await rpc.ownerExec(c, "vm_x", "true", null, 1000, "work")).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.ownerExec(c, m, "", null, 1000, "work")).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.ownerExec(c, m, "true", "text" as never, 1000, "work")).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.ownerExec(c, m, "true", new Uint8Array(8 * 1024 * 1024 + 1), 1000, "work")).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.ownerExec(c, m, "true", null, 15 * 60_000 + 1, "work")).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.ownerExec(c, m, "true", null, 1000, "admin" as never)).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(await rpc.ownerExec({ user: c.user, team: "nope" }, m, "true", null, 1000, "work")).toMatchObject({ ok: false, code: "validation.invalid" })
-  })
-
   it("validates every argument before reaching any team", async () => {
     const c = caller()
     expect(await rpc.boot({ user: c.user, team: "nope" }, nameOf())).toMatchObject({ ok: false, code: "validation.invalid" })
@@ -242,7 +176,6 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
     expect(await off.destroy(c, `vm_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
-    expect(await off.ownerExec(c, `vm_${"a".repeat(20)}`, "true", null, 1000, "work")).toMatchObject({ ok: false, code: "platform.machines_off" })
   })
 
   it("is not reachable over HTTP", async () => {
