@@ -16,6 +16,11 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// Absolute path to the CLI bundled with the app that started the daemon,
+    /// when the daemon was launched by an app. A standalone acpmux CLI does
+    /// not inherit the app's environment, so this is how `--group` finds the
+    /// matching app CLI from a plain shell.
+    daemon_cli_path: std::sync::Mutex<Option<std::path::PathBuf>>,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The person challenge `{nonce, connection}` of this connection, when the
@@ -91,6 +96,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            daemon_cli_path: std::sync::Mutex::new(None),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
             out,
@@ -122,6 +128,11 @@ impl Client {
         let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        *client.daemon_cli_path.lock_or_recover() = init
+            .pointer("/_meta/acpmux/cliPath")
+            .and_then(Value::as_str)
+            .filter(|path| std::path::Path::new(path).is_absolute())
+            .map(std::path::PathBuf::from);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
             *client.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -152,6 +163,11 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The CLI path reported by the daemon's app launcher, if any.
+    pub fn daemon_cli_path(&self) -> Option<std::path::PathBuf> {
+        self.daemon_cli_path.lock_or_recover().clone()
     }
 
     /// Whether the daemon listed `feature` at initialize.
@@ -189,6 +205,57 @@ impl Client {
         let tool_call = std::env::var(crate::hub::lineage::TOOL_CALL_ENV).ok();
         let reply = self.send_request(m, with_spawn_tool_call(params, tool_call)).await?;
         self.tag_spawned_by(&reply).await;
+        Ok(reply)
+    }
+
+    /// The whole session list `m` (`_acpmux/sessions` or `_acpmux/watch`) answers for `params`
+    /// with no `limit`: every page of it. A list too large for one message comes in pages, each
+    /// with the `nextCursor` of the rest (`server/list_reply.rs`), read here with
+    /// `_acpmux/sessions` and the same filters. The pages go in an order updates do not change,
+    /// so their rows are sorted back newest first, as one reply lists them; the result is one
+    /// `{sessions}`. A cursor that comes again, or a page with no `sessions`, is an error,
+    /// never a loop or a short list. With a `limit`, the one page it asks for.
+    pub async fn whole_list(&self, m: &str, params: Value) -> Result<Value> {
+        if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+            return self.request(m, params).await;
+        }
+        let mut reply = self.request(m, params.clone()).await?;
+        let mut rest = params;
+        if let Some(p) = rest.as_object_mut() {
+            p.remove("enabled");
+        }
+        let mut seen = std::collections::HashSet::new();
+        while let Some(cursor) = reply.as_object_mut().and_then(|r| r.remove("nextCursor")) {
+            let cursor = match cursor {
+                Value::String(cursor) => cursor,
+                Value::Null => break,
+                other => anyhow::bail!("{m}: the daemon gave the page cursor {other}"),
+            };
+            if !seen.insert(cursor.clone()) {
+                anyhow::bail!("{m}: the daemon gave the page cursor {cursor:?} twice");
+            }
+            if !rest.set("cursor", Value::String(cursor.clone())) {
+                anyhow::bail!(
+                    "{m}: the params {rest} are not an object, so no page after cursor {cursor:?}"
+                );
+            }
+            let mut page = self.request(method::MUX_SESSIONS, rest.clone()).await?;
+            let (Some(Value::Array(rows)), Some(all)) = (
+                page.get_mut("sessions").map(Value::take),
+                reply.get_mut("sessions").and_then(Value::as_array_mut),
+            ) else {
+                anyhow::bail!("{m}: the page after cursor {cursor:?} lists no sessions");
+            };
+            all.extend(rows);
+            if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+                reply.set("nextCursor", next);
+            }
+        }
+        if !seen.is_empty()
+            && let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut)
+        {
+            crate::hub::session_pages::sort_session_summaries(rows);
+        }
         Ok(reply)
     }
 

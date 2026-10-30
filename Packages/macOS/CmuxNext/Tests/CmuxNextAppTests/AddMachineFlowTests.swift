@@ -33,6 +33,7 @@ import Testing
         var candidateAnswers: [[HostCandidate]?] = []
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
+        var termination: CheckedContinuation<Void, Never>?
         var holdNextRun = false
         var connectFails = false
 
@@ -52,7 +53,15 @@ import Testing
                     commands.append(command)
                     if holdNextRun {
                         holdNextRun = false
-                        return AsyncThrowingStream { self.live = $0 }
+                        return AsyncThrowingStream { continuation in
+                            self.live = continuation
+                            continuation.onTermination = { @Sendable _ in
+                                Task { @MainActor in
+                                    self.termination?.resume()
+                                    self.termination = nil
+                                }
+                            }
+                        }
                     }
                     let lines = scripts.isEmpty ? [] : scripts.removeFirst()
                     let stop = stops.isEmpty ? nil : stops.removeFirst()
@@ -357,6 +366,36 @@ import Testing
         #expect(model.perform(.cancel))
         #expect(model.phase == .pick)
         #expect(host.recorded.isEmpty)
+    }
+
+    @Test func cancelAfterAnInstallReportDoesNotStartTheFallbackInstall() async throws {
+        host.holdNextRun = true
+        model.begin(destination: "test-machine")
+        model.perform(.add)
+        try await waitFor { host.live != nil }
+        let live = try #require(host.live)
+        let installFail = Self.step("install", "fail", "use the app build", reason: "wrong-platform")
+        live.yield(Self.report("test-machine", "test-machine", ok: false, [Self.step("reach", "ok"), installFail]))
+        try await waitFor { model.checklist.row(.install)?.status == .done(.fail) }
+        #expect(model.phase == .running, "the report arrived, but the stream has not ended")
+        #expect(host.installs.isEmpty)
+
+        let terminated = Task {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                host.termination = done
+            }
+        }
+        try await waitFor { host.termination != nil }
+        #expect(model.perform(.cancel))
+        live.finish()
+        _ = await terminated.value
+
+        #expect(host.installs.isEmpty, "a retained report must not start installation after Cancel")
+        #expect(host.connected.isEmpty)
+        #expect(host.recorded.isEmpty)
+        #expect(model.machineID == nil)
+        #expect(model.phase == .pick)
+        #expect(model.checklist.row(.install)?.status == .done(.fail))
     }
 
     @Test func aDestinationFromOutsideOnlyFillsTheCard() async {

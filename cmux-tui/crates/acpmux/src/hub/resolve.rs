@@ -292,6 +292,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         schema: META_SCHEMA.into(),
         id: d.id,
         name: String::new(),
+        name_given: false,
         harness: d.agent.into(),
         harness_argv: d.profile.argv.clone(),
         spawn_argv: None,
@@ -339,6 +340,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         unread: false,
         claude_unstored: false,
         hibernated_ms: 0,
+        moved_to: None,
         claude_profile: None,
         last_turn: None,
         harness_failures: Default::default(),
@@ -365,5 +367,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         subsession_limits: Default::default(),
         lineage: None,
         subagent_retry_open: false,
+        turn_cap_ms: None,
+        turn_cap_noticed: None,
+        delegator: None,
     }
 }

@@ -562,72 +562,70 @@
   mask-image: none;
 }
 
-/* Model names and effort segments are sibling menu items: each has its own hit target and
-   keyboard focus, and an effort selection lands the model and level together. */
+/* One row per model (no wall of effort words): the model, then its effort item at the trailing
+   edge, the running model's level and a chevron. The item opens the model's levels as a side
+   dropdown beside the row, a vertical list in its own popup (Leo 2026-10-30: "we dont like
+   horizontal text for effort. just make it vertical. hell, why not do a vertical slider?"). */
 .acpmux-quick-model-effort {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--ds-space-1) var(--ds-space-2);
-  padding-block: var(--ds-space-1);
 }
-.acpmux-quick-model-effort > .acpmux-quick-item {
-  flex: 1 1 120px;
+.acpmux-quick-model-effort > .acpmux-quick-item:first-child {
+  flex: 1 1 auto;
   min-width: 0;
 }
-.acpmux-quick-efforts {
-  flex: 0 1 auto;
-  max-width: 100%;
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: 6px;
-}
-.acpmux-quick-efforts > [role="group"] {
-  display: flex;
-  flex-wrap: wrap;
-}
-.ui-menu-item.acpmux-quick-effort-segment,
-.acpmux-quick-width-probe-segment {
-  display: flex;
-  flex: 1 0 auto;
-  justify-content: center;
-  min-height: var(--ui-row-height);
-  padding: var(--ds-space-1) var(--ds-space-2);
-  border-radius: var(--ui-row-radius);
+.ui-menu-item.acpmux-quick-effort-trigger {
+  flex: none;
+  justify-content: flex-end;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding-inline: var(--ds-space-2) var(--ui-row-padding-inline);
   color: var(--agent-muted);
-  font-size: var(--text-content);
+  font-size: var(--text-caption);
+  white-space: nowrap;
 }
-.acpmux-quick-effort-segment .ui-menu-check {
-  display: none;
+/* A row that is not the running one shows its effort item only while pointed at or reached. */
+.acpmux-quick-model-effort:not([data-running]):not(:hover):not(:has([data-highlighted], [data-popup-open]))
+  .acpmux-quick-effort-trigger {
+  opacity: 0;
 }
-.acpmux-quick-effort-segment[data-highlighted] {
-  background: var(--acpmux-menu-hover);
-}
-.acpmux-quick-effort-segment:has([data-selected]) {
-  color: var(--agent-text);
-  background: var(--acpmux-menu-hover);
-  font-weight: 600;
-}
-[data-effort-look="spaced"] .acpmux-quick-efforts {
-  border: 0;
-}
-[data-effort-look="spaced"] .acpmux-quick-efforts > [role="group"] {
-  gap: 4px;
-}
-[data-effort-look="spaced"] .acpmux-quick-effort-segment {
+/* The dropdown is as wide as its levels, not the model menu's 280px floor, so it fits beside the row. */
+.acpmux-quick-menu.acpmux-quick-effort-menu { min-width: 0; }
+.acpmux-quick-effort-menu .acpmux-quick-effort-segment { gap: var(--ds-space-2); }
+.acpmux-quick-effort-badge {
+  padding: 0 var(--ds-space-1);
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  /* A small-radius rect, as the menus' other badges (.acpmux-menu-badge): no capsule pills. */
+  border-radius: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 16px;
+  white-space: nowrap;
 }
-[data-effort-look="underline"] .acpmux-quick-efforts {
-  border: 0;
+/* The slider version: the stepped track stood on end, Low at the bottom. */
+.acpmux-quick-effort-vertical {
+  /* One length for the track and the column that holds it stood on end, so they never drift apart
+     at any interface scale. */
+  --acpmux-effort-vertical-track: 124px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: calc(var(--acpmux-effort-vertical-track) + 2 * var(--ds-space-2));
+  padding: var(--ds-space-2) 0;
 }
-[data-effort-look="underline"] .acpmux-quick-effort-segment:has([data-selected]) {
-  background: none;
-  box-shadow: inset 0 -2px var(--agent-text);
+.acpmux-quick-effort-vertical .acpmux-effort-track {
+  width: var(--acpmux-effort-vertical-track);
+  margin: 0;
+  transform: rotate(-90deg);
+  animation: none;
 }
-.acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-efforts) .acpmux-quick-rail { flex-basis: 28%; }
-.acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-efforts) .acpmux-quick-rail {
+.acpmux-quick-effort-vertical .acpmux-effort-ends { display: none; }
+.acpmux-quick-width-probe-efforts {
+  display: inline-block;
+  width: 112px;
+}
+.acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail { flex-basis: 28%; }
+.acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-effort-trigger) .acpmux-quick-rail {
   flex-basis: 76px;
 }
 .acpmux-quick-width-probe {
