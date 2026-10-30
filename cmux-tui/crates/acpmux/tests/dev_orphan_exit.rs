@@ -160,7 +160,8 @@ fn dev_orphan_exit_stops_a_dev_daemon_whose_binary_is_replaced() {
     let mut daemon = start_daemon(&dir, &bundle);
     let acpmux = bundle.join("Contents/Resources/bin/acpmux");
     let next = bundle.join("Contents/Resources/bin/acpmux.next");
-    std::fs::copy(daemon_env::bin(), &next).unwrap();
+    // A new file at the same path: a fresh inode, as a rebuild writes it.
+    std::fs::copy(&acpmux, &next).unwrap();
     std::fs::rename(&next, &acpmux).unwrap();
     let stopped = exits_within(&mut daemon, STOPS_WITHIN);
     stop(&mut daemon);
