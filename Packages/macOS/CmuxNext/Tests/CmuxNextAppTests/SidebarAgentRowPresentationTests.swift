@@ -24,21 +24,81 @@ struct SidebarAgentRowPresentationTests {
     }
 
     @MainActor
+    @Test func anExplicitWorkspaceTitleAlwaysWins() throws {
+        let workspace = try fixture(nameSource: .auto, title: "  My review  ")
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: true).title == "  My review  ")
+    }
+
+    @MainActor
+    @Test func aNamedChatTitleAlwaysWins() throws {
+        let workspace = try fixture(nameSource: .auto)
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+        for name in ["  My chat  ", "demo-lane"] {
+            tab.name = name
+            #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: true).title == name)
+        }
+    }
+
+    @MainActor
+    @Test func aRenameToADefaultLookingNameStillWins() throws {
+        let workspace = try fixture(name: "workspace-7", nameSource: .user, nameRevision: 2)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: true).title == "workspace-7")
+    }
+
+    @MainActor
+    @Test func disabledAutomaticNamingKeepsTheDefault() throws {
+        let workspace = try fixture(name: "workspace-7", nameSource: .auto)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: false).title == "workspace-7")
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: true).title == "Review the release")
+    }
+
+    @MainActor
+    @Test func theFrontChatUsesItsOwnTask() throws {
+        let workspace = try fixture(nameSource: .auto, secondAgent: true)
+        let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
+        #expect(SidebarMapping.shared.agentTab(tabs)?.id == tabs[1].id)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, selectedTab: { _ in tabs[0].id },
+                                         autoNamesWorkspaces: true).title == "Review the release")
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, selectedTab: { _ in tabs[1].id },
+                                         autoNamesWorkspaces: true).title == "Fix the other task")
+    }
+
+    @MainActor
     @Test func anUnbrandedHarnessStillGetsAReadableTaskTitle() throws {
+        let workspace = try fixture()
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+        #expect(tab.agentBrand == nil)
+        #expect(SidebarMapping.shared.row(workspace, machine: .local, autoNamesWorkspaces: true).title == "Review the release")
+    }
+
+    @MainActor
+    private func fixture(name: String = "demo-lane", nameSource: WorkspaceNameSource = .user,
+                         nameRevision: UInt64 = 0, title: String? = nil, secondAgent: Bool = false) throws -> WorkspaceModel {
         var chat = TabSnapshot(surface: 1, kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(
             host: "install:sidebar-title-fixture", session: "demo-lane", harness: "custom-fixture-harness"))
-        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
+        var chats = [chat]
+        if secondAgent {
+            var other = TabSnapshot(surface: 2, kind: .conversation, cwd: nil)
+            other.conversation = ConversationTabRef(agentSession: AgentSessionRef(
+                host: "install:sidebar-title-fixture", session: "demo-other", harness: "claude"))
+            chats.append(other)
+        }
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: chats)])
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
-            WorkspaceSnapshot(id: 1, key: nil, name: "demo-lane", screens: [screen])
+            WorkspaceSnapshot(id: 1, key: nil, name: name, nameSource: nameSource, nameRevision: nameRevision,
+                              screens: [screen], title: title)
         ]))
         let workspace = try #require(store.workspaces.first)
-        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
-        tab.agent = AgentStatus(surface: 1, state: .working, agent: "custom-fixture-harness",
-                                lastPrompt: "Your task:\nTitle: Review the release\nCheck the build and report failures.")
-        #expect(tab.agentBrand == nil)
-        #expect(SidebarMapping.shared.row(workspace, machine: .local).title == "Review the release")
+        let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
+        tabs[0].agent = AgentStatus(surface: 1, state: .idle, agent: "custom-fixture-harness",
+                                   lastPrompt: "Your task:\nTitle: Review the release\nCheck the build and report failures.")
+        if secondAgent {
+            tabs[1].agent = AgentStatus(surface: 2, state: .working, agent: "claude",
+                                       lastPrompt: "Your task:\nTitle: Fix the other task\nCheck a separate project.")
+        }
+        return workspace
     }
 
     @Test func statusAndRepositoryFactsRemainSeparateFromTitle() {

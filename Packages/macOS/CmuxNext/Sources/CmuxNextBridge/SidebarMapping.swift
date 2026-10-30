@@ -67,6 +67,7 @@ public struct SidebarMapping {
                                 tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
+                                autoNamesWorkspaces: Bool? = nil,
                                 rowSource: RowSource? = nil,
                                 workspaceFilter: (WorkspaceModel) -> Bool = { _ in true },
                                 harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
@@ -82,7 +83,7 @@ public struct SidebarMapping {
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
                                      newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
-                                     notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons()) }
+                                     notificationText: notificationText, iconAsset: iconAsset, autoNamesWorkspaces: autoNamesWorkspaces, harnessIcons: harnessIcons()) }
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
@@ -115,11 +116,14 @@ public struct SidebarMapping {
     /// `muted`: the workspace is in `notifications.mutedWorkspaces`. `notificationText` is the
     /// text of a tab's unread notification (`DaemonStore.notificationText(for:)`).
     /// `iconAsset` draws a stored image or SVG icon, as in `sections`.
+    /// `autoNamesWorkspaces` defaults to the live `workspaces.autoName` setting. Reading it
+    /// here lets the row feed observe changes, including rows projected into the pinned band.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil },
+                    autoNamesWorkspaces: Bool? = nil,
                     harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
@@ -209,36 +213,43 @@ public struct SidebarMapping {
         // the daemon's lane/session id. The routing name is never the row's best title.
         // Title metadata follows the session identity rather than the branding filter used by
         // the row's icon/status mark. BYO and newly added harnesses still get readable titles.
-        if let agent = chatTab(front, tabs), let ref = agent.agentSession {
+        if autoNamesWorkspaces ?? DesignSettings.shared.sidebarSections.autoNamesWorkspaces,
+           let agent = chatTab(front, tabs), let ref = agent.agentSession {
             let turns = AgentTurnStateStore.shared
-            let taskSummary = row.detail.task.flatMap(AgentTurnStates.promptGist)
-                ?? turns.detail(for: ref)?.prompt.flatMap(AgentTurnStates.promptGist)
+            // Resolve every title and task fact from the same front chat. A branded working
+            // agent in another tab must not lend its prompt to this row.
+            let taskSummary = turns.detail(for: ref)?.prompt.flatMap(AgentTurnStates.promptGist)
                 ?? agent.agent?.lastPrompt.flatMap(AgentTurnStates.promptGist)
-            row.title = Self.agentRowTitle(workspaceTitle: row.title, workspaceNameSource: workspace.nameSource,
-                                           sessionName: ref.session,
-                                           chatTitle: turns.generatedTitle(for: ref),
+            row.title = Self.agentRowTitle(workspaceTitle: row.title, workspaceName: workspace.name,
+                                           workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
+                                           explicitWorkspaceTitle: workspace.title, sessionName: ref.session,
+                                           chatTitle: turns.generatedTitle(for: ref), explicitChatTitle: agent.name,
                                            taskSummary: taskSummary)
         }
         return row
     }
 
-    /// Chooses a readable title for an agent-session workspace. Generated chat titles win;
-    /// otherwise the task gist is useful, while the machine-made session name remains a last resort.
-    public static func agentRowTitle(workspaceTitle: String, workspaceNameSource: WorkspaceNameSource = .user,
-                                    sessionName: String?, chatTitle: String?, taskSummary: String?) -> String {
-        // A person's explicit workspace name is authoritative. Agent sessions may replace only
-        // the daemon's generated default, an automatic name, or the machine-made session name
-        // used when the chat opened its workspace.
-        let normalizedWorkspace = workspaceTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedSession = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(workspaceTitle)
-            || (normalizedSession != nil && normalizedWorkspace == normalizedSession)
+    /// Automatic agent names prefer the chat title, then its task gist. Explicit workspace
+    /// and chat names retain their original text; the rendered row label is not naming provenance.
+    public static func agentRowTitle(workspaceTitle: String, workspaceName: String? = nil,
+                                    workspaceNameSource: WorkspaceNameSource = .user, workspaceNameRevision: UInt64 = 0,
+                                    explicitWorkspaceTitle: String? = nil, sessionName: String?, chatTitle: String?,
+                                    explicitChatTitle: String? = nil, taskSummary: String?) -> String {
+        if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return explicitWorkspaceTitle }
+        let originalName = workspaceName ?? workspaceTitle
+        // A rename remains authoritative even when the user chose a default-looking name or
+        // the session id. Revision zero also supports older sessions created with that id.
+        if workspaceNameSource == .user, workspaceNameRevision > 0 { return originalName }
+        let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
+            || originalName == sessionName
         guard machineNamed else { return workspaceTitle }
-        let candidates = [chatTitle, taskSummary, workspaceTitle, sessionName]
-        let session = normalizedSession
-        for candidate in candidates {
-            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
-            if value.lowercased() == session { continue }
+        if let explicitChatTitle {
+            let trimmed = explicitChatTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return explicitChatTitle }
+        }
+        for candidate in [chatTitle, taskSummary] {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
+                  value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame else { continue }
             return value
         }
         return workspaceTitle
