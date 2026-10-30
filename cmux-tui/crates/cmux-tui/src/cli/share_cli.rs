@@ -24,9 +24,11 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
     let all_positional = positional == names.len();
     let flags = if all_positional { &rest[positional..] } else { rest };
+    let keys = argument_keys(flags);
     for name in names {
-        let given = flags.iter().filter(|flag| flag_name(flag) == *name).count()
-            + usize::from(all_positional);
+        let key = argument_key(name);
+        let given =
+            keys.iter().filter(|given| **given == key).count() + usize::from(all_positional);
         if given > 1 {
             return Some(Err(format!("share {verb}: {name} is given more than once")));
         }
@@ -40,6 +42,43 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
         names.iter().zip(&rest[..positional]).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
+}
+
+/// The action argument each of `args` sets, in every spelling the action parser takes:
+/// `--share-id X`, `--share-id=X`, `--shareId X`, `--share_id X`, `--arg shareId=X`, `--arg=shareId=X`.
+fn argument_keys(args: &[String]) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        let Some(flag) = word.strip_prefix("--") else { continue };
+        let (name, value) = flag.split_once('=').map_or((flag, None), |(n, v)| (n, Some(v)));
+        if name == "arg" {
+            let pair =
+                value.map(str::to_owned).or_else(|| words.next().cloned()).unwrap_or_default();
+            keys.push(pair.split_once('=').map_or(pair.as_str(), |(key, _)| key).to_owned());
+        } else if !name.is_empty() {
+            keys.push(argument_key(name));
+        }
+    }
+    keys
+}
+
+/// A flag's action argument name, as the action parser derives it: `share-id` and `share_id` are
+/// `shareId`.
+fn argument_key(flag: &str) -> String {
+    let mut key = String::with_capacity(flag.len());
+    let mut upper = false;
+    for character in flag.trim_start_matches('-').chars() {
+        if character == '-' || character == '_' {
+            upper = true;
+        } else if upper {
+            key.extend(character.to_uppercase());
+            upper = false;
+        } else {
+            key.push(character);
+        }
+    }
+    key
 }
 
 /// The output switches (`--json`, `--jsonl`, `--quiet`) among `args`, taken out. The global
@@ -57,15 +96,17 @@ pub(super) fn take_output_switches(args: &mut Vec<String>) -> Vec<String> {
     taken
 }
 
-/// The flags `share revoke` and `share kick` take; any other word, `-x…` ids included, is an id.
-const FLAGS: &[&str] = &["--share-id", "--guest-id", "--json", "--help", "-h", "--"];
+/// The switches `share revoke` and `share kick` take besides their ids.
+const SWITCHES: &[&str] = &["--json", "--jsonl", "--quiet", "--help", "-h", "--"];
 
+/// Whether `arg` is a flag, not an id. Ids are base64url (`A-Z a-z 0-9 - _`), so they may start
+/// with `-` but never hold `=`: a `--name=value` word is a flag, as is every spelling of the id
+/// flags and `--arg`.
 fn is_flag(arg: &str) -> bool {
-    FLAGS.contains(&flag_name(arg))
-}
-
-fn flag_name(arg: &str) -> &str {
-    arg.split_once('=').map_or(arg, |(name, _)| name)
+    SWITCHES.contains(&arg)
+        || (arg.starts_with("--")
+            && (arg.contains('=')
+                || matches!(argument_key(arg).as_str(), "shareId" | "guestId" | "arg")))
 }
 
 /// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works.
@@ -134,6 +175,11 @@ mod tests {
             "share kick s1 g1 --guest-id=g2",
             "share revoke --share-id=s1 --share-id=s2",
             "share kick --share-id s1 --guest-id g1 --guest-id g2",
+            "share revoke s1 --arg shareId=s2",
+            "share revoke s1 --arg=shareId=s2",
+            "share revoke s1 --shareId=s2",
+            "share kick s1 g1 --guest_id g2",
+            "share revoke --share-id s1 --shareId s2",
         ] {
             assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
         }

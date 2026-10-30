@@ -112,8 +112,13 @@ public struct AgentShareActions {
                 return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat, isNotFound: true))
             }
             tab = found
-        } else if invocation.target == nil, let caller = invocation.callerAgentSession, let id = host.shareTabID(showing: caller) {
-            tab = host.shareTab(id: id)
+        } else if let caller = invocation.callerAgentSession {
+            // An agent's run names its own chat. When that chat is not found here, the run is
+            // refused: falling back to the focused chat would share one the agent never named.
+            guard let id = host.shareTabID(showing: caller), let found = host.shareTab(id: id) else {
+                return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat, isNotFound: true))
+            }
+            tab = found
         } else {
             tab = host.shareFocusedTabID.flatMap(host.shareTab(id:))
         }

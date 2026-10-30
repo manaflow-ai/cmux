@@ -166,6 +166,17 @@ struct AgentShareTests {
         #expect(chat.session == Self.session, "the share does not pin the session it named")
     }
 
+    /// An agent's run whose own chat is not found is refused; it never falls back to the focused chat.
+    @Test func anAgentWhoseChatIsGoneSharesNothing() {
+        let f = Self.fixture()
+        var invocation = ActionInvocation(target: nil, arguments: [:], origin: .cli)
+        invocation.callerAgentSession = "0199e2c4-0000-7000-8000-00000000dead"
+        guard case .failure(let refusal) = AgentShareActions.chat(invocation, host: f.services) else {
+            Issue.record("an agent whose chat is gone named another chat"); return
+        }
+        #expect(refusal.isNotFound)
+    }
+
     @Test func ttlTakesSecondsOrAUnitWithinOneMinuteToSevenDays() throws {
         #expect(try AgentShareArguments.ttl(nil) == nil)
         #expect(try AgentShareArguments.ttl(" ") == nil)
