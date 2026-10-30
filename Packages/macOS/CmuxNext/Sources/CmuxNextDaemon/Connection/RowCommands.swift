@@ -26,8 +26,7 @@ public struct RowCommands: Sendable {
         // cmux-tui does not replay a `new-row` sent again (a second ask is refused `pane_id_exists`), so it is sent once
         // (P0 2026-10-30, R5), as `new-tab` is.
         return DaemonConnection.created(try await connection.requestAwaitingStart(NewRowRequest(pane: pane, height: height, options: options)),
-                                        options: options),
-                                                                                 keys: .rowClientKeys), options: options)
+                                        options: options)
     }
 
     /// Every row height of `column` (`set-row-heights`).
