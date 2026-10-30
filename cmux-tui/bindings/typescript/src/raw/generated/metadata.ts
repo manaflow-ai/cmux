@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7b847029206d4d694a8c1695fb7327cfb09a39286f27287b26179af08e160df7. */
+/* cmux-tui mux protocol 12, IR 9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7b847029206d4d694a8c1695fb7327cfb09a39286f27287b26179af08e160df7" as const;
+export const SDK_IR_SHA256 = "9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10306,7 +10306,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
-      "sites counts the distinct acquiring source locations since daemon start.",
+      "sites counts the distinct acquiring source locations that released the lock since daemon start.",
       "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
     ],
     "fields": {
@@ -10394,7 +10394,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
-      "site is the file:line that acquired the registry lock."
+      "site is the file:line that acquired the lock (the registry lock, or in locks also the mux state lock)."
     ],
     "fields": {
       "held_for_us": {

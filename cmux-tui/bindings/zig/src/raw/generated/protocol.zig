@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7b847029206d4d694a8c1695fb7327cfb09a39286f27287b26179af08e160df7";
+pub const ir_sha256 = "9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
