@@ -590,6 +590,10 @@ Object.assign(variants, {
       { selector: ".host-form input", action: "select" },
     ],
   }),
+  "clear-refused": variant("browser", {
+    options: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
+    steps: [click('[data-profile="p-work"] .host-toggle'), wait(".host-form"), click("[data-clear]")],
+  }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-results-theme": variant("general", {
