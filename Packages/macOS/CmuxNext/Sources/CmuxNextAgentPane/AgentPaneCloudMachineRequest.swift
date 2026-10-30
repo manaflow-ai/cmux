@@ -104,7 +104,7 @@ public final class AgentPaneCloudMachines {
     /// What Resume machine on an unavailable chat does, decided on a fresh read of the machine:
     /// the recovery list that offered it may be a minute old, and a machine that turned live since
     /// must not be resumed again.
-    enum RecoveryAttach: Equatable {
+    public enum RecoveryAttach: Equatable {
         /// Paused: ``CloudMachineSession/attach(origin:)``, which resumes it through Resume Machine's path.
         case resume
         /// Live without a connection: connect it (an app link connects; a legacy daemon is woken or
@@ -117,7 +117,7 @@ public final class AgentPaneCloudMachines {
         case refuse
     }
 
-    static func recoveryAttach(fresh: Bool, status: CloudMachine.Status?, connected: Bool) -> RecoveryAttach {
+    public static func recoveryAttach(fresh: Bool, status: CloudMachine.Status?, connected: Bool) -> RecoveryAttach {
         guard fresh, let status else { return .refuse }
         if status == .paused { return .resume }
         guard status.isLive else { return .refuse }
@@ -125,7 +125,7 @@ public final class AgentPaneCloudMachines {
     }
 
     /// Refreshes, then reads the machine, then resumes or connects only on what that fresh read says.
-    static func recoveryAttach(
+    public static func recoveryAttach(
         refresh: @MainActor () async -> Bool,
         machine: @MainActor () -> (status: CloudMachine.Status, connected: Bool)?,
         resume: @MainActor () -> Void,
