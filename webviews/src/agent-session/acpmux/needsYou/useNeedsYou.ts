@@ -5,6 +5,7 @@ import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection } from "../question/model";
 import { ATTENTION_OPEN_OP, useAttentionTabs } from "./attentionTabs";
+import type { AttentionTab } from "./attentionTabs";
 import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
@@ -43,7 +44,13 @@ export function useNeedsYou({
   /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
   /// `chat.sideChat`); rejects when acpmux or the relay refused it.
   sideSession: (sessionId: string, question: string) => Promise<unknown>;
-}): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
+}): {
+  mode: NeedsYouMode;
+  items: NeedsYouItem[];
+  actions: NeedsYouActions;
+  attentionTabs: readonly AttentionTab[];
+  pill?: TranscriptNeedsYou;
+} {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
   const { sessions, asks, sessionId, rows } = snapshot;
@@ -132,5 +139,5 @@ export function useNeedsYou({
           },
         }
       : undefined;
-  return { mode, items, actions, ...(pill ? { pill } : {}) };
+  return { mode, items, actions, attentionTabs: tabs, ...(pill ? { pill } : {}) };
 }
