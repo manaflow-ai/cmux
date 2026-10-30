@@ -25,7 +25,7 @@ A user who makes cmux the default browser hits these in the first day.
 | Session restore with back/forward history | URL only | works | engine (W interactionState), app | W history lost on relaunch and Cmd-Shift-T |
 | Passwords: save prompt, fill, generator, manager page | missing | partial | pw | C fills from Chromium store; no save UI |
 | Passkeys (WebAuthn platform) | missing | missing | pw | passkeys.md K13/K14 |
-| Hard reload bypassing cache (Cmd-Shift-R) | works | refused | engine | shim needs ReloadIgnoreCache |
+| Hard reload bypassing cache (Cmd-Shift-R) | works | works | engine | `BrowserCacheBypassingReload`: W reloads from origin, C `cmux_shim_reload_ignore_cache` (#27619) |
 | Print (Cmd-P conflicts with Go to Workspace, keep cmux chord) | missing | UNSURE | app (W NSPrintOperation, File > Print action), engine (C) | Print via menu and palette; chord decision D4 kept |
 | PDF viewer, save and print PDF | works (native) | works (fork) | engine | verify save/print buttons on a build |
 | HTTP basic auth dialog | missing | UNSURE | app (W), engine (C) | W: a 401 renders the server page |
