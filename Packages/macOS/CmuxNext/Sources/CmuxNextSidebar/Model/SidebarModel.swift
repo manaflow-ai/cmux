@@ -260,12 +260,28 @@ public final class SidebarModel {
     /// sidebar comes back at the user's width.
     public var width: CGFloat = Metrics.sidebarWidth {
         didSet {
-            let clamped = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
+            let clamped = min(max(width, widthRange.lowerBound), widthRange.upperBound)
             if clamped != width { width = clamped }
         }
     }
 
-    public static var widthRange: ClosedRange<CGFloat> { Metrics.sidebarMinWidth...Metrics.sidebarMaxWidth }
+    /// The width the sidebar's titlebar row needs so its controls never overlap: the window's
+    /// traffic lights and toolbar band, then the + (`SidebarView.titlebarControlsWidth`, set from
+    /// the window's layout). Raising it clamps a narrower `width` at once, so a width saved below
+    /// it comes back wide enough (Lawrence 2026-10-30: Forward drew over the + at 160 pt).
+    public var titlebarControlsWidth: CGFloat = 0 {
+        didSet {
+            guard titlebarControlsWidth != oldValue, width < minimumWidth else { return }
+            width = minimumWidth
+        }
+    }
+
+    /// The narrowest the sidebar gets: the `sidebarMinWidth` tunable or what the titlebar row's
+    /// controls need, whichever is wider.
+    public var minimumWidth: CGFloat { max(Metrics.sidebarMinWidth, titlebarControlsWidth) }
+
+    /// The widths the sidebar may take: from ``minimumWidth`` to the `sidebarMaxWidth` tunable.
+    public var widthRange: ClosedRange<CGFloat> { minimumWidth...max(minimumWidth, Metrics.sidebarMaxWidth) }
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
