@@ -153,7 +153,13 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
-                    if let Err(e) = hub.cancel(&s).await {
+                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`).
+                    let stopped = if conn.is_person() {
+                        hub.person_stop(&s).await
+                    } else {
+                        hub.cancel(&s).await
+                    };
+                    if let Err(e) = stopped {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
@@ -1375,7 +1381,9 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            if let Err(e) = hub.cancel(&s).await {
+            let stopped =
+                if conn.is_person() { hub.person_stop(&s).await } else { hub.cancel(&s).await };
+            if let Err(e) = stopped {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
             Ok(json!({}))
@@ -1391,9 +1399,12 @@ async fn dispatch_request(
             let env = crate::session_env::parse(mux_meta(&params))?;
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
+            let start_later = super::fork_through::starts_later(&params);
             let who = who(conn);
             let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-            let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
+            let new = admitted
+                .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
+                .await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);

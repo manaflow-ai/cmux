@@ -95,11 +95,23 @@ acpmux web                           # print the dashboard URL and open it in th
 acpmux new -m codex -n backend-review   # scripted: create a session and open the TUI on it
 acpmux new -m codex --tag task=review --tag owner=leo -n backend-review -d
 acpmux send backend-review "inspect the failing tests"
-acpmux ls
+acpmux ls                            # live named lanes, one short line each; --all, --wide for more
 acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
 ```
 
 The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in the foreground.
+`acpmux ls` is the one command that never starts it: with no daemon it fails with
+`no_daemon` at once, so a census reads "no daemon here", never an empty host (hq#4897).
+
+`acpmux ls` is compact by default: the live lanes someone named, as NAME, HOST (only while
+some row is on a peer), STATE, TURNS, AGE, STUCK and WARN. STUCK says in a few words why a
+lane needs someone (`permission`, `capacity`, `harness down`, `failed turn`, `stalled 12m`);
+WARN is `warn` while the row breaks a usage rule. Closed sessions, reviewer boxes,
+sub-sessions and sessions with only a generated name are hidden and counted on the last line;
+`--all` lists them, and a filter (`--status`, `--tag`, `--since`, ...) hides nothing. `--wide`
+adds AGENT, STATUS and LAST (the last prompt). A peer whose link is down never drops out: its
+rows read `unknown`, and an `UNKNOWN <peer>` line says its sessions are last known. Scripts
+read `acpmux --json ls`, which is the daemon's rows, unchanged.
 
 ## Web dashboard
 
@@ -307,9 +319,12 @@ acpmux session queue list NAME                                # one row per queu
 acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
+acpmux ls --all --wide                                        # every session, every column
+acpmux ls --live --host cosmic-gray                           # filters, text and --json alike (--host local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
 acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
+acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
@@ -978,7 +993,7 @@ acpmux host vm-host [HOST] [on|off]    # off: never the owner's VM boundary here
 acpmux host update --all               # update compatible ssh peers; use --binary-dir for another target
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux host update HOST --keep-newer --binary-dir DIR  # never a move back: a later day's build or one with local changes stays (current)
-acpmux ls                              # HOST/session-name next to local sessions
+acpmux ls                              # a HOST column while some row is a peer's; UNKNOWN for a down peer
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>

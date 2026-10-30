@@ -384,6 +384,11 @@ impl Hub {
         let digests = &session.inbox_digests;
         digests.lock().unwrap_or_else(|e| e.into_inner()).insert(digest_id.clone(), digest.clone());
         let at = place(&queue);
+        // While a person's Stop holds the other agents' messages (`cancel.rs`
+        // `hold_agent_messages`), their digest waits held in its place and steers into nothing;
+        // read under the queue's lock, where the hold begins and ends.
+        let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
+        let steer = steer && !stop_held;
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
             blocks: blocks.clone(),
@@ -409,7 +414,7 @@ impl Hub {
                 restored: false,
                 resume: false,
                 steer,
-                held: false,
+                held: stop_held,
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,
@@ -442,6 +447,10 @@ impl Hub {
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         self.append(session, "mux", "queue_order", json!({"promptId": digest_id, "order": order}));
+        if stop_held {
+            let msg = json!({"held": [digest_id], "reason": "stop"});
+            self.append(session, "mux", "queue_paused", msg);
+        }
         let left = session.queued();
         for q in &taken {
             let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "queued": left, "digestPromptId": digest_id, "digestTurnId": turn_id});
