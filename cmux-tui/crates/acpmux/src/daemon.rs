@@ -728,15 +728,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // that path to stop.
     // Read after the agents: the home may have been lost while they drained.
     recheck_home();
-    let home_lost = crate::config::home_lost();
-    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)).await;
+    let home_path_lost = crate::config::home_path_lost();
+    let _ = tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_path_lost)).await;
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {
         retry.abort();
         let _ = retry.await;
     }
     recheck_home();
-    if !crate::config::home_lost() {
+    if !crate::config::home_path_lost() {
         let _ = std::fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file].into_iter().flatten() {
             let _ = std::fs::remove_file(file);

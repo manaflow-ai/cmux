@@ -155,7 +155,11 @@ pub(crate) fn watch(
             // A folder gone before its watch began (the home removed during the startup) is
             // the loss itself, not a watch that could not be set up.
             if let Some(why) = owned.lost() {
-                crate::config::mark_home_lost();
+                if owned.lost_except(Some(socket)).is_some() {
+                    crate::config::mark_home_lost();
+                } else {
+                    crate::config::mark_socket_lost();
+                }
                 return Box::pin(std::future::ready(why));
             }
             tracing::warn!("home watch off: watch {}: {e}", dir.display());
@@ -179,7 +183,11 @@ pub(crate) fn watch(
             lost = check();
         }
         // At once, before the shutdown starts: no write may make the old home again.
-        crate::config::mark_home_lost();
+        if owned.lost_except(Some(socket.as_path())).is_some() {
+            crate::config::mark_home_lost();
+        } else {
+            crate::config::mark_socket_lost();
+        }
         lost.unwrap_or_default()
     })
 }

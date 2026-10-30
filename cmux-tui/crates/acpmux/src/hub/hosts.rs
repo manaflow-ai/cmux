@@ -387,7 +387,7 @@ impl Hub {
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
         // A lost home's hosts folder may be another daemon's now: its records name that daemon's
         // agents. This daemon's own hosts end with their folder (`agent_host`), so none is read.
-        if crate::config::home_lost() {
+        if crate::config::home_path_lost() {
             return;
         }
         let dir = agent_host::hosts_dir();
