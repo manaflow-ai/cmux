@@ -116,6 +116,24 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             ],
             "session.journal.append",
         ),
+        // A terminal agent's question (Claude's AskUserQuestion) rides beside the event as
+        // live_question.
+        (
+            vec![
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "PreToolUse",
+                "--terminal",
+                TERMINAL,
+                "--payload-json",
+                r#"{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_use_id":"toolu_1","tool_input":{"questions":[{"question":"Which branch?","header":"Branch","options":[{"label":"main"},{"label":"dev"}]}]}}"#,
+            ],
+            "session.journal.append",
+        ),
         // column.update: the pinned (Home) dock and whether it takes tabs (pinned-dock-v1).
         (
             vec![
@@ -391,6 +409,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "owner"),
         ("tab.update", "back"),
         ("tab.update", "forward"),
+        // The guarded attention clear: an app acknowledging the mark it captured
+        // (`extra.attention.request_id`) sends it with `attention:null`; the CLI
+        // keeps the unconditional clear (docs/protocol.md, #27497).
+        ("tab.update", "attention_request_id"),
         ("client.metadata.update", "capabilities"),
         // layout.bulk: the CLI names the anchor by its selector and has no
         // selection; apps and MCP send anchor and ids.

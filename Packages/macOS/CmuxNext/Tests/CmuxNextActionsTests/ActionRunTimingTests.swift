@@ -10,6 +10,7 @@ private final class RunTimingRecorder: ActionRunTiming {
         let id: ActionID
         let origin: ActionOrigin
         let inputAge: Double
+        let entrypoint: ActionEntrypoint
     }
 
     var runs: [Run] = []
@@ -22,8 +23,12 @@ private final class RunTimingRecorder: ActionRunTiming {
     /// Key window route runs.
     var routed = 0
 
-    func time<T>(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double, _ body: () -> T) -> T {
-        runs.append(Run(id: id, origin: origin, inputAge: inputAge()))
+    func intern(_ id: ActionID) -> UInt32 { 0 }
+
+    func time<T>(_ key: ActionRunKey, _ origin: ActionOrigin, input: () -> ActionRunInput, _ body: () -> T) -> T {
+        let id = key.id
+        let read = input()
+        runs.append(Run(id: id, origin: origin, inputAge: read.ageMilliseconds, entrypoint: read.entrypoint))
         events.append("run.begin \(id.rawValue)")
         let wasTiming = isTiming
         isTiming = true
@@ -34,8 +39,9 @@ private final class RunTimingRecorder: ActionRunTiming {
         return body()
     }
 
-    func beginGate(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double) -> (@MainActor () -> Void)? {
-        gates.append(Run(id: id, origin: origin, inputAge: inputAge()))
+    func beginGate(_ id: ActionID, _ origin: ActionOrigin, input: () -> ActionRunInput) -> (@MainActor () -> Void)? {
+        let read = input()
+        gates.append(Run(id: id, origin: origin, inputAge: read.ageMilliseconds, entrypoint: read.entrypoint))
         events.append("gate.begin \(id.rawValue)")
         return { [weak self] in self?.events.append("gate.end \(id.rawValue)") }
     }
@@ -100,6 +106,28 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect(recorder.runs.map(\.origin) == [.cli, .user])
         #expect(recorder.runs.first?.inputAge == -1)
         #expect((recorder.runs.last?.inputAge ?? -1) >= 5)
+    }
+
+    /// The budget is kept per entrypoint: a person's key, a person's click, a person's run with no
+    /// event being dispatched, and every other origin by itself.
+    @Test func eachRunNamesItsEntrypoint() throws {
+        _ = NSApplication.shared
+        let recorder = RunTimingRecorder()
+        let registry = Self.registry(recorder)
+        let key = try Self.key(at: ProcessInfo.processInfo.systemUptime)
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0,
+                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        var dispatching: NSEvent? = key
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("test.run"))
+        dispatching = click
+        #expect(registry.perform("test.run"))
+        #expect(registry.perform("test.run", invocation: ActionInvocation(origin: .cli)))
+        dispatching = nil
+        #expect(registry.perform("test.run"))
+        #expect(registry.perform("test.run", invocation: ActionInvocation(origin: .page)))
+        #expect(recorder.runs.map(\.entrypoint) == [.key, .pointer, .cli, .unattributed, .page])
     }
 
     @Test func aUserRunOutsideADispatchHasNoInputAge() {
@@ -242,21 +270,45 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect(confirmed.count == 2)
     }
 
-    /// The main run loop waking while a run watches (a nested loop that waited inside a handler)
-    /// is counted; a run's synchronous work alone never wakes it.
-    @Test func theWakeWatchCountsANestedLoopsWakes() {
+    /// A nested loop counts as the person's dwell only in a mode a person drives (a menu's event
+    /// tracking, a modal panel). A handler that spins the default mode waiting for a helper's reply is a
+    /// stall: its wakes stay out of the count, so its sample stays in action.perform / action.commit.
+    @Test func onlyAPersonDrivenNestedLoopCountsAsDwell() {
+        // AppKit puts the event-tracking mode in the common modes the watch observes.
+        _ = NSApplication.shared
+        let tracking = CFRunLoopMode("NSEventTrackingRunLoopMode" as CFString)
         let watch = RunLoopWakeWatch()
         watch.begin()
-        #expect(watch.wakes == 0)
-        let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
-        CFRunLoopAddTimer(CFRunLoopGetMain(), timer, .defaultMode)
-        _ = CFRunLoopRunInMode(.defaultMode, 1, true)
-        CFRunLoopTimerInvalidate(timer)
-        #expect(watch.wakes >= 1)
+        #expect(Self.runUntilItSleepsAndWakes(in: .defaultMode), "the default-mode loop never slept")
+        #expect(watch.wakes == 0, "a default-mode wait inside a handler counted as the person's dwell")
+        #expect(Self.runUntilItSleepsAndWakes(in: tracking), "the event-tracking loop never slept")
+        #expect(watch.wakes >= 1, "a menu's event-tracking loop was not counted")
         watch.end()
         let after = watch.wakes
-        _ = CFRunLoopRunInMode(.defaultMode, 0.05, false)
+        #expect(Self.runUntilItSleepsAndWakes(in: tracking), "the event-tracking loop never slept")
         #expect(watch.wakes == after, "an ended watch still counted")
+    }
+
+    /// Runs the main run loop in `mode` until it has slept and woken in that mode (a 20 ms timer wakes
+    /// it), as this test's own observer sees: the check after it then reads a wake that happened. One
+    /// `CFRunLoopRunInMode` pass is not enough: with `returnAfterSourceHandled` it returns as soon as
+    /// it serves the main queue or a source, without sleeping, and other tests' main-actor jobs keep
+    /// the main queue busy. False when no pass slept within a minute.
+    private static func runUntilItSleepsAndWakes(in mode: CFRunLoopMode) -> Bool {
+        var woke = false
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, _ in
+            woke = true
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, mode)
+        defer { CFRunLoopObserverInvalidate(observer) }
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !woke, ContinuousClock.now < deadline {
+            let timer = CFRunLoopTimerCreateWithHandler(nil, CFAbsoluteTimeGetCurrent() + 0.02, 0, 0, 0) { _ in }
+            CFRunLoopAddTimer(CFRunLoopGetMain(), timer, mode)
+            _ = CFRunLoopRunInMode(mode, 1, true)
+            CFRunLoopTimerInvalidate(timer)
+        }
+        return woke
     }
 
     // MARK: Previews

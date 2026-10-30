@@ -20,7 +20,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle", "gcp"]);
 
 /** A closed, actionable observed-destroy cleanup object. */
 export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
@@ -281,7 +281,7 @@ export const cloudRuntimeWorkspaces = pgTable("cloud_runtime_workspaces", {
   uniqueIndex("cloud_runtime_workspaces_workspace_id_unique").on(table.workspaceId),
   index("cloud_runtime_workspaces_owner_idx").on(table.ownerTeamId, table.updatedAt),
   check("cloud_runtime_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
-  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle')`),
+  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle', 'gcp')`),
 ]);
 
 /** A durable fan-out run. Source and recipe are immutable after creation. */
@@ -297,6 +297,13 @@ export const runs = pgTable(
     recipe: text("recipe").notNull(),
     provider: text("provider").notNull().default("cloud-vm"),
     desiredAttempts: integer("desired_attempts").notNull().default(1),
+    /** `sandboxed`: one throwaway VM from a pinned image, destroyed when the Run ends (hq#3367). */
+    environment: text("environment").$type<"persistent" | "sandboxed">().notNull().default("persistent"),
+    /** Manifest image the sandbox VM booted from; null for persistent Runs. */
+    imageId: text("image_id"),
+    imageVersion: text("image_version"),
+    /** A sandboxed Run's result receipt (`cmux.run.receipt/v1`); never provider handles or secrets. */
+    receipt: jsonb("receipt").$type<Record<string, unknown> | null>(),
     status: runStatus("status").notNull().default("queued"),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -312,6 +319,9 @@ export const runs = pgTable(
     index("runs_status_updated_idx").on(table.status, table.updatedAt),
     check("runs_desired_attempts_check", sql`${table.desiredAttempts} between 1 and 32`),
     check("runs_provider_check", sql`${table.provider} in ('cloud-vm')`),
+    check("runs_environment_check", sql`${table.environment} in ('persistent', 'sandboxed')`),
+    check("runs_sandboxed_single_attempt_check", sql`${table.environment} <> 'sandboxed' or (${table.desiredAttempts} = 1 and ${table.imageId} is not null and ${table.billingTeamId} is not null)`),
+    index("runs_environment_status_idx").on(table.environment, table.status).where(sql`${table.environment} = 'sandboxed'`),
   ],
 );
 

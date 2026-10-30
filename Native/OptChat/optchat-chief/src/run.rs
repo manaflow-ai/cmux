@@ -628,6 +628,9 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             "transcript" => "Reading the chat as you see it".to_owned(),
             "stop" => "Ending the turn".to_owned(),
             "sleep" => "Setting a wake-up".to_owned(),
+            "watch" => "Watching for a change".to_owned(),
+            "remember" => "Saving a preference".to_owned(),
+            "cloud_workspace" => "Starting a Cloud workspace".to_owned(),
             "control" => control_line(input),
             "peers" => "Looking up the other machines".to_owned(),
             "escalate_auth" => "Asking you to sign in".to_owned(),
@@ -1019,4 +1022,73 @@ pub fn chunks(steps: Vec<Value>) -> Vec<Vec<Value>> {
         out.push(current);
     }
     out
+}
+
+/// A dedicated completed record for reports from one assignment. It never shares the original
+/// turn's id, so a late report cannot revive a pruned turn or finish an active one.
+pub fn report_run_id(assignment: &str) -> String {
+    step_id("reports", assignment)
+}
+
+/// A report as bounded note steps. The generation keeps follow-up replies distinct;
+/// re-reading the same report upserts the same ids, including after a host restart.
+pub fn report_notes(
+    agent: &str,
+    session: &str,
+    started: u64,
+    floor: u64,
+    text: &str,
+) -> Vec<Value> {
+    let prefix = format!("[{agent}] ");
+    let limit = MAX_TEXT.saturating_sub(prefix.len());
+    let mut remaining = text;
+    let mut notes = Vec::new();
+    loop {
+        let mut end = remaining.len().min(limit);
+        while !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
+        let id = step_id(
+            "report",
+            &format!("{agent}:{session}:{started}:{floor}:{}", notes.len()),
+        );
+        notes.push(
+            json!({"id": id, "kind": "note", "text": format!("{prefix}{}", &remaining[..end])}),
+        );
+        remaining = &remaining[end..];
+        if remaining.is_empty() {
+            break;
+        }
+    }
+    notes
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+
+    #[test]
+    fn report_notes_preserve_multibyte_text_and_redelivery_identity() {
+        let text = "🦀 verified\n".repeat(4000);
+        let notes = report_notes("a1", "session", 100, 42, &text);
+        assert!(notes.len() > 1);
+        assert_eq!(notes, report_notes("a1", "session", 100, 42, &text));
+        let restored: String = notes
+            .iter()
+            .map(|note| {
+                let text = note["text"].as_str().unwrap();
+                assert!(text.len() <= MAX_TEXT);
+                text.strip_prefix("[a1] ").unwrap()
+            })
+            .collect();
+        assert_eq!(restored, text);
+        assert_ne!(
+            notes[0]["id"],
+            report_notes("a1", "session", 101, 42, "next")[0]["id"]
+        );
+        assert_ne!(
+            notes[0]["id"],
+            report_notes("a1", "new-session", 100, 42, "next")[0]["id"]
+        );
+    }
 }

@@ -123,9 +123,11 @@ final class NewTabInputCoordinator {
                   !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
             // Never from another cmux window the person moved to since Cmd-T: their keys go there.
+            // A Chromium page's own grant moves the keys to its page window: the shell does not take
+            // them first (one key-window change, #24913).
             if !window.isKeyWindow, NSApp.isActive {
                 guard Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) else { return false }
-                window.makeKey()
+                if view.chromiumPage == nil { window.makeKey() }
             }
             // The window refuses a page's web view outside an input event and the focus model's own
             // moves while the model names another pane (AgentPaneView.refusesSelfFocus), and the
@@ -166,8 +168,9 @@ final class NewTabInputCoordinator {
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
                   view.model.newTab != nil, let shown = view.window,
                   shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
-            // A Chromium page window or the old window may be key: the page's window takes it.
-            if !shown.isKeyWindow, NSApp.isActive { shown.makeKey() }
+            // A Chromium page window or the old window may be key: the page's window takes it. A
+            // Chromium page's grant (below) moves the keys itself: one key-window change (#24913).
+            if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { shown.makeKey() }
             target.pageWindow = shown
             if view.chromiumPage != nil {
                 view.focusChat()

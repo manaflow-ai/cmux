@@ -137,6 +137,32 @@ printf 'pub fn f() {}\n#[cfg(all(not(test), unix))]\nmod m {\n    fn t() { x.unw
 if out="$(ratchet)"; then fail "an unwrap in a cfg(all(not(test), unix)) module passed: $out"; fi
 reset
 
+# 8b. Out-of-line test-only modules (2026-10-24: shell_integration's `#[cfg(all(test, unix))] mod test_pty;`
+#     counted its unwraps as cmux-tui-core's): the file a `#[cfg(test)] mod name;` names (name.rs from lib.rs,
+#     owner/name.rs from owner.rs, name/mod.rs, a #[path]) and the files below it are cut; a plain `mod name;`
+#     and a `cfg(any(test, ...))` one still count.
+src="$tmp/cmux-tui/crates/x/src"
+mkdir -p "$src/shell/watch" "$src/helpers"
+printf 'pub mod shell;\n#[cfg(test)]\nmod helpers;\n#[cfg(all(test, target_os = "macos"))]\n#[path = "odd/place.rs"]\nmod placed;\n' > "$src/lib.rs"
+printf '#[cfg(all(test, unix))]\nmod test_pty;\n#[cfg(test)]\npub(crate) mod watch;\npub fn f() {}\n' > "$src/shell.rs"
+printf 'fn t() { a.unwrap(); b.expect("x"); }\n' > "$src/shell/test_pty.rs"
+printf 'mod deep;\nfn t() { a.unwrap(); }\n' > "$src/shell/watch/mod.rs"
+printf 'fn t() { a.unwrap(); }\n' > "$src/shell/watch/deep.rs"
+printf 'fn t() { a.unwrap(); }\n' > "$src/helpers/mod.rs"
+mkdir -p "$src/odd"
+printf 'fn t() { a.unwrap(); }\n' > "$src/odd/place.rs"
+g add -A
+out="$(ratchet)" || fail "an unwrap in an out-of-line cfg(test) module (or below one) counted: $out"
+printf 'pub mod shell;\n#[cfg(any(test, feature = "x"))]\nmod helpers;\n' > "$src/lib.rs"
+printf 'mod test_pty;\npub fn f() {}\n' > "$src/shell.rs"
+rm -r "$src/shell/watch" "$src/odd"
+g add -A
+if out="$(ratchet)"; then fail "an unwrap in a plain or cfg(any(test, ...)) out-of-line module passed: $out"; fi
+[[ "$out" == *"rust x: unwrap 0 -> 2"* ]] || fail "the plain and any(test) out-of-line hits are not reported: $out"
+[[ "$out" == *"rust x: expect 0 -> 1"* ]] || fail "the plain out-of-line expect is not reported: $out"
+g reset -q
+reset
+
 # 9. index_subscript and int_conversion (Lawrence, 2026-10-09) count only in the
 #    background, render and decoder modules; optional lookups, literal indexes,
 #    types and checked conversions do not count.
@@ -181,7 +207,7 @@ cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
 var counts: [String: Int] = [:]
 let e = UInt8(1 + x)
 SWIFT
-printf 'var counts: [Int] = []\nfunc f() { counts[k] += 1 }\nlet lines = text.split(separator: " ")\nvar tally = [String: Int]()\nlet t = tally[k] + lines[i]\nlet u = reduce(into: [:]) { into[k] = 1 }\n' > "$shared/Sources/MessagesLabHome/G.swift"
+printf 'var counts: [Int] = []\nfunc f() { counts[k] += 1 }\nlet lines = text.split(separator: " ")\nvar tally = [String: Int]()\nlet t = tally[k] + lines[i]\nlet u = reduce(into: [:]) { _ = into[k] }\n' > "$shared/Sources/MessagesLabHome/G.swift"
 g add -A
 if out="$(ratchet)"; then fail "an array subscript or a literal expression passed: $out"; fi
 # counts (also an array), lines (inferred) and into (a call label) count; tally does not.
@@ -307,6 +333,41 @@ g add -A
 if out="$(ratchet)"; then fail "a qualified array member, an init label or a nested radix passed: $out"; fi
 [[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "transport.pending[i], self.transport.pending[i] or rows[j] was exempt: $out"
 [[ "$out" == *"swift MessagesLabHome: int_conversion 0 -> 1"* ]] || fail "the nested radix exempted UInt8(...): $out"
+g reset -q
+reset
+
+# 19. Dictionaries with an inferred or call-built type (lead, 2026-10-24; PL-main's push of
+#     DaemonStore+SnapshotDiff.swift was refused for 3 lines that cannot trap): an assignment
+#     through a subscript on a name not known to be indexable does not count (a Dictionary
+#     cannot trap there), a `.reduce(into: [:])` / `Dictionary(...)` value is a dictionary for
+#     reads too, and a true array or Data index still counts, read or assigned.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func record(memo: Memo, tree: Tree, workspaces: [WorkspaceModel]) {
+    var applied = memo.applied
+    for (id, snapshot) in tree.pairs { applied[id] = snapshot }
+    applied[id] = nil
+    var existing = workspaces.reduce(into: [:]) { $0[$1.id] = $1 }
+    for model in workspaces { existing[model.id] = model }
+    let seen = existing[key]
+    let byKey = Dictionary(uniqueKeysWithValues: tree.pairs)
+    _ = byKey[key]
+}
+SWIFT
+g add -A
+out="$(ratchet)" || fail "a dictionary subscript with an inferred or call-built type counted: $out"
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+func f(memo: Memo) {
+    var rows: [Int] = []
+    rows[i] = 1
+    var bytes = Data()
+    bytes[n] = 0
+    var applied = memo.applied
+    let v = applied[i]
+}
+SWIFT
+g add -A
+if out="$(ratchet)"; then fail "an array or Data index, or an inferred read, passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "rows[i] = 1, bytes[n] = 0 or applied[i] (a read) was exempt: $out"
 g reset -q
 reset
 

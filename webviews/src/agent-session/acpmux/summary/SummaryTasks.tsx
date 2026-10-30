@@ -15,7 +15,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
-import { arrivalKey, type BackgroundCommand, splitCommands } from "../inspector/processes";
+import { arrivalKey, type BackgroundCommand, sendLabel, splitCommands } from "../inspector/processes";
 import { COMMAND_STATE, StopButton } from "../inspector/TasksSection";
 
 const ROW_ICON = rowIconSize(12);
@@ -49,6 +49,8 @@ export function SummaryTasks({
     const key = arrivalKey(command);
     const enters = live && arrived.has(key);
     const detail = command.description && command.description !== command.command ? command.description : undefined;
+    // A background `acpmux send` names who it goes to, as Session Info's tasks and the tray do.
+    const sent = sendLabel(t, command);
     return (
       // Keyed as it arrives, by the call that started it, so the registry listing it keeps the row.
       <li
@@ -70,8 +72,8 @@ export function SummaryTasks({
         >
           <Icon name="terminal" size={ROW_ICON} row />
           <span className="acpmux-summary-text acpmux-summary-task__body">
-            <span className="acpmux-summary-task__description">{detail ?? command.command}</span>
-            {detail && <span className="acpmux-summary-task__command">{command.command}</span>}
+            <span className="acpmux-summary-task__description">{sent ?? detail ?? command.command}</span>
+            {(sent || detail) && <span className="acpmux-summary-task__command">{command.command}</span>}
           </span>
           <span className="acpmux-summary-meta">
             {live && command.startedAt !== undefined

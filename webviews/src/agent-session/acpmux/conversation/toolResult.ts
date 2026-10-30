@@ -88,27 +88,101 @@ const isBlocks = (value: unknown): value is Block[] =>
 /// its image blocks as data URLs, each once, when they all go to the call's strip instead.
 type Peeled = { texts: string[]; rest: unknown[]; images?: string[] };
 
+type ImageScan = { sources: Set<string>; invalid: boolean };
+
+function imageSource(block: Block): string {
+  return `data:${String(block.mimeType)};base64,${String(block.data)}`;
+}
+
+/// Collect every image in an envelope, including envelopes nested in text, JSON-RPC results, and
+/// Codex output. One bad image or too many distinct images vetoes the whole strip, so the text and
+/// the strip always agree.
+function scanImages(value: unknown, depth: number, scan: ImageScan): boolean {
+  if (depth > MAX_DEPTH) return false;
+  if (isBlocks(value) || isBlock(value)) {
+    for (const block of (Array.isArray(value) ? value : [value]) as Block[]) scanBlockImages(block, depth, scan);
+    return true;
+  }
+  if (!isRecord(value)) return false;
+  if (
+    Array.isArray(value.content) &&
+    (value.content.length === 0 || isBlocks(value.content)) &&
+    onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
+  ) {
+    for (const block of value.content as Block[]) scanBlockImages(block, depth, scan);
+    return true;
+  }
+  if (("result" in value || "error" in value) && onlyKeys(value, ["result", "error", "_meta", "id", "jsonrpc"])) {
+    if (value.error !== undefined && value.error !== null) return true;
+    const result = value.result;
+    if (result !== undefined && result !== null) {
+      if (typeof result === "string") scanNestedText(result, depth + 1, scan);
+      else scanImages(result, depth + 1, scan);
+    }
+    return true;
+  }
+  if (typeof value.output === "string" && "metadata" in value && onlyKeys(value, ["output", "metadata"])) {
+    scanNestedText(value.output, depth + 1, scan);
+    return true;
+  }
+  return false;
+}
+
+function scanNestedText(text: string, depth: number, scan: ImageScan) {
+  const nested = parseJSONValue(text);
+  if (nested === undefined) return;
+  // A nested envelope with an unsafe number must stay byte-for-byte text, including its images.
+  if (losesNumbers(text)) {
+    if (peelEnvelope(nested)) scan.invalid = true;
+    return;
+  }
+  scanImages(nested, depth, scan);
+}
+
+function scanBlockImages(block: Block, depth: number, scan: ImageScan) {
+  if (block.type === "content") {
+    scanBlockImages(block.content as Block, depth + 1, scan);
+    return;
+  }
+  if (block.type === "image") {
+    const { data, mimeType } = block as { data: string; mimeType: string };
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(mimeType) || data.length > MAX_IMAGE_CHARS) {
+      scan.invalid = true;
+      return;
+    }
+    scan.sources.add(imageSource(block));
+    if (scan.sources.size > MAX_TOOL_IMAGES) scan.invalid = true;
+    return;
+  }
+  if (block.type === "text") scanNestedText(block.text as string, depth + 1, scan);
+}
+
+function imageStrip(value: unknown): Set<string> {
+  const scan: ImageScan = { sources: new Set(), invalid: false };
+  scanImages(value, 0, scan);
+  return scan.invalid ? new Set() : scan.sources;
+}
+
 /// The image blocks among `blocks` as data URLs, each once, when every one can go to the call's
 /// strip: a PNG, JPEG, GIF or WebP under the size cap, at most `MAX_TOOL_IMAGES` different ones.
 /// Otherwise undefined, and every one stays JSON, as when the envelope holds no image.
-function stripImages(blocks: Block[]): string[] | undefined {
+function stripImages(blocks: Block[], allowed: ReadonlySet<string>): string[] {
   const images = new Set<string>();
   for (let block of blocks) {
     while (block.type === "content") block = block.content as Block;
-    if (block.type !== "image") continue;
-    const { data, mimeType } = block as { data: string; mimeType: string };
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(mimeType) || data.length > MAX_IMAGE_CHARS) return undefined;
-    images.add(`data:${mimeType};base64,${data}`);
-    if (images.size > MAX_TOOL_IMAGES) return undefined;
+    if (block.type === "image") {
+      const source = imageSource(block);
+      if (allowed.has(source)) images.add(source);
+    }
   }
-  return images.size ? [...images] : undefined;
+  return [...images];
 }
 
 /// One block's text (a text resource's after its URI), nothing for an image in the strip, or the
 /// block itself as JSON.
 function peelBlock(block: Block, into: Peeled) {
   if (block.type === "content") return peelBlock(block.content as Block, into);
-  if (block.type === "image" && into.images) return;
+  if (block.type === "image" && into.images?.includes(imageSource(block))) return;
   const resource = block.resource as Record<string, unknown> | undefined;
   if (block.type === "text") into.texts.push(block.text as string);
   else if (
@@ -136,16 +210,16 @@ function repeated(texts: string[], structured: unknown): number {
 const says = (peeled: Peeled) => peeled.texts.some((text) => text.trim());
 
 /// The parts of `value` when it is an envelope a harness wrapped a result in, else undefined.
-/// `strip`: whether its images may go to the call's strip (only a plain MCP envelope's: its blocks,
-/// or a `CallToolResult`'s, never one inside a JSON-RPC result or inside text).
-export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled | undefined {
+/// `images`: the approved image sources that may go to the call's strip, including envelopes nested
+/// in text, JSON-RPC results, and Codex output.
+export function peelEnvelope(value: unknown, depth = 0, images?: ReadonlySet<string>): Peeled | undefined {
   if (depth > MAX_DEPTH) return undefined;
   // A list of content blocks, or one block. Blocks with no text to read (audio alone) stay JSON.
   if (isBlocks(value) || isBlock(value)) {
     const blocks = Array.isArray(value) ? value : [value];
-    const peeled: Peeled = { texts: [], rest: [], images: strip ? stripImages(blocks) : undefined };
+    const peeled: Peeled = { texts: [], rest: [], images: images ? stripImages(blocks, images) : undefined };
     for (const block of blocks) peelBlock(block, peeled);
-    return says(peeled) || peeled.images ? peeled : undefined;
+    return says(peeled) || Boolean(peeled.images?.length) ? peeled : undefined;
   }
   if (!isRecord(value)) return undefined;
   // An MCP `CallToolResult`: its blocks, then its structured content as JSON. A text block that
@@ -156,7 +230,7 @@ export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled |
     onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
   ) {
     const blocks = value.content as Block[];
-    const peeled: Peeled = { texts: [], rest: [], images: strip ? stripImages(blocks) : undefined };
+    const peeled: Peeled = { texts: [], rest: [], images: images ? stripImages(blocks, images) : undefined };
     for (const block of blocks) peelBlock(block, peeled);
     const structured = value.structuredContent;
     if (structured !== undefined && structured !== null) {
@@ -182,7 +256,7 @@ export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled |
     const result = value.result;
     if (result === undefined || result === null) return { texts: [], rest: [] };
     if (typeof result === "string") return { texts: [result], rest: [] };
-    return peelEnvelope(result, depth + 1) ?? { texts: [], rest: [result] };
+    return peelEnvelope(result, depth + 1, images) ?? { texts: [], rest: [result] };
   }
   // Codex's function call output: `{"output": "…", "metadata": {"exit_code": 0, …}}`.
   if (typeof value.output === "string" && "metadata" in value && onlyKeys(value, ["output", "metadata"]))
@@ -250,15 +324,23 @@ export function toolResult(output: string, clean: (text: string) => string = ide
 const identity = (text: string) => text;
 type Read = ToolResult & { images: string[] };
 
+function orderedImages(images: string[], allowed: ReadonlySet<string>): string[] {
+  if (!allowed.size) return images;
+  return [...allowed].filter((source) => images.includes(source));
+}
+
 function read(output: string, clean: (text: string) => string, strip: boolean): Read {
   const parsed = parseJSONValue(output);
   // Only an envelope the output is, as it came, gives its images to the strip, and never one holding
   // a number a double would change: that one shows as printed, its images included.
-  if (parsed !== undefined) return fromJSON(parsed, output, 0, clean, strip && !losesNumbers(output));
+  if (parsed !== undefined) {
+    const allowed = strip && !losesNumbers(output) ? imageStrip(parsed) : new Set<string>();
+    return fromJSON(parsed, output, 0, clean, allowed);
+  }
   // A host may have put its context around the JSON (a reminder after a result): read it again without.
   const cleaned = clean(output).replace(/\n$/, "");
   const reparsed = cleaned === output ? undefined : parseJSONValue(cleaned);
-  if (reparsed !== undefined) return fromJSON(reparsed, cleaned, 0, clean, false);
+  if (reparsed !== undefined) return fromJSON(reparsed, cleaned, 0, clean, new Set<string>());
   return { text: cleaned, lang: "text", images: [] };
 }
 
@@ -267,28 +349,46 @@ function fromJSON(
   printed: string,
   depth: number,
   clean: (text: string) => string,
-  strip: boolean,
+  allowed: ReadonlySet<string>,
 ): Read {
-  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, strip) : undefined;
+  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, allowed) : undefined;
   // An envelope with nothing in it shows as the JSON it is, and so does one whose other parts
   // cannot be printed again unchanged (a number a double rounds, nesting too deep).
-  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images) peeled = undefined;
+  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images?.length) peeled = undefined;
   if (peeled?.rest.length && (losesNumbers(printed) || !peeled.rest.every(printable))) peeled = undefined;
   // Its images, when the strip shows them: its text below leaves them out, so each shows once.
-  const images = peeled?.images ?? [];
+  let images = peeled?.images ?? [];
   if (peeled) {
-    const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
+    // A text block can itself hold an envelope while this envelope also has structured content.
+    // Remove only a nested envelope that actually contributed approved strip images; ordinary JSON
+    // text keeps its original spelling and formatting.
+    const textParts = peeled.texts.map((part) => {
+      const inner = parseJSONValue(part);
+      if (inner === undefined) return part;
+      const nested = fromJSON(inner, part, depth + 1, clean, allowed);
+      if (!nested.images.length) return part;
+      images = [...nested.images.filter((image) => !images.includes(image)), ...images];
+      return nested.text;
+    });
+    const text = clean(textParts.join("\n\n")).replace(/\n$/, "");
     if (peeled.rest.length) {
       // Text, then what the envelope held besides, each as the JSON it is: the payload, not a wrapper.
       const rest = peeled.rest.map((part) => JSON.stringify(part, null, 2) ?? "");
       const lang = text.trim() ? "text" : "json";
-      return { text: [text, ...rest].filter((part) => part.trim()).join("\n\n"), lang, images };
+      return {
+        text: [text, ...rest].filter((part) => part.trim()).join("\n\n"),
+        lang,
+        images: orderedImages(images, allowed),
+      };
     }
-    // The text inside is JSON again: an envelope in an envelope (its images stay JSON), or a JSON result.
+    // The text inside is JSON again: an envelope in an envelope, or a JSON result.
     const inner = parseJSONValue(text);
-    if (inner !== undefined) return { ...fromJSON(inner, text, depth + 1, clean, false), images };
+    if (inner !== undefined) {
+      const nested = fromJSON(inner, text, depth + 1, clean, allowed);
+      return { ...nested, images: orderedImages([...nested.images, ...images], allowed) };
+    }
     const markdown = text.length <= MAX_MARKDOWN_CHARS && MARKDOWN.test(text);
-    return { text, lang: markdown ? "markdown" : "text", images };
+    return { text, lang: markdown ? "markdown" : "text", images: orderedImages(images, allowed) };
   }
   // JSON the tool returned. On one line it is indented, unless that would change it (a number a
   // double rounds) or it is nested too deep; printed on lines (a file it read) it stays as printed.
@@ -302,7 +402,7 @@ const imagesCache = new Map<string, string[]>();
 /// true)` leaves out of its text (which `clean` never changes). Kept for the last few outputs, so a
 /// transcript re-render parses nothing again.
 export function envelopeImages(output: string | undefined): string[] {
-  if (!output || !output.includes("image")) return [];
+  if (!output) return [];
   const known = imagesCache.get(output);
   if (known) return known;
   const images = read(output, identity, true).images;

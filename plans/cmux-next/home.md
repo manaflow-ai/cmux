@@ -120,7 +120,10 @@ Agent turn budget (owner-enforced, head loop guard, per thread since 2026-10-14)
 `agent_text_streak` (agent text messages at the top level since its last human text message),
 `thread_agent_streaks` (the same per thread root, only threads above 0, absent when empty) and
 `last_agent_text_at`; an agent text `message.send` is refused with `agent_budget` when the streak of
-the thread it joins is 6 and with `agent_rate` within 2 s of the last agent text in the conversation.
+the thread it joins is 6 and with `agent_rate` within 2 s of the last agent text in the conversation,
+once that streak has reached the number of agents in the conversation (since 2026-10-28: the first round
+after a person's text is free of the gap, so every Chief in a group answers the person at once; agent-to-agent
+texts after it stay spaced).
 A person's text (or question answer) resets its own thread only; agents in two threads do not spend
 each other's budget. Hosts and pages compute the same count from rows (`thread_agent_streak`;
 "Chiefs paused" when it is at the budget). Text-less work cards neither count nor reset it, and

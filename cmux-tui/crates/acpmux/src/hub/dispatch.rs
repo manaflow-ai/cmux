@@ -1,4 +1,5 @@
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
 
@@ -10,8 +11,9 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
-    pub(crate) fn open() -> Self {
-        let path = crate::config::home().join("briefs.json");
+    /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
+    pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
+        let Some(path) = path else { return Self::default() };
         let (rows, load_failed) = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(rows) => (rows, false),
@@ -48,7 +50,7 @@ impl Briefs {
         }
         let mut row = json!({"briefId": id, "status": "starting"});
         if let Some(key) = key {
-            row["idempotencyKey"] = json!(key);
+            row.set("idempotencyKey", json!(key));
         }
         rows.insert(id.to_owned(), row);
         self.save(&rows);
@@ -76,7 +78,7 @@ impl Briefs {
             .filter(|id| !id.is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
-        row["briefId"] = json!(id);
+        row.set("briefId", json!(id));
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         rows.insert(id, row.clone());
         self.save(&rows);
@@ -85,15 +87,6 @@ impl Briefs {
 
     pub(crate) fn get(&self, id: &str) -> Option<Value> {
         self.rows.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
-    }
-
-    pub(crate) fn by_idempotency(&self, key: &str) -> Option<Value> {
-        self.rows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
-            .cloned()
     }
 
     pub(crate) fn update(&self, id: &str, patch: impl FnOnce(&mut Value)) -> Option<Value> {
@@ -115,6 +108,12 @@ impl Briefs {
         }
     }
 
+    /// Every row `keep` keeps, unpaged: for the daemon's own sweeps, not for a client.
+    pub(crate) fn matching(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        rows.values().filter(|row| keep(row)).cloned().collect()
+    }
+
     pub(crate) fn list(&self, status: Option<&str>, limit: usize) -> Vec<Value> {
         let rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         rows.values()
@@ -122,9 +121,22 @@ impl Briefs {
                 status.is_none_or(|want| v.get("status").and_then(Value::as_str) == Some(want))
             })
             .rev()
-            .take(limit.max(1).min(500))
+            .take(limit.clamp(1, 500))
             .cloned()
             .collect()
+    }
+}
+
+impl Hub {
+    /// Whether a brief row is one this daemon ran: still being claimed (no session and no host
+    /// yet), or its session is one of this host's, open or closed. A row a peer ran (this host's
+    /// copy of a brief it dispatched there, `server/requests.rs`) names a session it never had.
+    pub(crate) fn brief_ran_here(&self, row: &Value) -> bool {
+        let Some(id) = row.get("sessionId").and_then(Value::as_str) else {
+            return row.get("host").is_none();
+        };
+        self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(id)
+            || matches!(self.store.load(id), Ok(Some(_)))
     }
 }
 

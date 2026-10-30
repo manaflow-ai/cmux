@@ -46,6 +46,31 @@ import Testing
         #expect(services.linkOpener.source(containing: NSView(), in: [focused, chat]) == nil)
     }
 
+    /// Leo 2026-10-21: a Cmd-clicked link with no pane on the right showed in the clicked pane first, then
+    /// moved into the new split (two animations). The tab that the split takes is asked of the daemon
+    /// unselected, so the clicked pane keeps showing its own tab and only the split animates.
+    @Test func aLinkBoundForANewSplitNeverTakesTheClickedPane() async throws {
+        let (services, source, other) = try Self.panes()
+        defer { source.teardown(); other.teardown() }
+        let browserTabs = services.cache.browserTabs
+        browserTabs.serves = { _ in true }
+        browserTabs.cefUnavailable = { nil }
+        services.linkOpener.placement = { .splitRight }
+        let link = try #require(URL(string: "https://example.com/"))
+        let activated = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            browserTabs.create = { _, _, _, _, _, activate, _ in
+                done.resume(returning: activate)
+                throw CancellationError()
+            }
+            // A refused open never asks the daemon: fail here rather than wait forever.
+            if !services.linkOpener.openWeb(link, from: source, background: false) {
+                Issue.record("the Cmd-click opened nothing")
+                done.resume(returning: true)
+            }
+        }
+        #expect(!activated, "the split's tab was made the clicked pane's selected tab before it moved")
+    }
+
     /// cmux's own default: Command-click in a browser page goes to the pane on the right.
     @Test func theAppsBrowserMappingSendsCommandClickRight() {
         let mapping = BrowserLinkClickMapping(BrowserLinkClickSetting.fallback)

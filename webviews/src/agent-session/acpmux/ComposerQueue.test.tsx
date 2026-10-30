@@ -170,6 +170,35 @@ test("Steer sends the prompt now through the queue's steer path; Delete withdraw
   expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
 });
 
+test("a successful Steer hides its action before the next queue snapshot", async () => {
+  let resolve: ((ok: boolean) => void) | undefined;
+  const container = await render(
+    () => new Promise<boolean>((done) => (resolve = done)),
+    async () => true,
+  );
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "steer",
+    "delete",
+    "queued-more",
+  ]);
+  await act(async () => {
+    actions(container, "p-2")[0]!.click();
+  });
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "steer",
+    "delete",
+    "queued-more",
+  ]);
+  await act(async () => {
+    resolve!(true);
+    await Promise.resolve();
+  });
+  expect(actions(container, "p-2").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "delete",
+    "queued-more",
+  ]);
+});
+
 test("the ⋯ menu holds Edit message and Turn off queueing; Edit message opens the text in its row", async () => {
   const container = await render(
     async () => true,
@@ -276,6 +305,47 @@ async function renderPictured(onChange: (id: string, edit: QueueEdit) => Promise
   });
   return container;
 }
+
+test("cancel and edit withdraws a queued prompt and restores its text and images", async () => {
+  const restored: [string, string, { id: string; data?: string }[]][] = [];
+  const cancelQueue = [
+    {
+      ...pictured[0]!,
+      images: [pictured[0]!.images![0]!, { ...pictured[0]!.images![1]!, src: undefined }],
+    },
+  ];
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={cancelQueue}
+        chat="c"
+        t={t}
+        onCancelEdit={async (id, text, attachments) => {
+          restored.push([id, text, attachments.map(({ id: imageId, data }) => ({ id: imageId, data }))]);
+          return true;
+        }}
+        readImage={async (id) => (id === SHOT_B ? "data:image/png;base64,Qg==" : undefined)}
+      />,
+    );
+  });
+  const cancel = container.querySelector<HTMLButtonElement>('[data-prompt-id="p-1"] [data-action="cancel-edit"]');
+  expect(cancel?.querySelector("svg")?.dataset.icon).toBe("action.close");
+  await act(async () => cancel!.click());
+  await settle();
+  expect(restored).toEqual([
+    [
+      "p-1",
+      "why does this overlap?",
+      [
+        { id: SHOT_A, data: "QQ==" },
+        { id: SHOT_B, data: "Qg==" },
+      ],
+    ],
+  ]);
+  expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
+});
 
 const thumbnails = (container: HTMLElement) => [
   ...container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image'),
@@ -465,4 +535,251 @@ test("a queued image acpmux has no bytes for reads as missing, one being read as
   expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "reading" }]);
   await act(async () => finish(undefined));
   expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "missing" }]);
+});
+
+// A shared chat: a teammate's queued prompt names them, and only they may change it (acpmux
+// refuses another author's edit with `queue.not_author`), so its row has no actions and no keys.
+test("a teammate's queued prompt shows their name and offers no action", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const removed: string[] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[{ id: "p-ana", prompt: "from ana", author: ana }, ...queue]}
+        chat="c"
+        t={t}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async (id) => {
+          removed.push(id);
+          return true;
+        }}
+      />,
+    );
+  });
+  const row = container.querySelector<HTMLElement>('[data-prompt-id="p-ana"]')!;
+  expect(row.querySelector(".cv-author--inline .cv-author__name")?.textContent).toBe("Ana");
+  expect(actions(container, "p-ana")).toEqual([]);
+  expect(row.getAttribute("aria-keyshortcuts")).toBeNull();
+  row.focus();
+  for (const init of [{ key: "Enter" }, { key: "Backspace" }, { key: "ArrowDown", altKey: true }])
+    await act(async () => {
+      row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { ...init, bubbles: true }));
+    });
+  expect(container.querySelector('[data-prompt-id="p-ana"] textarea')).toBeNull();
+  expect(edits).toEqual([]);
+  expect(removed).toEqual([]);
+  // The person's own rows keep their actions.
+  expect(actions(container, "p-1").map((b) => b.dataset.action ?? b.dataset.menu)).toEqual([
+    "steer",
+    "delete",
+    "queued-more",
+  ]);
+});
+
+// Every other path to a queue change stays shut on a teammate's row: its right-click opens no menu
+// (so no Steer, Edit, move, side chat or Delete), it has no cancel-and-edit, and a neighbour's move
+// never passes it (each row a move passes shifts one place).
+test("a teammate's queued prompt has no menu and no neighbour moves it", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const touched: string[] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[queue[0]!, { id: "p-ana", prompt: "from ana", author: ana }, queue[1]!]}
+        chat="c"
+        t={t}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async (id) => {
+          touched.push(`remove ${id}`);
+          return true;
+        }}
+        onSideChat={async (id) => {
+          touched.push(`side ${id}`);
+          return true;
+        }}
+        onCancelEdit={async (id) => {
+          touched.push(`cancel ${id}`);
+          return true;
+        }}
+      />,
+    );
+  });
+  const row = (id: string) => container.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
+  const menuItems = () => [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  // On the row's menu host, as a right-click on its text lands.
+  const rightClick = async (row: HTMLElement) => {
+    const target = row.querySelector<HTMLElement>(".acpmux-queued-menu")!;
+    let opened = false;
+    await act(async () => {
+      opened = !target.dispatchEvent(
+        new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    await settle();
+    return opened;
+  };
+  expect(await rightClick(row("p-ana"))).toBe(false);
+  expect(menuItems()).toEqual([]);
+  expect(row("p-ana").querySelector('[data-action="cancel-edit"]')).toBeNull();
+  expect(actions(container, "p-1").some((b) => b.dataset.action === "cancel-edit")).toBe(true);
+  // Alt+↓ on the row above Ana's, and Alt+↑ on the row below it, change nothing.
+  for (const [id, key] of [
+    ["p-1", "ArrowDown"],
+    ["p-2", "ArrowUp"],
+  ] as const) {
+    row(id).focus();
+    await act(async () => {
+      row(id).dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
+    });
+  }
+  expect(edits).toEqual([]);
+  // The own row's menu offers the move only where it passes no teammate.
+  expect(await rightClick(row("p-1"))).toBe(true);
+  const down = menuItems().find((item) => itemLabel(item) === "composer.queueMoveDown");
+  expect(down?.hasAttribute("disabled") || down?.getAttribute("aria-disabled") === "true").toBe(true);
+  await act(async () => down!.click());
+  await settle();
+  expect(edits).toEqual([]);
+  expect(touched).toEqual([]);
+});
+
+// An edit opened while the row named no author, then the authored record comes in (an attach page
+// replayed, a teammate's own edit): the editor closes, nothing is saved to the teammate's prompt,
+// and what the person typed goes back to the composer.
+test("an open edit closes, unsaved, when the row turns out to be a teammate's", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const lost: [string, string][] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  const draw = (rows: Array<{ id: string; prompt: string; author?: typeof ana }>) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async () => true}
+        onLost={(text, id) => lost.push([id, text])}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  await startEdit(container, "p-1");
+  const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
+  await act(async () => {
+    field.value = "first, reworded";
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => draw([{ ...queue[0]!, author: ana }, queue[1]!]));
+  await settle();
+  expect(container.querySelector('[data-prompt-id="p-1"] textarea')).toBeNull();
+  expect(lost).toEqual([["p-1", "first, reworded"]]);
+  expect(edits).toEqual([]);
+  expect(actions(container, "p-1")).toEqual([]);
+});
+
+// The app's right-click menu is a native one (ui/nativeMenu.ts): it keeps the actions it opened
+// with. Picked after the row turned out to be a teammate's, none runs.
+test("a row menu opened before the row turned out to be a teammate's changes nothing", async () => {
+  const { installNativeMenu } = await import("../../ui/nativeMenu");
+  const touched: string[] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  let answer: (reply: unknown) => void = () => {};
+  const offered: string[] = [];
+  installNativeMenu(
+    (request) =>
+      new Promise((resolve) => {
+        offered.push(...request.items.map((row) => row.id));
+        answer = resolve;
+      }),
+  );
+  const draw = (rows: Array<{ id: string; prompt: string; author?: typeof ana }>) =>
+    root!.render(
+      <ComposerQueue
+        queue={rows}
+        chat="c"
+        t={t}
+        onChange={async (id) => {
+          touched.push(`change ${id}`);
+          return true;
+        }}
+        onRemove={async (id) => {
+          touched.push(`remove ${id}`);
+          return true;
+        }}
+      />,
+    );
+  try {
+    await act(async () => {
+      root = createRoot(container);
+      draw(queue);
+    });
+    const target = container.querySelector<HTMLElement>('[data-prompt-id="p-1"] .acpmux-queued-menu')!;
+    await act(async () => {
+      target.dispatchEvent(
+        new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    await settle();
+    const remove = offered.find((id) => id === "delete");
+    expect(remove).toBeDefined();
+    // Ana's authored record lands while the menu is up; then the person picks Delete.
+    await act(async () => draw([{ ...queue[0]!, author: ana }, queue[1]!]));
+    await act(async () => answer({ picked: remove }));
+    await settle();
+    expect(touched).toEqual([]);
+  } finally {
+    installNativeMenu(null);
+  }
+});
+
+test("an edit pulled back while its images load, from a row that turned out a teammate's, takes nothing", async () => {
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  const touched: string[] = [];
+  // Every read (the thumbnail's and the pull-back's) waits until the test lets them all finish.
+  const reads: Array<(url: string | undefined) => void> = [];
+  const rows = [{ id: "p-2", prompt: "see", images: [{ id: SHOT_A, mimeType: "image/png", name: "shot.png" }] }];
+  const draw = (queue: Array<(typeof rows)[number] & { author?: typeof ana }>) =>
+    root!.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        readImage={() => new Promise<string | undefined>((resolve) => reads.push(resolve))}
+        onCancelEdit={async (id) => {
+          touched.push(`cancel ${id}`);
+          return true;
+        }}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(rows);
+  });
+  const pullBack = actions(container, "p-2").find((b) => b.dataset.action === "cancel-edit")!;
+  await act(async () => pullBack.click());
+  // Ana's authored record lands while the image is read; then the read finishes.
+  await act(async () => draw([{ ...rows[0]!, author: ana }]));
+  await act(async () => reads.splice(0).forEach((read) => read("data:image/png;base64,QQ==")));
+  await settle();
+  expect(touched).toEqual([]);
 });

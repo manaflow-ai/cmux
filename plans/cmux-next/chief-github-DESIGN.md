@@ -1,6 +1,9 @@
 # GitHub sign-in for every Chief
 
 Status: design and v1, 2026-10-24. Branch `feat-cmux-next`.
+Superseded for the local Chief by [chief-toolpacks-DESIGN.md](chief-toolpacks-DESIGN.md): section 4 is now
+the GitHub tool pack (`optchat-chief/toolpacks/github/pack.toml`) over `toolpacks.rs`; the verbs, keychain
+service and files below are unchanged. Section 3 (the Worker) still holds.
 User (Lawrence, 2026-10-23): GitHub sign-in is a default onboarding step for every Chief, not one.
 Default is the gh device flow, shown as a tappable card in chat (works from the iPhone), polled where
 it survives the turn, the token kept per Chief in a secret store and given to the Chief's `gh` and

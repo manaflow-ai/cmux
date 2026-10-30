@@ -8,12 +8,22 @@
 //! but never sent are still in the segment: the daemon hands the segment to
 //! a new holder, which continues the same ring, and the daemon re-attaches
 //! from the last offset it parsed. Only the bytes of a `read` whose end the
-//! holder had not published yet are lost (the instructions between the
-//! `read` returning and the store of the new end).
+//! holder had not published yet are lost (a holder killed inside the `read`
+//! or between its return and the store of the new end): the kernel took
+//! them from the PTY, and nobody knows how many there were. Such a loss is
+//! never silent: before each `read` the holder publishes `reading` (the
+//! offset the read starts at, plus one) and clears it after it published
+//! the new end. A segment whose `reading` names its own `end` belonged to a
+//! holder that died inside a read ([`interrupted_read`]): the daemon then
+//! marks a discontinuity at that offset (its parser gets CAN there, and
+//! the loss is logged) instead of splicing the bytes before and after.
 //!
 //! Layout 2 (little endian, [`HEADER`] bytes, then `capacity` data bytes):
 //! `magic "CMHR" | layout u32 | capacity u64 | base u64 | end u64 |
-//! oldest u64`. `base` is the offset of the first byte the ring ever held;
+//! oldest u64 | reading u64`. `reading` is 0 when no read is in flight (a
+//! segment of a holder that never wrote it reads 0 too: its header bytes
+//! past `oldest` are the zeros `ftruncate` made). `base` is the offset of
+//! the first byte the ring ever held;
 //! the byte at offset `o` is at data position `o % capacity`; the ring keeps
 //! `oldest .. end`, where `oldest` is at least `max(base, end - capacity)`.
 //! A write that reuses the room of kept bytes first publishes the new
@@ -34,6 +44,7 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Header bytes before the data.
@@ -52,6 +63,8 @@ const OFF_CAPACITY: usize = 8;
 const OFF_BASE: usize = 16;
 const OFF_END: usize = 24;
 const OFF_OLDEST: usize = 32;
+/// `reading`: 1 + the offset a `read` in flight started at, 0 for none.
+const OFF_READING: usize = 40;
 
 /// The last `capacity` bytes a terminal printed. Offsets count from the
 /// terminal's first byte (or from the base an adoption continues from), so a
@@ -70,7 +83,8 @@ pub struct Ring {
     /// The offset after the newest byte; mirrors the header's `end`.
     end: u64,
     /// The shared segment, `None` for a private ring (no shared memory).
-    segment: Option<OwnedFd>,
+    /// Shared with each frame that passes it ([`Self::segment`]).
+    segment: Option<Arc<OwnedFd>>,
 }
 
 // SAFETY: the mapping is owned by this value and only reached through
@@ -138,10 +152,10 @@ impl Ring {
         // SAFETY: the header mapping is HEADER bytes; reads are in bounds.
         let (magic, layout, capacity, base, end, published_oldest) = unsafe {
             let bytes = std::slice::from_raw_parts(header, HEADER);
-            let magic: [u8; 4] = bytes[..4].try_into().unwrap_or_default();
-            let layout = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or_default());
-            let capacity = u64::from_le_bytes(bytes[8..16].try_into().unwrap_or_default());
-            let base = u64::from_le_bytes(bytes[16..24].try_into().unwrap_or_default());
+            let magic: [u8; 4] = chunk_at(bytes, 0).unwrap_or_default();
+            let layout = chunk_at(bytes, 4).map_or(0, u32::from_le_bytes);
+            let capacity = chunk_at(bytes, 8).map_or(0, u64::from_le_bytes);
+            let base = chunk_at(bytes, 16).map_or(0, u64::from_le_bytes);
             let end = (*header.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
             let oldest = (*header.add(OFF_OLDEST).cast::<AtomicU64>()).load(Ordering::Acquire);
             libc::munmap(header.cast(), HEADER);
@@ -165,8 +179,16 @@ impl Ring {
         let capacity = capacity as usize;
         let map_len = HEADER + capacity;
         let map = map_shared(segment.as_raw_fd(), map_len)?;
-        let mut ring =
-            Self { map, map_len, capacity, base, layout, oldest, end, segment: Some(segment) };
+        let mut ring = Self {
+            map,
+            map_len,
+            capacity,
+            base,
+            layout,
+            oldest,
+            end,
+            segment: Some(Arc::new(segment)),
+        };
         // This build publishes `oldest` from here on, whatever the layout
         // says (a layout 1 segment's `oldest` word read 0 until then).
         ring.write_header();
@@ -190,7 +212,11 @@ impl Ring {
     }
 
     /// The shared segment, to pass to the daemon; `None` for a private ring.
-    pub fn segment(&self) -> Option<&OwnedFd> {
+    /// A frame that passes it holds a clone of this handle, not a dup of the
+    /// descriptor, so passing it costs the holder no descriptor, and the
+    /// segment stays open until the frame is written even if the ring is
+    /// gone by then.
+    pub fn segment(&self) -> Option<&Arc<OwnedFd>> {
         self.segment.as_ref()
     }
 
@@ -206,14 +232,17 @@ impl Ring {
             let start = self.end + skip as u64;
             self.publish_oldest(start);
             self.end = start;
-            data = &data[skip..];
+            data = data.get(skip..).unwrap_or_default();
         }
         while !data.is_empty() {
             let n = self.writable().len().min(data.len());
             self.forfeit(n);
-            self.writable()[..n].copy_from_slice(&data[..n]);
+            let (now, rest) = data.split_at_checked(n).unwrap_or((data, &[]));
+            if let Some(room) = self.writable().get_mut(..now.len()) {
+                room.copy_from_slice(now);
+            }
             self.publish(self.end + n as u64);
-            data = &data[n..];
+            data = rest;
         }
     }
 
@@ -221,18 +250,24 @@ impl Ring {
     /// the room up to the end of the data area, never empty) and publish
     /// what it returned. Returns `read`'s result: the bytes are in the ring
     /// as soon as it returns, so a crash right after loses at most one
-    /// unpublished read.
+    /// unpublished read, and the segment says so: `reading` names the
+    /// offset the read started at from before `read` runs until after its
+    /// end is published ([`interrupted_read`]).
     pub fn read_with(&mut self, max: usize, read: impl FnOnce(&mut [u8]) -> isize) -> isize {
         let len = self.writable().len().min(max.max(1));
         let before = self.oldest;
         self.forfeit(len);
-        let n = read(&mut self.writable()[..len]);
+        self.publish_reading(Some(self.end));
+        let n = read(self.writable().get_mut(..len).unwrap_or_default());
         if n > 0 {
             self.publish(self.end + n as u64);
         }
         // A short read overwrote less than the room it was offered: the
         // bytes past it are still whole and kept again.
         self.publish_oldest(before.max(self.end.saturating_sub(self.capacity as u64)));
+        // After the new end: a holder killed between the two stores left a
+        // `reading` behind its `end`, which names no loss.
+        self.publish_reading(None);
         n
     }
 
@@ -264,7 +299,11 @@ impl Ring {
         let start = (from % self.capacity as u64) as usize;
         let first = take.min(self.capacity - start);
         let data = self.data();
-        (from, &data[start..start + first], &data[..take - first])
+        (
+            from,
+            data.get(start..start + first).unwrap_or_default(),
+            data.get(..take - first).unwrap_or_default(),
+        )
     }
 
     /// The data area.
@@ -305,6 +344,16 @@ impl Ring {
         std::sync::atomic::fence(Ordering::SeqCst);
     }
 
+    /// Store `reading` (the offset a PTY read in flight starts at), and make
+    /// it part of the segment before the kernel takes the first byte from
+    /// the PTY: a holder SIGKILLed inside the read leaves it behind.
+    fn publish_reading(&mut self, at: Option<u64>) {
+        let word = at.map_or(0, |at| at + 1);
+        // SAFETY: OFF_READING is an 8-byte aligned u64 inside the page-aligned header.
+        unsafe { (*self.map.add(OFF_READING).cast::<AtomicU64>()).store(word, Ordering::Release) };
+        std::sync::atomic::fence(Ordering::SeqCst);
+    }
+
     /// Store `oldest`: before a write that drops bytes, after one that
     /// kept more than it was offered.
     fn publish_oldest(&mut self, oldest: u64) {
@@ -317,11 +366,10 @@ impl Ring {
         // SAFETY: the header is HEADER bytes at the start of the mapping.
         unsafe {
             let header = std::slice::from_raw_parts_mut(self.map, HEADER);
-            header[..4].copy_from_slice(&MAGIC);
-            header[4..8].copy_from_slice(&self.layout.to_le_bytes());
-            header[OFF_CAPACITY..OFF_CAPACITY + 8]
-                .copy_from_slice(&(self.capacity as u64).to_le_bytes());
-            header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&self.base.to_le_bytes());
+            put_at(header, 0, &MAGIC);
+            put_at(header, 4, &self.layout.to_le_bytes());
+            put_at(header, OFF_CAPACITY, &(self.capacity as u64).to_le_bytes());
+            put_at(header, OFF_BASE, &self.base.to_le_bytes());
         }
         self.publish_oldest(self.oldest);
         self.publish(self.end);
@@ -332,6 +380,19 @@ impl Drop for Ring {
     fn drop(&mut self) {
         // SAFETY: unmaps the mapping this value made.
         unsafe { libc::munmap(self.map.cast(), self.map_len) };
+    }
+}
+
+/// The `N` bytes of `bytes` at offset `at`, if it holds them.
+fn chunk_at<const N: usize>(bytes: &[u8], at: usize) -> Option<[u8; N]> {
+    bytes.get(at..)?.first_chunk::<N>().copied()
+}
+
+/// Copy `value` into `header` at offset `at` (a header field; the header
+/// always holds every field, so nothing is skipped).
+fn put_at(header: &mut [u8], at: usize, value: &[u8]) {
+    if let Some(field) = header.get_mut(at..).and_then(|rest| rest.get_mut(..value.len())) {
+        field.copy_from_slice(value);
     }
 }
 
@@ -354,10 +415,10 @@ pub fn create_segment(base: u64, capacity: usize) -> io::Result<OwnedFd> {
     // SAFETY: the header mapping is HEADER bytes.
     unsafe {
         let header = std::slice::from_raw_parts_mut(map, HEADER);
-        header[..4].copy_from_slice(&MAGIC);
-        header[4..8].copy_from_slice(&LAYOUT.to_le_bytes());
-        header[OFF_CAPACITY..OFF_CAPACITY + 8].copy_from_slice(&(capacity as u64).to_le_bytes());
-        header[OFF_BASE..OFF_BASE + 8].copy_from_slice(&base.to_le_bytes());
+        put_at(header, 0, &MAGIC);
+        put_at(header, 4, &LAYOUT.to_le_bytes());
+        put_at(header, OFF_CAPACITY, &(capacity as u64).to_le_bytes());
+        put_at(header, OFF_BASE, &base.to_le_bytes());
         (*map.add(OFF_OLDEST).cast::<AtomicU64>()).store(base, Ordering::Release);
         (*map.add(OFF_END).cast::<AtomicU64>()).store(base, Ordering::Release);
         libc::munmap(map.cast(), HEADER);
@@ -375,6 +436,45 @@ pub fn segment_end(segment: &OwnedFd) -> io::Result<u64> {
         end
     };
     Ok(end)
+}
+
+/// Where the writer of `segment` died inside a PTY read: `Some(end)` when
+/// its `reading` names the segment's own `end` (the read started there and
+/// its end was never published, so the bytes it took from the PTY are
+/// lost, however many there were: none, when it died before the kernel took
+/// any, but nobody can tell), else `None` (no read in flight, or one
+/// whose end was published before the writer died). A live writer's
+/// segment can read `Some` too, while a read is in flight: ask only about a
+/// segment whose writer is gone (its link ended).
+pub fn interrupted_read(segment: &OwnedFd) -> io::Result<Option<u64>> {
+    // SAFETY: zeroed stat is a valid out-buffer for fstat.
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat of a live descriptor into a live local.
+    if unsafe { libc::fstat(segment.as_raw_fd(), &mut stat) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // A mapping past the end of the object would fault on the first read.
+    if u64::try_from(stat.st_size).unwrap_or(0) < HEADER as u64 {
+        return Err(invalid("ring segment smaller than its header"));
+    }
+    let map = map_shared(segment.as_raw_fd(), HEADER)?;
+    // SAFETY: the header mapping is HEADER bytes; OFF_END and OFF_READING
+    // are aligned.
+    let (magic, end, reading) = unsafe {
+        let magic: [u8; 4] = std::slice::from_raw_parts(map, 4).try_into().unwrap_or_default();
+        let end = (*map.add(OFF_END).cast::<AtomicU64>()).load(Ordering::Acquire);
+        let reading = (*map.add(OFF_READING).cast::<AtomicU64>()).load(Ordering::Acquire);
+        libc::munmap(map.cast(), HEADER);
+        (magic, end, reading)
+    };
+    if magic != MAGIC {
+        return Err(invalid("not a terminal ring segment"));
+    }
+    // `reading` holds the read's start + 1 (0 = none), so `reading > end`
+    // is a read that started at or past `end`. A start past `end` cannot be
+    // written by a holder: a damaged header still names a loss at `end`,
+    // never a silent splice.
+    Ok((reading > end).then_some(end))
 }
 
 fn map_shared(fd: RawFd, len: usize) -> io::Result<*mut u8> {
@@ -553,6 +653,40 @@ mod tests {
         let (from, kept) = dead.read(0, 64);
         assert_eq!(dead.end(), 20, "the unpublished read is not part of the ring");
         assert_eq!(kept, stream[from as usize..20].to_vec(), "an overwritten byte is kept");
+    }
+
+    /// A writer killed inside a PTY read (the kernel already stored bytes
+    /// in the room it offered, the new end not published) leaves a segment
+    /// that says so: [`interrupted_read`] names the offset the read started
+    /// at, the end an adopter continues from. A read whose end was
+    /// published, and a segment no read is in flight on, name no loss.
+    #[test]
+    fn a_writer_dead_inside_a_read_leaves_the_offset_of_its_loss() {
+        let mut first = Ring::new(0, 64);
+        let segment = first.segment().expect("a shared ring").try_clone().unwrap();
+        first.push(b"before");
+        assert_eq!(interrupted_read(&segment).unwrap(), None, "no read in flight");
+        let mut dead = None;
+        let n = first.read_with(16, |room| {
+            room[..5].copy_from_slice(b"taken");
+            // The holder "dies" here: the kernel took the bytes from the
+            // PTY, the new end is not published.
+            dead = Some(interrupted_read(&segment).unwrap());
+            5
+        });
+        assert_eq!(dead, Some(Some(6)), "the dead writer's segment names the loss at its end");
+        assert_eq!(n, 5);
+        assert_eq!(interrupted_read(&segment).unwrap(), None, "a published read names no loss");
+        // An adopter of the dead writer's segment continues at that end.
+        let mut second = Ring::new(0, 64);
+        let segment = second.segment().unwrap().try_clone().unwrap();
+        second.push(b"before");
+        second.read_with(16, |_| {
+            let adopted = Ring::adopt(segment.try_clone().unwrap()).unwrap();
+            assert_eq!(adopted.end(), 6);
+            0
+        });
+        assert_eq!(interrupted_read(&segment).unwrap(), None, "an empty read clears its mark");
     }
 
     /// An oversized push publishes no offset it skipped as a byte, and an

@@ -8,19 +8,40 @@ import { releaseView } from "../src/pages/changelog/model";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "location", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Node",
+  "Element",
+  "getComputedStyle",
+  "location",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/" });
+  // pretendToBeVisual: the lightbox is a Base UI dialog, whose open transition waits a frame.
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    url: "cmux-page://cmux.changelog/",
+    pretendToBeVisual: true,
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     location: dom.window.location,
     IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   });
 });
 

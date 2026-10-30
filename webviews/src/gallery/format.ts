@@ -172,6 +172,22 @@ export type AgentPaneVariant = VariantBase & {
   snapshot: AcpmuxSnapshot;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
+  /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
+  mockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
+  mockCapabilities?: string[];
+  /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
+  mockSessionAuth?: {
+    state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+    source: "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+    evidenceAt: number | null;
+    detail?: string;
+    harness: string;
+    host: string | null;
+    routeId: string | null;
+    fromSessionId: string | null;
+    login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+  };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;
@@ -186,6 +202,12 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
+   *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
+  display?: Record<string, unknown>;
+  /** Labs workflows (Settings `workflowLabs`, off by default) on, as the app's `workflowLabs` push
+   *  sends it: a Claude workflow's transcript card and its Session Info panel. */
+  workflowLabs?: boolean;
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;

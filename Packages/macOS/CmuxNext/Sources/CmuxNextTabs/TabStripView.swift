@@ -50,12 +50,34 @@ public final class TabStripView: NSView {
         get { newTabButton.shortcut }
         set { newTabButton.shortcut = newValue }
     }
+    /// A strip exposes its menu on a normal press, with a visible chevron on +.
+    public var opensNewTabMenuOnPress = false {
+        didSet {
+            newTabButton.showsChevron = opensNewTabMenuOnPress
+            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
+            applyTokens(animated: false)
+        }
+    }
+    /// A separate pane-type chooser beside +; the plus keeps its default-tab action.
+    public var showsNewTabMenuButton = false {
+        didSet {
+            newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+            applyTokens(animated: false)
+        }
+    }
+    var newTabControlsWidth: CGFloat {
+        metrics.newTabButtonWidth + (showsNewTabMenuButton ? Metrics.smallIconSize + Metrics.space2 : 0)
+    }
     var windowControlsInset: CGFloat = 0
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
     /// group editor bubble.
     public var contextMenuProvider: TabContextMenuProvider?
+    /// Native menu tracking; injectable for interaction tests without a nested event loop.
+    var presentNewTabMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
     /// Inline rename (`TabInlineRename`).
     private(set) lazy var inlineRename = TabInlineRename(strip: self)
     // MARK: Views
@@ -69,6 +91,7 @@ public final class TabStripView: NSView {
     let scrollingLayer = CALayer()
     private(set) lazy var edgeFade = TabEdgeFade(strip: self)
     let newTabButton = NewTabButtonView()
+    let newTabMenuButton = PaneTypeMenuButton()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
@@ -81,6 +104,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
+    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
+    var modelChangedWhileHidden = false
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -213,7 +238,17 @@ public final class TabStripView: NSView {
         tabsClip.layer?.addSublayer(scrollingLayer)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
-        newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        contentView.addSubview(newTabMenuButton)
+        newTabMenuButton.isHidden = !showsNewTabMenuButton || !model.showsNewTabButton
+        newTabMenuButton.onPress = { [weak self] in
+            guard let self else { return }
+            showNewTabMenu(anchor: newTabMenuButton)
+        }
+        newTabButton.onPress = { [weak self] in
+            guard let self else { return }
+            if opensNewTabMenuOnPress { showNewTabMenu() }
+            else { model.send(.newTab(after: nil)) }
+        }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
@@ -286,6 +321,7 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
+        if !newTabMenuButton.isHidden { children.append(newTabMenuButton) }
         return children
     }
 
@@ -343,7 +379,8 @@ public final class TabStripView: NSView {
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
     /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
     /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
-    /// the window's state; its model observation never stopped, so its cells are current.
+    /// the window's state and applies, without motion, the model changes that came while hidden
+    /// (``syncFromModel()`` lays nothing out out of sight).
     func syncShown(_ shown: Bool? = nil) {
         let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
         guard shown != isShownInWindow else { return }
@@ -355,6 +392,11 @@ public final class TabStripView: NSView {
         guard shown else {
             if window != nil { endPointerState() }
             return
+        }
+        // What changed while out of sight lands at once in its final place: nobody saw it move.
+        if modelChangedWhileHidden {
+            modelChangedWhileHidden = false
+            sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
         applyMultiSelection()
@@ -401,6 +443,7 @@ public final class TabStripView: NSView {
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
+        if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.body
@@ -428,7 +471,7 @@ public final class TabStripView: NSView {
         if glassView == nil { contentView.frame = bounds }
         let padding = metrics.stripHorizontalPadding
         windowControlsInset = computeWindowControlsInset()
-        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? metrics.newTabButtonWidth : 0))
+        let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.

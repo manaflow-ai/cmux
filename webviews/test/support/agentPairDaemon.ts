@@ -96,6 +96,9 @@ export function fakeDaemon(history: Record_[]) {
         return { session: session(CHAT), lastSeq: history.at(-1)?.seq ?? 0, events: history };
       case "_acpmux/events":
         return { events: [], hasMore: false, more: false, lastSeq: history.at(-1)?.seq ?? 0 };
+      // The X on a waiting steer takes it back (conversation/PendingSteer.tsx).
+      case "_acpmux/queue_edit":
+        return params?.op === "withdraw" ? { ...params, ok: true } : null;
       case "_acpmux/agent_pair_resume":
         return { sessionId: params.sessionId, resumed: 1, delivered: 2 };
       default:

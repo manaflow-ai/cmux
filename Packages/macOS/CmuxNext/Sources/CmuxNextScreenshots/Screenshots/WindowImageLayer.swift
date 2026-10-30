@@ -4,19 +4,36 @@ package import AppKit
 /// bottom first: the page images and child-window images the window server
 /// leaves out of a window capture (`debug.window_snapshot`,
 /// `cmux window|pane|tab screenshot`).
-package enum WindowImageLayer {
+package nonisolated enum WindowImageLayer: Sendable {
     /// A page image filling a rectangle in window coordinates, except
     /// `holes` (window coordinates), where the page window is cut out.
     case page(CGImage, NSRect, holes: [NSRect] = [])
     /// A window server image of child windows, the size of the window.
     case window(CGImage)
-    /// Opaque black over a rectangle in window coordinates: what an
-    /// automation run may not see (``ScreenshotPrivacyMask``).
+    /// An opaque ``maskColor`` fill over a rectangle in window coordinates, widened to whole
+    /// pixels and one more on each side, so no pixel of what it covers shows at its edge
+    /// (an agent's capture of a browser page or chat, `ScreenshotMask`).
     case mask(NSRect)
 
+    /// What a mask paints: an opaque mid gray, the same in light and dark windows.
+    static var maskColor: CGColor { CGColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1) }
+
     /// `base` (an image of `window`) with `layers` painted over it, bottom first; nil without layers.
+    @MainActor
     package static func composite(base: CGImage, window: NSWindow, layers: [WindowImageLayer]) -> CGImage? {
-        let size = window.frame.size
+        composite(base: base, windowSize: window.frame.size, layers: layers)
+    }
+
+    /// ``composite(base:windowSize:layers:)`` off the caller's actor: a full-resolution redraw of
+    /// the window (an agent's `cmux window screenshot` must not stall the main thread).
+    @concurrent
+    package static func compositedOffMain(base: CGImage, windowSize: CGSize, layers: [WindowImageLayer]) async -> CGImage? {
+        composite(base: base, windowSize: windowSize, layers: layers)
+    }
+
+    /// `base` (an image of a window `size` points large) with `layers` painted over it, bottom
+    /// first; nil without layers. Any thread.
+    package static func composite(base: CGImage, windowSize size: CGSize, layers: [WindowImageLayer]) -> CGImage? {
         guard !layers.isEmpty, size.width > 0, size.height > 0 else { return nil }
         let width = base.width
         let height = base.height
@@ -52,8 +69,18 @@ package enum WindowImageLayer {
             case .window(let image):
                 context.draw(image, in: whole)
             case .mask(let rect):
-                context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-                context.fill(CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY))
+                let area = CGRect(x: rect.minX * scaleX, y: rect.minY * scaleY, width: rect.width * scaleX, height: rect.height * scaleY)
+                guard area.width > 0, area.height > 0 else { continue }
+                let left = (area.minX - 1).rounded(.down), bottom = (area.minY - 1).rounded(.down)
+                let pixels = CGRect(x: left, y: bottom, width: (area.maxX + 1).rounded(.up) - left,
+                                    height: (area.maxY + 1).rounded(.up) - bottom).intersection(whole)
+                guard !pixels.isEmpty else { continue }
+                context.saveGState()
+                context.setShouldAntialias(false)
+                context.setBlendMode(.copy)
+                context.setFillColor(maskColor)
+                context.fill(pixels)
+                context.restoreGState()
             }
         }
         return context.makeImage()

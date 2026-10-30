@@ -4,10 +4,13 @@
 //! conversation's recorded cwd, one id gets one session, and an agent that
 //! started fresh instead of resuming fails creation. A conversation live in
 //! another process is refused (`adopt.live`) unless `ifLive` forks it or
-//! opens it anyway (`adopt_live.rs`).
+//! opens it anyway (`adopt_live.rs`); a Claude Code that this acpmux's own
+//! agent host runs for one of its sessions is not another process: that
+//! session opens.
 
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
@@ -100,7 +103,7 @@ impl Hub {
         // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
         let check = a.if_live == IfLive::Refuse && !a.watch;
         let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
-        let ((found, store), live) = tokio::task::spawn_blocking(move || {
+        let ((found, store), live, own) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
             // The holder the harness records in the store that holds the chat; one that has
@@ -121,11 +124,35 @@ impl Hub {
                     _ => None,
                 })
                 .flatten();
-            Ok::<_, String>(((found, store), live))
+            // A Claude Code that one of this home's agent hosts runs is this acpmux's own
+            // harness, not the chat open elsewhere (every acpmux home shares the registry).
+            let own = match &live {
+                Some(crate::adopt_live::LiveUse::Registered { pid }) => {
+                    crate::adopt_live::own_host_session(
+                        *pid,
+                        &own_hosts(),
+                        &crate::adopt_live::processes(),
+                    )
+                }
+                _ => None,
+            };
+            Ok::<_, String>(((found, store), live, own))
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(RpcError::invalid_params)?;
+        // This acpmux's own Claude Code session runs the chat: it opens, as for an adopt of
+        // the id it records (one chat, one session).
+        if let Some(existing) = own
+            .and_then(|own| {
+                self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
+            })
+            .filter(|s| s.meta().family.as_deref() == Some("claude"))
+        {
+            return Ok(Adoption::Existing(existing));
+        }
+        // Any other holder (another home's, a host whose session is gone but whose harness
+        // still runs) may still write the chat: refused.
         if let Some(live) = live {
             return Err(RpcError::invalid_params(live.refusal(family, &a.agent_session_id))
                 .with_data(json!({"reason": "adopt.live", "details": live.details(family)})));
@@ -192,6 +219,24 @@ impl Hub {
         let message = failed.msg.get("error").and_then(Value::as_str).unwrap_or_default();
         Some(format!("{message} {}", failed.msg.get("data").unwrap_or(&Value::Null)))
     }
+}
+
+/// This home's agent hosts that may still run (a live or unproven liveness
+/// lock), for `adopt_live::own_host_session`.
+fn own_hosts() -> Vec<crate::adopt_live::OwnHost> {
+    use crate::agent_host::{self, Liveness};
+    let dir = agent_host::hosts_dir();
+    let Ok((good, _)) = agent_host::load_records(&dir) else { return Vec::new() };
+    good.into_iter()
+        .filter(|(_, r)| {
+            agent_host::liveness(&dir, &r.session_id, &r.start_nonce) != Liveness::Dead
+        })
+        .map(|(_, r)| crate::adopt_live::OwnHost {
+            session_id: r.session_id,
+            host_pid: r.host_pid,
+            harness_pid: r.harness_pid,
+        })
+        .collect()
 }
 
 /// The stores acpmux's chat index holds the `family` chat `id` in (none
@@ -434,23 +479,41 @@ impl Hub {
             return;
         }
         let fam = family.to_owned();
-        let Ok(turns) =
-            tokio::task::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
-        else {
-            return;
-        };
+        // A Claude Code transcript is read from its end, one page (`adopt_replay_page.rs`): it can
+        // be hundreds of megabytes, and the chat shows its newest turns first.
+        let read = tokio::task::spawn_blocking(move || {
+            if fam == "claude" {
+                let page =
+                    crate::adopt_replay::newest_claude_page(&file, crate::adopt_replay::PAGE_TURNS);
+                (page.turns, page.start)
+            } else {
+                (crate::adopt_replay::read(&fam, &file), 0)
+            }
+        })
+        .await;
+        let Ok((turns, before)) = read else { return };
         if turns.is_empty() {
             return;
+        }
+        // Older turns stay in the transcript: `before` is where the next older page ends.
+        if before > 0 {
+            self.append(
+                session,
+                "mux",
+                "native_history",
+                json!({"family": family, "before": before, "turns": turns.len()}),
+            );
         }
         // The chat's title and counts come from its past, as live turns set them (turns.rs).
         {
             let mut m = session.meta.lock().unwrap();
             if m.title.is_none()
-                && let Some(first) = turns[0].prompt.lines().find(|l| !l.trim().is_empty())
+                && let Some(first) =
+                    turns.iter().find_map(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
             {
                 m.title = Some(short_text(first.trim(), 80));
             }
-            if let Some(last) = turns.last() {
+            if let Some(last) = turns.iter().rev().find(|t| !t.prompt.is_empty()) {
                 let line = super::prompt_line::prompt_line(&last.prompt, "adopt", None);
                 m.last_prompt = Some(short_text(&line, 200));
             }
@@ -479,26 +542,29 @@ impl Hub {
                 )
                 .0
                 .seq;
-            self.append_at(
-                session,
-                "mux",
-                "user_message",
-                json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
-                None,
-                started,
-            );
+            // A page that begins inside a turn has that turn's prompt in the older page.
+            if !turn.prompt.is_empty() {
+                self.append_at(
+                    session,
+                    "mux",
+                    "user_message",
+                    json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
+                    None,
+                    started,
+                );
+            }
             // The turn's tool calls, before its answer, as a live turn sends them: each starts
             // running and its update settles it, so the pane folds them under "Worked for".
             for tool in &turn.tools {
                 let start = tool.started_at.or(tool.ended_at).or(started);
                 let mut call = tool.call.clone();
-                call["sessionUpdate"] = json!("tool_call");
-                call["toolCallId"] = json!(tool.id);
-                call["status"] = json!("in_progress");
+                call.set("sessionUpdate", json!("tool_call"));
+                call.set("toolCallId", json!(tool.id));
+                call.set("status", json!("in_progress"));
                 self.append_at(session, "in", "tool_call", update(call), None, start);
                 let mut done = tool.done.clone();
-                done["sessionUpdate"] = json!("tool_call_update");
-                done["toolCallId"] = json!(tool.id);
+                done.set("sessionUpdate", json!("tool_call_update"));
+                done.set("toolCallId", json!(tool.id));
                 self.append_at(
                     session,
                     "in",
@@ -538,6 +604,10 @@ impl Hub {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "adoption_page_tests.rs"]
+mod page_tests;
 
 // The tests name Unix paths of another machine.
 #[cfg(all(test, unix))]

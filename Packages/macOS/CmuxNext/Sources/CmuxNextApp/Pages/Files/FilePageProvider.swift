@@ -460,11 +460,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Links
 
+    /// Whether `url` exists, off the main actor.
+    @concurrent nonisolated private static func exists(_ url: URL) async -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
     private func openLink(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let href = params["href"]?.stringValue else { throw PageError.invalidParams("href is required") }
         if kind == .markdown, params["kind"]?.stringValue == "file" {
             let target = Self.canonical(try path(params["target"]))
-            guard FileManager.default.fileExists(atPath: target.path) else { throw PageError(code: kind.op("not_found"), message: target.path) }
+            // A stat can hang on a network or sleeping volume: never on the main actor.
+            guard await Self.exists(target) else { throw PageError(code: kind.op("not_found"), message: target.path) }
             // Inside a granted document's folder (links resolved): opens. Anything else asks,
             // naming the resolved path; a refused or unshown sheet refuses the link.
             if !inGrantedFolder(target) {

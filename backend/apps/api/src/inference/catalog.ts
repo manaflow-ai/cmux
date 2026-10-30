@@ -11,7 +11,7 @@
  * list (2026-10-10, read with our keys); a model a provider does not list has no route there.
  */
 
-export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra"] as const
+export const PROVIDERS = ["openrouter", "vercel", "workers-ai", "fireworks", "baseten", "deepinfra", "azure", "custom", "openai"] as const
 export type ProviderId = (typeof PROVIDERS)[number]
 
 /** Budget lines of the spend guard: one per provider, plus the free tier's own line. */
@@ -22,7 +22,16 @@ export interface ProviderRoute {
   readonly provider: ProviderId
   /** The provider's id for this model. */
   readonly id: string
+  /**
+   * The provider's list price for this model, USD per million tokens, read from its own model list
+   * with our key (2026-10-23). Orders the routes cheapest first (route.ts liveRoutes); a route
+   * without one keeps its catalog place after the priced ones. Metering never uses it.
+   */
+  readonly list?: { readonly input: number; readonly output: number }
 }
+
+/** Blended list price of a route: agent turns read about three input tokens per output token. */
+export const routeCost = (r: ProviderRoute): number => (r.list ? 3 * r.list.input + r.list.output : Infinity)
 
 export interface ModelEntry {
   readonly id: string
@@ -38,9 +47,57 @@ export interface ModelEntry {
   readonly routes: ReadonlyArray<ProviderRoute>
   /** The free tier may use this model (S3). */
   readonly free?: true
+  /**
+   * Providers a free device may reach this model through. Unset: every live route. Set: free
+   * devices get only these (DeepSeek V4 Flash: our own Vercel AI Gateway route, the public
+   * free fallback). Paid callers are never narrowed.
+   */
+  readonly freeProviders?: ReadonlyArray<ProviderId>
+  /**
+   * Image input (OpenAI `image_url` parts). Set: the most images one request may carry and the
+   * token ceiling we bill each one at before usage is known. Unset: text only.
+   */
+  readonly vision?: { readonly maxImages: number; readonly tokensPerImage: number }
 }
 
 export const MODELS: ReadonlyArray<ModelEntry> = [
+  {
+    // The deployments' allowlisted model (user, 2026-10-28: "use deepseek 1017 with image support").
+    // Vercel AI Gateway first (funded, user 2026-10-28; route.ts primaryProvider), then the others.
+    // Azure AI Foundry has no 1017 build (newest: DeepSeek-V4.1-Flash 2026-09-10); its route serves
+    // that build under our deployment name and only when the 1017 providers all fail.
+    id: "deepseek/deepseek-v4.1-flash-1017",
+    name: "DeepSeek V4.1 Flash 1017",
+    card: { input: 0.4, output: 1.5 },
+    context: 1_000_000,
+    maxOutput: 65_536,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    routes: [
+      { provider: "vercel", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.075, output: 0.3 } },
+      { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash-1017", list: { input: 0.15, output: 0.6 } },
+      { provider: "workers-ai", id: "@cf/deepseek-ai/deepseek-v4.1-flash-1017", list: { input: 0.3, output: 1.2 } },
+      { provider: "custom", id: "deepseek/deepseek-v4.1-flash-1017" },
+      { provider: "azure", id: "deepseek-v4.1-flash" }
+    ]
+  },
+  {
+    // OpenAI's own API (user 2026-10-28: ChatGPT API credits). Not in the deployments' allowlist yet
+    // (DeepSeek only); a deployment opts in with INFERENCE_MODEL_ALLOWLIST. List prices 2026-10-28.
+    id: "openai/gpt-5.4-mini",
+    name: "GPT-5.4 mini",
+    card: { input: 0.75, output: 4.5 },
+    context: 400_000,
+    maxOutput: 128_000,
+    defaultMaxTokens: 16_384,
+    tools: true,
+    vision: { maxImages: 8, tokensPerImage: 4_096 },
+    routes: [
+      { provider: "openai", id: "gpt-5.4-mini", list: { input: 0.75, output: 4.5 } },
+      { provider: "vercel", id: "openai/gpt-5.4-mini", list: { input: 0.75, output: 4.5 } }
+    ]
+  },
   {
     id: "qwen/qwen3.7-flash",
     name: "Qwen3.7 Flash",
@@ -50,9 +107,10 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 8_192,
     tools: true,
     free: true,
+    freeProviders: ["vercel"],
     routes: [
-      { provider: "openrouter", id: "qwen/qwen3.7-flash" },
-      { provider: "vercel", id: "alibaba/qwen3.7-flash" }
+      { provider: "openrouter", id: "qwen/qwen3.7-flash", list: { input: 0.03, output: 0.13 } },
+      { provider: "vercel", id: "alibaba/qwen3.7-flash", list: { input: 0.03, output: 0.13 } }
     ]
   },
   {
@@ -64,10 +122,11 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 8_192,
     tools: true,
     free: true,
+    freeProviders: ["vercel"],
     routes: [
-      { provider: "openrouter", id: "openai/gpt-oss-120b" },
-      { provider: "vercel", id: "openai/gpt-oss-120b" },
-      { provider: "deepinfra", id: "openai/gpt-oss-120b" },
+      { provider: "openrouter", id: "openai/gpt-oss-120b", list: { input: 0.15, output: 0.6 } },
+      { provider: "vercel", id: "openai/gpt-oss-120b", list: { input: 0.1, output: 0.5 } },
+      { provider: "deepinfra", id: "openai/gpt-oss-120b", list: { input: 0.037, output: 0.17 } },
       { provider: "fireworks", id: "accounts/fireworks/models/gpt-oss-120b" },
       { provider: "baseten", id: "openai/gpt-oss-120b" },
       { provider: "workers-ai", id: "@cf/openai/gpt-oss-120b" }
@@ -82,9 +141,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 16_384,
     tools: true,
     routes: [
-      { provider: "openrouter", id: "deepseek/deepseek-v4-pro" },
-      { provider: "vercel", id: "deepseek/deepseek-v4-pro" },
-      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Pro" }
+      { provider: "openrouter", id: "deepseek/deepseek-v4-pro", list: { input: 0.561, output: 1.122 } },
+      { provider: "vercel", id: "deepseek/deepseek-v4-pro", list: { input: 0.66, output: 1.98 } },
+      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Pro", list: { input: 1.3, output: 2.6 } }
     ]
   },
   {
@@ -95,10 +154,13 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     maxOutput: 65_536,
     defaultMaxTokens: 16_384,
     tools: true,
+    // Free fallback for signed-out Macs (user, 2026-10-27): our own Vercel AI Gateway route only.
+    free: true,
+    freeProviders: ["vercel"],
     routes: [
-      { provider: "vercel", id: "deepseek/deepseek-v4-flash" },
-      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Flash" },
-      { provider: "openrouter", id: "deepseek/deepseek-v4-flash" }
+      { provider: "vercel", id: "deepseek/deepseek-v4-flash", list: { input: 0.13, output: 0.26 } },
+      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4-Flash", list: { input: 0.09, output: 0.18 } },
+      { provider: "openrouter", id: "deepseek/deepseek-v4-flash", list: { input: 0.091, output: 0.182 } }
     ]
   },
   {
@@ -110,8 +172,8 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 16_384,
     tools: true,
     routes: [
-      { provider: "openrouter", id: "moonshotai/kimi-k2.7-code" },
-      { provider: "vercel", id: "moonshotai/kimi-k2.7-code" }
+      { provider: "openrouter", id: "moonshotai/kimi-k2.7-code", list: { input: 0.671, output: 3.35 } },
+      { provider: "vercel", id: "moonshotai/kimi-k2.7-code", list: { input: 0.95, output: 4 } }
     ]
   },
   {
@@ -125,9 +187,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     routes: [
       { provider: "fireworks", id: "accounts/fireworks/models/glm-5p3" },
       { provider: "baseten", id: "zai-org/GLM-5.3" },
-      { provider: "deepinfra", id: "zai-org/GLM-5.3" },
-      { provider: "vercel", id: "zai/glm-5.3" },
-      { provider: "openrouter", id: "z-ai/glm-5.3" }
+      { provider: "deepinfra", id: "zai-org/GLM-5.3", list: { input: 0.9, output: 4 } },
+      { provider: "vercel", id: "zai/glm-5.3", list: { input: 1.2, output: 4 } },
+      { provider: "openrouter", id: "z-ai/glm-5.3", list: { input: 0.079, output: 1.4 } }
     ]
   },
   {
@@ -140,9 +202,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     tools: true,
     routes: [
       { provider: "fireworks", id: "accounts/fireworks/models/minimax-m3" },
-      { provider: "deepinfra", id: "MiniMaxAI/MiniMax-M3" },
-      { provider: "openrouter", id: "minimax/minimax-m3" },
-      { provider: "vercel", id: "minimax/minimax-m3" }
+      { provider: "deepinfra", id: "MiniMaxAI/MiniMax-M3", list: { input: 0.28, output: 1.1 } },
+      { provider: "openrouter", id: "minimax/minimax-m3", list: { input: 0.3, output: 1.2 } },
+      { provider: "vercel", id: "minimax/minimax-m3", list: { input: 0.3, output: 1.2 } }
     ]
   },
   {
@@ -156,9 +218,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     routes: [
       { provider: "fireworks", id: "accounts/fireworks/models/deepseek-v4p1-flash" },
       { provider: "baseten", id: "deepseek-ai/DeepSeek-V4.1-Flash" },
-      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4.1-Flash" },
-      { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash" },
-      { provider: "vercel", id: "deepseek/deepseek-v4.1-flash" }
+      { provider: "deepinfra", id: "deepseek-ai/DeepSeek-V4.1-Flash", list: { input: 0.2, output: 0.6 } },
+      { provider: "openrouter", id: "deepseek/deepseek-v4.1-flash", list: { input: 0.02, output: 1 } },
+      { provider: "vercel", id: "deepseek/deepseek-v4.1-flash", list: { input: 0.075, output: 0.3 } }
     ]
   },
   {
@@ -172,9 +234,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     routes: [
       { provider: "fireworks", id: "accounts/fireworks/models/kimi-k3" },
       { provider: "baseten", id: "moonshotai/Kimi-K3" },
-      { provider: "deepinfra", id: "moonshotai/Kimi-K3" },
-      { provider: "openrouter", id: "moonshotai/kimi-k3" },
-      { provider: "vercel", id: "moonshotai/kimi-k3" }
+      { provider: "deepinfra", id: "moonshotai/Kimi-K3", list: { input: 2.85, output: 14.25 } },
+      { provider: "openrouter", id: "moonshotai/kimi-k3", list: { input: 0.239, output: 10.8 } },
+      { provider: "vercel", id: "moonshotai/kimi-k3", list: { input: 3, output: 15 } }
     ]
   },
   {
@@ -188,9 +250,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     routes: [
       { provider: "fireworks", id: "accounts/fireworks/models/glm-5p3-flash" },
       { provider: "baseten", id: "zai-org/GLM-5.3-Flash" },
-      { provider: "deepinfra", id: "zai-org/GLM-5.3-Flash" },
-      { provider: "openrouter", id: "z-ai/glm-5.3-flash" },
-      { provider: "vercel", id: "zai/glm-5.3-flash" }
+      { provider: "deepinfra", id: "zai-org/GLM-5.3-Flash", list: { input: 0.15, output: 0.5 } },
+      { provider: "openrouter", id: "z-ai/glm-5.3-flash", list: { input: 0.15, output: 0.5 } },
+      { provider: "vercel", id: "zai/glm-5.3-flash", list: { input: 0.15, output: 0.5 } }
     ]
   },
   {
@@ -203,9 +265,9 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     tools: true,
     routes: [
       { provider: "workers-ai", id: "@cf/meta/llama-4-scout-17b-16e-instruct" },
-      { provider: "vercel", id: "meta/llama-4-scout" },
-      { provider: "deepinfra", id: "meta-llama/Llama-4-Scout-17B-16E-Instruct" },
-      { provider: "openrouter", id: "meta-llama/llama-4-scout" }
+      { provider: "vercel", id: "meta/llama-4-scout", list: { input: 0.17, output: 0.66 } },
+      { provider: "deepinfra", id: "meta-llama/Llama-4-Scout-17B-16E-Instruct", list: { input: 0.1, output: 0.3 } },
+      { provider: "openrouter", id: "meta-llama/llama-4-scout", list: { input: 0.1, output: 0.3 } }
     ]
   }
 ]

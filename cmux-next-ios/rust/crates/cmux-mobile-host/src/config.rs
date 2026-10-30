@@ -43,8 +43,6 @@ pub struct ServiceConfig {
     /// service writes a file that has no workspace folder, one folder per
     /// link session.
     pub uploads_dir: PathBuf,
-    /// `CMUX_MOBILE_UPLOAD_MAX_BYTES`: the largest file one `upload` accepts.
-    pub upload_max_bytes: u64,
     /// The Chief's conversation owner socket (the `chief` service):
     /// `CMUX_MOBILE_CHIEF_SOCKET`, else `<tui_socket_dir>/<CMUX_MOBILE_CHIEF_SESSION>.sock`,
     /// else the session of `~/.cmux/chief/<CMUX_NEXT_CHIEF_ACCOUNT or default>`
@@ -52,6 +50,8 @@ pub struct ServiceConfig {
     pub chief_socket: Option<PathBuf>,
     /// The `browser` service: who starts browser hosts, and the running ones.
     pub browser: crate::browser::BrowserConfig,
+    /// The `surface` service: who starts simulator surface sources, and the running hosts.
+    pub surface: crate::surface::SurfaceConfig,
 }
 
 impl ServiceConfig {
@@ -63,8 +63,6 @@ impl ServiceConfig {
     }
 }
 
-/// The default `upload` size cap: 100 MiB.
-pub const DEFAULT_UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// `ChiefHome.sessionName`: `cmux-chief-` and the FNV-1a 32 hash of the
 /// home's path, so hostd finds the owner every Mac build shares.
 pub fn chief_session_name(root: &Path) -> String {
@@ -392,6 +390,14 @@ impl HostConfig {
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
         };
+        // Supervised: the app streams its phone tabs' simulators when this build
+        // can (`CMUX_MOBILE_SURFACE_HOSTS=1`: SimulatorKit loads).
+        let surface = match &supplied {
+            Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
+                crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs)
+            }
+            _ => crate::surface::SurfaceConfig::default(),
+        };
         let file_roots = env("CMUX_MOBILE_FILE_ROOTS")
             .map(|roots| roots.split(':').filter(|r| !r.is_empty()).map(PathBuf::from).collect())
             .unwrap_or_default();
@@ -432,10 +438,8 @@ impl HostConfig {
                 uploads_dir: env("CMUX_MOBILE_UPLOADS_DIR")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| default_state_dir().join("uploads")),
-                upload_max_bytes: env("CMUX_MOBILE_UPLOAD_MAX_BYTES")
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(DEFAULT_UPLOAD_MAX_BYTES),
                 browser,
+                surface,
             },
         })
     }

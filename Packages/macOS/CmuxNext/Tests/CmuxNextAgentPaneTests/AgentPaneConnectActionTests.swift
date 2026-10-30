@@ -34,6 +34,18 @@ struct AgentPaneConnectActionTests {
         #expect(arguments == [[:]])
     }
 
+    /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
+    @Test func connectPhoneOpensMobilePairingOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("palette.mobileConnect"))["ok"] as? Bool != true)
+        #expect(ran.isEmpty, "no gesture, no page")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("palette.mobileConnect"))["ok"] as? Bool == true)
+        #expect(ran == ["palette.mobileConnect"])
+    }
+
     /// A started chat's picker: Move to Cloud on a chat of this Mac, Bring Back Local on a Cloud
     /// chat, the same actions as the tab's right-click menu, on the person's gesture.
     @Test func moveAndBringBackRunOnAGesture() async {
@@ -46,6 +58,18 @@ struct AgentPaneConnectActionTests {
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("cloudBringBack"))["ok"] as? Bool == true)
         #expect(ran == ["cloudMove", "cloudBringBack"])
+    }
+
+    /// The + menu's Search chats and Search pages open the command palette's chats and History
+    /// search pages without a gesture; an action outside the pane's table stays refused.
+    @Test func paletteSearchPagesRunWithoutAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("agentPane.searchChats"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("history.search"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("searchFiles"))["ok"] as? Bool != true)
+        #expect(ran == ["agentPane.searchChats", "history.search"])
     }
 
     /// An action the app did not run (turned off, or not available for this chat) is a failure, so

@@ -44,6 +44,9 @@ pub struct QuestionAnswers {
     pub maximum_items: usize,
     pub maximum_list_strings: usize,
     pub maximum_value_bytes: usize,
+    /// The param of a question's annotations (`{preview?, notes?}` per item).
+    pub annotations_param: String,
+    pub maximum_annotation_bytes: usize,
 }
 
 /// The shape of a reply the host filters itself.

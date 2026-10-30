@@ -91,3 +91,48 @@ fn agent_history_after_a_restart_folds_only_the_records_after_its_saved_cursor()
     drop(reopened);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Issue 23038: the agent history save wrote its whole snapshot under the
+/// workspace registry lock, so every state commit (Cmd-N's pin, create and
+/// first tab) waited behind it, for seconds on a large history. The save
+/// now takes the registry connection alone and finishes while another
+/// thread holds the registry lock.
+#[test]
+fn agent_history_save_does_not_wait_for_the_workspace_registry_lock() {
+    let session = "history-agent-save-off-registry";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-history-agent-save-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &terminal_id, "SessionStart", Some("history-agent-save"));
+    assert_eq!(list_agent_session_ids(&mux), vec!["history-agent-save".to_owned()]);
+
+    let (saved_tx, saved_rx) = std::sync::mpsc::channel();
+    let registry = mux.workspace_registry.lock().unwrap();
+    let saver = {
+        let mux = Arc::clone(&mux);
+        std::thread::spawn(move || {
+            let _ = saved_tx.send(crate::history_ops::resave_agent_fold_for_test(&mux));
+        })
+    };
+    let saved = saved_rx.recv_timeout(Duration::from_secs(10));
+    drop(registry);
+    saver.join().unwrap();
+    let cursor =
+        saved.expect("the agent history save finishes while another thread holds the registry");
+
+    let (version, stored_cursor, snapshot) = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .journal_reducer_state("history.agent_sessions")
+        .unwrap()
+        .expect("the agent history was saved");
+    assert_eq!(version, 1);
+    assert_eq!(stored_cursor, cursor);
+    assert!(snapshot.contains("history-agent-save"), "the saved fold holds the session");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -27,17 +27,19 @@ public final class CmuxToastCenter {
     /// Notices the person closed, quiet until their timer ends.
     private var quieted: [QuietKey: DemandTimer] = [:]
     /// How long a notice the person closed stays quiet: the same message
-    /// (same id, no action) asked for again in that time does not show.
+    /// (same id and detail, no action) asked for again in that time does not show.
     /// A toast with an action (Undo, Reopen, Retry) is never quieted.
     public var closedCooldown: Duration = .seconds(120)
 
-    /// A notice by what it says: its id and message.
+    /// A notice by what it says: its id, message and detail.
     private struct QuietKey: Hashable {
         let id: String
         let message: String
+        let detail: String?
         init(_ toast: CmuxToast) {
             id = toast.id
             message = toast.message
+            detail = toast.detail
         }
     }
 
@@ -133,6 +135,16 @@ public final class CmuxToastCenter {
         return true
     }
 
+    /// Closes the newest toast with `id` in `window`, as its close button
+    /// does; false when none shows.
+    @discardableResult
+    public func close(id: String, in window: NSWindow) -> Bool {
+        let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
+        guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }) else { return false }
+        closedByPerson(serial)
+        return true
+    }
+
     /// The responder chain from `responder` has an undo manager that can undo.
     public static func responderCanUndo(_ responder: NSResponder?) -> Bool {
         responder?.undoManager?.canUndo == true
@@ -153,7 +165,7 @@ public final class CmuxToastCenter {
     // MARK: Quiet after close
 
     /// Whether `toast` is a notice the person closed less than
-    /// ``closedCooldown`` ago (same id and message, no action).
+    /// ``closedCooldown`` ago (same id, message and detail, no action).
     public func isQuieted(_ toast: CmuxToast) -> Bool {
         toast.action == nil && quieted[QuietKey(toast)] != nil
     }

@@ -38,9 +38,10 @@ extension HomeStore {
         restoreCache()
     }
 
-    /// Writes the coalesced cache batch now (app quit), without stopping.
-    public func flushCache() {
-        viewCache.flush()
+    /// Writes the coalesced cache batch now and waits until it is on disk (the app's quit save
+    /// step), without stopping. The cache actor encodes and writes it; the caller only suspends.
+    public func flushCache() async {
+        await viewCache.flush()
     }
 
     /// Shows what the cache holds before the owner answers. Once per store: the Home list calls it
@@ -66,21 +67,27 @@ extension HomeStore {
         }
     }
 
-    /// Writes the cache soon (coalesced), or at once with no delay.
-    func scheduleCacheWrite() {
+    /// Called on every write to the mirror or the log: schedules a cache write only when what the
+    /// cache holds of them moved (O(1): two counters), so an owner event that changes nothing
+    /// cached (typing, a connection change, an owner recovery) wakes nothing and builds no snapshot.
+    func ownerStateChanged() {
+        let state = (mirror: mirror.cacheChanges.value, log: log.cacheChanges.value)
+        guard state != cachedOwnerState else { return }
+        cachedOwnerState = state
         viewCache.scheduleWrite()
     }
 
-    /// The owner's state as the mirror has it (the view cache adds the client's own state).
-    func ownerCacheSnapshot() -> HomeCacheSnapshot {
-        var snapshot = HomeCacheSnapshot()
-        snapshot.me = me ?? mirror.me
-        snapshot.conversations = mirror.conversations.values.sorted { $0.id.rawValue < $1.id.rawValue }
-        snapshot.windows = mirror.windows.compactMapValues { window in
-            window.messages.isEmpty ? nil : Array(window.messages.suffix(HomeCache.windowLimit))
-        }
-        snapshot.sends = log.entries.compactMap(HomeCachedSend.init)
-        return snapshot
+    /// The owner's state as the mirror has it (the view cache adds the client's own state). The
+    /// mirror's `me` is the store's (every assignment of `me` copies it). O(open windows + unsent
+    /// sends) on the main actor: the dictionaries and message arrays are copy-on-write copies; the
+    /// cache actor sorts, trims and encodes them.
+    func ownerCacheState() -> HomeCacheState {
+        var state = HomeCacheState()
+        state.me = mirror.me ?? me
+        state.conversations = mirror.conversations
+        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        state.sends = log.entries.compactMap(HomeCachedSend.init)
+        return state
     }
 
     /// `Caches/cmux-home-blobs`.

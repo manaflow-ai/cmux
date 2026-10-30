@@ -1,11 +1,22 @@
 import AppKit
+import CmuxNextUiLayerPreview
+import Foundation
 import Dispatch
 import Observation
 import SwiftUI
 
 @main
 struct UiLayerHostApp: App {
+    private let controlServer: UiLayerControlServer?
     @State private var projection = ProjectionModel(arguments: CommandLine.arguments)
+
+    init() {
+        // Never claim cmux's live control socket. Capture tooling opts in to
+        // this host-only seam with its separate path.
+        let path = ProcessInfo.processInfo.environment["CMUX_UI_LAYER_CONTROL_SOCKET"]
+        controlServer = UiLayerControlServer(socketPath: path)
+        controlServer?.start()
+    }
 
     var body: some Scene {
         WindowGroup("cmux UI layer") {
@@ -242,16 +253,8 @@ struct UiLayerView: View {
     let projection: ProjectionModel
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Divider()
-            VStack(spacing: 0) {
-                tabBar
-                Divider()
-                pane
-                composer
-            }
-        }
+        UiLayerPreviewView(data: previewData)
+            .background(UiLayerFrameReceipt())
         .overlay(alignment: .top) {
             if let error = projection.error {
                 Text(error).font(.caption).foregroundStyle(.red).padding(8)
@@ -260,64 +263,49 @@ struct UiLayerView: View {
         }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("WORKSPACES").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-            ForEach(projection.snapshot.workspaces) { workspace in
-                HStack {
-                    Image(systemName: "rectangle.3.group")
-                    Text(workspace.name).lineLimit(1)
-                    Spacer()
-                    if workspace.id == projection.snapshot.selectedWorkspaceID { Circle().fill(Color.accentColor).frame(width: 6, height: 6) }
-                }
-                .padding(.vertical, 5).padding(.horizontal, 7)
-                .background(workspace.id == projection.snapshot.selectedWorkspaceID ? Color.gray.opacity(0.18) : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-            Spacer()
-            Text("READ-ONLY PROJECTION").font(.caption2).foregroundStyle(.secondary)
-            Text(projection.snapshot.capturedAt).font(.caption2).foregroundStyle(.tertiary)
-        }
-        .padding(14).frame(width: 220).background(.windowBackground)
-    }
-
-    private var tabBar: some View {
-        HStack(spacing: 4) {
-            ForEach(selectedWorkspace?.tabs ?? []) { tab in
-                HStack(spacing: 5) {
-                    Image(systemName: "terminal").font(.caption)
-                    Text(tab.title).lineLimit(1)
-                    if tab.unread { Circle().fill(Color.orange).frame(width: 5, height: 5) }
-                }
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(.quaternary).clipShape(RoundedRectangle(cornerRadius: 5))
-            }
-            Spacer()
-            Image(systemName: "plus").padding(8)
-        }
-        .padding(.horizontal, 10).padding(.vertical, 7)
-    }
-
-    private var pane: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(selectedWorkspace?.name ?? "No workspace").font(.title3.weight(.medium))
-            Text("Projection host · terminal and chat content stays read-only")
-                .font(.callout).foregroundStyle(.secondary)
-            Spacer()
-        }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var composer: some View {
-        HStack {
-            Image(systemName: "paperclip").foregroundStyle(.secondary)
-            Text("Composer preview (disabled)").foregroundStyle(.tertiary)
-            Spacer()
-            Image(systemName: "arrow.up.circle").foregroundStyle(.tertiary)
-        }.padding(12).background(.bar)
+    private var previewData: UiLayerPreviewData {
+        let workspace = selectedWorkspace
+        let tab = workspace?.tabs.first
+        return UiLayerPreviewData(
+            workspaceName: workspace?.name ?? "No workspace",
+            tabTitle: tab?.title ?? "No tab",
+            tabSubtitle: tab?.subtitle,
+            composerPlaceholder: projection.snapshot.capturedAt
+        )
     }
 
     private var selectedWorkspace: ProjectionWorkspace? {
         projection.snapshot.workspaces.first { $0.id == projection.snapshot.selectedWorkspaceID }
             ?? projection.snapshot.workspaces.first
+    }
+}
+
+private enum UiLayerTrace {
+    static func firstFrame() {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_LAYER_TRACE"] == "1" else { return }
+        let timestamp = DispatchTime.now().uptimeNanoseconds
+        FileHandle.standardError.write(Data("ui-layer.frame rendered_at_ns=\(timestamp)\n".utf8))
+    }
+}
+
+private struct UiLayerFrameReceipt: NSViewRepresentable {
+    func makeNSView(context: Context) -> ReceiptView { ReceiptView() }
+    func updateNSView(_ nsView: ReceiptView, context: Context) {}
+
+    final class ReceiptView: NSView {
+        private var didReport = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard window != nil, !didReport else { return }
+            didReport = true
+            // Force the first AppKit display pass before recording the receipt.
+            // This is still a host-only observation; it never touches cmux.
+            Task { @MainActor [weak self] in
+                guard let self, self.window != nil else { return }
+                self.window?.displayIfNeeded()
+                UiLayerTrace.firstFrame()
+            }
+        }
     }
 }

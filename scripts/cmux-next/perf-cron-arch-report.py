@@ -19,7 +19,11 @@ file; the hook is below). The command line does the same for one state file, for
    so the report runner needs no swift and no working tree. Any other output is an error (see 6).
 2. The report checkout is shallow (depth 1), sparse and blobless, and SHA need not be its HEAD: before counting,
    this fetches SHA's commit when it is missing (one fetch, depth 1, no blobs) and then every blob the count reads
-   (PREFETCH_PATHS) in ONE fetch from the promisor remote, so git never fetches the blobs one by one. The promisor
+   from the promisor remote in at most two fetches, so git never fetches the blobs one by one (count_files): first
+   FIRST_PATHS and every Package.swift of the commit, then what the commit's own arch_counts.py names with
+   `--read-paths` (method v5: CmuxNext and the transitive closure of its local `.package(path:)` dependencies, whose
+   manifests the first fetch brought) that the first fetch did not cover. A commit whose arch_counts.py has no
+   `--read-paths` (before v5) reads only FIRST_PATHS' Swift and its own Package.swift. The promisor
    remote is the one with `remote.<name>.promisor` true (what a current git and actions/checkout's init + fetch
    --filter write), else `extensions.partialClone` (an older git).
    The 'is it there' probes use GIT_NO_LAZY_FETCH (git 2.44+); with an older git, nothing is probed in a
@@ -88,13 +92,14 @@ RATCHET_PATH = "plans/cmux-next/arch-ratchet.json"
 COUNTS_DIR = "scripts/cmux-next"
 COUNTS_SCRIPT = f"{COUNTS_DIR}/arch_counts.py"
 COUNTS_METHOD = "arch_counts"
-# What the count reads at SHA (arch_counts.py: the CmuxNext sources, Package.swift, the layer map) plus what this
-# script reads (the ratchet file, the count script). All their blobs are fetched in one go before the count.
-# (path, suffix, recursive); suffix None: exactly this file.
-PREFETCH_PATHS = (("Packages/macOS/CmuxNext/Sources", ".swift", True),
-                  ("Packages/macOS/CmuxNext/Package.swift", None, False),
-                  ("plans/cmux-next", ".json", False),
-                  (COUNTS_SCRIPT, None, False))
+# The first fetch (count_files): what a count before method v5 reads (the CmuxNext sources, the layer map) and what
+# this script reads (the ratchet file, the count script), with every Package.swift of the commit (MANIFEST_NAME):
+# `arch_counts.py --read-paths` reads the manifests to name the rest of what the count reads (the local package
+# closure), which the second fetch brings. (path, suffix, recursive); suffix None: exactly this file.
+FIRST_PATHS = (("Packages/macOS/CmuxNext/Sources", ".swift", True),
+               ("plans/cmux-next", ".json", False),
+               (COUNTS_SCRIPT, None, False))
+MANIFEST_NAME = "Package.swift"
 STATE_KEY = "arch_history"
 ISSUE_KEY = "arch_issue"
 HISTORY_POINTS = 20
@@ -226,8 +231,9 @@ def resolve_sha(dl, root, sha):
     return full
 
 
-def wanted(path):
-    for prefix, suffix, recursive in PREFETCH_PATHS:
+def wanted(path, paths=FIRST_PATHS):
+    """PATH is one of PATHS ((prefix, suffix, recursive) entries, FIRST_PATHS' shape)."""
+    for prefix, suffix, recursive in paths:
         if suffix is None:
             if path == prefix:
                 return True
@@ -238,19 +244,62 @@ def wanted(path):
     return False
 
 
-def list_blobs(dl, root, sha):
-    """[(oid, path)] of the PREFETCH_PATHS blobs at sha (trees only: no blob is read)."""
-    listing = run(dl, ["git", "-C", root, "ls-tree", "-r", "-z", sha, "--", *(p for p, _, _ in PREFETCH_PATHS)],
-                  capture_output=True, check=True, env=no_lazy_env()).stdout
+def list_tree(dl, root, sha):
+    """[(oid, path)] of every blob of sha's tree but symlinks (trees only: no blob is read)."""
+    listing = run(dl, ["git", "-C", root, "ls-tree", "-r", "-z", sha], capture_output=True, check=True,
+                  env=no_lazy_env()).stdout
     files = []
     for entry in listing.split(b"\0"):
         if not entry:
             continue
         meta, _, path = entry.partition(b"\t")
         mode, kind, oid = meta.split()
-        name = path.decode(errors="surrogateescape")
-        if kind == b"blob" and mode != b"120000" and wanted(name):
-            files.append((oid.decode(), name))
+        if kind == b"blob" and mode != b"120000":
+            files.append((oid.decode(), path.decode(errors="surrogateescape")))
+    return files
+
+
+def read_paths_at(dl, root, sha, listing):
+    """What the count at sha reads, from sha's own `arch_counts.py --read-paths` (a subprocess, as the count): a
+    list of (prefix, suffix, recursive) entries, FIRST_PATHS' shape, or None when that script has no --read-paths
+    (before method v5) or answers anything else. Its manifests must be fetched already (count_files)."""
+    script = next((oid for oid, name in listing if name == COUNTS_SCRIPT), None)
+    if script is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix="arch-report-paths-") as tree:
+        export_file(dl, root, script, COUNTS_SCRIPT, tree)
+        try:
+            proc = run(dl, [sys.executable, "-I", os.path.join(tree, COUNTS_SCRIPT), "--repo", root, "--rev", sha,
+                            "--read-paths"], cwd=tree, capture_output=True, text=True, env=count_env())
+        except subprocess.TimeoutExpired as error:
+            raise CountError(f"{COUNTS_SCRIPT} --read-paths at {sha[:12]} ran past the report's deadline "
+                             f"({error.timeout:.0f} s left when it started)") from None
+    value = last_json_object(proc.stdout) if proc.returncode == 0 else None
+    files = value.get("files") if value else None
+    sources = value.get("sources") if value else None
+    if (value is None or value.get("rev") != sha or not isinstance(files, list) or not isinstance(sources, list)
+            or not all(isinstance(p, str) and p for p in files + sources)):
+        log(f"{COUNTS_SCRIPT} at {sha[:12]} names no read paths (exit {proc.returncode}): its count reads what one "
+            "before method v5 reads")
+        return None
+    return [(p, None, False) for p in files] + [(p, ".swift", True) for p in sources]
+
+
+def count_files(dl, root, sha, listing=None):
+    """[(oid, path)] of every blob the count at sha reads, fetched (a partial clone) in at most two fetches: the
+    FIRST_PATHS blobs and every Package.swift, then the rest of what sha's own arch_counts.py names (read_paths_at:
+    the local package closure). listing: list_tree(sha), when the caller has it."""
+    listing = list_tree(dl, root, sha) if listing is None else listing
+    first = [(oid, name) for oid, name in listing
+             if wanted(name) or name.rsplit("/", 1)[-1] == MANIFEST_NAME]
+    prefetch_blobs(dl, root, first)
+    paths = read_paths_at(dl, root, sha, listing)
+    if paths is None:
+        return first
+    paths += [(COUNTS_SCRIPT, None, False), (RATCHET_PATH, None, False)]
+    files = [(oid, name) for oid, name in listing if wanted(name, paths)]
+    have = set(first)
+    prefetch_blobs(dl, root, [f for f in files if f not in have])
     return files
 
 
@@ -456,8 +505,8 @@ def count_env():
 
 
 def counts_at(dl, root, sha, files):
-    """The checked counts record at sha, from sha's own arch_counts.py run in a subprocess. files: list_blobs(sha)."""
-    prefetch_blobs(dl, root, files)
+    """The checked counts record at sha, from sha's own arch_counts.py run in a subprocess. files: count_files(sha),
+    whose blobs are fetched already."""
     script = next((oid for oid, name in files if name == COUNTS_SCRIPT), None)
     if script is None:
         raise CountError(f"{COUNTS_SCRIPT} is not in the commit (the ratchet-file slice has not landed there)")
@@ -848,8 +897,8 @@ def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
     history, trend_note = trend_base(dl, root, repo, history_of(state), sha)
     if history is None:
         return None
-    files = list_blobs(dl, root, sha)
-    names = {name for _, name in files}
+    listing = list_tree(dl, root, sha)
+    names = {name for _, name in listing}
     if COUNTS_SCRIPT not in names and RATCHET_PATH not in names:
         log(f"neither {COUNTS_SCRIPT} nor {RATCHET_PATH} at {sha[:12]} (the ratchet-file slice is not there): no "
             "point, no judgement, the issue is left as it is")
@@ -858,7 +907,7 @@ def _report(dl, state, sha, kind, root, repo, run_url, issue, dry_run):
     # The count leaves ISSUE_RESERVE_SECONDS of the deadline for noting its own failure in the issue.
     count_dl = dl.reserving(ISSUE_RESERVE_SECONDS) if issue else dl
     try:
-        counts = counts_at(count_dl, root, sha, files)
+        counts = counts_at(count_dl, root, sha, count_files(count_dl, root, sha, listing))
         ratchet, ratchet_problem = ratchet_at(count_dl, root, sha)
     except Exception as error:  # this commit has the ratchet's files: a failed count is a 'Not judged' line
         failure = f"the count at {sha[:12]} failed: {error if isinstance(error, CountError) else failure_text(error)}"

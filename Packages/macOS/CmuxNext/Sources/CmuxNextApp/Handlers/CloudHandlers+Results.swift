@@ -57,7 +57,7 @@ extension CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if !captured { CloudPresenter.failure(error, in: window(context)) }
-                return .failure(ActionWorkFailure("\(label): \(error)"))
+                return .failure(ActionWorkFailure("\(label): \(CloudStrings.errorText(error))"))
             }
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
@@ -124,6 +124,11 @@ extension CloudHandlers {
                 }
                 return .success(createdMachineFields(session, workspaceID: creation.workspaceID))
             case .failed(let reason)?:
+                // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a
+                // CLI or agent caller can start that plan's checkout (`cmux billing checkout --plan`).
+                if let refusal = creation.planRefusal {
+                    return .failure(ActionWorkFailure(code: planRequiredCode, reason: "new Cloud machine: \(reason) (plan: \(refusal.plan))"))
+                }
                 return .failure(ActionWorkFailure("new Cloud machine: \(reason)"))
             case .gone?:
                 // Declined in the confirmation (an agent's create asks the person first), or dismissed.
@@ -133,12 +138,15 @@ extension CloudHandlers {
         registry.track(result: task)
     }
 
+    /// The error code of a `cloud new-machine` refused for a paid plan, as the Cloud contract names it.
+    static let planRequiredCode = "cloud.plan.required"
+
     /// How long `cloud new-machine` waits for the server's machine before it
     /// answers `pending`: inside `action.run`'s 40 s result deadline.
     static let createdMachineWait: Duration = .seconds(30)
 
     /// The creation's first state that is not `pending`.
-    private static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations) async -> CreatedMachine? {
+    static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations) async -> CreatedMachine? {
         for await state in ObservationStream({ CreatedMachine(creation, in: creations) }) where state != .pending { return state }
         return nil
     }

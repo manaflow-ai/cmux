@@ -60,6 +60,8 @@ public final class HangEpisodeRecorder: Sendable {
         var symbolicating = false
         /// The streams of ``changes()`` still iterated.
         var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
+        /// How many times ``notifyChanged()`` told the subscribers (tests: one per change).
+        var notifications = 0
     }
 
     static let filePrefix = "hang-"
@@ -95,6 +97,15 @@ public final class HangEpisodeRecorder: Sendable {
         queue.async { [self] in loadEntries() }
     }
 
+    /// Defense only: ends every ``changes()`` stream still registered when the recorder goes, so
+    /// a subscriber that does not own the recorder stops waiting. Debug Settings holds its
+    /// recorder, so its streams end when its page closes, not here; and a page keeps the recorder
+    /// it opened with (``MainThreadWatchdog/episodes`` is set once, at launch). (The queued
+    /// writes hold the recorder, so this runs after the last of them.)
+    deinit {
+        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.finish() }
+    }
+
     /// `~/Library/Logs/<bundle id>/hangs`.
     public static func defaultDirectory(bundleID: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appending(path: "Library/Logs").appending(path: bundleID ?? "com.cmuxterm.app.next").appending(path: "hangs")
@@ -108,7 +119,9 @@ public final class HangEpisodeRecorder: Sendable {
     /// Changes the subscriber has not taken yet fold into one pending element.
     ///
     /// Only this recorder's subscribers hear it, and only while they iterate: the stream ends,
-    /// and the recorder forgets it, when the iterating task is cancelled. Subscribe before the
+    /// and the recorder forgets it, when the iterating task is cancelled (how a subscriber that
+    /// owns the recorder ends its stream). Every stream still registered also ends if the
+    /// recorder goes away. Subscribe before the
     /// change you wait for (the stream does not replay earlier changes); read ``entries`` for
     /// the list itself.
     ///
@@ -131,6 +144,10 @@ public final class HangEpisodeRecorder: Sendable {
 
     /// Streams of ``changes()`` still registered (tests: an ended stream is forgotten).
     var subscriberCount: Int { state.withLock { $0.subscribers.count } }
+
+    /// The changes told to the subscribers so far, each one element per stream (tests: a stream
+    /// folds changes not yet taken, so only this shows a change told twice).
+    var changeNotificationCount: Int { state.withLock { $0.notifications } }
 
     /// The text of a hang file in ``directory``: nil when it is gone, is not a regular file (a
     /// symlink is refused, never followed), or is larger than ``maxBytes``. Call off the main thread.
@@ -290,7 +307,11 @@ public final class HangEpisodeRecorder: Sendable {
     /// Tells every ``changes()`` subscriber that ``entries`` changed, on the caller's thread (the
     /// recorder's queue), outside the lock.
     private func notifyChanged() {
-        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.yield() }
+        let subscribers = state.withLock { state in
+            state.notifications += 1
+            return Array(state.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield() }
     }
 
     /// This folder's hang files that are regular files (symlinks and folders are skipped), newest first.

@@ -145,8 +145,10 @@ public final class ChiefComposer {
         guard let presenter = Self.topController() else { return false }
         let directory = ChiefDirectory(recipients: ChiefDirectory.recipients(store: store, identity: session.identity, place: place))
         let compose = ConversationComposeViewController(directory: directory)
-        compose.onOpenConversation = { [weak self, weak compose] creation, message in
-            guard let self else { return }
+        // The sheet holds this composer for as long as it is up: Home makes a
+        // new composer on each redraw, so a weak one was often gone by Send,
+        // which then closed the sheet and sent nothing.
+        compose.onOpenConversation = { [weak compose] creation, message in
             compose?.presentingViewController?.dismiss(animated: true)
             self.route(creation, message: message, directory: directory)
         }
@@ -183,7 +185,11 @@ public final class ChiefComposer {
         if !others.isEmpty, !message.text.isEmpty {
             routed.text = "To \(others.map(\.name).joined(separator: ", ")): \(message.text)"
         }
-        open(.chief(place))
+        // Forwarded from inside this Chief's own conversation: send there,
+        // instead of pushing a second copy of the same screen over it.
+        if session.conversationID == nil || ChiefSession.conversationOnScreen != session.conversationID {
+            open(.chief(place))
+        }
         session.send(routed)
     }
 

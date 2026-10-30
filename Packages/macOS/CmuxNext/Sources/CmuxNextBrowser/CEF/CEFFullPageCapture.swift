@@ -21,7 +21,8 @@ struct CEFFullPageCapture {
         let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot",
                                               params: ["format": "png", "captureBeyondViewport": true, "clip": clip],
                                               timeout: .seconds(18))
-        return try CEFDevToolsResult.screenshot(json)
+        // Decoded off the main actor: a whole page of PNG in base64.
+        return try await CEFDevToolsResult.decodedScreenshot(json)
     }
 
     /// The page's CSS content size from a `Page.getLayoutMetrics` result. The

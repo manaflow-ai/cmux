@@ -26,7 +26,11 @@ public struct RemoteViewTabPolicy {
         if source == .remoteTree { return .unavailable(.remoteRecord) }
         guard let record else { return .unavailable(.invalidAddress) }
         guard paneAvailable else { return .unavailable(.notInThisBuild) }
-        if record.vncPort != nil {
+        if record.cloudDesktop {
+            // A Cloud machine's desktop goes only over the app's own Cloud tunnel to the machine
+            // the signed-in account owns (its private address, the hub's client token), never to
+            // a network address the record names.
+        } else if record.vncPort != nil {
             // An RFB host authenticates the viewer itself (its own password),
             // so the phase-1 loopback rule does not apply; its stream is not
             // encrypted, so it stays on private networks.

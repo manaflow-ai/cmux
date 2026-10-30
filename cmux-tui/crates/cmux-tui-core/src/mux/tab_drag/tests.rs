@@ -90,6 +90,7 @@ fn cmux_next_respawn_split_refuses_a_pane_that_changed_since_the_fresh_tab() {
         edge: TabDropEdge::Right,
         ratio: None,
         keep_focus: false,
+        around: None,
     };
     let guard = SourceGuard { pane, tabs: [fresh, dragged] };
     let error =
