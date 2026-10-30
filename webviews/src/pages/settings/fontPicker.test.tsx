@@ -85,7 +85,8 @@ describe("FontPicker", () => {
   test("a late save cannot end a newer preview after the picker reopens", async () => {
     const search = await open();
     let resolveSave!: () => void;
-    page!.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
+    page!.store.set = (() =>
+      new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
     // The first row is the default, which is already in effect; the second is a family to save.
     await fire(search, "keydown", { key: "ArrowDown" });
     await fire(search, "keydown", { key: "ArrowDown" });

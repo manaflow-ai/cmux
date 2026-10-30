@@ -862,17 +862,18 @@ export class SettingsStore {
     return this.write({ kind: "resetAll" });
   }
 
-  private readonly previewOwners = new Map<string, object>();
+  /** The host holds one live preview at a time, whatever its key: its latest owner. */
+  private previewOwner: object | null = null;
 
   preview(key: string, value: unknown, owner?: object): void {
-    const token = owner ?? {};
-    this.previewOwners.set(key, token);
+    this.previewOwner = owner ?? {};
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
+  /** With an `owner`, ends the preview only while that owner's is still the one showing. */
   previewEnd(key: string, owner?: object): void {
-    if (owner && this.previewOwners.get(key) !== owner) return;
-    this.previewOwners.delete(key);
+    if (owner && this.previewOwner !== owner) return;
+    this.previewOwner = null;
     void this.request("cmux.settings.preview.end", { key });
   }
 

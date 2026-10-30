@@ -125,7 +125,8 @@ test("a theme previews live in the app before it is picked: hover or arrows, rig
 test("a late theme save cannot end a newer preview after the picker reopens", async () => {
   page = await renderPage({ path: "/settings/theme" });
   let resolveSave!: () => void;
-  page.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
+  page.store.set = (() =>
+    new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
   const button = theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!;
   await click(button);
   const search = document.querySelector<HTMLElement>(".theme-search")!;
@@ -143,11 +144,27 @@ test("a late theme save cannot end a newer preview after the picker reopens", as
   expect(ops(page.provider, "cmux.settings.preview.end").length).toBe(endsBeforeSave);
 });
 
+test("a late cleanup for one key cannot end the newer preview of another: the host holds one preview", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  const terminal = {};
+  const app = {};
+  page.store.preview("appearance.theme", "Dracula", terminal);
+  page.store.preview("appearance.appTheme", "Nord", app);
+  await settle();
+  page.store.previewEnd("appearance.theme", terminal);
+  await settle();
+  expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([]);
+  page.store.previewEnd("appearance.appTheme", app);
+  await settle();
+  expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([{ key: "appearance.appTheme" }]);
+});
+
 test("a late theme save leaves the pointer's pending preview in the reopened picker alone", async () => {
   const { DWELL_MS } = await import("./components/ThemePicker");
   page = await renderPage({ path: "/settings/theme" });
   let resolveSave!: () => void;
-  page.store.set = (() => new Promise<void>((resolve) => (resolveSave = resolve))) as typeof page.store.set;
+  page.store.set = (() =>
+    new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
   const button = theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!;
   await click(button);
   const search = document.querySelector<HTMLElement>(".theme-search")!;
