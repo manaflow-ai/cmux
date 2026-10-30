@@ -165,8 +165,10 @@ Superseded delivery runs are one more pass (skip_superseded_delivery): "When
 nightly runs for older commits are stuck waiting (queued for a runner or a
 gate), skip them and build from the tip: cancel the stale runs" (Leo,
 2026-10-26). A nightly, DEV or promote run is cancelled only when
-delivery_workflows.superseded_unstarted() says so: its build has not started
-and a newer head of its branch has its own run of the same workflow. The
+delivery_workflows.superseded_unstarted() says it is stale: every job but the
+light control and decide ones is still queued for a runner, it has waited at
+least 20 min, and a newer head of its branch has its own run of the same
+workflow that is already building. The
 agents' cancel guard reads that same function, so the two never disagree. A
 run's jobs are read again right before its cancel, and a run whose build
 started in between is kept. Its own cap; no force-cancel.
@@ -197,6 +199,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import LANE_LABEL  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
 from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
@@ -553,6 +556,11 @@ def is_macos_job(job: Mapping[str, Any]) -> bool:
     return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
+def lane_label(job: Mapping[str, Any]) -> str | None:
+    """The feat-cmux-next lane label (pr_runner_pool.LANE_LABEL: session, fast, dev, nightly) a job asked for."""
+    return next((str(label) for label in job.get("labels") or () if LANE_LABEL.fullmatch(str(label))), None)
+
+
 def runner_pool(job: Mapping[str, Any]) -> str:
     """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
     owned = owned_label(job)
@@ -838,12 +846,20 @@ def pool_load_snapshot(
         for label, count in seen.items():
             committed[label] = committed.get(label, 0) + count
         for job in jobs_by_run.get(run.get("id"), ()):
-            if not is_macos_job(job):
+            # A lane label (session, fast, dev, nightly) is no owned pool to the pickers, but its own queue: the
+            # placements and the rescue read whether it runs anything (run 40887257098's daemon test waited
+            # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
+            lane = lane_label(job)
+            macos = is_macos_job(job)
+            if not macos and not lane:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            for pool in (*counted_pools(runner_pool(job)), *capabilities(job)):
+            # A lane job counts on its lane label whatever else it asked for (`macOS`, `self-hosted`), and on its
+            # macOS pool as before.
+            counted = (*counted_pools(runner_pool(job)), *capabilities(job)) if macos else ()
+            for pool in dict.fromkeys(((lane,) if lane else ()) + counted):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:
@@ -2339,6 +2355,7 @@ def skip_superseded_delivery(
     *,
     dry_run: bool,
     max_cancels: int = SUPERSEDED_MAX_CANCELS,
+    now: dt.datetime | None = None,
 ) -> tuple[list[SupersededDecision], int]:
     """Cancel each candidate delivery_workflows.superseded_unstarted() allows, re-reading its jobs first."""
     decisions: list[SupersededDecision] = []
@@ -2363,11 +2380,26 @@ def skip_superseded_delivery(
                 print(f"queue-janitor: jobs of run {other_id}: {error}", file=sys.stderr)
         return read_jobs[other_id]
 
+    tips: dict[str, str] = {}
+
+    def tip_of(branch: str) -> str:
+        """The branch's head, read once a sweep ("" when unread or gone: the run is then kept)."""
+        if branch not in tips:
+            try:
+                tips[branch] = github.branch_head(branch) if branch else ""
+            except RateLimited:
+                raise
+            except RuntimeError as error:
+                tips[branch] = ""
+                print(f"queue-janitor: head of {branch}: {error}", file=sys.stderr)
+        return tips[branch]
+
     cancels = 0
     for run in candidates:
         run_id = run["id"]
-        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of)
-        if not ok and (why.startswith("no newer head") or why.startswith("no newer run")):
+        tip = tip_of(str(run.get("head_branch") or ""))
+        ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of, tip_sha=tip, now=now)
+        if not ok and why.startswith("condition 3 fails: no newer"):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
                 try:
@@ -2378,7 +2410,7 @@ def skip_superseded_delivery(
                     listed[key] = []
                     print(f"queue-janitor: runs of {key[1]} for run {run_id}: {error}", file=sys.stderr)
             ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), [*runs, *listed.get(key, [])],
-                                           jobs_of)
+                                           jobs_of, tip_sha=tip, now=now)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", why))
             continue
@@ -2398,6 +2430,7 @@ def skip_superseded_delivery(
         # are read again: a run whose build started since, or whose replacement failed or was cancelled, is kept.
         try:
             current, jobs = github.run(run_id), complete_jobs(github.jobs(run_id))
+            fresh_tip = github.branch_head(str(current.get("head_branch") or ""))  # the tip may have moved
             # The run once more after its jobs: a re-run that began between the two reads changes its attempt.
             after = github.run(run_id)
             pool = [*runs, *[r for rs in listed.values() for r in rs]]
@@ -2418,7 +2451,8 @@ def skip_superseded_delivery(
         if (after.get("run_attempt"), after.get("status")) != (current.get("run_attempt"), current.get("status")):
             decisions.append(SupersededDecision(run, "keep", "on re-read: it changed while its jobs were read"))
             continue
-        ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")))
+        ok, why = superseded_unstarted(current, jobs, fresh_runs, lambda other: fresh_jobs.get(other.get("id")),
+                                       tip_sha=fresh_tip, now=now)
         if not ok:
             decisions.append(SupersededDecision(run, "keep", f"on re-read: {why}"))
             continue
@@ -2451,8 +2485,9 @@ def skip_superseded_delivery(
 
 def render_superseded_summary(decisions: Sequence[SupersededDecision]) -> str:
     lines = ["", "### Superseded nightly, DEV and promote runs", "",
-             "A delivery run whose build never started, at a head a newer run of its workflow on the same branch "
-             "has superseded with the same build jobs, is skipped so the tip builds (delivery_workflows.superseded_unstarted()).", ""]
+             "A stale delivery run (every job but the light control and decide ones still queued for 20 min or more, "
+             "with a newer run of its workflow on the same branch already building) is skipped so the tip builds "
+             "(delivery_workflows.superseded_unstarted()).", ""]
     if not decisions:
         lines.append("None waiting.")
         return "\n".join(lines) + "\n"

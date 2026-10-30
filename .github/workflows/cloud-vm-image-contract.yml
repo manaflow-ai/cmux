@@ -20,6 +20,7 @@ on:
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
       - web/services/vms/images/devbox/**
+      - tests/test_devbox_bubblewrap.py
       - web/tests/vm-image-*.test.ts
       - .github/workflows/cloud-vm-image-contract.yml
   push:
@@ -41,6 +42,7 @@ on:
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
       - web/services/vms/images/devbox/**
+      - tests/test_devbox_bubblewrap.py
       - web/tests/vm-image-*.test.ts
       - .github/workflows/cloud-vm-image-contract.yml
   workflow_dispatch:
@@ -86,6 +88,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Independent of the manifest: runs first so a stale manifest cannot hide it.
+      - name: Test bubblewrap installation and unprivileged sandbox
+        run: python3 ../tests/test_devbox_bubblewrap.py
+
       - name: Validate the checked-in image ladder
         run: bun run devbox:manifest:check
 
@@ -94,7 +100,7 @@ jobs:
 
   promote:
     if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && inputs.promote == true && inputs.confirm == 'PROMOTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 180
     environment: cloud-vm-image-checks
     defaults:
@@ -126,20 +132,58 @@ jobs:
           fi
           printf 'source ref: %s\nsource sha: %s\n' "$GITHUB_REF" "$(git rev-parse HEAD)"
 
+      # Everything the cleanup below deletes by name must also be newer than this.
+      - name: Record when this run started creating machines
+        id: started
+        run: echo "at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Bake, verify, derive, and stage the manifest
+        id: bake
         env:
           CMUX_BAKE_ALLOW_BRANCH: "1"
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
-          SLUG: cmux-devbox-${{ github.run_id }}
+          # The attempt keeps a re-run's snapshots apart from the first
+          # attempt's, so the cleanup below never touches another attempt.
+          SLUG: cmux-devbox-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          # The log is the cleanup's ledger of the snapshots this run took.
           bun run devbox:promote -- freestyle \
             --slug "$SLUG" \
             --pointer-slug none \
-            --out "$PROMOTION_OUT"
+            --out "$PROMOTION_OUT" 2>&1 | tee "$RUNNER_TEMP/devbox-promote.log"
           bun run devbox:manifest:check
           cp services/vms/images/manifest.json "$RUNNER_TEMP/devbox-manifest.json"
+
+      # Runs after a failure, a cancel, or a timeout too. Deletes every machine
+      # this run created (the builder, and the verify and derive machines) and
+      # every snapshot it made that nothing references: the checkout's manifest
+      # (what promote wrote; the staged artifact is a copy of it) and the
+      # manifests on main and feat-cmux-next are protected. A failed or
+      # cancelled run leaves no image behind. Anything matched by name must
+      # also be newer than this run's start.
+      - name: Delete this run's machines and unreferenced snapshots
+        if: always() && steps.bake.outcome != 'skipped' && steps.bake.outcome != ''
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SLUG: cmux-devbox-${{ github.run_id }}-${{ github.run_attempt }}
+          SINCE: ${{ steps.started.outputs.at }}
+        run: |
+          set -uo pipefail
+          status=0
+          bun scripts/cloud-vm/ci-leftovers.ts vms --builder-of "$SLUG" --since "$SINCE" || status=1
+          # The checkout's manifest at HEAD always, plus what promote wrote to it
+          # when that write finished (the staged artifact is a copy of it).
+          git show HEAD:web/services/vms/images/manifest.json > "$RUNNER_TEMP/manifest-head.json"
+          args=(--manifest "$RUNNER_TEMP/manifest-head.json" --manifest-if-readable services/vms/images/manifest.json --ledger "$RUNNER_TEMP/devbox-promote.log")
+          for branch in main feat-cmux-next; do
+            git fetch --quiet origin "$branch" || { echo "::error::could not read the $branch manifest; keeping every snapshot"; exit 1; }
+            git show "origin/$branch:web/services/vms/images/manifest.json" > "$RUNNER_TEMP/manifest-$branch.json"
+            args+=(--manifest "$RUNNER_TEMP/manifest-$branch.json")
+          done
+          bun scripts/cloud-vm/ci-leftovers.ts snapshots --slug "$SLUG" --since "$SINCE" "${args[@]}" || status=1
+          exit "$status"
 
       - name: Summarize the staged promotion
         if: success()

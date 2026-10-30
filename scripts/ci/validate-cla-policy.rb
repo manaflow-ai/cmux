@@ -12,6 +12,7 @@ require "json"
 require "open3"
 require "tempfile"
 require "time"
+require "tmpdir"
 require "yaml"
 
 class PolicyError < StandardError; end
@@ -164,7 +165,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "11456f449bfcc09d5e19706527ce081a46f93eb357b97099d7bd267ae0ce2c28"
+EXPECTED_GUARD_SCRIPT_DIGEST = "2334f2193cb03ea591f38f193607a36c7d0e12bfbdc9a23753953eb28fb904a5"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -213,11 +214,24 @@ GUARD_SCRIPT_PATH = "scripts/ci/validate-cla-policy.rb".freeze
 GUARD_PATHS = [GUARD_WORKFLOW_PATH, GUARD_SCRIPT_PATH].freeze
 TEST_MERGE_ATTEMPTS = 6
 TEST_MERGE_RETRY_SECONDS = 5
-# Designated maintainers who may approve a trusted control-plane update. The
-# PR author is deliberately excluded, even when they are an administrator, so
-# the validator cannot turn self-approval into a policy-change bypass. IDs are
-# used instead of names, and the review must target the exact PR head.
-TRUSTED_REVIEWER_IDS = %w[38676809 67667005].freeze
+# Who may approve a trusted control-plane update. The PR author is
+# deliberately excluded, even when they are an administrator, so the validator
+# cannot turn self-approval into a policy-change bypass. IDs are used instead
+# of names, and the review must target the exact PR head and stay undismissed.
+#
+# People (GitHub user type "User"): Austin (38676809), Aziz (67667005) and Leo
+# (13091533). Leo's account opens the agent pull requests, so his approval
+# counts only on a pull request he did not open (the author check below).
+#
+# The cmux-bot GitHub App (user type "Bot", cmux-bot[bot] 348531757) approves a
+# head only after an independent review of that exact head passed (the review
+# reconciler turns a SHIP receipt at the head into this approval). Leo,
+# 2026-10-29, on a CLA-guard pull request only two teammates could unblock:
+# "STOP BLOCKING ON THIS BULLSHIT. IT SHOULDN'T HAPPEN."
+# An account ID is accepted only with the type it is listed under, so a user
+# can never stand in for the App or the App for a person.
+TRUSTED_REVIEWER_IDS = %w[38676809 67667005 13091533].freeze
+TRUSTED_BOT_REVIEWER_IDS = %w[348531757].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
 TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
@@ -595,6 +609,15 @@ rescue ArgumentError
   fail!("trusted review timestamp is malformed")
 end
 
+# The GitHub account type a trusted reviewer ID must carry, or nil when the ID
+# is not a trusted reviewer.
+def trusted_reviewer_type(reviewer_id)
+  return "User" if TRUSTED_REVIEWER_IDS.include?(reviewer_id)
+  return "Bot" if TRUSTED_BOT_REVIEWER_IDS.include?(reviewer_id)
+
+  nil
+end
+
 def collect_latest_trusted_review!(latest, seen_review_ids, review)
   fail!("pull-request review entry is malformed") unless review.is_a?(Hash)
   review_id = review["id"]
@@ -613,7 +636,8 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   user_id = user["id"]
   return unless user_id.is_a?(Integer) && user_id.positive?
   reviewer_id = user_id.to_s
-  return unless TRUSTED_REVIEWER_IDS.include?(reviewer_id)
+  trusted_type = trusted_reviewer_type(reviewer_id)
+  return if trusted_type.nil?
 
   state = review["state"]
   fail!("pull-request review state is malformed") unless TRUSTED_REVIEW_STATES.include?(state)
@@ -621,7 +645,7 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   # In particular, a later comment must not erase a valid approval.
   return unless TRUSTED_REVIEW_DECISION_STATES.include?(state)
   fail!("pull-request review commit is malformed") unless review["commit_id"].is_a?(String) && review["commit_id"].match?(SHA)
-  fail!("pull-request review user is not a human") unless user["type"] == "User"
+  fail!("pull-request review user is not the trusted account type") unless user["type"] == trusted_type
 
   order = review_sort_key(review)
   previous = latest[reviewer_id]
@@ -969,6 +993,152 @@ end
 
 def fetch_snapshot(repository, sha, paths)
   paths.to_h { |path| [path, fetch_file(repository, sha, path, allow_missing: true)] }
+end
+
+# Git reads of the guard and policy files. Each revision's files are read from
+# that revision's own commit: the base's from the base sha, the head's (as
+# data, never checked out or run) from the head sha. A pull request therefore
+# still cannot change the policy that judges it. The reads cost two git round
+# trips (the commits' trees, then the wanted blobs) and no REST call, where the
+# contents API took one call per file per revision (12 for a base and a head).
+# Any git failure returns nil and the caller reads through the contents API as
+# before, so the guard is never worse off; a file that is not a regular file
+# fails the guard either way.
+GIT_TIMEOUT_SECONDS = "60"
+GIT_ENVIRONMENT = {
+  "GIT_TERMINAL_PROMPT" => "0",
+  "GIT_NO_LAZY_FETCH" => "1",
+  "GIT_CONFIG_NOSYSTEM" => "1",
+  "GIT_CONFIG_GLOBAL" => File::NULL
+}.freeze
+GIT_FETCH_OPTIONS = %w[
+  fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no --filter=blob:none
+].freeze
+GIT_REGULAR_FILE_MODES = %w[100644 100755].freeze
+# File-size caps (ulimit -f, in 1 KiB blocks) on what each fetch may write.
+# A promisor fetch writes one pack, so the blob fetch's pack may hold at most
+# a policy file's size (plus headroom) per wanted blob. A larger pack stops
+# the fetch, and the guard falls back to the contents API, which rejects an
+# oversized file. A fork cannot make the guard download or hold an unbounded
+# blob; sizes are checked again before any content is read.
+GIT_TREE_FETCH_BLOCKS = 65_536
+GIT_BLOB_FETCH_BLOCKS_EACH = (MAX_FILE_BYTES + 65_536) / 1024
+GIT_SERVER_URL = %r{\Ahttps://[A-Za-z0-9.-]+(?::[0-9]+)?\z}
+
+def git_remote_url(repository)
+  server = ENV.fetch("GITHUB_SERVER_URL", "https://github.com")
+  return nil unless server.match?(GIT_SERVER_URL) && repository.match?(REPOSITORY)
+
+  "#{server}/#{repository}.git"
+end
+
+def git_output(git_dir, *args, stdin_data: "", file_blocks: nil)
+  command = ["timeout", GIT_TIMEOUT_SECONDS, "git", "--git-dir=#{git_dir}", *args]
+  command = ["sh", "-c", "ulimit -f #{Integer(file_blocks)} && exec \"$@\"", "sh", *command] if file_blocks
+  stdout, _stderr, status = Open3.capture3(GIT_ENVIRONMENT, *command, stdin_data: stdin_data, binmode: true)
+  status.success? ? stdout : nil
+end
+
+# { path => blob id } for the wanted paths present at sha; nil when git
+# cannot list the tree.
+def git_tree_blobs(git_dir, sha, paths)
+  listing = git_output(git_dir, "ls-tree", "-z", "--full-tree", sha, "--", *paths)
+  return nil if listing.nil?
+
+  blobs = {}
+  listing.split("\0").each do |entry|
+    meta, path = entry.split("\t", 2)
+    next unless paths.include?(path)
+
+    mode, type, id = meta.to_s.split(" ")
+    fail!("#{path} is not a regular file") unless type == "blob" && GIT_REGULAR_FILE_MODES.include?(mode)
+    return nil unless id.to_s.match?(SHA)
+
+    blobs[path] = id
+  end
+  blobs
+end
+
+# { blob id => bytes } for the given ids, read from the local object store
+# only (no lazy fetch); nil when one is missing. Every size is checked before
+# any content is read.
+def git_blob_bytes(git_dir, ids)
+  return {} if ids.empty?
+
+  request = ids.map { |id| "#{id}\n" }.join
+  sizes = git_output(git_dir, "cat-file", "--batch-check", stdin_data: request)
+  return nil if sizes.nil?
+
+  sizes = sizes.split("\n")
+  return nil unless sizes.length == ids.length
+
+  sizes.zip(ids).each do |line, id|
+    header = line.split(" ")
+    return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
+
+    fail!("a policy file is too large") if header[2].to_i > MAX_FILE_BYTES
+  end
+  output = git_output(git_dir, "cat-file", "--batch", stdin_data: request)
+  return nil if output.nil?
+
+  bytes = {}
+  offset = 0
+  ids.each do |id|
+    newline = output.index("\n", offset)
+    return nil if newline.nil?
+
+    header = output.byteslice(offset, newline - offset).split(" ")
+    return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
+
+    size = header[2].to_i
+    fail!("a policy file is too large") if size > MAX_FILE_BYTES
+    bytes[id] = output.byteslice(newline + 1, size)
+    offset = newline + 1 + size + 1
+  end
+  bytes
+end
+
+# { sha => { path => bytes or nil } } for every sha, read by git from the
+# protected repository (a fork pull request's head is fetched there too, by
+# its sha); nil when git could not read them.
+def git_snapshots(repository, shas, paths)
+  url = git_remote_url(repository)
+  return nil if url.nil? || shas.empty? || !shas.all? { |sha| sha.match?(SHA) }
+
+  Dir.mktmpdir("cla-policy-objects") do |git_dir|
+    return nil if git_output(git_dir, "init", "--quiet", "--bare").nil?
+    return nil if git_output(git_dir, *GIT_FETCH_OPTIONS, "--depth=1", url, *shas,
+                             file_blocks: GIT_TREE_FETCH_BLOCKS).nil?
+
+    trees = {}
+    shas.each do |sha|
+      blobs = git_tree_blobs(git_dir, sha, paths)
+      return nil if blobs.nil?
+
+      trees[sha] = blobs
+    end
+    ids = trees.values.flat_map(&:values).uniq
+    return nil if !ids.empty? &&
+      git_output(git_dir, *GIT_FETCH_OPTIONS, url, *ids, file_blocks: GIT_BLOB_FETCH_BLOCKS_EACH * ids.length).nil?
+
+    contents = git_blob_bytes(git_dir, ids)
+    return nil if contents.nil?
+
+    trees.transform_values do |blobs|
+      paths.to_h { |path| [path, blobs[path] && contents.fetch(blobs[path])] }
+    end
+  end
+end
+
+# The guard and policy files of each revision ({ sha => repository its files
+# live in }), keyed by sha: by git when it can, else through the contents API
+# as before.
+def read_revisions(repository, revisions)
+  paths = GUARD_PATHS + CLA_POLICY_PATHS
+  snapshots = git_snapshots(repository, revisions.keys, paths)
+  return snapshots unless snapshots.nil?
+
+  revisions.to_h { |sha, source| [sha, fetch_snapshot(source, sha, paths)] }
 end
 
 # Returns [first parent, test merge] for the exact head, or nil when GitHub
@@ -2689,7 +2859,49 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (11 cases)"
+
+  # The cmux-bot App's approval of the exact head, after an independent
+  # review, clears the gate for a pull request Leo's account opened; an
+  # approval of an older head, a dismissed one, and the author's own do not.
+  bot = 348531757
+  leo = 13091533
+  older = "b" * 40
+  bot_review = lambda do |id, state, at, commit = head, dismissed = nil|
+    review.call(id, state, at, commit, bot, dismissed).merge("user" => { "id" => bot, "type" => "Bot" })
+  end
+  approves = lambda do |reviews, author|
+    found = {}
+    reviews.each { |item| collect_latest_trusted_review!(found, {}, item) }
+    found.values.any? { |_order, item| trusted_review_approves_head?(item, head, author) }
+  end
+  fail!("cmux-bot head approval regression failed") unless
+    approves.call([bot_review.call(20, "APPROVED", "2026-01-07T00:00:00Z")], leo)
+  fail!("cmux-bot older-head approval regression failed") if
+    approves.call([bot_review.call(21, "APPROVED", "2026-01-07T00:00:00Z", older)], leo)
+  fail!("cmux-bot dismissed approval regression failed") if
+    approves.call([bot_review.call(22, "APPROVED", "2026-01-07T00:00:00Z", head, "2026-01-07T00:01:00Z")], leo)
+  fail!("cmux-bot later dismissal regression failed") if
+    approves.call([bot_review.call(23, "APPROVED", "2026-01-07T00:00:00Z"),
+                   bot_review.call(24, "DISMISSED", "2026-01-07T00:01:00Z")], leo)
+  fail!("author self-approval regression failed") if
+    approves.call([review.call(25, "APPROVED", "2026-01-07T00:00:00Z", head, leo)], leo)
+  fail!("Leo independent approval regression failed") unless
+    approves.call([review.call(26, "APPROVED", "2026-01-07T00:00:00Z", head, leo)], 12345)
+  # An ID is trusted only as the type it is listed under: a "User" claiming
+  # the App's ID, or a "Bot" claiming a person's, is refused, not counted.
+  [
+    review.call(27, "APPROVED", "2026-01-07T00:00:00Z", head, bot),
+    bot_review.call(28, "APPROVED", "2026-01-07T00:00:00Z").merge("user" => { "id" => leo, "type" => "Bot" })
+  ].each do |impostor|
+    refused = false
+    begin
+      collect_latest_trusted_review!({}, {}, impostor)
+    rescue PolicyError
+      refused = true
+    end
+    fail!("trusted reviewer type regression failed") unless refused
+  end
+  puts "PASS: trusted review state regression matrix (19 cases)"
 end
 
 def validate_workflow(raw)
@@ -3266,8 +3478,12 @@ begin
   head_sha = required_env("HEAD_SHA", SHA)
   fail!("base and head revisions are identical") if base_sha == head_sha
 
-  repository_metadata = api_json(repository, "repos/#{repository}")
-  repository_id = repository_metadata.is_a?(Hash) ? repository_metadata["id"] : nil
+  # The runner names the repository's ID; the API is read only without it.
+  repository_id = ENV["GITHUB_REPOSITORY_ID"].to_s.match?(/\A[1-9][0-9]*\z/) ? ENV["GITHUB_REPOSITORY_ID"].to_i : nil
+  if repository_id.nil?
+    repository_metadata = api_json(repository, "repos/#{repository}")
+    repository_id = repository_metadata.is_a?(Hash) ? repository_metadata["id"] : nil
+  end
   assert_positive_integer(repository_id, "base repository ID")
   live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
   fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
@@ -3300,22 +3516,25 @@ begin
   head_repository = live_head_repo["full_name"].to_s
   fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
-  # A fork pull request stores the head commit in the head repository. Fetch
-  # base and test-merge files from the protected repository and candidate
-  # files from the validated head repository, so normal external
-  # contributions are admitted.
-  base_guard = fetch_snapshot(repository, base_sha, GUARD_PATHS)
-  head_guard = fetch_snapshot(head_repository, head_sha, GUARD_PATHS)
-  base_policy = fetch_snapshot(repository, base_sha, CLA_POLICY_PATHS)
-  head_policy = fetch_snapshot(head_repository, head_sha, CLA_POLICY_PATHS)
+  # Each revision's files are read at its own sha: the base's from the base
+  # sha, never from the head. A fork pull request stores the head commit in
+  # the head repository; git fetches it by sha from the protected repository,
+  # and the contents API fallback reads it from the validated head
+  # repository, so normal external contributions are admitted.
+  revisions = read_revisions(repository, { base_sha => repository, head_sha => head_repository })
+  base_guard = revisions.fetch(base_sha).slice(*GUARD_PATHS)
+  head_guard = revisions.fetch(head_sha).slice(*GUARD_PATHS)
+  base_policy = revisions.fetch(base_sha).slice(*CLA_POLICY_PATHS)
+  head_policy = revisions.fetch(head_sha).slice(*CLA_POLICY_PATHS)
   landed_parent_guard = landed_guard = landed_parent_policy = landed_policy = nil
   if head_guard != base_guard || head_policy != base_policy
     landed_parent_sha, landed_sha = pull_request_test_merge(repository, pr_number, base_sha, head_sha)
     if landed_sha
-      landed_parent_guard = fetch_snapshot(repository, landed_parent_sha, GUARD_PATHS)
-      landed_guard = fetch_snapshot(repository, landed_sha, GUARD_PATHS)
-      landed_parent_policy = fetch_snapshot(repository, landed_parent_sha, CLA_POLICY_PATHS)
-      landed_policy = fetch_snapshot(repository, landed_sha, CLA_POLICY_PATHS)
+      landed = read_revisions(repository, { landed_parent_sha => repository, landed_sha => repository })
+      landed_parent_guard = landed.fetch(landed_parent_sha).slice(*GUARD_PATHS)
+      landed_guard = landed.fetch(landed_sha).slice(*GUARD_PATHS)
+      landed_parent_policy = landed.fetch(landed_parent_sha).slice(*CLA_POLICY_PATHS)
+      landed_policy = landed.fetch(landed_sha).slice(*CLA_POLICY_PATHS)
     end
   end
   head_guard_workflow = head_guard.fetch(GUARD_WORKFLOW_PATH)

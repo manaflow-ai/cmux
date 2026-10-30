@@ -51,6 +51,15 @@
 //       marker read failure, never "no tree". Nightly-next run 40445128409
 //       failed when a direct promote moved nightly-next to 5d81874b while its
 //       tree was still building. Main needs no tree key and no API call for it.
+//       One exception, for a feat-cmux-next commit (not a train commit) whose
+//       marker reads 404: when that commit's own nightly.yml carries the line
+//       TREE_AT_INSTALL_LINE, its nightly builds the app at once, waits for
+//       the commit's own attested tree before it installs the client, and
+//       publishes only once the commit's marker exists (the same check, moved
+//       into the run). Then the 404 does not refuse: the landing's build
+//       starts while its tree compiles instead of after. The file is read
+//       through the contents API at the SHA; a read failure, or a file without
+//       the line (every commit before that nightly.yml), refuses as before.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
 // The functions take injected clients so tests drive them with a fake API.
@@ -148,8 +157,43 @@ export async function fetchTreeMarker(sha, { fetchImpl = globalThis.fetch, now =
   }
 }
 
+// The line (trimmed, whole) in a commit's .github/workflows/nightly.yml that
+// says its nightly waits for its own tree at install and gates publication on
+// the commit's tree-commit marker (feat-cmux-next's nightly.yml, top-level env).
+export const TREE_AT_INSTALL_LINE = 'NIGHTLY_NEXT_TREE_AT_INSTALL: v1';
+export const NIGHTLY_WORKFLOW_PATH = '.github/workflows/nightly.yml';
+
+// Reads <sha>'s nightly.yml: its text, or throws.
+export function workflowReader(github, owner, repo) {
+  return async (sha) => {
+    const { data } = await github.rest.repos.getContent({
+      owner, repo, path: NIGHTLY_WORKFLOW_PATH, ref: sha, mediaType: { format: 'raw' },
+    });
+    if (typeof data !== 'string') throw new Error(`${NIGHTLY_WORKFLOW_PATH} at ${sha} is not a file`);
+    return data;
+  };
+}
+
+// true when <sha>'s nightly.yml has TREE_AT_INSTALL_LINE, false when it
+// does not, and { error } when it cannot be read.
+export async function waitsForTreeAtInstall(readWorkflow, sha) {
+  let text;
+  try {
+    text = await readWorkflow(sha);
+  } catch (error) {
+    return { error: `${NIGHTLY_WORKFLOW_PATH} at ${sha} could not be read (${error.status || error.message})` };
+  }
+  return String(text).split('\n').some((line) => line.trim() === TREE_AT_INSTALL_LINE);
+}
+
 // null when the marker says the tree of `sha` is ready, else the refusal reason.
 export async function treeMarkerGate(readTreeMarker, sha) {
+  return (await treeMarkerCheck(readTreeMarker, sha)).reason;
+}
+
+// { reason: null } when ready; else { reason, missing }, where missing is true
+// only for a clean 404 (never a read failure or a malformed marker).
+export async function treeMarkerCheck(readTreeMarker, sha) {
   let marker;
   try {
     marker = await readTreeMarker(sha);
@@ -158,18 +202,18 @@ export async function treeMarkerGate(readTreeMarker, sha) {
   }
   const url = marker?.url || `${TREE_MARKER_BASE}/${sha}.json`;
   if (marker?.status === 404 && !marker.error) {
-    return `${sha} has no cmux-tui tree-commit marker (${url}): its tree is not published and daemon-tested yet, or the marker was never written; nothing promoted. Backfill: ${TREE_BACKFILL} (marks every recent feat-cmux-next commit whose tree is ready), then request again: ${TREE_REQUEST_AGAIN}`;
+    return { missing: true, reason: `${sha} has no cmux-tui tree-commit marker (${url}): its tree is not published and daemon-tested yet, or the marker was never written; nothing promoted. Backfill: ${TREE_BACKFILL} (marks every recent feat-cmux-next commit whose tree is ready), then request again: ${TREE_REQUEST_AGAIN}` };
   }
   if (marker?.status !== 200 || marker.error) {
-    return `tree marker read failed for ${sha} (${url}: ${marker?.error || `HTTP ${marker?.status}`}); nothing promoted. A read failure, not a missing tree: request again once files.cmux.com answers (${TREE_REQUEST_AGAIN})`;
+    return { missing: false, reason: `tree marker read failed for ${sha} (${url}: ${marker?.error || `HTTP ${marker?.status}`}); nothing promoted. A read failure, not a missing tree: request again once files.cmux.com answers (${TREE_REQUEST_AGAIN})` };
   }
   const body = marker.body;
   const hex40 = (v) => typeof v === 'string' && /^[0-9a-f]{40}$/.test(v);
   if (body?.commit !== sha || !hex40(body?.key) || !hex40(body?.publishedBy)
       || typeof body?.markedBy !== 'string' || !body.markedBy.trim()) {
-    return `tree marker read failed for ${sha} (${url}): it is not a complete marker of ${sha} (commit ${body?.commit || 'none'}, key ${body?.key || 'none'}, publishedBy ${body?.publishedBy || 'none'}, markedBy ${body?.markedBy ? 'set' : 'none'}); nothing promoted`;
+    return { missing: false, reason: `tree marker read failed for ${sha} (${url}): it is not a complete marker of ${sha} (commit ${body?.commit || 'none'}, key ${body?.key || 'none'}, publishedBy ${body?.publishedBy || 'none'}, markedBy ${body?.markedBy ? 'set' : 'none'}); nothing promoted` };
   }
-  return null;
+  return { reason: null };
 }
 
 async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
@@ -519,6 +563,7 @@ export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
   verifyTrain = null, requireReleaseCompile = false, requireApproval = false, readTreeMarker = fetchTreeMarker,
+  readWorkflow = null,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
@@ -582,8 +627,18 @@ export async function decide({
   // G5: the tree is published and daemon-tested. A train commit carries its
   // second parent's tree minus its listed reverts; the parent's marker stands
   // for it (the train is off unless vars.NIGHTLY_NEXT_TRAIN is on).
-  const treeRefusal = await treeMarkerGate(readTreeMarker, train ? train.tip : sha);
-  if (treeRefusal) return refuse(treeRefusal);
+  const { reason: treeRefusal, missing: treeMissing } = await treeMarkerCheck(readTreeMarker, train ? train.tip : sha);
+  if (treeRefusal) {
+    // Only "no marker yet" (a clean 404, never a read failure or a malformed
+    // marker) of a feat-cmux-next commit whose own nightly waits for its tree
+    // at install (TREE_AT_INSTALL_LINE).
+    if (train || treeMissing !== true) return refuse(treeRefusal);
+    const waits = await waitsForTreeAtInstall(readWorkflow || workflowReader(github, owner, repo), sha);
+    if (waits !== true) {
+      return refuse(waits?.error ? `${treeRefusal} (and ${waits.error}, so whether its nightly waits for its tree is unknown)` : treeRefusal);
+    }
+    core?.notice?.(`${sha} has no tree-commit marker yet; its nightly.yml waits for its own tree at install and publishes only once the marker exists (${TREE_AT_INSTALL_LINE}).`);
+  }
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {
     const { data } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'nightly.yml', branch: TARGET, per_page: 1 });

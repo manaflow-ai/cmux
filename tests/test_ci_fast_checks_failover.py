@@ -50,6 +50,20 @@ class FastChecksFailoverTests(unittest.TestCase):
             rest = BLACKSMITH_LINUX.sub("", rest)
             self.assertNotRegex(rest, HOSTED, line.strip())
 
+    def test_a_broker_redispatch_may_name_only_a_listed_blacksmith_linux_label(self) -> None:
+        # HQ's lane-gh broker dispatches a run again with `runner` when the first waited on a label that started
+        # nothing (Leo, 2026-10-28: "just pin the set of the shit that isn't hilariously slow").
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertRegex(text, r"\n      runner:\n(?:        .*\n)*?        default: ''\n")
+        line = next(line for line in runs_on_lines() if "inputs.runner" in line)
+        listed = re.search(r"contains\(fromJSON\('(\[[^']*\])'\), inputs\.runner\) && inputs\.runner \|\|", line)
+        self.assertIsNotNone(listed, line.strip())
+        import json
+        labels = json.loads(listed.group(1))
+        self.assertTrue(labels)
+        for label in labels:
+            self.assertRegex(label, r"^blacksmith-\d+vcpu-ubuntu-2404$")
+
     def test_the_hosted_check_catches_hosted_labels(self) -> None:
         for bad in ("runs-on: ubuntu-latest",
                     "runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'ubuntu-latest' || 'blacksmith-32vcpu-ubuntu-2404' }}",
