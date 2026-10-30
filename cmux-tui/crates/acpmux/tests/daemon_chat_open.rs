@@ -274,9 +274,6 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     std::fs::write(session.join("session.json"), meta.to_string()).unwrap();
     set_private(&session.join("session.json"));
 
-    // The open measured is a restored chat's: a daemon read the log before this one started
-    // (its log load copies the records a restart reads, `store/kind_index.rs`).
-    drop(Stop(start(&dir, &home).0));
     let (child, socket) = start(&dir, &home);
     let pid = child.id();
     let daemon = Stop(child);
