@@ -187,7 +187,7 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
-import { folderConfirmingHere, useFolderTrustAsk } from "./useFolderTrustAsk";
+import { inThisVisit, useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
@@ -4591,6 +4591,10 @@ export function AcpmuxApp() {
 /// No projects known (a stable value, so memos keyed on it hold).
 const NO_PROJECTS: Project[] = [];
 
+/// A visit worth recording on a held folder question: a stale render's sentinel (or no client, a
+/// gallery frame) records none, and the session id alone scopes it.
+const visitOf = (visit: unknown) => (typeof visit === "string" ? { visit } : {});
+
 function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -4669,6 +4673,8 @@ function AcpmuxPane() {
     use(cwd: string): void;
     cancel?(): void;
     sessionId?: string;
+    /// The client's visit it was asked in (`trustVisit`): another fresh chat has the same no-id.
+    visit?: string;
     error?: string;
   }>();
   const folderConfirmGeneration = useRef(0);
@@ -5184,11 +5190,12 @@ function AcpmuxPane() {
   const startFolderRef = useRef(startFolder);
   startFolderRef.current = startFolder;
   /// The folder question, while the chat it was asked for is still the one shown.
-  const pendingFolder = folderAsk && folderAsk.sessionId === snapshot.sessionId ? folderAsk : undefined;
+  const visitNow = trustVisit();
+  const pendingFolder = inThisVisit(folderAsk, snapshot.sessionId, visitNow) ? folderAsk : undefined;
   // One hard stop for direct composer sends and every callback released by Trust. Confirmation
   // hides the question before the host answers, so it remains blocked while that answer saves.
   // Another chat shown meanwhile has no folder question of its own: it is not held.
-  const confirmingHere = folderConfirmingHere(folderConfirming, snapshot.sessionId, trustVisit());
+  const confirmingHere = inThisVisit(folderConfirming, snapshot.sessionId, visitNow);
   const blockSend = Boolean(pendingFolder) || confirmingHere || Boolean(authBlock);
   // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
   const continueAvailable = canContinueIn(snapshot);
@@ -7364,14 +7371,15 @@ function AcpmuxPane() {
     folderConfirmInFlight.current = false;
     setFolderConfirming(false);
     const sessionId = shownSession.current;
+    const visit = trustVisit();
     setFolderAsk(undefined);
     setWorktreeCreating(false);
     void pickFolder(callNative, cwd, (folder) => {
       if (pick === folderPick.current) use(folder);
     }).then((ask) => {
-      if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId });
+      if (ask && pick === folderPick.current) setFolderAsk({ ask, use, cancel, sessionId, ...visitOf(visit) });
     });
-  }, []);
+  }, [trustVisit]);
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
   /// The project the person picked in this pane's project picker, until they send in it: that send
@@ -7404,6 +7412,7 @@ function AcpmuxPane() {
     folderConfirmInFlight.current = false;
     setFolderConfirming(false);
     const sessionId = shownSession.current;
+    const visit = trustVisit();
     setFolderAsk(undefined);
     setWorktreeError(undefined);
     setWorktreeCreating(true);
@@ -7419,7 +7428,7 @@ function AcpmuxPane() {
     })
       .then(({ ask }) => {
         // The host asks about the worktree's folder first: the question shows as a picked folder's.
-        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId });
+        if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId, ...visitOf(visit) });
       })
       .catch((error: unknown) => {
         if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
@@ -7427,7 +7436,7 @@ function AcpmuxPane() {
       .finally(() => {
         if (pick === folderPick.current) setWorktreeCreating(false);
       });
-  }, []);
+  }, [trustVisit]);
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
   useEffect(() => {
@@ -9904,9 +9913,7 @@ function AcpmuxPane() {
       if (generation === folderConfirmGeneration.current) pending.use(cwd);
     };
     folderConfirmInFlight.current = true;
-    const visit = trustVisit();
-    // A stale render's sentinel (or no client: a gallery frame) records no visit; the session id scopes it.
-    setFolderConfirming({ sessionId: pending.sessionId, ...(typeof visit === "string" ? { visit } : {}) });
+    setFolderConfirming({ sessionId: pending.sessionId, ...visitOf(trustVisit()) });
     setFolderAsk(undefined);
     void confirmFolder(callNative, pending.ask, use).then(
       () => {

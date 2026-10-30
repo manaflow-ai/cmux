@@ -31,19 +31,16 @@ export function answerFolder(ask: { cwd: string; repo?: TrustRepo }, scope: "rep
   return scope === "repo" && ask.repo ? ask.repo.root : ask.cwd;
 }
 
-/// A folder answer saving (Use was clicked) holds only the chat it was asked in: the same session
-/// id and, when the client named one, the same visit. Two fresh chats share no session id, so the
-/// visit (`trustVisit` in App.tsx) tells them apart.
-export function folderConfirmingHere(
-  confirming: false | { sessionId?: string; visit?: string },
+/// A folder question, or its answer saving (Use was clicked), holds only the chat it was asked in:
+/// the same session id and, when the client named one, the same visit. Two fresh chats share no
+/// session id, so the visit (`trustVisit` in App.tsx) tells them apart.
+export function inThisVisit(
+  held: false | undefined | { sessionId?: string; visit?: string },
   sessionId: string | undefined,
   visit: unknown,
 ): boolean {
-  return (
-    confirming !== false &&
-    confirming.sessionId === sessionId &&
-    (confirming.visit === undefined || confirming.visit === visit)
-  );
+  if (!held) return false;
+  return held.sessionId === sessionId && (held.visit === undefined || held.visit === visit);
 }
 
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
@@ -219,7 +216,10 @@ export function useFolderTrustAsk(
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
   const resend = useRef(
-    new Map<string | undefined, { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }>(),
+    new Map<
+      string | undefined,
+      { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean; visit?: string }
+    >(),
   );
   /// What acpmux's last trust refusal said of each chat's folder, until an answer there: the
   /// question draws from it when the folder's read gets no answer in time (a peer's folder, read
@@ -526,9 +526,12 @@ export function useFolderTrustAsk(
   useEffect(() => {
     // A retry Trust already released waits only on the folder choice: leaving its chat drops it.
     // One still waiting for Trust stays with its chat (sent after Trust there, as before).
-    for (const [chat, waiting] of resend.current) if (chat !== sessionId && waiting.ready) resend.current.delete(chat);
+    // Fresh chats share the undefined key: the visit a retry was refused in tells them apart.
+    const here = (waiting: { visit?: string }) => waiting.visit === undefined || waiting.visit === visitValue;
+    for (const [chat, waiting] of resend.current)
+      if ((chat !== sessionId || !here(waiting)) && waiting.ready) resend.current.delete(chat);
     const held = resend.current.get(sessionId);
-    if (!held) return;
+    if (!held || !here(held)) return;
     if (!held.cwds.includes(cwd) || held.family !== family) {
       resend.current.delete(sessionId);
       return;
@@ -545,7 +548,7 @@ export function useFolderTrustAsk(
       // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
       setAsk({ cwd, state: "failed" });
     }
-  }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit]);
+  }, [ask, trusted, blockSend, sessionId, cwd, family, sameAuthority, sameVisit, visitValue]);
 
   const blocked: SendBlock | undefined = reading
     ? {}
@@ -611,7 +614,14 @@ export function useFolderTrustAsk(
         setTrusted(false);
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
-        if (again) resend.current.set(sessionId, { again, cwds: [cwd, refusedFolder], family, ready: false });
+        if (again)
+          resend.current.set(sessionId, {
+            again,
+            cwds: [cwd, refusedFolder],
+            family,
+            ready: false,
+            ...(typeof visitValue === "string" ? { visit: visitValue } : {}),
+          });
         else {
           const held = resend.current.get(sessionId);
           if (held) held.ready = false;
@@ -619,7 +629,7 @@ export function useFolderTrustAsk(
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, family, authorityEpoch, sameAuthority, sameVisit],
+      [sessionId, cwd, family, authorityEpoch, sameAuthority, sameVisit, visitValue],
     ),
   };
 }
