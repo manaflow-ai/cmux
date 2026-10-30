@@ -562,7 +562,9 @@ export function Composer({
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
-  const draftTransfer = useRef<{ source?: string; target: string; committed: boolean } | undefined>(undefined);
+  const draftTransfer = useRef<
+    { source?: string; target: string; text: string; attachmentIds: string; committed: boolean } | undefined
+  >(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -690,7 +692,13 @@ export function Composer({
         const source = persistedSession.current;
         const text = field.current?.value() ?? textRef.current;
         const chips = attachmentsRef.current.filter((chip) => !chip.shellRun);
-        const transfer = { source, target, committed: false };
+        const transfer = {
+          source,
+          target,
+          text,
+          attachmentIds: JSON.stringify(chips.map((chip) => chip.id)),
+          committed: false,
+        };
         draftTransfer.current = transfer;
         // Save the destination before changing sessions. Even an immediate navigation during its
         // attachment read leaves the chips durable there. The source stays intact on any refusal.
@@ -845,8 +853,19 @@ export function Composer({
     const moving = !!draftTransfer.current && draftTransfer.current.target === sessionId;
     const carried = moving || carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
-    if (previous && hydratedSession.current === previous)
-      writePersistedDraft(previous, moving && draftTransfer.current?.committed ? "" : (field.current?.value() ?? text));
+    if (previous && hydratedSession.current === previous) {
+      const transfer = draftTransfer.current;
+      const changedDuringTransfer =
+        moving &&
+        transfer?.committed &&
+        ((field.current?.value() ?? text) !== transfer.text ||
+          JSON.stringify(attachmentsRef.current.filter((chip) => !chip.shellRun).map((chip) => chip.id)) !==
+            transfer.attachmentIds);
+      writePersistedDraft(
+        previous,
+        moving && transfer?.committed && !changedDuringTransfer ? "" : (field.current?.value() ?? text),
+      );
+    }
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
