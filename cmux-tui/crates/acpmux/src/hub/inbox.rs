@@ -538,10 +538,10 @@ impl Hub {
         if fresh {
             let mut msg = json!({"promptId": prompt_id, "threadId": thread, "from": sender, "class": class, "kind": kind_of(class), "client": client, "text": text, "prompt": blocks});
             if let Some(from) = sender_session(provenance) {
-                msg["fromSession"] = json!(from);
+                msg.set("fromSession", json!(from));
             }
             if is_report(provenance) {
-                msg["report"] = json!(true);
+                msg.set("report", json!(true));
             }
             let msg = crate::prompt_provenance::marked(msg, provenance);
             self.append(session, "mux", "inbox", msg);
@@ -756,8 +756,12 @@ impl Hub {
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
             match answer {
-                Ok(answer) => msg["answer"] = answer,
-                Err(error) => msg["error"] = json!(error),
+                Ok(answer) => {
+                    msg.set("answer", answer);
+                }
+                Err(error) => {
+                    msg.set("error", json!(error));
+                }
             }
             self.append(session, "mux", "inbox_answered", msg);
         }
