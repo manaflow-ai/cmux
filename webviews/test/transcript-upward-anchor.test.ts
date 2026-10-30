@@ -201,8 +201,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         const afterFold = lower()
           .querySelector<HTMLButtonElement>(".cv-disclosure__toggle")
           ?.getAttribute("aria-expanded");
-        for (let quantum = 31; quantum >= 0; quantum -= 1)
-          await setHeightAndSample(quantum, "expanded-streaming");
+        for (let quantum = 31; quantum >= 0; quantum -= 1) await setHeightAndSample(quantum, "expanded-streaming");
         return { baseHeight, absoluteTop, beforeFold, afterFold, samples };
       });
       console.log(`transcript-css-top-precision: ${JSON.stringify(result)}`);
@@ -212,9 +211,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       expect(result.samples).toHaveLength(64);
       for (const sample of result.samples) {
         // This guard makes the test fail if the min-height mutation or ResizeObserver never took effect.
-        expect(Math.abs(sample.height - (result.baseHeight + sample.quantum / 64))).toBeLessThanOrEqual(
-          1 / 128,
-        );
+        expect(Math.abs(sample.height - (result.baseHeight + sample.quantum / 64))).toBeLessThanOrEqual(1 / 128);
         // Check overlap as well as a positive blank seam; both are structural placement errors.
         expect(Math.abs(sample.gap)).toBeLessThanOrEqual(1 / 64);
       }
@@ -273,8 +270,10 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       expect(result.foldToggleClicks).toBe(4);
       expect(result.foldTransitions).toHaveLength(4);
       for (const transition of result.foldTransitions) {
-        expect(["true", "false"]).toContain(transition.before);
-        expect(transition.after).toBe(transition.before === "true" ? "false" : "true");
+        const before = transition.before;
+        if (before !== "true" && before !== "false") throw new Error(`unexpected fold state: ${before}`);
+        expect(["true", "false"]).toContain(before);
+        expect(transition.after).toBe(before === "true" ? "false" : "true");
       }
       expect(result.frames).toBe(136);
       expect(result.compared).toBe(result.frames);

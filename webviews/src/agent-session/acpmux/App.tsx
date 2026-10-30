@@ -11644,8 +11644,6 @@ function AcpmuxPane() {
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
-
-
           ) : showNewTab ? (
             <NewTabPage
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
