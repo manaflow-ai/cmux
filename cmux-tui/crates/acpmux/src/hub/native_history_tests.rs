@@ -2,7 +2,10 @@
 //! transcript (`_acpmux/native_history`), back to its first, each once.
 
 use super::super::Hub;
-use super::{handle, native_seq};
+use super::{fit_reply, handle, native_seq, page_reply, result_bytes};
+use crate::adopt_replay::{ClaudePage, PastTurn};
+use crate::adopt_tools::PastTool;
+use crate::rpc::MAX_MESSAGE_BYTES;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -291,6 +294,50 @@ async fn a_marked_seed_cannot_be_downgraded_to_an_unmarked_cursor() {
     let refused =
         handle(&hub, &json!({"sessionId": "chat", "before": cursor.0})).await.unwrap_err();
     assert_eq!(refused.data.as_ref().unwrap()["reason"], "transcriptRead.stale");
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// A single turn can contain many individually-small tool inputs whose ACP events together exceed
+/// one frame. The native page keeps every event and its sequence, but uses the existing explicit
+/// omission marker on the largest payloads so the cursor still advances and the client never
+/// retries a `message.too_large` reply forever.
+#[test]
+fn a_large_single_turn_reply_is_bounded_without_dropping_events() {
+    let home = home("bounded-single-turn");
+    let hub = hub(&home);
+    let session = hub.resolve("chat").unwrap();
+    let mut turn = PastTurn {
+        prompt: "large turn".into(),
+        prompt_at: Some(1),
+        answer: "done".into(),
+        answer_at: Some(2),
+        ..PastTurn::default()
+    };
+    // 400 calls is the native transcript parser's per-turn bound. Each call is below the
+    // individual-event frame threshold; together they make the unbounded reply exceed it.
+    for n in 0..400 {
+        turn.tools.push(PastTool {
+            id: format!("tool-{n}"),
+            call: json!({
+                "kind": "execute",
+                "title": "large input",
+                "rawInput": {"command": "x".repeat(40_000)}
+            }),
+            done: json!({"status": "completed"}),
+            started_at: Some(1),
+            ended_at: Some(2),
+            proposed: None,
+        });
+    }
+    let raw = page_reply(&session, 1, ClaudePage { turns: vec![turn], start: 0, read: 1 }, None);
+    assert!(result_bytes(&raw) > MAX_MESSAGE_BYTES - (1 << 20));
+    let event_count = raw["events"].as_array().unwrap().len();
+    let bounded = fit_reply(raw);
+    let events = bounded["events"].as_array().unwrap();
+    assert_eq!(events.len(), event_count);
+    assert!(events.iter().any(|event| event["msg"]["_meta"]["acpmux"]["omitted"].is_object()));
+    let rpc = crate::rpc::Message::ok(json!("native-history"), bounded).to_line();
+    assert!(rpc.len() <= MAX_MESSAGE_BYTES, "native history RPC is {} bytes", rpc.len());
     let _ = std::fs::remove_dir_all(home);
 }
 

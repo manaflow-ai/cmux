@@ -275,19 +275,27 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
         // from the same byte cursor with fewer turns until the serialized result fits. The cursor
         // returned by each smaller page is its own start, so no turn is skipped.
         let mut want = crate::adopt_replay::PAGE_TURNS;
+        let mut reread = 0u64;
         let reply = loop {
             let page =
                 crate::adopt_replay::claude_page_with_turns_open(&mut input, Some(before), want);
+            let page_read = page.read;
+            let turn_count = page.turns.len();
             // The page and its marks use one descriptor. Recheck after reading for an in-place
             // truncate/rewrite; appends are fine, as are rotations while this descriptor is held.
             if !mark_holds(&mut input, before, &mark) {
                 return Err(stale());
             }
             let next_mark = if page.start > 0 { self::mark(&mut input, page.start) } else { None };
-            let reply = page_reply(&session, before, page, next_mark);
-            if result_bytes(&reply) <= REPLY_BYTES || want <= 1 {
+            let mut reply = page_reply(&session, before, page, next_mark);
+            if result_bytes(&reply) <= REPLY_BYTES || turn_count <= 1 {
+                if reread > 0 {
+                    let read = reply["read"].as_u64().unwrap_or(0).saturating_add(reread);
+                    reply["read"] = json!(read);
+                }
                 break fit_reply(reply);
             }
+            reread = reread.saturating_add(page_read);
             want = want.div_ceil(2);
         };
         Ok(reply)
