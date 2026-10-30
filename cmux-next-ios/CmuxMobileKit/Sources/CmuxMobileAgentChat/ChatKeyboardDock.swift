@@ -655,6 +655,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scroll(to: target, animated: animated)
     }
 
+    /// Reduce Motion: a jump lands at once, with the transcript shown
+    /// throughout. Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
+
     private func scroll(to target: CGPoint, animated: Bool) {
         if animated {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a

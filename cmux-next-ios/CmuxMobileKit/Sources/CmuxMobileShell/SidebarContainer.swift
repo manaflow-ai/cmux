@@ -59,6 +59,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     private var animator: UIViewPropertyAnimator?
     private var wasPastThreshold = false
     private var isTracking = false
+    /// Reduce Motion: the drawer settles in place instead of sliding (a drag
+    /// still follows the finger). Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
     init(model: SidebarModel, sidebar: UIViewController, content: UIViewController) {
         self.model = model
