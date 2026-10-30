@@ -363,6 +363,11 @@ extension AgentPaneTransport {
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
                     && facts.sessionId.map(sessions.contains) == true
                 ticketPick = granted
+                // A prompt that goes with its own ticket spends the start's credit too, as one
+                // without a ticket does: the credit never grants a later prompt (#23031).
+                if granted, facts.method == "session/prompt" {
+                    _ = startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+                }
             } else if remoteWire, facts.method == "session/new" {
                 // A new chat on another machine starts only from the person's own send (cx-k21v);
                 // its first prompt goes with the same gesture, after the start. A prompt a

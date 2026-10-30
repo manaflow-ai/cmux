@@ -8476,6 +8476,8 @@ function AcpmuxPane() {
           accepted?: () => void,
           steer = false,
           promptId?: string,
+          // Onboarding's seeded first task: no key or click of the person's sent it.
+          seeded = false,
         ) => {
           // The reader sent it: by default the transcript goes to its latest message now, even
           // scrolled up. With the preference off, only a reader already at the latest row follows;
@@ -8491,7 +8493,7 @@ function AcpmuxPane() {
             counted = false;
           };
           try {
-            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn);
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, seeded);
           } finally {
             handedOn();
           }
@@ -8534,6 +8536,7 @@ function AcpmuxPane() {
           steer: boolean,
           promptId: string | undefined,
           handedOn: () => void,
+          seeded: boolean,
         ) => {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
@@ -8568,7 +8571,15 @@ function AcpmuxPane() {
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const switchPromptId = promptId ?? crypto.randomUUID();
-          const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), switchPromptId);
+          // Only the person's own send, not one with a seeded prompt's own id (its host ticket is bound
+          // to it), keeps its gesture for a prompt held behind a slow start (#23031).
+          const held = harnessSwitch.send(
+            text,
+            attachments,
+            () => promptLanded.current(),
+            switchPromptId,
+            !seeded && promptId === undefined,
+          );
           if (held) {
             accepted?.();
             return held.then(
@@ -9096,8 +9107,8 @@ function AcpmuxPane() {
           leave: () => client.leave(),
           startsOnSend: () => client.startsOnSend,
           open: (sessionId) => client.select(sessionId),
-          // A prompt held behind the trust question goes with the gesture its send kept.
-          send: (text, attachments, promptId) => {
+          // A prompt held behind the trust question or the start goes with the gesture its send kept.
+          send: (text, attachments, promptId, ticket) => {
             const kept = heldPrompt.take();
             switchSendOwners.set(promptId, {
               client,
@@ -9110,7 +9121,7 @@ function AcpmuxPane() {
               attachments,
               promptId,
               undefined,
-              kept?.promptId === promptId ? kept.ticket : undefined,
+              (kept?.promptId === promptId ? kept.ticket : undefined) ?? ticket,
             );
           },
           setModel: (modelId) => client.setModel(modelId),
@@ -9189,8 +9200,8 @@ function AcpmuxPane() {
           );
         } else if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
-          void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
-        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
+          void send(prompt, [], undefined, false, ticket?.promptId, true).catch(() => undefined);
+        } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId, true).catch(() => setDraft(prompt));
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.

@@ -86,6 +86,56 @@ struct AgentPaneSlowStartPromptTests {
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-2")]) == .gestureRequired)
     }
 
+    /// #23031: a harness pick starts the chat at once, and the prompt the person sends while it
+    /// starts waits in the page (harnessSwitch.ts) until the session opens. A cold harness can
+    /// outlast both the Enter's gesture and the pick's start credit; the prompt then came back
+    /// "Not sent. Press Retry". The page now reserves the Enter's gesture as the prompt's ticket.
+    @Test func aPromptHeldBehindAStartThatOutlastsTheGestureGoesWithTheTicketItsEnterTook() async throws {
+        let pane = try await Self.pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        // The pick starts the chat; the person types for 20 s and presses Enter while it starts.
+        pane.transport.gestures.record(click: true)
+        #expect(await Self.start(pane, id: 1) == nil)
+        pane.clock.now += 20
+        pane.transport.gestures.record()
+        let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": "p-1"] as [String: Any]]
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
+        let ticket = try #require(pane.transport.reserveGesture(intent), "the Enter's live gesture gave no ticket")
+        // The harness answers 130 s after the pick: the gesture and the start credit are gone.
+        pane.clock.now += 110
+
+        // Sent with no ticket, as before the fix, the prompt is refused.
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-1")]) == .gestureRequired)
+        // With the Enter's ticket it goes, once.
+        let frame = #"{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s-new","prompt":[{"type":"text","text":"Add a remove command"}],"_meta":{"acpmux":{"promptId":"p-1"},"cmuxGesture":"\#(ticket)"}}}"#
+        #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil)
+        _ = await pane.inbox.frame(containing: #""id":3"#)
+        #expect(pane.server.peers.first?.frames.contains { $0.contains("session/prompt") } == true)
+        let replay = frame.replacingOccurrences(of: #""id":3"#, with: #""id":4"#)
+        #expect(await pane.transport.send(connection: pane.id, frames: [replay]) == .gestureRequired)
+    }
+
+    /// The same, with the start answering inside the start credit's lifetime: the ticketed prompt
+    /// spends the start's credit too, so a later prompt with no gesture is refused (one grant per
+    /// gesture), never granted by the credit the ticket left behind.
+    @Test func aTicketedFirstPromptSpendsTheStartsCredit() async throws {
+        let pane = try await Self.pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        pane.transport.gestures.record(click: true)
+        #expect(await Self.start(pane, id: 1) == nil)
+        pane.clock.now += 20
+        pane.transport.gestures.record()
+        let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": "p-1"] as [String: Any]]
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
+        let ticket = try #require(pane.transport.reserveGesture(intent))
+        pane.clock.now += 20
+        let frame = #"{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s-new","prompt":[{"type":"text","text":"Add a remove command"}],"_meta":{"acpmux":{"promptId":"p-1"},"cmuxGesture":"\#(ticket)"}}}"#
+        #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil)
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-2")]) == .gestureRequired)
+    }
+
     /// A prompt acpmux held for the folder trust answer keeps the send's gesture as a ticket
     /// (heldPrompt.ts reserves it at the refusal). The start already took that gesture, so its
     /// credit becomes the ticket, which waits for the answer as long as a held prompt does.
