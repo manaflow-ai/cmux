@@ -338,26 +338,58 @@ fn a_snapshot_past_the_memory_caps_is_stored_whole() {
 }
 
 #[test]
-fn records_the_store_refused_go_first_in_order_even_past_a_reused_call_id() {
+fn records_the_store_refused_go_first_in_order() {
     let mut deferral = Deferral::default();
-    let _ = deferral.keep("in", "tool_call", &start("0"), 0, true);
-    let _ = deferral.keep("in", "tool_call_update", &snapshot("0", "old call"), 1, true);
-    // The id's next start makes the old call's output due, and the store refuses it.
-    let reuse = deferral.keep("in", "tool_call", &start("0"), 2, true);
-    assert_eq!(reuse.before.len(), 1);
-    deferral.retry(reuse.before.clone());
-    // Whatever comes next stores it first, ahead of that start again.
-    let again = deferral.keep("in", "tool_call", &start("0"), 3, true);
-    assert_eq!(again.before, reuse.before);
-    // So does a flush, ahead of what is held since.
-    let _ = deferral.keep("in", "tool_call_update", &snapshot("0", "new call"), 4, true);
-    deferral.retry(again.before.clone());
-    let all = deferral.take_all();
-    assert_eq!(all.len(), 2);
-    assert_eq!(content(&all[0].1), content(&snapshot("0", "old call")));
-    assert_eq!(content(&all[1].1), content(&snapshot("0", "new call")));
+    let _ = deferral.keep("in", "tool_call", &start("a"), 0, true);
+    let _ = deferral.keep("in", "tool_call", &start("b"), 0, true);
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("a", "a's"), 1, true);
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("b", "b's"), 1, true);
+    // A status makes both due, and the store refuses them.
+    let status = json!({"status": "idle"});
+    let due = deferral.keep("mux", "status", &status, 2, true).before;
+    assert_eq!(due.len(), 2);
+    deferral.retry(due.clone(), Some(("mux", "status", &status)));
+    // The next record stores them first, in order, less what it replaces: a's newer output
+    // replaces a's.
+    let of =
+        |id: &str| due.iter().find(|(_, m)| m["params"]["update"]["toolCallId"] == id).cloned();
+    let next = deferral.keep("in", "tool_call_update", &snapshot("a", "a's newer"), 3, true);
+    assert_eq!(next.before, vec![of("b").unwrap()]);
+    // Refused again; b's newer output replaces it before it is stored.
+    deferral.retry(next.before, Some(("in", "tool_call_update", &snapshot("a", "a's newer"))));
+    let last = deferral.keep("in", "tool_call_update", &snapshot("b", "b's newer"), 4, true);
+    assert!(last.before.is_empty(), "{last:?}");
     // A fork copies what is held without taking it.
-    let _ = deferral.keep("in", "tool_call_update", &snapshot("0", "newer"), 5, true);
-    assert_eq!(deferral.pending().len(), 1);
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("a", "newest"), 5, true);
+    assert_eq!(deferral.pending().len(), 2, "a's newest and b's newer");
+    assert_eq!(deferral.take_all().len(), 2);
+}
+
+#[test]
+fn a_refused_record_a_newer_one_replaces_is_dropped() {
+    let late = |text: &str| {
+        let mut m = snapshot("c", text);
+        m["params"]["update"].as_object_mut().unwrap().remove("_meta");
+        ("tool_call_update", m)
+    };
+    // Made due by its call id's next start: stored after it, it would read as the new call's.
+    let mut deferral = Deferral::default();
+    deferral.retry(vec![late("old")], Some(("in", "tool_call", &start("c"))));
+    assert!(deferral.take_all().is_empty());
+    // Another call's start leaves it.
+    deferral.retry(vec![late("old")], Some(("in", "tool_call", &start("d"))));
     assert_eq!(deferral.take_all().len(), 1);
+    // A newer update of its call with content, stored while it waits, replaces it.
+    deferral.retry(vec![late("A")], None);
+    let mut ended = snapshot("c", "B");
+    ended["params"]["update"]["status"] = json!("completed");
+    let keep = deferral.keep("in", "tool_call_update", &ended, 1, true);
+    assert!(keep.before.is_empty(), "{keep:?}");
+    assert!(deferral.take_all().is_empty());
+    // An update without content does not.
+    deferral.retry(vec![late("A")], None);
+    let status = update(
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}),
+    );
+    assert_eq!(deferral.keep("in", "tool_call_update", &status, 2, true).before.len(), 1);
 }

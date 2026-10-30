@@ -86,6 +86,7 @@ impl Deferral {
     /// this record may be held back; a copy (a fork's of its parent's turns) never is.
     pub fn keep(&mut self, dir: &str, kind: &str, msg: &Value, at: u64, may_hold: bool) -> Keep {
         let mut keep = self.keep_one(dir, kind, msg, at, may_hold);
+        self.retry.retain(|(late_kind, late)| !supersedes(dir, kind, msg, late_kind, late));
         if !self.retry.is_empty() {
             let mut before = std::mem::take(&mut self.retry);
             before.append(&mut keep.before);
@@ -195,10 +196,18 @@ impl Deferral {
     }
 
     /// Records [`Deferral::keep`] or [`Deferral::take_all`] gave to be stored that the store
-    /// refused, in order: they are stored first at the next record, after the one that made them
-    /// due (stored as it would be). That order keeps every call's fold: the record made them due
-    /// by ending their call with no content, or by not being the agent's stream.
-    pub fn retry(&mut self, refused: Vec<(&'static str, Value)>) {
+    /// refused, in order: they are stored first at the next record, after `due_with` (the
+    /// `(dir, kind, msg)` of the record that made them due, stored as it would be). That order
+    /// keeps every call's fold, except where a record stored since replaces one ([`supersedes`]):
+    /// that one is dropped, here and at each record until it is stored.
+    pub fn retry(
+        &mut self,
+        mut refused: Vec<(&'static str, Value)>,
+        due_with: Option<(&str, &str, &Value)>,
+    ) {
+        if let Some((dir, kind, msg)) = due_with {
+            refused.retain(|(late_kind, late)| !supersedes(dir, kind, msg, late_kind, late));
+        }
         let mut later = std::mem::replace(&mut self.retry, refused);
         self.retry.append(&mut later);
     }
@@ -264,6 +273,26 @@ fn text_bytes(parts: &[Value]) -> usize {
         .filter_map(Value::as_str)
         .map(str::len)
         .sum()
+}
+
+/// Whether a record (`dir`, `kind`, `msg`), stored after a late one, makes it wrong to store that
+/// late one after it: a start of its call id (the id names a new call then: stored after it, the
+/// late output would read as that call's), an update of its call with content (which replaces
+/// it), or a newer diff of its turn.
+fn supersedes(dir: &str, kind: &str, msg: &Value, late_kind: &str, late: &Value) -> bool {
+    if dir != "in" {
+        return false;
+    }
+    if late_kind == DIFF_KIND {
+        let turn = |m: &Value| m.pointer("/params/params/turnId").cloned();
+        return kind == DIFF_KIND && turn(msg) == turn(late);
+    }
+    let same_call = || call_of_msg(msg).zip(call_of_msg(late)).is_some_and(|(a, b)| a.0 == b.0);
+    match kind {
+        "tool_call" => same_call(),
+        UPDATE_KIND => msg.pointer("/params/update/content").is_some() && same_call(),
+        _ => false,
+    }
 }
 
 /// The bytes of a late record's content or diff.
