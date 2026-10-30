@@ -474,7 +474,7 @@ impl Mux {
         // The host's own record (its recovery mirror, which a rehost copies) names this machine's
         // workspace now, not the key every clone of the snapshot shares.
         let surface = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state
                 .surfaces
                 .values()
@@ -510,7 +510,13 @@ impl Mux {
         // This machine's own key, never the builder's (`template_workspace_key`). A claim cut short
         // after the workspace's commit finds its workspace again on the next start.
         let workspace_key = self.template_workspace_key(&record.workspace_key);
-        if self.state.lock().unwrap().workspace_by_key(&workspace_key).is_none() {
+        if self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .workspace_by_key(&workspace_key)
+            .is_none()
+        {
             self.create_empty_workspace(
                 options.template_workspace_name.clone(),
                 Some(workspace_key.clone()),
@@ -562,7 +568,7 @@ impl Mux {
     /// earlier claim on this machine created before it was cut short (no terminal row yet).
     fn template_claimable(&self, builder_key: &str) -> bool {
         let key = self.template_workspace_key(builder_key);
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         match state.workspaces.as_slice() {
             [] => true,
             [only] => only.key == key,
