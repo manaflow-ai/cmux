@@ -609,3 +609,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Resize edge lights a themed band (2026-10-29)
 
 - Leo 2026-10-29, verbatim: "like the little draggy bars and whatever, I feel like, you know, when we're dragging them, you know, Claude Code has it so that, you know, it has this glowy bar thing, and I think, like, having that themed color band would be quite nice for our app as well." Before: the edge showed only a separator-colored hairline on hover and drag. Now `SidebarResizeHandle` also lights `DividerGlowBand` (dim on hover, full while dragging) on the edge; the resting look and the hit band are unchanged.
+
+## Priority row hit testing (2026-10-30)
+
+- Priority row hit testing: no visual change. PR [#28177](https://github.com/manaflow-ai/cmux/pull/28177) (carry of #28075): e966e707f4f routes a press on a Priority row's title, preview, chip or status to the row so a drag can start there (its action buttons keep their own targets), and 381c24bfe36 converts the hit-test point from the superview first, so rows below the first one get hits too. Hit testing only: no drawing, layout or hover change. Both commits carry no `Sidebar-Look:` trailer; reviewed and logged here. Tests: `SidebarPriorityDragTests`.
