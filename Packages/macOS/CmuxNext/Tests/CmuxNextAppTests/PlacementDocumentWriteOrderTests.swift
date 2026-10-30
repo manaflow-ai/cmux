@@ -14,7 +14,7 @@ import Testing
 /// reports them. The document mirror moves synchronously, while the sidebar
 /// model normally follows on a later turn. Every placement must use the order
 /// the preceding placement produced, even before that observation runs.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .ownsSidebarDocStore)
 struct PlacementDocumentWriteOrderTests {
     private static let original = ["k4", "k3", "k2", "k1"]
     private static let expected = ["k1", "k2", "k3", "k4"]
