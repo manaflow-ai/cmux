@@ -125,8 +125,7 @@ final class InputVerificationService {
         var notified: FocusState.SettleKey?
         var trailed: TrailSettleKey?
         controller.focus.settledObserver = { [weak controller] state in
-            guard let controller else { return }
-            let services = controller.services
+            guard let controller, case let services = controller.services else { return }
             services.keyRouter.focusDidSettle(state, in: controller.window)
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
             controller.shortcutHints?.focusDidSettle()

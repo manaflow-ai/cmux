@@ -127,7 +127,7 @@ struct EarlyTerminalKeysTests {
         try await Self.heldKeyGoesOnAtTheSettle(startsInputVerification: true)
     }
 
-    /// The same before `InputVerification.start` ran (an afterFirstFrame launch post, p08-startup-031; a test host never
+    /// The same before `InputVerification.start` ran (an afterFirstFrame launch post since c5900f8557b5; a test host never
     /// runs it): the key router's settle does not wait for input verification. Before, its settle observer read the
     /// app's services from the verification service, nil until that post, so a creation hold never flushed on a focus
     /// settle: it ended only at its limit, and its keys replayed into whatever had the keyboard.
