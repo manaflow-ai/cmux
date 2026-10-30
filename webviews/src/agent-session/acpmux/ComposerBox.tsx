@@ -168,6 +168,8 @@ export function ComposerBox({
     placing: () => !fieldOverlay,
     codex,
   });
+  // A block pasted again opens its chip as a click does, kept for an undo.
+  pastedChips.opens.current = inline.expand;
   useImperativeHandle(
     handle,
     () => ({

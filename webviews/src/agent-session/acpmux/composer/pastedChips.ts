@@ -36,6 +36,9 @@ export function usePastedChips(
   const plainUntil = useRef(0);
   /// Set while a chip's text goes back into the prompt: that paste is never a chip.
   const expanding = useRef(false);
+  /// How a held block pasted again opens its chip: the composer's own open (ComposerBox's inline
+  /// hook), which keeps the chip for an undo first, as a click on the chip does. Unset, `expand`.
+  const opens = useRef<((id: string) => void) | undefined>(undefined);
   // Any paste ends Paste as Plain Text's turn, one of only files or images too (the field took a
   // text paste before this, at the document, hears it).
   useEffect(() => {
@@ -76,6 +79,7 @@ export function usePastedChips(
   };
   return {
     expanding,
+    opens,
     /// Paste as Plain Text is starting: its paste goes in as text.
     plainPaste() {
       plainUntil.current = performance.now() + PLAIN_PASTE_MS;
@@ -96,7 +100,7 @@ export function usePastedChips(
       if (raw() || !isLargePaste(text)) return false;
       const same = attachments.current.find((held) => held.kind === "pasted" && held.text === text);
       if (same) {
-        expand(same.id);
+        (opens.current ?? expand)(same.id);
         return true;
       }
       const chip = pastedTextAttachment(text);

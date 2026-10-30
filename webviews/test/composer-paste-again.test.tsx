@@ -189,6 +189,26 @@ test("the same long block pasted again puts its chip's text in the prompt, as a 
   expect(sent[0]!.attachments).toEqual([]);
 });
 
+// Review (Codex): the paste that opens a held chip dropped the chip before its node left the
+// prompt, so an undo brought back an empty node and the block was missing from the send. One undo
+// brings the chip back with its text, as after a click on it.
+test("undo after the same long block pasted again brings its chip back with its text", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  await paste(LOG);
+  const id = chips(composer)[0]!.id;
+  await paste(LOG);
+  expect(chips(composer)).toEqual([]);
+  expect(promptText()).toBe(LOG);
+  await act(async () => markdownField().undo());
+  await settle();
+  expect(chips(composer).map((chip) => [chip.id, chip.kind, chip.text])).toEqual([[id, "pasted", LOG]]);
+  expect(promptText()).toBe("");
+  await send(composer);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((chip) => [chip.id, chip.text])).toEqual([[id, LOG]]);
+});
+
 test("the block pasted a third time, its chip already opened, is a chip again", async () => {
   const sent: Sent[] = [];
   const composer = await openComposer(sent);
