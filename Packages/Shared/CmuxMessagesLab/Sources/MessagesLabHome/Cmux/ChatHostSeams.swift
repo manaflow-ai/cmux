@@ -26,6 +26,8 @@ protocol ChatIntents: AnyObject {
     var canReply: Bool { get }
     /// The "+" button: the host's file picker.
     func pickAttachments()
+    /// A click on the "+" button (`anchor`): the host's + menu, or its file picker when it has none.
+    func plusClicked(anchor: NSView)
     /// A paste in the field or a drop: true when the host's attachment
     /// intake took the pasteboard (files and pictures, Home's type rule).
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
@@ -94,6 +96,11 @@ public protocol ChatWakeScheduler: AnyObject {
     /// Replaces any pending wake-up.
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void)
     func cancel()
+}
+
+extension ChatIntents {
+    /// No + menu (test hosts): the "+" opens the file picker, as before.
+    func plusClicked(anchor: NSView) { pickAttachments() }
 }
 
 extension ChatIntents {

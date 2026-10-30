@@ -710,6 +710,18 @@ Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cm
 
 Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
+## The Chief's + menu and `home.clipboardHistory`
+
+The + button beside the Chief's message box opens a menu. Attach Files or Images… opens the file picker (files only; to send a folder, attach its files or a ZIP of it). Below it, the Clipboard section lists text and images from your clipboard, newest first: what was on it each time you opened the menu, plus, when cmux may read the clipboard without asking (below), what you copied in other apps before switching back to cmux. Click a text row to type it at the caret, or an image row to attach the image as if you had pasted it.
+
+The history is on by default. It stays in memory on this Mac: it's never written to disk or sent anywhere, and it's gone when cmux quits. cmux reads the clipboard for it only when you open the + menu and, if macOS's clipboard privacy lets cmux read without asking (Always Allow, or a macOS before 15.4), when cmux becomes the active app. It never reads on a timer, so something you copy and replace while you're in another app doesn't show. When the history has nothing to list, the + button opens the file picker directly. It skips anything a password manager or clipboard-aware app marks as concealed, transient or auto-generated (the [nspasteboard.org](http://nspasteboard.org) types), and it skips copied files, text over 256 KB and images over 10 MB. Turn it off in Settings > Privacy and Security > Clipboard History in the + Menu, or:
+
+```json
+{ "home": { "clipboardHistory": false } }
+```
+
+When it's off, cmux doesn't read your clipboard for the menu, and the Clipboard section is gone. The Chief's composer has no @-mentions, slash commands or plan mode yet, so its + menu doesn't show those rows from the agent chat's + menu.
+
 ## `palette.scopes.<scope>.prefix`
 
 The character that enters a built-in command palette scope when you type it into an empty query. Scopes: `tabs` (default `@`), `workspaces` (`#`), `commands` (`>`), `settings` (`,`) and `scopes` (`?`, the list of every scope). The value is one of `@ # > , ? ! / ; : % & + = ~ $ ^ * .`, or `"none"` to turn the prefix off. A prefix you assign moves from the built-in scope that has it by default. A keyword plus Tab (for example `tabs` Tab) enters a scope whatever its prefix.

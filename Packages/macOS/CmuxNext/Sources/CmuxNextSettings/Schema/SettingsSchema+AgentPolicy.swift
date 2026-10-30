@@ -313,6 +313,8 @@ extension SettingsSchema {
         "sidebar.nowPlaying.otherApps": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // Whether cmux reads the person's clipboard for the Chief's + menu.
+        "home.clipboardHistory": .privacy,
         // Where the person's direct messages and group chats go: an agent must not move them to another server.
         "home.server": .privacy,
         // Whether the person's Chief runs on this Mac or in the cloud: where their messages go.
