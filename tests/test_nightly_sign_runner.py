@@ -401,8 +401,9 @@ class SnapshotReadToken(unittest.TestCase):
     READ = "${{ steps.snapshot-read-token.outputs.token || github.token }}"
     KEY = "secrets.GLAEDA_ROUTE_APP_KEY"
     # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
-    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN).
-    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner"}
+    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
+    # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:

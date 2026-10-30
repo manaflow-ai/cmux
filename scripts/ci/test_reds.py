@@ -113,6 +113,8 @@ NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests di
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
 BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.[cm]?[jt]sx?)(?: |$)")
 BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
+# The shell self-test keeps a Swift crash report and its `signal 5` fixture in source lines.
+SWIFT_TEST_SUMMARY_FIXTURE = re.compile(r"swift-test-summary\.test\.sh:\d+:")
 # `bun test` itself (a raw run, or a file's log inside run-webviews-tests.sh): a header per file (`::group::FILE:` in
 # Actions, which the job log shows as `##[group]FILE:`), a `(pass)` or `(fail) <describe> > <test> [1.23ms]` line per
 # test, the failure's `error:` printed above its line and a timeout note below it, a closing recap of the failures
@@ -337,6 +339,8 @@ def read_bun(lines: list[str], result: Result) -> None:
         open_run = False
 
     for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
         if BUN_RUN.match(text) or BUN_FILE.match(text) or text == WEB_RETRY or BUN_TEST.match(text) or \
                 BUN_UNHANDLED.match(text) or BUN_COUNT.match(text):
             flush()
@@ -419,6 +423,8 @@ def read(log: str | None, bun: bool = True) -> Result:
     named: list[str] = []
     crashed = False
     for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
             result.ran = True
         if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":

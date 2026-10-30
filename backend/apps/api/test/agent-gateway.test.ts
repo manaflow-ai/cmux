@@ -3,6 +3,8 @@ import { runInDurableObject } from "cloudflare:test"
 import { decodeJwt, importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { Http } from "../src/integrations/providers.ts"
+import { mintAccessToken } from "../src/auth.ts"
+import type { Env } from "../src/env.ts"
 import { memberUpsert } from "../src/domains/team-members.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -95,6 +97,16 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(refused).toMatchObject({ ok: false, error: { code: "auth.insufficient_scope" } })
     expect(await s.items()).toHaveLength(0)
     expect(s.calls.filter((x) => x.url.includes("/comments") || x.url.includes("access_tokens"))).toHaveLength(0)
+  })
+
+  it("rejects an unregistered install JWT before requesting approval", async () => {
+    expect(gateway).toBeDefined()
+    if (!gateway) return
+    const s = await setup("missing-install")
+    const token = await mintAccessToken(env as Env, { user: s.user, team: s.team, install: "inst_unknown", grant: "grant_unknown", scope: "mcp:read mcp:write" })
+    expect((await gateway.dispatchIssueComment(s.input({ authorization: `Bearer ${token.token}` }))).error?.code).toBe("auth.forbidden")
+    expect(await s.items()).toHaveLength(0)
+    expect(s.calls.filter((x) => x.url.includes("/comments"))).toHaveLength(0)
   })
 
   it("refuses a revoked install before creating approval or contacting GitHub", async () => {
@@ -192,7 +204,7 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(JSON.parse(mints[0]!.body)).toEqual({ repositories: ["web"], permissions: { issues: "write" } })
     expect((await gateway.dispatchIssueComment({ ...input, body: "changed" })).error?.code).toBe("idempotency.conflict")
     await inDO(s.connection, async (instance) => {
-      expect(instance.ctx.storage.sql.exec("SELECT status FROM external_calls WHERE op = 'github.issue.comment'").toArray()).toHaveLength(1)
+      expect(instance.ctx.storage.sql.exec("SELECT status FROM external_calls WHERE op = ?", "github.issue.comment").toArray()).toEqual([{ status: "done" }])
       expect(JSON.stringify(instance.ctx.storage.sql.exec("SELECT * FROM external_calls").toArray())).not.toContain("ghs_synthetic")
     })
     expect(JSON.stringify(done)).not.toContain("ghs_synthetic")
