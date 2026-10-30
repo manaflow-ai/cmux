@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// Executes typed wire requests on one captured transport, without rebinding or admission.
 ///
@@ -13,16 +12,14 @@ struct DaemonRequestExecutor: Sendable {
     /// `opening`: the stream `request` opens (`attach-surface {stream}`); framed, its header names it.
     func perform<R: DaemonRequest>(_ request: R, timeout: Duration?,
                                    opening: AttachStreamHandle? = nil) async throws -> R.Response {
-        #if DEBUG
-        Self.checkNoStandIn(request)
-        #endif
         let response = try await transport.request(cmd: R.commandName, timeout: timeout, framed: true,
                                                    opening: opening) { id in
             let line = try WireCoding.encodeRequest(request, id: id)
-            // Rule (b): a request that names a stand-in is never sent. A create resolves its target first (the DEBUG
-            // check above stops one that did not); any other pane verb on a pane still opening fails here, at once,
-            // with no daemon round trip, and its refusal shows (``PaneNotReady``, `DaemonService.onPaneNotReady`).
-            if !(R.self is any TargetResolvedCreate.Type), Self.mayNameStandIn(line), let leak = Self.standInReference(inLine: line) {
+            // Rule (b): a request that names a stand-in is never sent, from any sender. The creates that know how
+            // resolve their target to the daemon's pane first (`DaemonStore.daemonTarget`); anything still naming a pane
+            // that is opening fails here, at once, with no daemon round trip, and the person sees why
+            // (``PaneNotReady``; `DaemonService.ended` shows it once).
+            if Self.mayNameStandIn(line), let leak = Self.standInReference(inLine: line) {
                 throw PaneNotReady(command: R.command, reference: leak)
             }
             return line
@@ -59,26 +56,6 @@ struct DaemonRequestExecutor: Sendable {
         guard let object = try? JSONSerialization.jsonObject(with: line) else { return nil }
         return standInReference(in: object, key: nil)
     }
-
-    #if DEBUG
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.stand-in")
-
-    /// DEBUG, rule (b) of the P0 2026-10-30: a request names no stand-in. The creates that resolve their target with
-    /// `DaemonStore.daemonTarget(_:)` (every terminal-starting request: new-tab, split, new-pane, new-pane-right,
-    /// new-row) stop here; any other request that still names one is logged, not stopped: those pane verbs (zoom,
-    /// rename, swap, a New Tab page on a pending pane) do not wait for their pane yet
-    /// ("unknown pane"), as before this check; any other request naming one is refused before it is sent
-    /// (``PaneNotReady``; follow-up: one seam where every pane verb waits for its pane).
-    static func checkNoStandIn<R: DaemonRequest>(_ request: R) {
-        guard let leak = standInReference(in: request) else { return }
-        if R.self is any TargetResolvedCreate.Type {
-            // crash-allow: DEBUG-only invariant check (rule b): these creates resolve their target before they send
-            assertionFailure("\(R.command) names stand-in \(leak): resolve it with DaemonStore.daemonTarget(_:) first")
-        } else {
-            logger.info("\(R.command, privacy: .public) names stand-in \(leak, privacy: .public); refused before it is sent (PaneNotReady)")
-        }
-    }
-    #endif
 
     /// The first pane or surface reference of `request` that is a stand-in's id (a pending create's pane handle or
     /// tab surface, both at or above ``ProvisionalPane/firstHandle``; no daemon id ever is), as `key=value`; nil when

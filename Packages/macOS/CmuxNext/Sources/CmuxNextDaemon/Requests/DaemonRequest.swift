@@ -49,15 +49,6 @@ extension DaemonRequest {
 /// failure for a tab the daemon then creates.
 public protocol TerminalSpawningRequest: DaemonRequest {}
 
-/// A create whose pane target the app resolves at send time with `DaemonStore.daemonTarget(_:)` (P0 2026-10-30 rule b):
-/// it never names a stand-in, so DEBUG builds stop one that does (`DaemonRequestExecutor`). Only these: other requests
-/// (tab moves, respawns, a page in a pane) are refused locally with ``PaneNotReady`` when they name one.
-public protocol TargetResolvedCreate: DaemonRequest {}
-extension NewTabRequest: TargetResolvedCreate {}
-extension SplitRequest: TargetResolvedCreate {}
-extension NewColumnRequest: TargetResolvedCreate {}
-extension NewRowRequest: TargetResolvedCreate {}
-
 /// `{}` responses.
 public struct EmptyResponse: Decodable, Sendable, Equatable {
     public init() {}

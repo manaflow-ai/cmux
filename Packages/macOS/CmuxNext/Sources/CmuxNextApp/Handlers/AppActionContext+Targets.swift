@@ -88,7 +88,7 @@ extension AppActionContext {
         let task = end.start { () -> ActionWorkFailure? in
             let failure = await work()
             // A run nobody awaits shows the refusal when the work ends, as one task of the run's completion.
-            if !capturing, let failure {
+            if !capturing, let failure, !failure.shown {
                 end.post(owner: "AppActionContext.report", answering: true) { [weak registry] in registry?.refuse(failure.message) }
             }
             return failure

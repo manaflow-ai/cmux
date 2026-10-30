@@ -167,11 +167,15 @@ extension DaemonStore {
     /// The pane a create about `handle` sends (rule b: a stand-in id never leaves for the daemon): `handle` for a daemon
     /// pane; for a pending create's stand-in, the daemon's pane that took it over. The terminal creates call it after the
     /// workspace's create chain (`pendingCreate`), so a stand-in of Cmd-D, New Column, New Row or New Terminal Tab still
-    /// unresolved here was never made: ``PendingPaneNotCreated``. A stand-in outside that chain (Cmd-N's first pane, a
-    /// pending New Tab page split) also throws it here, though it may still be made (follow-up: one seam for every verb).
+    /// unresolved here was never made: ``PendingPaneNotCreated``. A stand-in still shown that no daemon pane took over yet
+    /// (Cmd-N's first pane, whose snapshot has no resource id) is still opening: ``PaneNotReady``, never sent (follow-up:
+    /// one seam where every verb waits for its pane).
     public func daemonTarget(_ handle: PaneID) throws -> PaneID {
         guard handle.rawValue >= ProvisionalPane.firstHandle else { return handle }
         guard let daemon = daemonHandle(showing: handle) else { throw PendingPaneNotCreated() }
+        guard daemon.rawValue < ProvisionalPane.firstHandle else {
+            throw PaneNotReady(command: "create", reference: "pane=\(daemon.rawValue)")
+        }
         return daemon
     }
 
@@ -242,6 +246,8 @@ public struct PendingPaneNotCreated: Error, CustomStringConvertible {
 public struct PaneNotReady: Error, CustomStringConvertible {
     public let command: String
     public let reference: String
+    /// The person saw this refusal already (`DaemonService.closeTicket` showed it), so no caller shows it again.
+    public var shown = false
     public init(command: String, reference: String) {
         self.command = command
         self.reference = reference
