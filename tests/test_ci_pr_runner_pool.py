@@ -3954,6 +3954,56 @@ class IOSWiring(unittest.TestCase):
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
         self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
 
+    def test_the_simulator_build_holds_no_secret_and_the_seed_preflight_runs_beside_it(self):
+        # ios-simulator-build runs on ios_runner_pool.py's pick: an owned simulator
+        # Mac, or whatever MACOS_RUNNER_TESTS names. It must hold no secret there.
+        # The one step that named CI_CACHE_R2_* was the seed_cache preflight; it
+        # moves to ios-simulator-cache-seed on a literal ephemeral label (#27622).
+        # The restore reads the public URL and the save step never had the keys
+        # (on R2 it warns and saves nothing), so both stay exactly as they were.
+        jobs = self.workflow("test-ios.yml")["jobs"]
+        build = jobs["ios-simulator-build"]
+        self.assertIsNone(re.search(r"\bsecrets\b", json.dumps(build), re.IGNORECASE))
+        self.assertNotIn("environment", build)
+        steps = {step.get("name"): step for step in build["steps"]}
+        self.assertNotIn("Seed iOS caches from main", steps)
+        key = ("ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-"
+               "${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}")
+        backend = "${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
+        seeding = "inputs.seed_cache && github.ref == 'refs/heads/main'"
+        restore = steps["Restore iOS SwiftPM cache"]
+        self.assertEqual(restore["uses"], "./.github/actions/cache-restore")
+        self.assertEqual(restore["if"], "${{ steps.owned-state.outputs.packages != 'true' }}")
+        self.assertEqual((restore["with"]["key"], restore["with"]["backend"]), (key, backend))
+        self.assertNotIn("env", restore)
+        save = steps["Save iOS SwiftPM cache"]
+        self.assertEqual(save["uses"], "./.github/actions/cache-save")
+        self.assertEqual(save["if"], "${{ " + seeding + " }}")
+        self.assertEqual((save["with"]["key"], save["with"]["backend"]), (key, backend))
+        self.assertEqual(save["with"]["path"], ".ci-ios-source-packages")
+        self.assertNotIn("env", save)
+        self.assertEqual(set(build["outputs"]), {"artifact_id", "artifact_digest", "archive_sha256", "archive_bytes",
+                                                 "compile_seconds", "package_seconds", "upload_seconds"})
+
+        seed = jobs["ios-simulator-cache-seed"]
+        self.assertEqual(seed["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertEqual(seed["needs"], ["ios-simulator-build"])
+        # As the step ran: only after a successful build, only on a main seed_cache run.
+        self.assertEqual(seed["if"], "${{ !cancelled() && needs.ios-simulator-build.result == 'success' && "
+                                     + seeding + " }}")
+        self.assertEqual(seed["permissions"], {"contents": "read"})
+        self.assertEqual([step.get("name") for step in seed["steps"]], ["Seed iOS caches from main"])
+        preflight = seed["steps"][0]
+        for name, secret in (("AWS_ACCESS_KEY_ID", "secrets.CI_CACHE_R2_ACCESS_KEY_ID"),
+                             ("AWS_SECRET_ACCESS_KEY", "secrets.CI_CACHE_R2_SECRET_ACCESS_KEY"),
+                             ("CI_CACHE_R2_ENDPOINT", "secrets.CI_CACHE_R2_ACCOUNT_ID")):
+            self.assertIn(secret, preflight["env"][name])
+        self.assertIn("R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable", preflight["run"])
+        # The aggregate gate sees a failed preflight, as it saw the build job fail.
+        self.assertIn("ios-simulator-cache-seed", jobs["ios-tests"]["needs"])
+
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")
         jobs = workflow["jobs"]
