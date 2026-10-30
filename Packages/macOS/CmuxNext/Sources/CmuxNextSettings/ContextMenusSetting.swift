@@ -39,7 +39,7 @@ public nonisolated struct ContextMenusSetting: Sendable, Hashable {
         var row = SettingDescriptor(
             showCustomizeItemPath, section: .general, group: SettingsText.keyed("settings.category.menus", "Menus"),
             title: SettingsText.keyed("settings.contextMenus.showCustomizeItem", "Show Customize Menu…"),
-            help: SettingsText.keyed("settings.contextMenus.showCustomizeItem.help", "Adds it to the end of every right-click menu."),
+            help: SettingsText.keyed("settings.contextMenus.showCustomizeItem.help", "Adds Customize Menu… to the end of every right-click menu."),
             kind: .toggle, default: .bool(true),
             keywords: ["context menu", "right click", "customize", "menu"]
         )

@@ -184211,127 +184211,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adds it to the end of every right-click menu."
+            "value": "Adds Customize Menu… to the end of every right-click menu."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضيفه إلى نهاية كل قائمة للنقر بزر الماوس الأيمن."
+            "value": "يضيف «تخصيص القائمة…» إلى نهاية كل قائمة للنقر بزر الماوس الأيمن."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaje ga na kraj svakog menija desnog klika."
+            "value": "Dodaje „Prilagodi meni…“ na kraj svakog menija desnog klika."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tilføjer den nederst i hver højrekliksmenu."
+            "value": "Tilføjer “Tilpas menu…” nederst i hver højrekliksmenu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fügt den Eintrag am Ende jedes Kontextmenüs hinzu."
+            "value": "Fügt „Menü anpassen…“ am Ende jedes Kontextmenüs hinzu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo añade al final de cada menú contextual."
+            "value": "Añade «Personalizar menú…» al final de cada menú contextual."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’ajoute à la fin de chaque menu contextuel."
+            "value": "Ajoute « Personnaliser le menu… » à la fin de chaque menu contextuel."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo aggiunge alla fine di ogni menu contestuale."
+            "value": "Aggiunge «Personalizza menu…» alla fine di ogni menu contestuale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての右クリックメニューの末尾に追加します。"
+            "value": "すべての右クリックメニューの末尾に「メニューをカスタマイズ…」を追加します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ថែមវាទៅចុងម៉ឺនុយចុចខាងស្តាំនីមួយៗ។"
+            "value": "បន្ថែម «ប្ដូរម៉ឺនុយតាមបំណង…» ទៅចុងម៉ឺនុយចុចខាងស្តាំនីមួយៗ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 오른쪽 클릭 메뉴의 끝에 추가합니다."
+            "value": "모든 오른쪽 클릭 메뉴의 끝에 ‘메뉴 사용자화…’를 추가합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legger den til nederst i hver høyreklikkmeny."
+            "value": "Legger til «Tilpass meny…» nederst i hver høyreklikkmeny."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaje go na końcu każdego menu kontekstowego."
+            "value": "Dodaje „Dostosuj menu…” na końcu każdego menu kontekstowego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adiciona ao final de cada menu de contexto."
+            "value": "Adiciona “Personalizar Menu…” ao final de cada menu de contexto."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавляет его в конец каждого контекстного меню."
+            "value": "Добавляет «Настроить меню…» в конец каждого контекстного меню."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มไว้ท้ายเมนูคลิกขวาทุกเมนู"
+            "value": "เพิ่ม “ปรับแต่งเมนู…” ไว้ท้ายเมนูคลิกขวาทุกเมนู"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Her sağ tık menüsünün sonuna ekler."
+            "value": "Her sağ tık menüsünün sonuna “Menüyü Özelleştir…” ekler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Додає його в кінець кожного контекстного меню."
+            "value": "Додає «Налаштувати меню…» в кінець кожного контекстного меню."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm vào cuối mọi menu chuột phải."
+            "value": "Thêm “Tùy chỉnh menu…” vào cuối mọi menu chuột phải."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将其添加到每个右键菜单的末尾。"
+            "value": "在每个右键菜单的末尾添加“自定义菜单…”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將其加入每個右鍵選單的末尾。"
+            "value": "在每個右鍵選單的末尾加入「自訂選單…」。"
           }
         }
       }

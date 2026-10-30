@@ -29,6 +29,7 @@ import {
   nodeAt,
   removeSeparator,
   renameGroup,
+  sameLayout,
   samePath,
   step,
   toggleHidden,
@@ -261,9 +262,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
       if (!current || !samePath(current.path, path)) return;
       // Where the release is, not where the last render was.
       const done = follow(current, event.clientX, event.clientY);
-      // The host re-sent the menu mid-drag (another window, a cmux.json edit): the paths measured
-      // at the start may name other rows now, so nothing moves.
-      if (!done.active || !done.target || done.layout !== layout) return;
+      // The menu changed mid-drag (another window, a cmux.json edit): the paths measured at the
+      // start may name other rows now, so nothing moves. An equal menu re-sent is no change.
+      if (!done.active || !done.target || !sameLayout(done.layout, layout)) return;
       save(move(layout, done.path, done.target.parent, done.target.index));
       const into = done.target.into && nodeAt(layout.items, done.target.into);
       if (into) openFolder(keyOf(into));

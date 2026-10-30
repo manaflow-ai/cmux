@@ -196,27 +196,36 @@ public nonisolated struct ContextMenuLayout: Sendable, Hashable {
     /// Where a generated row (at `index` of its container's generated keys, separators included)
     /// goes among `keys`:
     /// 1. after the row it follows in its generated section, else
-    /// 2. before the row that follows it there (a divider before it when a section comes before),
-    ///    else (its section has no row here yet)
-    /// 3. after the nearest earlier row, with a divider before it, else
-    /// 4. before the nearest later row, with a divider after it, else
+    /// 2. before the row that follows it there (a divider before it when the row above is of
+    ///    another section), else (its section has no row here yet)
+    /// 3. after the run of rows holding the nearest earlier row, as a section of its own, else
+    /// 4. before the run of rows holding the nearest later row, as a section of its own, else
     /// 5. at the end (the container holds none of its generated rows: the person's own rows stay first).
     /// A row added to a section stays in it, and a section the app adds keeps its dividers.
     static func insertion(of index: Int, generated: [String], in keys: [String]) -> Insertion {
         let before = generated[..<index], after = generated[(index + 1)...]
         let sectionStart = before.lastIndex(of: separator).map { $0 + 1 } ?? before.startIndex
-        if let anchor = before[sectionStart...].last(where: keys.contains), let at = keys.firstIndex(of: anchor) { return Insertion(index: at + 1) }
         let sectionEnd = after.firstIndex(of: separator) ?? after.endIndex
-        // The first of its section here: a divider before it when the app makes a section above.
+        // The rows of its own generated section: a divider never goes between them, however the
+        // person ordered them.
+        let section = Set(before[sectionStart...]).union(after[..<sectionEnd])
+        if let anchor = before[sectionStart...].last(where: keys.contains), let at = keys.firstIndex(of: anchor) { return Insertion(index: at + 1) }
+        // The first of its section here: a divider before it unless the row before is of its section.
         if let next = after[..<sectionEnd].first(where: keys.contains), let at = keys.firstIndex(of: next) {
-            return Insertion(index: at, dividerBefore: sectionStart > before.startIndex)
+            let above = at > 0 ? keys[at - 1] : nil
+            return Insertion(index: at, dividerBefore: above != nil && above != separator && !section.contains(above!))
         }
         let present = { (key: String) in key != separator && keys.contains(key) }
+        // A section of its own: after the run of rows that holds the nearest earlier row (at the
+        // next divider, or the end), so it never splits that run.
         if let anchor = before.last(where: present), let at = keys.firstIndex(of: anchor) {
-            return Insertion(index: at + 1, dividerBefore: true)
+            let runEnd = keys[(at + 1)...].firstIndex(of: separator) ?? keys.endIndex
+            return Insertion(index: runEnd, dividerBefore: true)
         }
+        // Or before the run that holds the nearest later row (just after the divider before it).
         if let next = after.first(where: present), let at = keys.firstIndex(of: next) {
-            return Insertion(index: at, dividerAfter: true)
+            let runStart = keys[..<at].lastIndex(of: separator).map { $0 + 1 } ?? keys.startIndex
+            return Insertion(index: runStart, dividerAfter: true)
         }
         return Insertion(index: keys.count, dividerBefore: true)
     }

@@ -174,6 +174,11 @@ const equal = (a: MenuNode[], b: MenuNode[]): boolean =>
     return node.key === other.key && (node.title ?? null) === (other.title ?? null) && equal(node.items, other.items);
   });
 
+/** Whether two layouts arrange the menu the same way (the host re-sends equal layouts as new objects). */
+export function sameLayout(a: MenuLayout, b: MenuLayout): boolean {
+  return equal(a.items, b.items) && a.hidden.length === b.hidden.length && a.hidden.every((key, index) => key === b.hidden[index]);
+}
+
 /** Whether `layout` is the app's own arrangement (Reset has nothing to do). */
 export function isGenerated(menu: ContextMenuState, layout: MenuLayout): boolean {
   return layout.hidden.length === 0 && equal(layout.items, menu.generated.items);

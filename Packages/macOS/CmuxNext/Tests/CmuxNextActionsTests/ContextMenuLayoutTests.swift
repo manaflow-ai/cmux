@@ -188,6 +188,21 @@ struct ContextMenuLayoutTests {
         #expect(rows == [.item("a"), .separator, .item("m1"), .separator, .item("m2"), .item("m3"), .separator, .item("m4")])
     }
 
+    @Test func aNewRowNeverSplitsASectionThePersonReordered() {
+        // A new row at the start of a section the person reordered joins it, no divider inside.
+        let first: [ContextMenuEntry] = [.action("a"), .separator, .action("n"), .action("b"), .action("c")]
+        #expect(ContextMenuLayout(items: [.item("a"), .separator, .item("c"), .item("b")]).normalized(against: first).items
+            == [.item("a"), .separator, .item("c"), .item("n"), .item("b")])
+        // A new section after a reordered one goes after that whole run, not inside it.
+        let after: [ContextMenuEntry] = [.action("a"), .action("b"), .separator, .action("n")]
+        #expect(ContextMenuLayout(items: [.item("b"), .item("a")]).normalized(against: after).items
+            == [.item("b"), .item("a"), .separator, .item("n")])
+        // A new section before a reordered one goes before that whole run.
+        let before: [ContextMenuEntry] = [.action("n"), .separator, .action("a"), .action("b")]
+        #expect(ContextMenuLayout(items: [.item("b"), .item("a")]).normalized(against: before).items
+            == [.item("n"), .separator, .item("b"), .item("a")])
+    }
+
     @Test func eachRowShowsOnceHoweverOftenItIsNamed() {
         let more = ContextMenuLayout.moreKey
         let generated: [ContextMenuEntry] = [.action("a"), .folder(.more, [.action("b")])]
