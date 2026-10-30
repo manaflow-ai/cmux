@@ -143,6 +143,7 @@ fn activate(base: &Path, install: &Path) -> Result<()> {
 
 /// Install and staging directories younger than this are left alone: another installer may have
 /// made one that its own swap has not pointed `current` at yet.
+#[cfg(unix)]
 const PRUNE_GRACE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// Removes install and staging directories that `current` does not name now (read again here, so a
