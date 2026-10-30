@@ -161,7 +161,7 @@ extension SidebarListViewComponents {
     func blockGapFrame(_ gap: SidebarBlockGap) -> NSRect? {
         guard let row = displayed.row(for: .block(gap.section)), let block = rowViews[row.key] as? SidebarBlockRowView,
               let slot = block.region.itemView(SidebarListBlocks.gapID) else { return nil }
-        return convert(slot.bounds, from: slot)
+        return convert(slot.bounds, from: slot).clippedX(to: bounds) // as `blockSlotFrame`
     }
 
     /// The gap slot's frame in the list as the block lays it out with the gap
@@ -175,7 +175,8 @@ extension SidebarListViewComponents {
             default: false
             }
         }
-        return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y) }
+        // A band row runs past the region's edge by the row trim; the card it morphs to stops at the list's.
+        return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y).clippedX(to: bounds) }
     }
 
     /// Each block's height at the list's width.
@@ -204,12 +205,14 @@ extension SidebarListViewComponents {
             guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             endLanding()
             hoverCards.dismiss(.click)
-            let frame = convert(view.bounds, from: view)
+            // Within the list: a block row's frame runs past its edge by the row trim (`rowEdgeGap`), its pill does not.
+            let frame = convert(view.bounds, from: view).clippedX(to: bounds)
+            let shown = view.convert(frame, from: self)
             let card = NSImageView()
             card.imageScaling = .scaleNone
-            if let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-                view.cacheDisplay(in: view.bounds, to: rep)
-                let image = NSImage(size: view.bounds.size)
+            if let rep = view.bitmapImageRepForCachingDisplay(in: shown) {
+                view.cacheDisplay(in: shown, to: rep)
+                let image = NSImage(size: shown.size)
                 image.addRepresentation(rep)
                 card.image = image
             }
@@ -219,7 +222,7 @@ extension SidebarListViewComponents {
             drag.grabOffsetX = origin.x - frame.minX
             drag.lastY = origin.y
             drag.tileSource = (section, id)
-            drag.restFrame = NSRect(x: inset, y: frame.minY, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+            drag.restFrame = NSRect(x: inset, y: frame.minY, width: indentWidth, height: metrics.rowHeight)
             drag.restShaped = false
             drag.tileRegion = region
             region.docPressedItem = id
@@ -275,7 +278,7 @@ extension SidebarListViewComponents {
             return blockSlotFrame(gap) ?? blockGapFrame(gap)
         }
         if drag.tileSource != nil, let y = displayed.gapY, displayed.gapHeight > 0 {
-            return NSRect(x: inset, y: y, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight)
+            return NSRect(x: inset, y: y, width: indentWidth, height: displayed.gapHeight)
         }
         return nil
     }

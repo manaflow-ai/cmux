@@ -80,6 +80,8 @@ impl Hub {
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
+        // The epoch its reports count in (`FloorState::report_epoch`).
+        let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
@@ -96,6 +98,15 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                // Counted before it is logged, so no check waits for the inbound loop to apply
+                // it (review 69 of #23322).
+                if super::full_access_bound::own_full_access_report(&tap_session, p) {
+                    // Under the meta lock the view reads it under (`FullAccessView::of_session`).
+                    let _m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if tap_session.floor.report_epoch.load(Ordering::SeqCst) == report_epoch {
+                        tap_session.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
@@ -118,8 +129,14 @@ impl Hub {
                     if method == crate::agent::HOST_EXIT =>
                 {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
-                    let intentional =
-                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = tap_session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && tap_session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(
+                            tap_session.status(),
+                            SessionStatus::Idle | SessionStatus::Closed
+                        );
                     tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
@@ -128,7 +145,11 @@ impl Hub {
                             &tap_session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                             host_seq,
                         )
                         .1;

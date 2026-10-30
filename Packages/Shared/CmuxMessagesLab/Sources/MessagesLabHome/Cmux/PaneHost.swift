@@ -306,6 +306,9 @@ extension FieldChrome {
     func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
         field.wantsLayer = true
         if let layer = field.layer {
+            // NSGlassEffectView rounds its glass internally, independently of its backing
+            // layer. Keep the added hairline on the same curve instead of boxing the glass.
+            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
             let width: CGFloat = light && edge != nil ? 1 : 0
             if layer.borderWidth != width { layer.borderWidth = width }
             if let edge, light { layer.borderColor = edge.cgColor }
@@ -596,6 +599,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -841,6 +845,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     // MARK: Tapback picker
 
     func showPicker(for hit: MessagesWindowView.Hit) {
+        guard intents?.canInteract(with: hit.row.ref.messageId) != false else { return }
         closePicker()
         let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in

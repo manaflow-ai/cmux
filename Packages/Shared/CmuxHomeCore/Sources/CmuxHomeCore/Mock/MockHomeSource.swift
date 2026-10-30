@@ -504,6 +504,14 @@ public actor MockHomeSource: HomeSource {
         publish(.draft(update))
     }
 
+    /// Publishes one live run frame (``HomeLiveEvent``), as an owner sends a running Chief's
+    /// "working on" line (the DEBUG Home fixture's status-line captures). Nothing is stored.
+    ///
+    /// - Parameter event: The frame, for example an `.activity` frame with the step running now.
+    public func streamLive(_ event: HomeLiveEvent) {
+        publish(.live(event))
+    }
+
     // MARK: Owner logic
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {
@@ -583,8 +591,8 @@ public actor MockHomeSource: HomeSource {
             let id = createConversation(title: "", participants: [me, agent])
             _ = try? commitMessage(in: id, author: agent.id, parts: [.text(MockHomeSeed.chiefGreeting(trimmed))], key: .make())
             return HomeOpResult(rev: inboxRev, conversation: id)
-        case .createGroup(let title, let ids):
-            let participants = [me] + ids.compactMap { people[$0] }
+        case .createGroup(let title, let ids, let invites):
+            let participants = [me] + ids.compactMap { people[$0] } + invites.map { personFor($0).0 }
             guard participants.count >= 3 else { throw HomeRejection.invalid("group_needs_three") }
             let id = createConversation(title: title, participants: participants)
             return HomeOpResult(rev: inboxRev, conversation: id)
@@ -797,8 +805,20 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
-    private func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+    /// Sets a participant's activity for demos without starting a timed reply.
+    public func typing(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
         publish(.typing(conversation, who, on: on))
+    }
+
+    /// Who has `conversation` open, the whole set, as an owner's presence frame (fixtures and
+    /// captures: `debug.home.drive` `presence`); an empty set is nobody.
+    public func showPresence(_ viewing: Set<ParticipantID>, in conversation: ConversationID) {
+        publish(.presence(conversation, viewing: viewing))
+    }
+
+    /// `who` starts or stops typing in `conversation`, as an owner's typing frame (fixtures).
+    public func showTyping(_ who: ParticipantID, in conversation: ConversationID, on: Bool) {
+        typing(who, in: conversation, on: on)
     }
 
     private func reply(as responder: Participant, in conversation: ConversationID) {

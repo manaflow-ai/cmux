@@ -107,7 +107,10 @@ public final class MacScreenApprovalPrompt {
 
     private func setPanelVisible(_ visible: Bool) {
         guard visible, current != nil else {
-            panel?.orderOut(nil)
+            // Closed, not only ordered out: its content holds this prompt, so an ordered-out panel
+            // stayed in the app's window list for good. The next request makes a fresh one.
+            panel?.close()
+            panel = nil
             return
         }
         let panel = self.panel ?? makePanel()

@@ -28,7 +28,7 @@ const modes = {
   availableModes: [
     { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
     { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-    { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
   ],
 };
 
@@ -81,14 +81,13 @@ export default agentPaneEntry({
       snapshot: started(),
     },
     "started-movable": {
-      height: 520,
-      note: 'Leo: "Picking one moves the chat". A started chat the host can move (its tab\'s menu offers Move to Cloud) keeps its strip; the chip opens the environment picker with where the chat runs, Move to Cloud and Choose folder….',
+      note: "A started chat its tab's right-click menu can move (Move to Cloud): still no location strip over the composer; the move stays in that menu.",
       native: { "pane.tabState": { moves: ["cloudMove"] } },
       snapshot: started(),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-strip"));
-        await ctx.click({ selector: '.acpmux-composer-strip .acpmux-location-picker[data-kind="computer"] button' });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("a started chat drew the location strip over its composer");
       },
     },
     "long-folder": {
@@ -99,7 +98,13 @@ export default agentPaneEntry({
     "mid-folder": {
       note: "A new chat in a folder that fits a 341 px pane whole and cuts in the middle at 340, the strip's folder step.",
       ready: { newSession: true },
-      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-checkout", branch: "main" }),
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-web-checkout", branch: "main" }),
+    },
+    "computer-first-setup": {
+      note: "A new chat on a fresh home: the plain Computer menu offers setup without Labs.",
+      ready: { newSession: true, machineName: "Studio Mac" },
+      snapshot: fresh(true, { hostKind: "local" }),
+      native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
     },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",

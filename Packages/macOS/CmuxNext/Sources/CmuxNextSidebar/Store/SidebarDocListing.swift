@@ -216,6 +216,11 @@ extension SidebarDocProjection {
         var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
                                 icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
         made.tint = group.color.flatMap { GroupTint(wire: $0) } ?? .palette(.unset(id: group.id))
+        // A group in Pinned reads as pinned, as one with members does (`SidebarDocMachines.model`): else its
+        // header offers Pin Group again, which the sidebar refuses (#22259).
+        made.isPinned = group.pinned
+        made.parent = group.parent.map { GroupID($0) }
+        made.depth = group.depth
         return made
     }
 }
@@ -235,6 +240,31 @@ extension SidebarModel {
 }
 
 extension SidebarDocStore {
+    /// The document's item `id` at any depth (in a group or a machine section too), as a layout item.
+    public func placedItem(_ id: LayoutItemID) -> LayoutItem? {
+        drawnRecords.items[id.rawValue].map { LayoutItem(id: id, ref: SidebarDocProjection.ref($0.body, id: $0.id)) }
+    }
+
+    /// Whether the document as the sidebar draws it (the confirmed document and the changes not yet echoed, the
+    /// mirror's rows with no group folded) holds an item showing `ref` at any depth (a band, a group, a machine list).
+    /// Every window draws from this one document, whatever its own membership leaves out. Observable: an intent
+    /// moves `version`, a batch `records` too. One mirror call per change.
+    public func placesItem(with ref: LayoutItemRef) -> Bool {
+        _ = version
+        guard let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return false }
+        return rows.contains { row in
+            guard let id = row.item else { return false }
+            return (records.items[id].map { SidebarDocProjection.ref($0.body, id: id) } ?? Self.pendingRef(id)) == ref
+        }
+    }
+
+    /// The first document item (by id) showing `ref` at any depth, as a layout item.
+    public func placedItem(with ref: LayoutItemRef) -> LayoutItem? {
+        drawnRecords.items.values.sorted { $0.id < $1.id }.lazy
+            .first { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
+            .map { LayoutItem(id: LayoutItemID($0.id), ref: ref) }
+    }
+
     /// Stores the page icon address `known` gives for each url item (an open
     /// tab's favicon, learned by the App's favicon store) on the item, once
     /// per address: `item.update {patch: {icon_url}}`, no undo step.

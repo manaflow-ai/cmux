@@ -6,6 +6,19 @@ import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 
 const running = new WeakMap<HTMLElement, () => void>();
+
+/// Sent (not bubbling) on a scroller right after this module's motion writes its offset from a frame
+/// callback. The browser's own `scroll` event for that write comes on the next frame, after this one
+/// paints, so what must move with the scroll on its own frame (the minimap's band) listens for this too.
+export const MOTION_SCROLL_EVENT = "acpmux-motion-scroll";
+
+/// Tells `node`'s listeners that the motion just moved it (`MOTION_SCROLL_EVENT`).
+function announceScroll(node: HTMLElement): void {
+  // A stand-in scroller (a unit test's) may have no document or events of its own.
+  if (typeof node.dispatchEvent !== "function") return;
+  const Event_ = node.ownerDocument?.defaultView?.Event ?? globalThis.Event;
+  if (Event_) node.dispatchEvent(new Event_(MOTION_SCROLL_EVENT));
+}
 const READER_INPUTS = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
 
 /// Reduce Motion: the system's, or the app's (its motion tokens are 0 when Reduce Motion is on or
@@ -37,33 +50,109 @@ export function animateScroll(
   cancelled?: () => void,
 ): void {
   stopScroll(node);
+  const from = node.scrollTop;
+  runScroll(
+    node,
+    duration,
+    curve,
+    (progress) => {
+      node.scrollTop = from + (target() - from) * progress;
+    },
+    then,
+    cancelled,
+  );
+}
+
+/// An explicit mouse-wheel distance on the same clock as jumps. Each step adds only its own delta
+/// to the live offset: the existing row-id anchor owns layout/prepend corrections. A notch headed
+/// to the bottom follows that moving end; one parked in history keeps exactly its wheel distance.
+export function animateScrollBy(
+  node: HTMLElement,
+  distance: number,
+  duration: number,
+  curve: CubicBezier,
+  toEnd: boolean,
+  finished: () => void,
+): { remaining(): number } {
+  let done = 0;
+  let previous = 0;
+  const left = () => (toEnd ? Math.max(0, node.scrollHeight - node.clientHeight - node.scrollTop) : distance - done);
+  runScroll(
+    node,
+    duration,
+    curve,
+    (progress) => {
+      const fraction = previous === 1 ? 1 : (progress - previous) / (1 - previous);
+      // Quantize only cumulative mouse-wheel travel. Each incremental write is a whole pixel,
+      // so WebKit cannot floor a fractional tail past the target and bounce back. The live
+      // offset (including the row-id anchor's own corrections) is never rounded or replaced.
+      const next = Math.round(distance * progress);
+      node.scrollTop += toEnd ? left() * fraction : next - done;
+      done = next;
+      previous = progress;
+    },
+    finished,
+    finished,
+    true,
+  );
+  return { remaining: left };
+}
+
+/// One owner, clock and cleanup path for both jumps and notches. The wheel installer arbitrates
+/// wheel events itself; the runner owns all other cancellation inputs for that explicit motion.
+function runScroll(
+  node: HTMLElement,
+  duration: number,
+  curve: CubicBezier,
+  write: (progress: number) => void,
+  then?: () => void,
+  cancelled?: () => void,
+  wheel = false,
+): void {
+  stopScroll(node);
   if (duration <= 0 || typeof requestAnimationFrame !== "function") {
-    node.scrollTop = target();
+    write(1);
     then?.();
     return;
   }
-  const from = node.scrollTop;
+  const doc = node.ownerDocument;
+  const owner = wheel ? (doc.defaultView ?? node) : node;
+  const inputs = wheel ? READER_INPUTS.filter((input) => input !== "wheel") : READER_INPUTS;
   const start = performance.now();
   let frame = 0;
+  let active = true;
   const cleanup = () => {
+    active = false;
     cancelAnimationFrame(frame);
-    for (const name of READER_INPUTS) node.removeEventListener(name, end);
+    for (const name of inputs) owner.removeEventListener(name, end, wheel);
+    if (wheel) doc.removeEventListener("visibilitychange", hidden);
     if (running.get(node) === end) running.delete(node);
   };
   const end = () => {
+    if (!active) return;
     cleanup();
     cancelled?.();
   };
+  const hidden = () => {
+    if (doc.hidden) end();
+  };
   const step = (now: number) => {
+    if (wheel && (doc.hidden || node.clientHeight === 0)) {
+      end();
+      return;
+    }
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
-    node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
+    write(bezierAt(curve, progress));
+    announceScroll(node);
+    if (!active) return;
     if (progress < 1) frame = requestAnimationFrame(step);
     else {
       cleanup();
       then?.();
     }
   };
-  for (const name of READER_INPUTS) node.addEventListener(name, end, { passive: true });
+  for (const name of inputs) owner.addEventListener(name, end, { capture: wheel, passive: true });
+  if (wheel) doc.addEventListener("visibilitychange", hidden);
   running.set(node, end);
   frame = requestAnimationFrame(step);
 }
@@ -93,6 +182,7 @@ export function settleScroll(node: HTMLElement, offset: () => number | undefined
       const to = Math.max(0, Math.min(max, node.scrollTop + by));
       if (Math.abs(to - node.scrollTop) > 0.5) {
         node.scrollTop = to;
+        announceScroll(node);
         steady = 0;
       } else steady += 1;
     }

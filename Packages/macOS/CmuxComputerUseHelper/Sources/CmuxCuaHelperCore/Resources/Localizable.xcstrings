@@ -1,0 +1,66 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "computerUse.target.unsupported": {
+      "comment": "Keep the JSON field names and kind value in English.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer use cannot check this target shape. Use pid and window_id, or target with kind window, pid, and window_id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンピュータ操作では、このターゲット形式を確認できません。pid と window_id、または kind が window で pid と window_id を含む target を使用してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Computersteuerung kann dieses Zielformat nicht prüfen. Verwenden Sie pid und window_id oder target mit kind window, pid und window_id."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le contrôle de l’ordinateur ne peut pas vérifier ce format de cible. Utilisez pid et window_id, ou target avec kind window, pid et window_id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن للتحكم بالكمبيوتر التحقق من صيغة الهدف هذه. استخدم pid وwindow_id، أو target مع kind بقيمة window وpid وwindow_id."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El control del ordenador no puede comprobar este formato de destino. Use pid y window_id, o target con kind window, pid y window_id."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "電腦操作無法檢查此目標格式。請使用 pid 和 window_id，或使用 kind 為 window 且包含 pid 和 window_id 的 target。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "计算机操作无法检查此目标格式。请使用 pid 和 window_id，或使用 kind 为 window 且包含 pid 和 window_id 的 target。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터 사용 기능이 이 대상 형식을 확인할 수 없습니다. pid와 window_id 또는 kind가 window이고 pid와 window_id를 포함하는 target을 사용하세요."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

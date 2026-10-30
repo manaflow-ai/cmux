@@ -12,6 +12,7 @@ type Props = {
   icon: ReactNode;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  onNoProject?(): void;
 };
 
 const icon = createElement(
@@ -84,6 +85,8 @@ export default componentEntry<Props>({
   id: "agent-pane.project-chooser",
   title: "Project chooser",
   area: "Agent pane",
+  // Its rows use the pane's Tailwind (`data-[highlighted]:bg-hover`), which only a pane entry loads.
+  pane: true,
   covers: ["agent-session/acpmux/ProjectChooser.tsx#ProjectChooser"],
   load: () => import("./ProjectChooser").then((module) => module.ProjectChooser),
   styles: () => import("./styles.css"),
@@ -116,8 +119,15 @@ export default componentEntry<Props>({
         current: projects[0]!.cwd,
         currentLabel: projects[0]!.label,
         icon,
-        onPick: () => undefined,
-        onBrowse: () => undefined,
+        onPick: (cwd) => {
+          document.documentElement.dataset.galleryProjectPicked = cwd;
+        },
+        onBrowse: () => {
+          document.documentElement.dataset.galleryProjectAction = "browse";
+        },
+        onNoProject: () => {
+          document.documentElement.dataset.galleryProjectAction = "none";
+        },
       },
       play: open,
     },
@@ -154,6 +164,18 @@ export default componentEntry<Props>({
       note: "An absolute path query offers the typed path as a selectable project.",
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
       play: typedPath,
+    },
+    "long-no-actions": {
+      note: "A long recent-project list without action rows still scrolls to its last folder.",
+      props: {
+        projects: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        icon,
+        onPick: () => undefined,
+      },
+      play: open,
     },
     "long-names": {
       note: "Long project labels and paths truncate inside stable rows while badges remain visible.",

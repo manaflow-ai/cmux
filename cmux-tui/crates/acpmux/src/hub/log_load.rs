@@ -189,12 +189,16 @@ impl Hub {
             let plan = self.load_plan.lock().unwrap_or_else(|e| e.into_inner());
             plan.hosted.iter().cloned().collect()
         };
+        // All hosted chats were considered by adoption. Read their liveness once for this
+        // settling pass, off the executor, rather than reading every host record per chat.
+        // A failed read proves no host gone; keep its turn for later recovery.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         for id in hosted {
             let Ok(session) = self.resolve(&id) else { continue };
             if session.child.lock().await.is_some() {
                 continue;
             }
-            let gone = !Self::host_record_live(&id);
+            let gone = live.as_ref().is_some_and(|live| !live.contains(&id));
             let hub = self.clone();
             let settled = tokio::task::spawn_blocking(move || hub.settle_one(&session, gone));
             if let Err(e) = settled.await {
@@ -219,7 +223,15 @@ impl Hub {
         if kept && gone && waiting {
             // A wait the restart cut: its `status idle` record says so (`mark_lost_wait`), now
             // or when the background pass reads its log.
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).status = SessionStatus::Idle;
+            {
+                let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                m.status = SessionStatus::Idle;
+                // Its harness is gone: a sub-session frees its parent's width slot, under the
+                // same lock as the status, as `write_status` does (`subsessions.rs`).
+                if let Some(link) = &m.subsession {
+                    self.subsessions.note_status(&link.started_by, &session.id, m.status);
+                }
+            }
             session.mark_waiting(false);
             if *loaded {
                 self.mark_lost_wait(session);

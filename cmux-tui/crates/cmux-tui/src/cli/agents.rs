@@ -4,7 +4,7 @@
 //! the owner of windows, palette state and dialogs. This module only composes
 //! their existing snapshots and actions into one JSON-first surface for agents.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
@@ -15,6 +15,7 @@ use super::app_focus;
 use super::command::{CommandPlan, RequestPlan, Resolve, ResponseView, WireOperation};
 use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
+use cmux_json::JsonSet as _;
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
@@ -502,7 +503,7 @@ fn receipt<B: Backend>(
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
-        receipt["idempotency_key"] = Value::String(key);
+        receipt.set("idempotency_key", Value::String(key));
     }
     receipt
 }
@@ -545,6 +546,14 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .cloned()
         .unwrap_or_else(|| json!([]));
     merge_app_tabs(&mut tabs, topology, workspace_ids.as_ref());
+    let mut browsers = daemon_value
+        .as_ref()
+        .and_then(|value| value.get("browsers"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    if let Some(topology) = topology {
+        mark_agent_chat_tabs(&mut tabs, &mut browsers, &app_chat_sessions(topology));
+    }
     let focus = topology
         .and_then(|value| value.get("focus"))
         .filter(|value| focus_in_scope(value, workspace_ids.as_ref()))
@@ -559,7 +568,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
         "tabs": tabs,
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
-        "browsers": daemon_value.as_ref().and_then(|value| value.get("browsers")).cloned().unwrap_or_else(|| json!([])),
+        "browsers": browsers,
         "focus": focus,
         "selection": selection(topology, daemon_value.as_ref(), workspace_ids.as_ref()),
         "sources": {
@@ -642,12 +651,12 @@ fn scoped_windows(topology: Option<&Value>, workspace_ids: Option<&HashSet<Strin
                     return None;
                 }
                 let mut window = window.clone();
-                window["workspaces"] = Value::Array(selected);
+                window.set("workspaces", Value::Array(selected));
                 if let Some(workspace) = window.get("workspace").cloned() {
                     let workspace_id =
                         workspace.as_str().or_else(|| workspace.get("id").and_then(Value::as_str));
                     if workspace_id.is_none_or(|id| !workspace_ids.contains(id)) {
-                        window["workspace"] = window["workspaces"][0].clone();
+                        window.set("workspace", window["workspaces"][0].clone());
                     }
                 }
                 Some(window)
@@ -731,6 +740,62 @@ fn collect_app_tabs(topology: &Value, workspace_ids: Option<&HashSet<String>>) -
     Value::Array(tabs)
 }
 
+/// The app's agent chat tabs by tab id: each `kind: conversation` tab with its acpmux
+/// `agent_session` anywhere in the app topology.
+fn app_chat_sessions(topology: &Value) -> HashMap<String, String> {
+    fn visit(value: &Value, out: &mut HashMap<String, String>) {
+        match value {
+            Value::Object(object) => {
+                if object.get("kind").and_then(Value::as_str) == Some("conversation")
+                    && let (Some(id), Some(session)) = (
+                        object.get("id").and_then(Value::as_str),
+                        object.get("agent_session").and_then(Value::as_str),
+                    )
+                {
+                    out.insert(id.to_owned(), session.to_owned());
+                }
+                object.values().for_each(|child| visit(child, out));
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, out)),
+            _ => {}
+        }
+    }
+    let mut out = HashMap::new();
+    visit(topology, &mut out);
+    out
+}
+
+/// The daemon reads an agent chat tab to this CLI as a `browser` at about:blank (the
+/// connection does not negotiate `agent-session-tabs-v1`), so an agent that opened a chat
+/// saw no chat and started another. Each tab the app shows as a chat becomes
+/// `content_kind: conversation` with its `agent_session`, and its stand-in browser leaves
+/// `browsers`.
+fn mark_agent_chat_tabs(tabs: &mut Value, browsers: &mut Value, chats: &HashMap<String, String>) {
+    if chats.is_empty() {
+        return;
+    }
+    let mut stand_ins = HashSet::new();
+    for tab in tabs.as_array_mut().into_iter().flatten() {
+        let Some(session) = tab.get("id").and_then(Value::as_str).and_then(|id| chats.get(id))
+        else {
+            continue;
+        };
+        let session = Value::String(session.clone());
+        if let Some(browser) = tab.get("content_id").and_then(Value::as_str) {
+            stand_ins.insert(browser.to_owned());
+        }
+        tab.set("content_kind", Value::String("conversation".into()));
+        tab.set("agent_session", session);
+    }
+    if let Some(browsers) = browsers.as_array_mut() {
+        browsers.retain(|browser| {
+            let field = |key: &str| browser.get(key).and_then(Value::as_str);
+            !field("id").is_some_and(|id| stand_ins.contains(id))
+                && !field("tab_id").is_some_and(|id| chats.contains_key(id))
+        });
+    }
+}
+
 fn is_app_page_tab(tab: &Value) -> bool {
     ["kind", "content_kind", "type"].iter().any(|field| {
         matches!(
@@ -777,13 +842,13 @@ pub(super) fn snapshot_page(mut snapshot: Value, offset: usize, limit: usize) ->
     }
     let returned = items.len();
     let next = offset.saturating_add(returned);
-    snapshot["items"] = Value::Array(items);
-    snapshot["offset"] = json!(offset);
-    snapshot["limit"] = json!(limit);
-    snapshot["total"] = json!(total);
-    snapshot["returned"] = json!(returned);
-    snapshot["next_offset"] = if next < total { json!(next) } else { Value::Null };
-    snapshot["truncated"] = json!(offset > 0 || next < total);
+    snapshot.set("items", Value::Array(items));
+    snapshot.set("offset", json!(offset));
+    snapshot.set("limit", json!(limit));
+    snapshot.set("total", json!(total));
+    snapshot.set("returned", json!(returned));
+    snapshot.set("next_offset", if next < total { json!(next) } else { Value::Null });
+    snapshot.set("truncated", json!(offset > 0 || next < total));
     snapshot
 }
 

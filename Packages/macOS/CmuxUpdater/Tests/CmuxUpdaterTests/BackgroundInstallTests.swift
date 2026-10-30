@@ -369,7 +369,8 @@ private final class ReopeningHost: UpdateActionDelegate {
         let ready = stage(harness, host: host, automatic: true)
         #expect(host.asked == ["0.64.17"])
         #expect(ready.choice == nil, "Sparkle must not relaunch: it installs as the app exits")
-        #expect(harness.controller.stagedUpdate == nil)
+        // While the quit waits (the host's moment hold) the update shows as staged, so a click installs it.
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
         #expect(!harness.controller.driver.relaunchIsAutomatic)
 
         // The quit was refused: the update is staged again (Sparkle's reply still held), once.

@@ -12,8 +12,12 @@ arrays it expands ("${args[@]}"), and requires an --immutable among them.
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +69,9 @@ class PublishReleaseAssetsCallers(unittest.TestCase):
         seen = 0
         for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
             text = workflow.read_text(encoding="utf-8")
+            # nightly.yml's moved step scripts (scripts/ci/nightly-steps/) put back inline.
+            if workflow.name == "nightly.yml":
+                text = expand(text)
             for line, command, block in calls(text):
                 seen += 1
                 with self.subTest(workflow=workflow.name, line=line):
@@ -77,7 +84,7 @@ class PublishReleaseAssetsCallers(unittest.TestCase):
         self.assertGreaterEqual(seen, 9, "the call finder stopped seeing the workflows' publishers")
 
     def test_names_job_passes_the_versioned_dmg(self):
-        text = (WORKFLOW_DIR / "nightly.yml").read_text(encoding="utf-8")
+        text = expand((WORKFLOW_DIR / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  publish-nightly-next-github-names:\n"):]
         step = job[job.index("- name: Publish the rolling DMG name and the feed copy"):]
         step = step[:step.index("\n      - name:")]

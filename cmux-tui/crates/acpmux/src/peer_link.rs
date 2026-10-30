@@ -93,6 +93,64 @@ impl Backoff {
     }
 }
 
+/// Notices that this computer slept (a closed lid, a sleeping Mac): the wall clock moved on further
+/// than the monotonic one, which stops while the computer sleeps (macOS `mach_absolute_time`,
+/// Linux `CLOCK_MONOTONIC`). A link's timers run on the monotonic clock, so after a wake a dead
+/// link still looks fresh (its last frame "seconds" ago) and a backoff wait picks up where it was.
+/// Each check is a few integer reads; a forward step of the wall clock (a time sync) reads as a
+/// sleep too, which costs one early probe or attempt and nothing else.
+#[derive(Debug, Clone, Copy)]
+pub struct SleepWatch {
+    wall_ms: u64,
+    mono: std::time::Instant,
+}
+
+impl SleepWatch {
+    /// How often a link or a backoff wait checks the clocks.
+    pub const EVERY: Duration = Duration::from_secs(5);
+    /// A gap between the clocks under this is scheduling noise, not a sleep.
+    pub const SLACK: Duration = Duration::from_secs(10);
+
+    pub fn new(wall_ms: u64, mono: std::time::Instant) -> Self {
+        Self { wall_ms, mono }
+    }
+
+    /// From the clocks now.
+    pub fn now() -> Self {
+        Self::new(crate::store::now_ms(), std::time::Instant::now())
+    }
+
+    /// How long the computer slept since the last check, when it did; the watch then counts from
+    /// now either way.
+    pub fn check_at(&mut self, wall_ms: u64, mono: std::time::Instant) -> Option<Duration> {
+        let wall = Duration::from_millis(wall_ms.saturating_sub(self.wall_ms));
+        let awake = mono.saturating_duration_since(self.mono);
+        *self = Self::new(wall_ms, mono);
+        let slept = wall.saturating_sub(awake);
+        (slept >= Self::SLACK).then_some(slept)
+    }
+
+    /// ``check_at`` with the clocks now.
+    pub fn check(&mut self) -> Option<Duration> {
+        self.check_at(crate::store::now_ms(), std::time::Instant::now())
+    }
+}
+
+/// After a wake, how long an open link has to answer a ping before it is dropped and redialed
+/// (its ssh tunnel and TCP connection often died while the computer slept).
+pub const WAKE_PROBE: Duration = Duration::from_secs(10);
+
+/// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
+/// probe's deadline when that comes first, so a write to a link that died while the computer
+/// slept never holds the probe past it. Generic over the clock so a test can pass plain instants.
+pub fn write_deadline<I>(now: I, budget: Duration, wake_probe: Option<I>) -> I
+where
+    I: Copy + Ord + std::ops::Add<Duration, Output = I>,
+{
+    let end = now + budget;
+    wake_probe.map_or(end, |probe| probe.min(end))
+}
+
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
 pub fn jitter() -> f64 {
     let mut b = [0u8; 4];
@@ -114,17 +172,35 @@ pub enum PeerState {
     Degraded,
     /// Down after it was reached; its last-known sessions stay listed.
     Reconnecting,
+    /// The daemon announced a restart; reconnect immediately once, keeping its sessions.
+    Restarting,
     /// Never reached, and attempts failed. Attempts go on.
     Offline,
 }
 
 impl PeerState {
+    /// Its `_acpmux/peer_state_changed` form (`protocol/peer_state.rs`).
+    pub fn wire(self) -> crate::protocol::peer_state::PeerLinkState {
+        use crate::protocol::peer_state::PeerLinkState as W;
+        match self {
+            Self::Connecting => W::Connecting,
+            Self::Connected => W::Connected,
+            Self::Degraded => W::Degraded,
+            Self::Reconnecting => W::Reconnecting,
+            // Existing typed clients understand reconnecting. The richer restart status is
+            // exposed by `_acpmux/peers` summaries until the UI protocol adds it.
+            Self::Restarting => W::Reconnecting,
+            Self::Offline => W::Offline,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Connecting => "connecting",
             Self::Connected => "connected",
             Self::Degraded => "degraded",
             Self::Reconnecting => "reconnecting",
+            Self::Restarting => "restarting",
             Self::Offline => "offline",
         }
     }
@@ -133,6 +209,7 @@ impl PeerState {
 /// The link's history, in wall-clock milliseconds (`store::now_ms`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
+    restarting: bool,
     open: bool,
     ready: bool,
     overdue: bool,
@@ -140,25 +217,43 @@ pub struct Link {
     pub last_seen: Option<u64>,
     /// When the link last went down, while it is down.
     pub down_since: Option<u64>,
+    /// A parked peer's next automatic attempt, preserved across daemon updates.
+    pub next_retry_at: Option<u64>,
     /// Failed attempts since the link was last ready.
     pub attempts: u32,
     /// When the link last became ready.
     ready_at: Option<u64>,
+    /// When the WebSocket last opened, while it is open.
+    opened_at: Option<u64>,
 }
 
 impl Link {
     pub fn state(&self) -> PeerState {
+        if self.restarting {
+            return PeerState::Restarting;
+        }
         match (self.open, self.ready && !self.overdue) {
             (true, true) => PeerState::Connected,
             (true, false) => PeerState::Degraded,
             (false, _) if self.last_seen.is_some() => PeerState::Reconnecting,
-            (false, _) if self.attempts == 0 => PeerState::Connecting,
+            (false, _) if self.attempts == 0 && self.down_since.is_none() => PeerState::Connecting,
             (false, _) => PeerState::Offline,
         }
     }
 
     pub fn is_ready(&self) -> bool {
         self.open && self.ready
+    }
+
+    /// Whether an unforced reconnect leaves this link alone (`Hub::reconnect_peer_with`): it is
+    /// ready (connected, or slow to answer a ping), or its handshake began less than `young` ago.
+    /// A handshake older than that may never finish, so a reconnect replaces it.
+    pub fn keeps_on_reconnect(&self, now: u64, young: Duration) -> bool {
+        if !self.open {
+            return false;
+        }
+        self.ready
+            || self.opened_at.is_some_and(|at| now.saturating_sub(at) < young.as_millis() as u64)
     }
 
     /// A saved `lastSeen` from an earlier run of this daemon.
@@ -168,8 +263,45 @@ impl Link {
         }
     }
 
+    /// Only an explicit saved outage seeds retry age: an old lastSeen in a quiet peer's
+    /// session cache does not prove the link has been down since then.
+    pub fn seed_outage(&mut self, down_since: Option<u64>) {
+        if !self.open && self.attempts == 0 && self.down_since.is_none() {
+            self.down_since = down_since;
+        }
+    }
+
+    /// A day without a successful handshake parks automatic retries. The first attempt
+    /// still runs immediately; an explicit reconnect replaces the instance and also runs
+    /// immediately. Existing rows and dead-link request refusal are independent of this delay.
+    pub fn retry_delay(&self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
+        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= DAY_MS) {
+            // Small positive jitter keeps many retired hosts from retrying in lockstep.
+            Duration::from_secs(3_600) + Duration::from_secs(60).mul_f64(jitter.clamp(0.0, 1.0))
+        } else {
+            backoff.next(jitter)
+        }
+    }
+
+    /// Save only parked schedules: ordinary short reconnect backoff starts fresh on boot.
+    pub fn schedule_retry(&mut self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
+        let delay = self.retry_delay(backoff, now, jitter);
+        self.next_retry_at = (delay >= Duration::from_secs(3_600))
+            .then(|| now.saturating_add(delay.as_millis() as u64));
+        delay
+    }
+
+    pub fn parked_retry_wait(&self, now: u64) -> Option<Duration> {
+        self.next_retry_at.filter(|at| *at > now && self.down_since.is_some()).map(|at| {
+            // A wall-clock correction must not strand a peer beyond one retry interval.
+            Duration::from_millis(at - now).min(Duration::from_secs(3_660))
+        })
+    }
+
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.opened_at = Some(now);
         self.open = true;
         self.ready = false;
         self.overdue = false;
@@ -178,10 +310,12 @@ impl Link {
 
     /// The handshake finished: sessions are listed.
     pub fn ready(&mut self, now: u64) {
+        self.restarting = false;
         self.ready = true;
         self.overdue = false;
         self.last_seen = Some(now);
         self.down_since = None;
+        self.next_retry_at = None;
         self.attempts = 0;
         self.ready_at = Some(now);
     }
@@ -197,9 +331,21 @@ impl Link {
         self.overdue = true;
     }
 
+    /// Close 1012: retain last-seen history, without counting a failed attempt. The state
+    /// stays restarting through the next handshake, until readiness or a real failure.
+    pub fn restarting(&mut self, now: u64) {
+        self.restarting = true;
+        self.open = false;
+        self.ready = false;
+        self.overdue = false;
+        self.ready_at = None;
+        self.down_since.get_or_insert(now);
+    }
+
     /// The attempt failed or the link dropped. Returns whether the link had
     /// stayed ready for `stable_after` (so the backoff starts over).
     pub fn down(&mut self, now: u64, stable_after: Duration) -> bool {
+        self.restarting = false;
         let stable = self.is_ready()
             && self
                 .ready_at
@@ -208,6 +354,7 @@ impl Link {
         self.ready = false;
         self.overdue = false;
         self.ready_at = None;
+        self.opened_at = None;
         self.attempts = self.attempts.saturating_add(1);
         self.down_since.get_or_insert(now);
         stable
@@ -276,6 +423,58 @@ pub fn state_label(peer: &Value, now: u64) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {
+        let start = std::time::Instant::now();
+        let mut watch = SleepWatch::new(1_000_000, start);
+        // Awake: both clocks moved 5 s.
+        assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(5)), None);
+        // Scheduling noise under the slack is no sleep.
+        assert_eq!(watch.check_at(1_015_000, start + Duration::from_secs(9)), None);
+        // Asleep for 10 minutes: the wall clock moved 10 min 5 s, the monotonic one 5 s.
+        let slept = watch.check_at(1_620_000, start + Duration::from_secs(14));
+        assert_eq!(slept, Some(Duration::from_secs(600)));
+        // The watch counts from the wake on.
+        assert_eq!(watch.check_at(1_625_000, start + Duration::from_secs(19)), None);
+    }
+
+    #[test]
+    fn an_unforced_reconnect_keeps_a_ready_link_and_a_young_handshake() {
+        let young = Duration::from_secs(30);
+        let mut link = Link::default();
+        assert!(!link.keeps_on_reconnect(1_000, young), "a link that never opened is replaced");
+        link.opened(1_000);
+        assert!(link.keeps_on_reconnect(20_000, young), "a handshake 19 s old is left to finish");
+        assert!(!link.keeps_on_reconnect(40_000, young), "a handshake 39 s old may never finish");
+        link.ready(40_000);
+        link.overdue();
+        assert!(link.keeps_on_reconnect(500_000, young), "a ready link slow to answer is kept");
+        link.down(600_000, STABLE);
+        assert!(!link.keeps_on_reconnect(600_001, young), "a link that is down is replaced");
+    }
+
+    #[test]
+    fn a_wall_clock_set_back_is_no_sleep() {
+        let start = std::time::Instant::now();
+        let mut watch = SleepWatch::new(2_000_000, start);
+        assert_eq!(watch.check_at(1_000_000, start + Duration::from_secs(5)), None);
+        assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(10)), None);
+    }
+
+    #[test]
+    fn a_write_during_a_wake_probe_gives_up_at_the_probes_deadline() {
+        let now = std::time::Instant::now();
+        let budget = Duration::from_secs(80);
+        assert_eq!(write_deadline(now, budget, None), now + budget);
+        let probe = now + WAKE_PROBE;
+        assert_eq!(write_deadline(now, budget, Some(probe)), probe);
+        // A probe further off than the budget leaves the budget.
+        assert_eq!(
+            write_deadline(now, Duration::from_secs(5), Some(probe)),
+            now + Duration::from_secs(5)
+        );
+    }
+
     const STABLE: Duration = Duration::from_secs(60);
 
     #[test]
@@ -318,6 +517,46 @@ mod tests {
         assert_eq!(saved.state(), PeerState::Reconnecting);
         saved.seed(Some(1));
         assert_eq!(saved.last_seen, Some(500), "a seed never overrides what this run saw");
+    }
+
+    #[test]
+    fn retry_parking_survives_cache_seed_and_ends_at_a_successful_handshake() {
+        let mut link = Link::default();
+        let mut backoff = Backoff::default();
+        let day = 86_400_000;
+        link.seed(Some(1_000));
+        assert!(link.retry_delay(&mut backoff, 1_000 + day, 0.0) <= Backoff::CAP);
+        link.seed_outage(Some(1_000));
+        assert!(link.retry_delay(&mut backoff, 1_000 + day - 1, 0.0) <= Backoff::CAP);
+        assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 0.0), Duration::from_secs(3_600));
+        assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 1.0), Duration::from_secs(3_660));
+        link.opened(day + 2_000);
+        link.down(day + 2_001, STABLE);
+        assert!(link.retry_delay(&mut backoff, day + 2_001, 0.0) >= Duration::from_secs(3_600));
+        link.opened(day + 3_000);
+        link.ready(day + 3_001);
+        link.down(day + 3_002, STABLE);
+        assert!(link.retry_delay(&mut backoff, day + 3_002, 0.0) <= Backoff::CAP);
+    }
+
+    #[test]
+    fn parked_schedule_retains_only_the_remaining_wait_and_recovery_clears_it() {
+        let now = 86_400_001;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        let delay = link.schedule_retry(&mut Backoff::default(), now, 0.0);
+        assert_eq!(delay, Duration::from_secs(3_600));
+        assert_eq!(link.parked_retry_wait(now + 120_000), Some(Duration::from_secs(3_480)));
+        assert_eq!(link.parked_retry_wait(now + 3_600_000), None);
+        assert_eq!(
+            link.parked_retry_wait(0),
+            Some(Duration::from_secs(3_660)),
+            "clock correction is bounded"
+        );
+        link.opened(now + 2_000);
+        link.ready(now + 2_001);
+        assert_eq!(link.next_retry_at, None);
+        assert_eq!(link.parked_retry_wait(now + 2_001), None);
     }
 
     #[test]
