@@ -284,6 +284,31 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
+  it("a refusal that arrives after the connection was relinked does not mark the relinked connection", async () => {
+    const a = await signedInWithInstall("gh-token-repo-relink-race", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const needsReauth = vi.fn()
+      const state = instance.boundEngine.currentState as ConnectionsState
+      const original = Object.values(state.connections).find((c) => c.provider === "github")!
+      // The user relinks while GitHub answers: the same connection id, active again, a newer version.
+      let relinked = false
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), needsReauth, state: () => (relinked ? { ...state, connections: { [original.id]: { ...original, updated_at: original.updated_at + 1 } } } : state) }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      gh.routes["https://api.github.com/installation/repositories"] = () => {
+        relinked = true
+        return new Response(null, { status: 401 })
+      }
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      expect(needsReauth).not.toHaveBeenCalled()
+      // Without a relink in between, the same refusal is recorded.
+      relinked = false
+      gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 401 })
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      expect(needsReauth).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it("a cursor keeps its query: later pages stay filtered, and another query is refused", async () => {
     const a = await signedInWithInstall("gh-token-repo-query", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
