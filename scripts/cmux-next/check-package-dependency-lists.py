@@ -402,12 +402,14 @@ def main() -> int:
     parser.add_argument("--json", action="store_true")
     parser.add_argument("manifest", nargs="?", type=Path, default=DEFAULT_MANIFEST)
     args = parser.parse_args()
+    # With --json, stdout is exactly one JSON object: what a fixer did goes to stderr.
+    human = sys.stderr if args.json else sys.stdout
     text = args.manifest.read_text(encoding="utf-8")
     problems, fixed = check(text, args.fix)
     if args.fix:
         if fixed != text:
             args.manifest.write_text(fixed, encoding="utf-8")
-            print(f"sorted the dependency lists in {args.manifest}")
+            print(f"sorted the dependency lists in {args.manifest}", file=human)
         problems, _ = check(fixed, False)
         text = fixed
     package_tree = (args.manifest.parent / "Sources").is_dir()  # a package tree, not a bare manifest (the tests' --fix runs)
@@ -417,7 +419,7 @@ def main() -> int:
         for target, module in missing:
             try:
                 declared = add_dependency(declared, target, module)
-                print(f"declared {module} in the dependencies of {target}")
+                print(f"declared {module} in the dependencies of {target}", file=human)
             except (FixError, ListError) as error:
                 print(f"{args.manifest}: could not declare {module} in {target}: {error}", file=sys.stderr)
         args.manifest.write_text(declared, encoding="utf-8")

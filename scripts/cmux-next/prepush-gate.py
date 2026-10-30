@@ -129,7 +129,6 @@ MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
 # Its finding that a baseline import is gone, and the hint line it prints under any finding.
-STALE_BASELINE = ": IMPORT_BASELINE lists "
 STALE_PAIR = re.compile(r": IMPORT_BASELINE lists (.+?), which is declared or gone now")
 DEPS_HINT = "One dependency per line"
 DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
@@ -440,6 +439,44 @@ def pushed_import_baseline(repo: Path, head: str) -> frozenset[str] | None:
     except (subprocess.CalledProcessError, SyntaxError, UnicodeDecodeError, ValueError, TypeError):
         return None
     return None
+
+
+def stale_pairs(output: str) -> set[str]:
+    """The `Target: Module` pairs the dependency check calls stale IMPORT_BASELINE lines in OUTPUT."""
+    return {m.group(1) for r in records(output) for m in [STALE_PAIR.search(r)] if m}
+
+
+def deps_findings(repo: Path, base: str, head: str, base_out: str, head_out: str, head_code: int, *,
+                  full_package: bool, cmd: list[str], work: Path,
+                  trusted_scripts: Path | None) -> tuple[str, int]:
+    """The dependency check's head output with its "IMPORT_BASELINE lists ...: drop its line" findings judged.
+
+    Missing imports always come from the installed checker (a push cannot weaken it). Which baseline lines are stale
+    is the pushed head's call: its IMPORT_BASELINE may already have dropped a line the installed one still lists, and
+    dropping a pair there never hides a missing import, which the installed checker still reports.
+    With FULL_PACKAGE (the push changed the manifest) the trees hold every Swift file, so a stale finding is true.
+    Without it the trees hold only the changed files: a module no file there imports may still be imported by an
+    untouched one. So a stale line is kept only when this push made it stale (not stale in the base tree, which holds
+    the same files at the base) and the whole package at the head confirms it (WORK gets that tree, only then)."""
+    pushed = pushed_import_baseline(repo, head)
+    head_stale = stale_pairs(head_out)
+    if not head_stale:
+        return head_out, head_code
+    if full_package:
+        keep = {p for p in head_stale if pushed is None or p in pushed}
+    else:
+        candidates = {p for p in head_stale - stale_pairs(base_out) if pushed is None or p in pushed}
+        keep = set()
+        if candidates:
+            package = sorted({p for prefix in MANIFEST_SOURCES for p in ls_tree(repo, head, prefix)
+                              if p.endswith(".swift")} | {MANIFEST})
+            _, full_head = build_trees(repo, base, head, package, work, trusted_scripts, index=False)
+            keep = candidates & stale_pairs(run(fill(cmd, full_head), full_head)[1])
+    kept = [r for r in records(head_out)
+            if not (m := STALE_PAIR.search(r)) or m.group(1) in keep]
+    if len(kept) == len(records(head_out)):
+        return head_out, head_code
+    return "\n".join(kept), (0 if all(r.startswith(DEPS_HINT) for r in kept) else head_code)
 
 # ---------------------------------------------------------------- findings
 
@@ -930,25 +967,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
                 if name == DEPS_CHECK:
-                    # Missing imports come from the installed checker; which baseline lines are stale is the pushed
-                    # head's call: its IMPORT_BASELINE may already have dropped a line the installed one still has.
-                    # Dropping a pair from the pushed baseline never hides a missing import, which the installed
-                    # checker still reports. And with trees of the changed files only (no manifest change) a module
-                    # no file there imports may still be imported by an untouched one, so "drop its line" needs the
-                    # whole package to be true.
-                    pushed = pushed_import_baseline(repo, head) if name in trees_for else None
-
-                    def stale_elsewhere(record: str) -> bool:
-                        if STALE_BASELINE not in record:
-                            return False
-                        if name not in trees_for:
-                            return True
-                        match = STALE_PAIR.search(record)
-                        return pushed is not None and match is not None and match.group(1) not in pushed
-                    kept = [r for r in records(head_out) if not stale_elsewhere(r)]
-                    if len(kept) != len(records(head_out)):
-                        head_out = "\n".join(kept)
-                        head_code = 0 if all(r.startswith(DEPS_HINT) for r in kept) else head_code
+                    head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
+                                                        full_package=name in trees_for, cmd=jobs[name][1],
+                                                        work=Path(tmp) / "deps-head", trusted_scripts=trusted_scripts)
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
