@@ -175,7 +175,8 @@ import Testing
                 case .fails, .cancels, .pageRejected:
                     outbound.finish(moved: false)
                 case .timeout:
-                    _ = outbound.started(false)
+                    try await Task.sleep(for: .seconds(2.1))
+                    _ = Self.listed(pane)
                 }
                 #expect(Self.listed(pane).allSatisfy { $0 == Self.home }, "\(name): outbound tab appeared before the move completed")
             }
