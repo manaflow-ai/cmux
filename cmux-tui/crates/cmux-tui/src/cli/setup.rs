@@ -120,11 +120,8 @@ fn local(args: &[String]) -> Result<Outcome, Refusal> {
 
     // Every child runs and reports, even when an earlier one is refused, so a
     // trust change already made still comes back with its undo.
-    let children = [
-        ("trust", trust::run(args)),
-        ("harness", harness::run(args)),
-        ("mcp", mcp::run(args)),
-    ];
+    let children =
+        [("trust", trust::run(args)), ("harness", harness::run(args)), ("mcp", mcp::run(args))];
     let mut failed = false;
     let mut reports = Vec::with_capacity(children.len());
     for (task, result) in children {
