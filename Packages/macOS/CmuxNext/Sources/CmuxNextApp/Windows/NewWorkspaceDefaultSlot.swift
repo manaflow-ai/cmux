@@ -32,7 +32,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return nil
         case .afterCurrent:
-            if let current, current != id, current != home,
+            if let current, current != id, current != home, !Self.isPinned(current, in: sections),
                WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
                 return .below(current)
             }
@@ -69,7 +69,8 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
            }) {
             return nil
         }
-        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        let isPinnedCurrent = placement == .afterCurrent && current.map { Self.isPinned($0, in: sections) } == true
+        if slot == Self.top(for: id, section: section, in: sections, home: home), !isPinnedCurrent { return nil }
         return slot
     }
 
@@ -96,6 +97,16 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         }.first
         if let home, first == home { return .below(home) }
         return .top(anchor: nil)
+    }
+
+    /// Pinned rows are rendered in their own section and are deliberately excluded from the
+    /// `afterCurrent` fallback. The daemon's create path has the same rule; a stale pinned row
+    /// must not become an anchor for a new workspace in the machine section.
+    private static func isPinned(_ id: String, in sections: [SidebarRowSection]) -> Bool {
+        sections.first(where: { $0.id == .pinned })?.nodes.contains { node in
+            guard case let .workspace(workspace) = node else { return false }
+            return workspace.id.rawValue == id
+        } == true
     }
 }
 
