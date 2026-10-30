@@ -46,6 +46,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var skipsBuildsThrough: String?
     /// Builds the host refuses (``UpdateController/refusesUpdate``).
     var refusesBuild: (@MainActor (String) -> Bool)?
+    /// The host's bounded refusal-policy read, awaited before any item is accepted.
+    var prepareUpdate: (@MainActor () async -> Void)?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?

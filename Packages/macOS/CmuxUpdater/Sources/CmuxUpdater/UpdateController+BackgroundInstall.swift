@@ -210,4 +210,11 @@ extension UpdateController {
         get { driver.refusesBuild }
         set { driver.refusesBuild = newValue }
     }
+    /// Refreshes the host's refusal policy before an appcast item is offered or downloaded.
+    /// A bounded async read may finish after the appcast, but the item waits for this read.
+    public var prepareUpdate: (@MainActor () async -> Void)? {
+        get { driver.prepareUpdate }
+        set { driver.prepareUpdate = newValue }
+    }
+
 }
