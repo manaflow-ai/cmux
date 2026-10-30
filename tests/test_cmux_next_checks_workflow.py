@@ -2086,7 +2086,8 @@ class FastTierRunner(unittest.TestCase):
         self.assertIn(FAST_LANE_CLAUSE, runs_on)
         self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("outputs.fast_runner"))
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
-        self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", runs_on)
+        self.assertLess(runs_on.index("outputs.retry_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
+        self.assertLess(runs_on.index("outputs.deferred_runner"), runs_on.index("vars.CI_SIDE_LANE_RUNNER"))
         self.assertIn("outputs.owned_jobs", runs_on)
         self.assertIn("outputs.retry_runner", runs_on)
         # No env value mirrors runs-on with the old route.
@@ -2138,24 +2139,24 @@ class ReservedLaneLabels(unittest.TestCase):
 
         fast = "glaeda-fast-light-xcode-26.6"
         self.assertEqual(evaluate(runs_on, context(fast)), fast)
-        # Busy or unread: the cascade's slot, else Blacksmith; never the reserved label.
+        # An available cascade slot wins; exhaustion preserves the base side queue.
         self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
         # An old placement's hosted reading is never read (Leo, 2026-10-27: no GitHub-hosted Mac).
         self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")),
-                         "blacksmith-6vcpu-macos-26")
-        self.assertEqual(evaluate(runs_on, context()), "blacksmith-6vcpu-macos-26")
+                         "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
         # Only a current allocation can select the generic side route.
         self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ")), "glaeda-side-std-xcode-26.6")
         self.assertEqual(evaluate(runs_on, context(owned_jobs=" fast-tier ", placed_attempt="0")),
-                         "blacksmith-6vcpu-macos-26")
+                         "glaeda-side-std-xcode-26.6")
         # The rescue's overflow attempt never goes back to the fast label.
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
                                                    retry_runner="blacksmith-6vcpu-macos-26")),
                          "blacksmith-6vcpu-macos-26")
         # A person's re-run reuses attempt 1's placement; its idle reading is stale, so it takes the
         # side route, never the reserved label (review of #25158).
-        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "blacksmith-6vcpu-macos-26")
-        self.assertEqual(evaluate(runs_on, context(fast, attempt=4)), "blacksmith-6vcpu-macos-26")
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4)), "glaeda-side-std-xcode-26.6")
 
 
 # A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it

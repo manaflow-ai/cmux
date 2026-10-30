@@ -242,6 +242,10 @@ def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
     if not pool_label(label):
         return False
     snapshot = snapshot if isinstance(snapshot, Mapping) else {}
+    # Owned gates have their own clock; they must not keep expired Blacksmith
+    # outages or capacity readings alive. Nightly reservations expire separately.
+    if _fresh(snapshot, now) is None:
+        return False
     health = snapshot.get("bs_health") or {}
     outages = health.get("label_outages", []) if isinstance(health, Mapping) else []
     for outage in outages if isinstance(outages, list) else []:

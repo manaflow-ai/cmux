@@ -1160,7 +1160,7 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, stale), overflow(name))
                 # A person's rerun needs a fresh role placement, just like a bot's rerun.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)),
-                                 FALLBACK if name in GUI_JOBS or name == "fast-tier" else on(name, STD))
+                                 SIDE if name == "fast-tier" else FALLBACK if name in GUI_JOBS else on(name, STD))
 
     def test_a_cmux_bot_rerun_routes_like_the_github_actions_bot(self):
         """The rescue re-runs with the cmux-bot App's token, so its re-runs' triggering actor is
@@ -1208,9 +1208,9 @@ class CmuxNextWiring(unittest.TestCase):
                 with self.subTest(job=name, key=key):
                     # Minis first when placement is current; human reruns cannot reuse a stale role reading.
                     self.assertEqual(evaluate(expression, self.context(runner=STD)),
-                                     FALLBACK if name == "fast-tier" else on(name, STD))
+                                     SIDE if name == "fast-tier" else on(name, STD))
                     self.assertEqual(evaluate(expression, self.context("2", runner=STD)),
-                                     FALLBACK if name in GUI_JOBS or name == "fast-tier" else on(name, STD))
+                                     SIDE if name == "fast-tier" else FALLBACK if name in GUI_JOBS else on(name, STD))
                     # The rescue's attempt 2 takes the free Blacksmith slot the placement found.
                     free = self.context("2", runner=STD, triggering_actor=bot)
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
@@ -1220,7 +1220,7 @@ class CmuxNextWiring(unittest.TestCase):
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
                     full = self.context("2", runner=STD, triggering_actor=bot)
-                    self.assertEqual(evaluate(expression, full), FALLBACK if name == "fast-tier" else overflow(name))
+                    self.assertEqual(evaluate(expression, full), SIDE if name == "fast-tier" else overflow(name))
                     # A dispatch run's attempt 2 overflows the same way.
                     free["github"].update(event_name="workflow_dispatch", ref="refs/heads/topic")
                     self.assertEqual(evaluate(expression, free), FALLBACK)

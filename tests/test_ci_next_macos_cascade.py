@@ -239,6 +239,24 @@ class Counts(unittest.TestCase):
                                                     "last_start_s": 1900}]}
         self.assertTrue(cascade.label_full_or_dead(LARGE, shot, live=0, queued=2, now=NOW))
 
+    def test_fresh_owned_gates_do_not_extend_expired_blacksmith_outages(self):
+        for minutes_old, expected in ((1, True), (20, False)):
+            with self.subTest(minutes_old=minutes_old):
+                shot = snapshot(minutes_old=minutes_old, large=2)
+                shot["bs_health"] = {"label_outages": [
+                    {"pool": LARGE, "queued": 2, "last_start_s": 1900}]}
+                shot["gates"] = {"version": 1, "labels": {GUI: {
+                    "listening": 1, "queued": 0, "as_of": NOW.isoformat()}}}
+                reading = cascade.seen(shot, NOW)
+                self.assertIsNotNone(reading)
+                self.assertEqual(cascade.label_full_or_dead(
+                    LARGE, reading.snapshot, now=NOW), expected)
+                # Capacity counts from the same expired artifact expire too.
+                shot["bs_health"] = {}
+                shot["pools"][LARGE].update(cap=5, running=5)
+                self.assertEqual(cascade.label_full_or_dead(
+                    LARGE, shot, now=NOW), expected)
+
     def test_blacksmith_label_at_cap_with_backlog_is_full(self):
         shot = snapshot(minutes_old=1, small=1)
         shot["pools"][SMALL]["cap"] = 5
@@ -856,6 +874,7 @@ class Stall(unittest.TestCase):
         shot = snapshot(minutes_old=1)
         shot["bs_health"] = {"label_outages": [{"pool": SMALL, "queued": 3,
                                                     "last_start_s": 1900}]}
+        shot["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
         seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, snapshot=shot)
         result = cascade.place(env(), (), None, {LARGE: 0, SMALL: 3}, seen)
         self.assertEqual(result.jobs, none_placed())
@@ -1578,10 +1597,12 @@ class Wiring(unittest.TestCase):
                 else:
                     for label in (LARGE, SMALL):
                         shot["pools"][label]["reserved_queued"] = 1
+                shot["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
                 output = Path(tmp) / "out"
                 with mock.patch.object(placement.pool, "GitHub") as api, \
                         mock.patch.object(placement.cascade, "read", return_value=(
-                            {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW))):
+                            {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1},
+                            cascade.seen(shot, dt.datetime.now(dt.timezone.utc)))):
                     api.return_value.runners.return_value = [busy]
                     placement.main(env(ROUTE_TOKEN="test", GITHUB_REPOSITORY="manaflow-ai/cmux",
                                        GITHUB_OUTPUT=str(output), CASCADE_RUNS=" fast-tier "))
