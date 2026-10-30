@@ -144,21 +144,32 @@ test("mux hook sweeps temporary cursors a killed hook left behind", () => {
   const sessions = join(home, "state", "sessions");
   mkdirSync(sessions, { recursive: true });
   // A hook killed between its write and its rename leaves its temporary cursor behind.
-  const stale = join(sessions, "killed.json.4242.1.ab.tmp");
-  const fresh = join(sessions, "killed.json.4243.2.cd.tmp");
-  const other = join(sessions, "other.json.4244.3.ef.tmp");
-  for (const file of [stale, fresh, other]) writeFileSync(file, '{"seen":1}\n');
+  // No live process has this PID (Linux caps PIDs at 2^22, macOS lower still).
+  const dead = 2147483646;
+  const stale = join(sessions, `killed.json.${dead}.1.ab.tmp`);
+  const fresh = join(sessions, `killed.json.${dead}.2.cd.tmp`);
+  // A hook paused between its write and its rename still owns its temporary, however old.
+  const paused = join(sessions, `killed.json.${process.pid}.3.ef.tmp`);
+  const other = join(sessions, `other.json.${dead}.4.ab.tmp`);
+  // Session "killed.json" is another session whose temporaries share the prefix.
+  const lookalike = join(sessions, `killed.json.json.${dead}.5.cd.tmp`);
+  for (const file of [stale, fresh, paused, other, lookalike]) writeFileSync(file, '{"seen":1}\n');
   const old = new Date(Date.now() - 10 * 60_000);
-  utimesSync(stale, old, old);
-  utimesSync(other, old, old);
+  for (const file of [stale, paused, other, lookalike]) utimesSync(file, old, old);
   const run = Bun.spawnSync([process.execPath, main, "hook", "session-start"], {
     env: { PATH: "/usr/bin:/bin", HOME: dir, MUX_HOME: home },
     stdin: new Blob([JSON.stringify({ session_id: "killed" })]),
   });
   expect(run.exitCode, run.stderr.toString()).toBe(0);
-  // Its own stale temporary goes; a fresh one may belong to a hook still writing, and
-  // another session's temporaries are that session's to sweep.
+  // Only its own stale temporary of a dead hook goes; a fresh one may belong to a hook
+  // still writing, and other sessions' temporaries are those sessions' to sweep.
   expect(readdirSync(sessions).sort()).toEqual(
-    ["killed.json", "killed.json.4243.2.cd.tmp", "other.json.4244.3.ef.tmp"].sort(),
+    [
+      "killed.json",
+      `killed.json.${dead}.2.cd.tmp`,
+      `killed.json.${process.pid}.3.ef.tmp`,
+      `killed.json.json.${dead}.5.cd.tmp`,
+      `other.json.${dead}.4.ab.tmp`,
+    ].sort(),
   );
 });
