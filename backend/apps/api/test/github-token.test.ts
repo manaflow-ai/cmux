@@ -138,19 +138,23 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
-  it("reports expired visible connections as needs_reauth while preferring a visible active connection", async () => {
+  it("hides an expired link (a pending connection that timed out) and prefers a visible active connection", async () => {
     const a = await signedInWithInstall("gh-token-expired-status", "cli")
     await linkGitHub(a.session, a.team)
     await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
       const state = instance.boundEngine.currentState as ConnectionsState
       const original = Object.values(state.connections).find((c) => c.provider === "github")!
       const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
-      const expired: Connection = { ...original, status: "expired", updated_at: original.updated_at + 1 }
+      // Only a pending connection expires (connection.expire): it never got an account.
+      const { account: _account, ...unlinked } = original
+      const expired: Connection = { ...unlinked, status: "expired", updated_at: original.updated_at + 1 }
+      const relink: Connection = { ...original, id: "conn_00000000000000000003", status: "needs_reauth", updated_at: original.updated_at + 1 }
       const hidden: Connection = { ...original, id: "conn_00000000000000000001", sharing: "private", created_by: "usr_other", updated_at: original.updated_at + 2 }
       const active: Connection = { ...original, id: "conn_00000000000000000002" }
       const status = (connections: Record<string, Connection>) => githubStatus(instance.env, { ...state, connections }, p)
-      expect(status({ expired, hidden }).connection).toMatchObject({ id: original.id, status: "needs_reauth", account: "acme", repos: ["acme/api", "acme/web"] })
-      expect(status({ expired, hidden, active }).connection).toMatchObject({ id: active.id, status: "active" })
+      expect(status({ expired, hidden }).connection).toBeNull()
+      expect(status({ expired, hidden, relink }).connection).toMatchObject({ id: relink.id, status: "needs_reauth", account: "acme" })
+      expect(status({ expired, hidden, relink, active }).connection).toMatchObject({ id: active.id, status: "active" })
       expect(status({ hidden }).connection).toBeNull()
       expect(status({ expired: { ...expired, sharing: "private", created_by: "usr_other" } }).connection).toBeNull()
     })
@@ -235,7 +239,11 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
-  it.each([401, 404])("answers needs_reauth and records it when GitHub refuses the installation token mint with HTTP %i", async (code) => {
+  it.each([
+    [401, "Bad credentials"],
+    [404, "Not Found"],
+    [403, "This installation has been suspended"],
+  ] as const)("answers needs_reauth and records it when GitHub refuses the installation token mint with HTTP %i (%s)", async (code, message) => {
     const a = await signedInWithInstall(`gh-token-repo-mint-${code}`, "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
@@ -246,12 +254,14 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ token: `ghs_mint_${crypto.randomUUID()}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { metadata: "read" } }, 201)
       gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 401 })
       await githubRepos({ ...h, needsReauth: vi.fn() }, p, {})
-      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "refused" }, code)
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message }, code)
       expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
       expect(needsReauth).toHaveBeenCalledTimes(1)
-      // A mint GitHub fails for another reason is retryable and records nothing.
-      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "boom" }, 500)
-      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+      // A mint GitHub fails for another reason (a 500, or a 403 that is no suspension) is retryable and records nothing.
+      for (const [other, text] of [[500, "boom"], [403, "Resource not accessible by integration"]] as const) {
+        gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: text }, other)
+        expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+      }
       expect(needsReauth).toHaveBeenCalledTimes(1)
     })
   })
