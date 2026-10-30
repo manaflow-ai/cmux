@@ -647,7 +647,9 @@ fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
         && called.ends_with(')')
         && function_body(called) != std::borrow::Cow::Borrowed(called)
     {
-        return std::borrow::Cow::Owned(format!("return await {trimmed};"));
+        // Called with cmux, as an uncalled function is: `(async ({cmux}) => {...})()`
+        // would destructure undefined.
+        return std::borrow::Cow::Owned(format!("return await {called}(cmux);"));
     }
     let inner = match trimmed.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
         Some(inner) => inner.trim(),
