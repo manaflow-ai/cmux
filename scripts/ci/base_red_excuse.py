@@ -248,6 +248,11 @@ def step_output(job: dict, log: str, steps: list[tuple[str, re.Pattern]]) -> set
     None when that cannot be read whole: a step that ran but is not in the log, in order, or whose section has no
     end (a cut-short log). Steps are found one after another, so two that start alike are each read; a step the job
     skipped printed nothing."""
+    listed = [step.get("name") for step in job.get("steps") or []]
+    # A step is told from the API's list by its name, so a name that repeats there or among the rollup's steps cannot
+    # say which ran: never read.
+    if len(set(listed)) != len(listed) or len({name for name, _ in steps}) != len(steps):
+        return None
     ran = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
     lines = [ANSI.sub("", line) for line in lines_of(log)]
     found: set[str] = set()

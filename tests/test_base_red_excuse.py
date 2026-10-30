@@ -855,6 +855,16 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "not in feat-cmux-next run 20's log whole"):
             self.judge()
 
+    def test_rollup_steps_with_one_name_are_never_read(self):
+        # The second step skipped, the first failed: by name alone both would read as skipped.
+        self.two_step_rollup("", second="skipped")
+        for job_id in (3, 4):
+            self.gh.jobs[job_id]["steps"][-1]["name"] = "Check routed guard jobs"
+        self.gh.workflow_files[".github/workflows/ci-guards.yml"] = self.gh.workflow_files[
+            ".github/workflows/ci-guards.yml"].replace("- name: Check the routes again", "- name: Check routed guard jobs")
+        with self.assertRaisesRegex(excuse.Refused, "not in its log whole"):
+            self.judge()
+
     def test_a_step_the_api_does_not_list_leaves_the_rollup_red(self):
         self.gh.jobs[3]["steps"] = [step for step in self.gh.jobs[3]["steps"] if step["name"] != "Check routed guard jobs"]
         self.gh.jobs[3]["steps"].append({"name": "Report", "status": "completed", "conclusion": "failure"})
