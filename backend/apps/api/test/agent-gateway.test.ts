@@ -4,6 +4,8 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { Http } from "../src/integrations/providers.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+import { mintAccessToken } from "../src/auth.ts"
+import type { Env } from "../src/env.ts"
 
 type Reply = { ok: boolean; op: string; value?: unknown; error?: { code: string; details?: { request?: string } }; replayed: boolean }
 type Gateway = { dispatchIssueComment(input: Input): Promise<Reply> }
@@ -78,6 +80,34 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(JSON.stringify(pending)).not.toContain("ghs_synthetic")
     expect((await op(s.session, "github.issue.comment", { connection: s.connectionId, repo: "acme/web", issue: 7, body: "human direct" })).json.ok).toBe(true)
     expect(s.calls.filter((x) => x.url.includes("/comments"))).toHaveLength(1)
+  })
+
+  it("rejects an unregistered install JWT before requesting approval", async () => {
+    expect(gateway).toBeDefined()
+    if (!gateway) return
+    const s = await setup("missing-install")
+    const token = await mintAccessToken(env as Env, { user: s.user, team: s.team, install: "inst_unknown", grant: "grant_unknown" })
+    expect((await gateway.dispatchIssueComment(s.input({ authorization: `Bearer ${token.token}` }))).error?.code).toBe("auth.forbidden")
+    expect(await s.items()).toHaveLength(0)
+    expect(s.calls.filter((x) => x.url.includes("/comments"))).toHaveLength(0)
+  })
+
+  it("rechecks the source install when approval is executed", async () => {
+    expect(gateway).toBeDefined()
+    if (!gateway) return
+    const s = await setup("revoked-install")
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]) as CryptoKeyPair
+    const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
+    const reg = await op(s.session, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "mac", name: "gateway", device_name: "gateway", platform: "macos" })
+    expect(reg.json.ok).toBe(true)
+    const token = await mintAccessToken(env as Env, { user: s.user, team: s.team, install: reg.json.value.id, grant: reg.json.value.grant })
+    const pending = await gateway.dispatchIssueComment(s.input({ authorization: `Bearer ${token.token}` }))
+    expect(pending.error?.code).toBe("approval.pending")
+    expect((await op(s.session, "install.revoke", { install: reg.json.value.id })).json.ok).toBe(true)
+    const [item] = await s.items()
+    expect((await s.answer(item.id, "allow")).json.ok).toBe(true)
+    await fireAlarm(s.feed)
+    expect(s.calls.filter((x) => x.url.includes("/comments"))).toHaveLength(0)
   })
 
   it("approves exact args once, replays the durable receipt, and rejects changed args", async () => {
