@@ -46,7 +46,7 @@ pub(super) fn has_web_pane(manifest: &Value) -> bool {
 }
 
 /// One call the decision admitted, for the worker thread.
-struct Admitted {
+pub(super) struct Admitted {
     app: String,
     op: String,
     params: Value,
@@ -147,7 +147,7 @@ impl Supervisor {
     }
 
     /// The per-call decision (see the module docs). Pure over `inner`.
-    fn admit_web_call(
+    pub(super) fn admit_web_call(
         inner: &Inner,
         app: &str,
         op: &str,
@@ -212,7 +212,7 @@ impl Supervisor {
         Ok(Admitted { app: app.to_string(), op, params, idempotency_key, grant })
     }
 
-    fn execute_web(&self, call: Admitted) -> Result<Value, Value> {
+    pub(super) fn execute_web(&self, call: Admitted) -> Result<Value, Value> {
         let Admitted { app, op, params, idempotency_key, grant } = call;
         let error = |code: &str, message: &str| json!({ "code": code, "message": message, "retryable": false });
         if op.starts_with("app.storage.") {

@@ -366,3 +366,26 @@ fn an_app_store_bundle_lands_only_when_its_hash_and_package_check_out() {
         "no staging left"
     );
 }
+
+#[test]
+fn a_web_call_admitted_before_a_revoke_does_not_run() {
+    let f = web_fixture(json!({ "workspace:read": "r", "storage:local": "s" }));
+    f.install(BOARD);
+    f.set("grant-s", BOARD, Origin::User, |o| o.grant = Some(("storage:local".into(), true)))
+        .unwrap();
+    let admit = |op: &str, params: Value| {
+        let inner = f.supervisor.inner.lock().unwrap();
+        Supervisor::admit_web_call(&inner, BOARD, op, params, None).expect("admitted")
+    };
+    let write = admit("app.storage.set", json!({ "key": "k", "value": 1 }));
+    let read = admit("workspace.list", json!({}));
+    // The person revokes storage and disables the app while both calls wait for a worker.
+    f.set("revoke-s", BOARD, Origin::User, |o| o.grant = Some(("storage:local".into(), false)))
+        .unwrap();
+    let refused = f.supervisor.execute_web(write).expect_err("revoked scope");
+    assert_eq!(refused["code"], "scope.missing");
+    f.set("off", BOARD, Origin::User, |o| o.enabled = Some(false)).unwrap();
+    let refused = f.supervisor.execute_web(read).expect_err("disabled app");
+    assert_eq!(refused["code"], "scope.missing");
+    assert!(f.router.calls.lock().unwrap().is_empty(), "nothing reached the owner");
+}
