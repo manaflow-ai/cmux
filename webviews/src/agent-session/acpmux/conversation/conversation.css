@@ -52,6 +52,8 @@
      model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
   --cv-meta-gap: var(--ds-space-1, 4px); /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
+  --cv-message-line: 26px; /* another agent's message line, and the head of the group of those that wait */
+  --cv-message-subhead: 22px; /* a sender's head inside that group */
   --cv-message-gap: var(--ds-space-2, 8px); /* a message (or its meta row) to the next row in its turn */
   --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: var(--ds-space-4, 16px); /* a speaker change or the end of the transcript */
@@ -2547,7 +2549,7 @@ pre.cv-math-source {
   align-items: center;
   max-width: 45%;
   min-width: 0;
-  height: 26px;
+  height: var(--cv-message-line);
   gap: calc(var(--ds-space-1) + 2px);
   padding-inline-start: var(--ds-space-1);
 }
@@ -2572,8 +2574,8 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text);
-  margin-inline: -4px;
-  padding: 2px 4px;
+  margin-inline: calc(-1 * var(--ds-space-1));
+  padding: calc(var(--ds-space-1) / 2) var(--ds-space-1);
   border-radius: 5px;
   cursor: pointer;
 }

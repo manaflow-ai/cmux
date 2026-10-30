@@ -15,7 +15,7 @@
 .cv-pending__line {
   display: flex;
   align-items: center;
-  height: 26px;
+  height: var(--cv-message-line);
   min-width: 0;
   container-type: inline-size;
   white-space: nowrap;
@@ -27,9 +27,9 @@
   align-items: center;
   flex: 0 1 auto;
   min-width: 0;
-  height: 26px;
+  height: var(--cv-message-line);
   box-sizing: border-box;
-  gap: 8px;
+  gap: var(--ds-space-2);
   padding: 0 var(--ds-space-1);
   border-radius: 6px;
   cursor: pointer;
@@ -69,8 +69,8 @@
 .cv-pending__sender-head {
   display: flex;
   align-items: center;
-  height: 22px;
-  gap: 6px;
+  height: var(--cv-message-subhead);
+  gap: calc(var(--ds-space-1) + 2px);
   min-width: 0;
   white-space: nowrap;
 }

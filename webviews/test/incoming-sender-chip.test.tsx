@@ -86,22 +86,25 @@ async function line(message: { name: string; sessionId?: string }) {
     ),
   );
   return {
-    open: host.querySelector<HTMLButtonElement>("button.cv-disclosure__open"),
+    // The sender's name is the link to its chat (Leo, 2026-10-29: "just make the left side
+    // identifier like it was before and you can click it to go to that session"); no Open chat.
+    open: host.querySelector<HTMLButtonElement>("button.cv-received__from--open"),
     from: host.querySelector<HTMLElement>(".cv-received__from"),
     toggle: host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
     opened,
   };
 }
 
-test("a peer lane, found by its bare name, opens from Open chat; its name is plain text on the toggle", async () => {
+test("a peer lane, found by its bare name, opens from its name; no Open chat, the toggle apart", async () => {
   const { open, from, toggle, opened } = await line({ name: "chief-ui" });
-  expect(open?.textContent).toBe(t("subsession.openChat"));
+  expect(host.querySelector(".cv-disclosure__open")).toBeNull();
+  expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
-  expect(from?.closest("button")).toBe(toggle);
-  expect(host.querySelector(".cv-received__name")).toBeNull();
+  expect(open).toBe(from);
+  expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);
-  // Open chat leaves the message closed.
+  // The name leaves the message closed.
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
 });
 
@@ -111,7 +114,7 @@ test("a chat on this Mac opens by the id its message gives", async () => {
   expect(opened).toEqual(["mux-deputy"]);
 });
 
-test("a sender no list names has no Open chat: its line only opens the message", async () => {
+test("a sender no list names is plain text: its line only opens the message", async () => {
   const { open, from, toggle, opened } = await line({ name: "gone-lane" });
   expect(open).toBeNull();
   expect(from?.textContent).toBe("gone-lane");

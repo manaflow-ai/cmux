@@ -254,7 +254,8 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const text = row.locator(".cv-received__text");
       await text.getByText(LAST).waitFor({ timeout: 5_000 });
       expect(await text.locator("p").count()).toBe(40);
-      expect(await row.locator(".cv-received__from-line").innerText()).toBe("From: Grid fix");
+      // No From: line in the panel: the line names the sender once.
+      expect(await row.locator(".cv-received__from-line").count()).toBe(0);
       // Nothing in the panel is cut with an ellipsis, and the text box hides none of its text.
       const clipped = await row.locator(".cv-disclosure__panel").evaluate((panel) =>
         [panel, ...panel.querySelectorAll<HTMLElement>("*")]
