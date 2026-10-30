@@ -197,6 +197,14 @@ struct AgentPaneQuestionReplyTests {
         let question = try Self.fixture(["request": request])
         #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]], question: question) == nil)
         #expect(try Self.failure(["optionId": "also", "answers": ["Choose?": "Other"]], question: question) == .option)
+        // An option without a string id is skipped, as the card skips it.
+        request["options"] = [["optionId": 7, "kind": "allow_once"], ["optionId": "yes", "kind": "allow_once"]]
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
+                                 question: try Self.fixture(["request": request])) == nil)
+        // acpmux reads the first option with the id: a reject_once of the same id refuses it there.
+        request["options"] = [["optionId": "yes", "kind": "reject_once"], ["optionId": "yes", "kind": "allow_once"]]
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
+                                 question: try Self.fixture(["request": request])) == .option)
     }
 
     @Test func malformedNativeQuestionEntriesAreSkippedNotTrusted() throws {

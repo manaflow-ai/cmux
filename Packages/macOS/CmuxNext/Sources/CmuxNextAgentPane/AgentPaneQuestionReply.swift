@@ -61,10 +61,14 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         guard let options = (request["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
               !options.isEmpty else { throw .question }
         // The allow-once option the question card answers with (webviews question/model.ts
-        // `answerOption`): the first of kind allow_once. Any other option, a lasting one or a
-        // later allow-once, is refused.
-        guard let once = options.first(where: { $0["kind"] as? String == "allow_once" })?["optionId"] as? String,
-              Self.equalBytes(once, option) else { throw .option }
+        // `answerOption`: the first allow_once among options with a non-empty string id), and the
+        // one acpmux takes it for (check_reply: the first option with that id, of an allow kind).
+        // Any other option, a lasting one or a later allow-once, is refused.
+        let named = options.filter { ($0["optionId"] as? String).map { !$0.isEmpty } == true }
+        guard let once = named.first(where: { $0["kind"] as? String == "allow_once" })?["optionId"] as? String,
+              Self.equalBytes(once, option),
+              options.first(where: { ($0["optionId"] as? String).map { Self.equalBytes($0, option) } == true })?["kind"]
+                as? String == "allow_once" else { throw .option }
         guard let answers = reply["answers"] as? [String: Any],
               Self.validAnswers(answers, items: items, codex: harness == "codex") else { throw .answers }
         if let annotations = reply["annotations"],
