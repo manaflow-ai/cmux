@@ -2973,7 +2973,8 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
-  /// When the reader last moved the transcript up (wheel up, ArrowUp/PageUp/Home, an upward drag).
+  /// When the reader's latest input moved the transcript up (wheel up, ArrowUp/PageUp/Home, an
+  /// upward drag); any other input clears it.
   const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
@@ -4103,7 +4104,8 @@ export function VirtualTranscript({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
-      if (movingUp) readerUpAt.current = readerAt.current;
+      // Only the reader's latest input counts: a click or downward move after an upward one ends it.
+      readerUpAt.current = movingUp ? readerAt.current : Number.NEGATIVE_INFINITY;
       followTrace.input();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
