@@ -9,12 +9,13 @@ import CmuxNextWakeups
 /// tabs count.
 @MainActor
 enum RightColumn {
-    /// The right column beside `source`, measured: its panes (layout pane ids) and their widths.
+    /// The right column beside `source`, measured: its panes (layout pane ids) and their widths. A pending
+    /// lower split reads as a full column whose lower pane is its right pane (``panes(beside:in:)``).
     static func measure(beside source: PaneController) -> RightColumnPlacement.Column {
         guard let content = source.workspace else { return .init(sourceWidth: source.view.bounds.width) }
         let panes = panes(beside: source.layoutPaneID, in: content)
         var widths: [String: CGFloat] = [:]
-        for pane in panes { widths[pane.rawValue] = content.panes[realPane(pane)]?.view.bounds.width }
+        for pane in panes { widths[pane.rawValue] = content.panes[pane]?.view.bounds.width }
         return .init(sourceWidth: source.view.bounds.width, panes: panes.map(\.rawValue), widths: widths)
     }
 
@@ -52,7 +53,9 @@ enum RightColumn {
     }
 
     /// `column` with the lower pane of each split under way: its right pane, then a stand-in for the pane
-    /// still moving in, so ``RightColumnPlacement`` sees the column as full.
+    /// still moving in, so ``RightColumnPlacement`` sees the column as full. ``panes(beside:in:)`` maps the
+    /// stand-in back (``realPane(_:)``) before it leaves this type: callers only ever see real panes (review
+    /// of #28044 at a4ae195d: a folder link and DurableTabLink's fallback looked the stand-in up and missed).
     static func withPendingSplits(_ column: [LayoutPaneID]) -> [LayoutPaneID] {
         guard column.count == 1, let pane = column.first, pendingBelow[pane] != nil else { return column }
         return [pane, LayoutPaneID("pending-below:\(pane.rawValue)")]
@@ -68,8 +71,9 @@ enum RightColumn {
     /// that holds `source`, active or not (``RightColumnPlacement/column(beside:frames:gap:)``),
     /// keeping those that take new tabs. Review of #28044 at bd2b918d: the active screen's frames
     /// read an empty column for a chat on a screen the person switched away from mid-open.
+    /// Only real ids: a pending lower split is its right pane listed twice, which still reads as a full column.
     static func panes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] {
         withPendingSplits(RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source))
-            .filter { content.panes[$0]?.stripModel.showsNewTabButton == true })
+            .filter { content.panes[$0]?.stripModel.showsNewTabButton == true }).map(realPane)
     }
 }

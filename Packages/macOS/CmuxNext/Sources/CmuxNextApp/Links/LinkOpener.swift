@@ -111,7 +111,6 @@ final class LinkOpener {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         switch target(from: source, mainPane: mainPane) {
         case .pane(let id):
-            let id = RightColumn.realPane(id)
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
             let outbound = OutboundTab.begin(in: source)

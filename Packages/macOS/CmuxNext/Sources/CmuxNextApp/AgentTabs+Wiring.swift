@@ -227,7 +227,6 @@ extension AgentTabStore {
         }
         tabs.locatePane = { [weak services] key in
             guard let services else { return nil }
-            let key = RightColumn.realPane(LayoutPaneID(key)).rawValue
             let pane = services.windows.controllers.lazy.compactMap { $0.content?.paneController(key: key) }.first
             return pane.map { (pane: $0.pane.handle, daemon: $0.daemon) }
         }
