@@ -1985,6 +1985,15 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   atLatest: node.scrollTop >= totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX,
 });
 
+/// Whether reader input moves the transcript toward its latest row: a wheel down or a key that
+/// scrolls down. Such input never leaves the latest row, so follow-bottom need not wait for it.
+function movingDown(event?: Event): boolean {
+  if (event?.type === "wheel") return (event as WheelEvent).deltaY > 0;
+  if (event?.type === "keydown")
+    return ["ArrowDown", "PageDown", "End", " ", "Spacebar"].includes((event as KeyboardEvent).key);
+  return false;
+}
+
 /// Puts a following view at the latest row. Anything past the browser's rounding is corrected: the
 /// stack's eased growth (the queue's max-height move, #24718) comes in steps under
 /// `FOLLOW_BOTTOM_DEADBAND_PX`, and a deadband here left the view resting up to that far from its end,
@@ -2354,6 +2363,9 @@ export function VirtualTranscript({
   // stack changes height.
   const followingRef = useRef(true);
   const followDeferred = useRef(false);
+  /// A send or a move toward the latest row asks to follow now, through the input hold that defers
+  /// follow-bottom. It lasts until the reader's next input (userScroll.ts `request`).
+  const followRequest = useRef<(() => boolean) | undefined>(undefined);
   const [followResume, resumeDeferredFollow] = useReducer((count: number) => count + 1, 0);
   const follow = (next: boolean) => {
     followingRef.current = next;
@@ -3393,6 +3405,7 @@ export function VirtualTranscript({
       // openAt position or latest row.
       previousSession.current = sessionId;
       followDeferred.current = false;
+      followRequest.current = undefined;
       anchorCorrection.current = undefined;
       wheelGlide.current?.stop();
       didOpenAtLatest.current = false;
@@ -3489,7 +3502,7 @@ export function VirtualTranscript({
         // The shared animation reads the moving end every frame on its original clock.
         // Retargeting a native smooth-scroll here restarted its easing at every measurement.
         if (jumping) jumpTarget.current = latest;
-        followDeferred.current = !jumping && userScrollIntent(node).isHeld();
+        followDeferred.current = !jumping && userScrollIntent(node).isHeld() && !followRequest.current?.();
         const settled = jumping ? clamped : (!followDeferred.current && settleFollowBottom(node, latest)) || clamped;
         if (settled) followTrace.set(latest);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
@@ -3951,7 +3964,9 @@ export function VirtualTranscript({
     followTrace.set(top);
     scrollPacer.current?.cancel();
     setScrollAt(top);
-    // The commit this asks for places the rows with the stack's room and settles at that end.
+    // The commit this asks for places the rows with the stack's room and settles at that end, even
+    // inside the hold that follows the reader's last input.
+    followRequest.current = userScrollIntent(node).request();
     follow(true);
     // The kept place is the latest message again: a relaunch opens there.
     if (onAnchor) {
@@ -4110,6 +4125,8 @@ export function VirtualTranscript({
       if (findFrame.current !== undefined) cancelAnimationFrame(findFrame.current);
       findFrame.current = undefined;
       if (reader(event)) followIntent(false);
+      // Moving toward the latest row while following keeps following through the hold.
+      else if (followingRef.current && movingDown(event)) followRequest.current = intent.request();
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
