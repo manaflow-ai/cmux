@@ -458,3 +458,66 @@ test("a workflow agent's long first page mounts one window, not every row", asyn
   expect(container.querySelectorAll("[data-row-id]").length).toBeGreaterThan(0);
   expect(most).toBeLessThanOrEqual(WINDOW);
 });
+
+/// Lays the transcript out as a tall view scrolled to its top, so the reader is not at the bottom.
+function scrolledUp(container: HTMLElement) {
+  const view = container.querySelector<HTMLElement>(".acpmux-bg__transcript")!;
+  Object.defineProperty(view, "scrollHeight", { get: () => 100_000 });
+  Object.defineProperty(view, "clientHeight", { value: 400 });
+  let top = 0;
+  Object.defineProperty(view, "scrollTop", { get: () => top, set: (value: number) => (top = value) });
+  view.dispatchEvent(new window.Event("scroll"));
+}
+
+const mountedIds = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLElement>("[data-row-id]")].map((row) => row.dataset.rowId!);
+
+test("older workflow history read above the mounted rows keeps the rows the reader was on mounted", async () => {
+  const container = installDom();
+  const page = manualObservers();
+  const older = Array.from({ length: 200 }, (_, index) => ({
+    id: `o${index}`,
+    version: 1,
+    at: index,
+    kind: "assistant" as const,
+    text: "older",
+  }));
+  let current: AcpmuxRow[] = rows(120);
+  let rerender: () => Promise<void> = async () => {};
+  const loadOlder = async () => {
+    current = [...older, ...current];
+    await rerender();
+  };
+  root = createRoot(container);
+  rerender = () =>
+    act(async () => root!.render(<SubagentTranscript rows={current} running={false} onLoadOlder={loadOlder} />));
+  await rerender();
+  scrolledUp(container);
+  // Page up to the first row, then read the page before it.
+  await page(container, "first");
+  const before = mountedIds(container);
+  expect(before[0]).toBe("r0");
+  await page(container, "first");
+  await act(async () => {});
+  expect(current.length).toBe(320);
+  expect(mountedIds(container)).toEqual(before);
+});
+
+test("rows streaming in while the reader is scrolled up keep the mounted rows bounded", async () => {
+  const container = installDom();
+  const page = manualObservers();
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(60)} running />));
+  scrolledUp(container);
+  for (const n of [100, 200, 400]) {
+    await act(async () => root!.render(<SubagentTranscript rows={rows(n)} running />));
+    expect(container.querySelectorAll("[data-row-id]").length).toBeLessThanOrEqual(2 * WINDOW);
+  }
+  // What the reader was on stays mounted, and paging down reaches the newest row.
+  expect(mountedIds(container)[0]).toBe("r0");
+  for (let step = 0; step < 8 && !mountedIds(container).includes("r399"); step += 1) {
+    await page(container, "last");
+    expect(container.querySelectorAll("[data-row-id]").length).toBeLessThanOrEqual(2 * WINDOW);
+  }
+  expect(mountedIds(container)).toContain("r399");
+});
