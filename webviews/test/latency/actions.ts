@@ -650,10 +650,18 @@ async function railJumpPoint(page: Page): Promise<{ index: number; x: number; y:
   const run = (railTarget.get(page) ?? -1) + 1;
   railTarget.set(page, run);
   return page.evaluate((offset) => {
-    const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const view = scroller.getBoundingClientRect();
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!.getBoundingClientRect();
+    const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+    // A prompt can land only where the transcript can scroll it to: one near the end, with the
+    // transcript already at its end, never reaches 35 px down and would time out every run.
+    const reachable = (row: HTMLElement) => {
+      const to = scroller.scrollTop + row.getBoundingClientRect().top - view.top - 35;
+      return to >= 0 && to <= maxScroll - 2;
+    };
     const drawn = [...document.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")]
-      .filter((row) => Math.abs(row.getBoundingClientRect().top - view.top - 35) >= 300)
+      .filter((row) => Math.abs(row.getBoundingClientRect().top - view.top - 35) >= 300 && reachable(row))
       .map((row) => Number(row.dataset.rowId!.replace(/^t(\d+)-user$/, "$1")))
       .filter((index) => {
         const tick = document.querySelector<HTMLElement>(`.acpmux-minimap__tick[data-tick="${index}"]`);
@@ -661,7 +669,8 @@ async function railJumpPoint(page: Page): Promise<{ index: number; x: number; y:
         const box = tick.getBoundingClientRect();
         return box.top >= list.top && box.bottom <= list.bottom;
       });
-    const index = drawn[drawn.length - 1 - (offset % Math.max(1, Math.min(3, drawn.length)))]!;
+    if (!drawn.length) throw new Error("thread rail: no drawn prompt can land 300 px or more away");
+    const index = drawn[drawn.length - 1 - (offset % Math.min(3, drawn.length))]!;
     const box = document.querySelector<HTMLElement>(`.acpmux-minimap__tick[data-tick="${index}"]`)!.getBoundingClientRect();
     return { index, x: box.left + 6, y: box.top + box.height / 2 };
   }, run);
