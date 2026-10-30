@@ -155,7 +155,8 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
             chatWidth: await chat(),
             underHeader: box.top >= header.y + header.height - 0.5,
             moved: rows.map(
-              (row, index) => Math.abs(row.left - beforeRows[index]!.left) + Math.abs(row.right - beforeRows[index]!.right),
+              (row, index) =>
+                Math.abs(row.left - beforeRows[index]!.left) + Math.abs(row.right - beforeRows[index]!.right),
             ),
           }).toEqual({ placement: "overlay", chatWidth: before, underHeader: true, moved: rows.map(() => 0) });
         } finally {

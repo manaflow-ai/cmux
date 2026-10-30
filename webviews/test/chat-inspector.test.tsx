@@ -503,7 +503,10 @@ test("the panel lies over the chat only when the right gutter cannot hold it; th
 
 test("opening Session Info moves no part of the chat", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
-  const source = readFileSync(new URL("../src/agent-session/acpmux/inspector/ChatInspector.tsx", import.meta.url), "utf8");
+  const source = readFileSync(
+    new URL("../src/agent-session/acpmux/inspector/ChatInspector.tsx", import.meta.url),
+    "utf8",
+  );
   expect(css).not.toContain("--acpmux-chat-shift");
   expect(source).not.toContain("--acpmux-chat-shift");
 });
