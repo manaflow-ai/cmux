@@ -48,6 +48,7 @@ import UniformTypeIdentifiers
         MessagesLabHomeView.reduceMotionOverride = true
         defer { MessagesLabHomeView.reduceMotionOverride = nil }
         RowCell.synchronousBitmaps = true
+        defer { RowCell.synchronousBitmaps = false }
         let options = MockHomeSource.Options(chiefHistory: 6, latency: .zero, replyDelay: .seconds(3600))
         let store = HomeStore(source: MockHomeSource(options: options))
         store.start()
