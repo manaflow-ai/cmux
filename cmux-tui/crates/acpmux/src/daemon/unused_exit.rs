@@ -5,8 +5,9 @@
 //! home still exists but that no app, command or agent uses any more.
 //!
 //! The rule: a daemon on a home of its own (any home but the shared `~/.acpmux`, which NIGHTLY, the
-//! CLI and every peer expect to answer) and not run by acpmux's own service unit stops normally
-//! once it has had no client for [`GRACE`] and, at the end of it, nothing else keeps it
+//! CLI and every peer expect to answer), not run by acpmux's own service unit and not on a Cloud
+//! machine (whose hand-off reports wait in its memory, `cloud_handoff.rs`) stops normally once it
+//! has had no client for [`GRACE`] and, at the end of it, nothing else keeps it
 //! ([`crate::hub::Hub::in_use`]): its startup and adoption done, no running agent or agent host
 //! (adopted or not), no turn or anything one waits on, no background task, no undelivered message
 //! or watch, no peer link, and no listener another machine reaches it by (the mesh relay,
@@ -71,9 +72,14 @@ fn grace() -> Option<Duration> {
 }
 
 /// Resolves, with why, once this daemon is unused (see the module doc); never for the shared
-/// home, a daemon its service unit runs, or a grace of 0.
+/// home, a daemon its service unit runs, a Cloud machine, or a grace of 0.
 pub(super) async fn unused(hub: Weak<crate::hub::Hub>) -> String {
-    let own_home = !super::uses_shared_home() && !super::managed_by_acpmux_unit();
+    // A Cloud machine's hand-off reports wait in this daemon's memory (`cloud_handoff.rs`).
+    #[cfg(unix)]
+    let cloud = super::cloud_handoff::reports_here();
+    #[cfg(not(unix))]
+    let cloud = false;
+    let own_home = !super::uses_shared_home() && !super::managed_by_acpmux_unit() && !cloud;
     let Some(grace) = grace().filter(|_| own_home) else {
         return std::future::pending().await;
     };

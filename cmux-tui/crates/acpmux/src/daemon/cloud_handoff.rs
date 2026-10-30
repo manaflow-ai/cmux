@@ -748,8 +748,19 @@ impl Io for AgentSocket {
 
 /// Follows this daemon's own sessions (never a peer's) and reports their turns to their
 /// hand-offs while the Cloud agent's socket is there.
+/// The Cloud agent's socket: `ACPMUX_CLOUD_AGENT_SOCKET`, else [`SOCKET`].
+fn agent_socket() -> PathBuf {
+    std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from)
+}
+
+/// Whether this machine has a Cloud agent to report to: its reports wait in memory, so a daemon
+/// here never stops for being unused (`unused_exit.rs`).
+pub(super) fn reports_here() -> bool {
+    cfg!(target_os = "linux") && agent_socket().exists()
+}
+
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
-    let path = std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from);
+    let path = agent_socket();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Queued>(QUEUE_CAP);
     // Bumped when steps were lost (a full queue, a lagging event stream).
     let losses = Arc::new(AtomicU64::new(0));
