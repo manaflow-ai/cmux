@@ -232,10 +232,22 @@ export function ComposerQueue({
   // A row the pointer just opened or closed, with its height and the list's before, for the
   // layout effect that sizes the list once the row draws.
   const resized = useRef<{ id: string; row: number; list: number }>(undefined);
+  // The row whose pointer toggle holds the list: the hold is that row's, and goes with it.
+  const heldId = useRef<string>(undefined);
+  /** Ends the hold now: the list fits its rows again. */
+  const release = (current: HTMLElement | null) => {
+    held.current = false;
+    heldId.current = undefined;
+    if (!current) return;
+    current.style.removeProperty("min-height");
+    current.removeAttribute("data-held");
+    fitList(current);
+  };
   const toggle = (id: string, hovered: boolean) => {
     // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
     // leave it, and must never keep the list from fitting.
     held.current = hovered;
+    heldId.current = hovered ? id : undefined;
     const current = list.current;
     const row = rowOf(current, id);
     resized.current =
@@ -275,6 +287,19 @@ export function ComposerQueue({
       if (end > current.scrollTop) current.scrollTop = end;
     }
   }, [open]);
+  // A hold outlives nothing it holds for: once its row leaves the queue (deleted, sent, steered,
+  // run), or a row leaving makes the held height more than the rows left need, the list fits its
+  // rows at once instead of keeping a blank band until the pointer leaves.
+  useLayoutEffect(() => {
+    const current = list.current;
+    if (!held.current || !current) return;
+    const rows = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")];
+    if (!heldId.current || !rows.some((row) => row.dataset.promptId === heldId.current)) return release(current);
+    const last = current.lastElementChild;
+    const pad = parseFloat(current.ownerDocument.defaultView?.getComputedStyle(current).paddingBottom ?? "") || 0;
+    const need = last ? offsets(current, last).bottom + pad : 0;
+    if (need < parseFloat(current.style.minHeight || "0") - 0.5) release(current);
+  });
   /** Fits the list to its rows, unless a row the pointer opened holds its height. */
   const fit = (current: HTMLElement) => {
     if (!held.current) fitList(current);
@@ -330,7 +355,10 @@ export function ComposerQueue({
     const current = list.current;
     // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
     // pointerleave comes, so a list drawn later starts unheld.
-    if (watched.current?.list !== current) held.current = false;
+    if (watched.current?.list !== current) {
+      held.current = false;
+      heldId.current = undefined;
+    }
     if (current) {
       // Clear the collapsed list's scroll offset before measuring the opened rows. A pointer click
       // can leave focus on a row that the browser keeps anchored while the list grows; measuring
@@ -806,11 +834,7 @@ export function ComposerQueue({
           if (row && list.current && !pressing.current) reveal(list.current, row);
         }}
         onPointerLeave={(event) => {
-          if (!held.current) return;
-          held.current = false;
-          event.currentTarget.style.removeProperty("min-height");
-          event.currentTarget.removeAttribute("data-held");
-          fitList(event.currentTarget);
+          if (held.current) release(event.currentTarget);
         }}
         onPointerDown={(event) => {
           pressing.current = true;

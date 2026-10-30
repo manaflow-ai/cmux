@@ -141,6 +141,13 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   }
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
+  /// The page's socket, for a record acpmux sends on its own (a prompt drained from the queue).
+  let lastSocket: Socket | undefined;
+  /// acpmux takes prompt `id` out of the queue on its own (it ran, or another client removed it).
+  const drain = (id: string) => {
+    queue = queue.filter((q) => q.promptId !== id);
+    event(lastSocket!, "queue_removed", { promptId: id });
+  };
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   beforeAll(async () => {
@@ -152,6 +159,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
+          lastSocket = ws;
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           const result = answer(ws, message.method, message.params ?? {});
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
@@ -647,6 +655,53 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         scrolls: true,
         endReachable: true,
       });
+      await page.close();
+    });
+
+    /// Opens row `id` by a pointer click on its text and leaves the pointer on the list.
+    const openHeld = async (page: Page, id: string) => {
+      const text = page.locator(`.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text`);
+      const at = (await text.boundingBox())!;
+      await page.mouse.move(at.x + 24, at.y + at.height / 2);
+      await settled(page);
+      await page.mouse.click(at.x + 24, at.y + at.height / 2);
+      await page.locator(`.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text[data-open]`).waitFor();
+      await page.evaluate(() => window.cmuxPaintFrame());
+    };
+    /// The list's height against what its rows need (their bottom and its padding), when it shows.
+    const band = (page: Page) =>
+      page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue");
+        if (!list) return null;
+        const last = list.lastElementChild!;
+        const origin = list.getBoundingClientRect().top - list.scrollTop;
+        const need =
+          last.getBoundingClientRect().bottom - origin + (parseFloat(getComputedStyle(list).paddingBottom) || 0);
+        return { blank: Math.round(list.getBoundingClientRect().height - Math.min(need, list.scrollHeight)) };
+      });
+
+    test("the row the pointer opened, drained from the queue with the pointer still on it, leaves no blank band", async () => {
+      // Review (Codex astra) at c291d38: the hold outlived its row and kept the list's height.
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long]);
+      await openHeld(page, "q-2");
+      // acpmux drains it while the pointer rests on the list: no pointer event comes.
+      drain("q-2");
+      await page.locator('.acpmux-queued[data-prompt-id="q-2"]').waitFor({ state: "detached" });
+      await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+      expect((await band(page))!.blank).toBeLessThanOrEqual(1);
+      await page.close();
+    });
+
+    test("the only row, opened under the pointer and then steered away, takes the queue with it", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat([long]);
+      await openHeld(page, "q-1");
+      const steer = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-action').nth(0);
+      const at = (await steer.boundingBox())!;
+      await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+      await page.locator(".acpmux-composer-queue").waitFor({ state: "detached", timeout: 5_000 });
+      expect(await band(page)).toBeNull();
       await page.close();
     });
 
