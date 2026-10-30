@@ -30,6 +30,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// The frame identity captured when each live host was built. This keeps
     /// a frame tied to the account that owned it even if auth changes later.
     private var hostFrameKeys: [String: TerminalFrameKey] = [:]
+    private var frameLifecycle = TerminalFrameLifecycle()
     /// Tabs whose host runs on a live session (the rest show the connecting
     /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
@@ -222,6 +223,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         hostFrameKeys[tab.id] = key
+        frameLifecycle.hostBuilt(tabID: tab.id)
         upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
         placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
         if let slot = slots[tab.id] { slot.host = host }
@@ -241,9 +243,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hostMacs[id] = nil
         liveTabs.remove(id)
         warm.remove(id)
-        if let key {
-            lastFrames[key] = nil
-            frameStore?.remove(key)
+        frameLifecycle.release(tabID: id, hostFrameKey: key) { frameKey in
+            lastFrames[frameKey] = nil
+            frameStore?.remove(frameKey)
         }
         upgrade.removed(tabID: id)
         placeholderTabs[id] = nil
@@ -266,6 +268,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         workspaceOwner = [:]
         hostMacs = [:]
         hostFrameKeys = [:]
+        frameLifecycle.reset()
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
@@ -291,6 +294,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private func cool(_ id: String) {
         guard let host = hosts.removeValue(forKey: id) else { return }
         let key = hostFrameKeys.removeValue(forKey: id)
+        if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
         if let frame = host.model.snapshot {
             if let key {
                 lastFrames[key] = frame

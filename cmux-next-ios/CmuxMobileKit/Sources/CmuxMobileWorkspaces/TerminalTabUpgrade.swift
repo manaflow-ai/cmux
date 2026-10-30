@@ -66,6 +66,34 @@ public struct TerminalFrameKey: Hashable, Sendable {
     }
 }
 
+/// Frame identity retained after a tab's live host is cooled. Shared by the
+/// terminal host lifecycle and its portable regression tests.
+public struct TerminalFrameLifecycle {
+    private var cooledFrameKeys: [String: TerminalFrameKey] = [:]
+
+    public init() {}
+
+    public mutating func hostBuilt(tabID: String) {
+        cooledFrameKeys[tabID] = nil
+    }
+
+    public mutating func cooled(tabID: String, frameKey: TerminalFrameKey) {
+        cooledFrameKeys[tabID] = frameKey
+    }
+
+    /// Remove both copies of the frame using the original host's identity,
+    /// even after cooling has removed that host.
+    public mutating func release(tabID: String, hostFrameKey: TerminalFrameKey?,
+                                 removeFrame: (TerminalFrameKey) -> Void) {
+        let cooledKey = cooledFrameKeys.removeValue(forKey: tabID)
+        if let key = hostFrameKey ?? cooledKey { removeFrame(key) }
+    }
+
+    public mutating func reset() {
+        cooledFrameKeys = [:]
+    }
+}
+
 /// Writes are ordered per frame key (round 11 A5): a write names the ticket
 /// taken when its frame was captured, and is dropped when a newer frame was
 /// written meanwhile or the frame's file was removed after the ticket.
