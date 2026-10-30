@@ -61,7 +61,7 @@ struct FindSectionTests {
     @Test func aResultOpensAtItsLineAndColumn() {
         let effects = FileExplorerTests.Recorder()
         FindSectionModel.open(Self.match, effects: effects)
-        #expect(effects.openedInCmuxAt == [FilePosition(line: 12, column: 5)])
+        #expect(effects.openedInCmuxAt == [FileLineLocation(line: 12, column: 5)])
     }
 
     /// rg reports the match's start in UTF-8 bytes; the editor counts UTF-16 units, so a match

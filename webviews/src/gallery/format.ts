@@ -311,6 +311,7 @@ export type IconPickerPageVariant = VariantBase & {
 
 /** The code editor page (src/pages/editor) on a cmuxPage host with a fixture file. */
 export type EditorPageVariant = VariantBase & {
+  location?: import("../fileLocation").FileLocation;
   path?: string;
   text?: string;
   hash?: string;

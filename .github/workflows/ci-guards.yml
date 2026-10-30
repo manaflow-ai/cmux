@@ -452,6 +452,7 @@ jobs:
           python3 tests/test_localization_catalog.py
           python3 tests/test_localize_changes.py
           python3 tests/test_localization_defaults.py
+          python3 tests/test_file_open_line_localization.py
 
       - name: Test fake-socket CLI test helpers
         if: ${{ !cancelled() && matrix.group == 'preflight' }}

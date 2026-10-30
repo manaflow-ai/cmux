@@ -278,17 +278,17 @@ final class DiffPageService: InternalPageProvider {
         guard let pane = services.linkOpener.source(tab: key) else { return false }
         switch target {
         case .tab:
-            let position = line.map { FilePosition(line: $0) }
+            let position = line.map { FileLineLocation(line: $0) }
             let page = Self.filePage(for: file, line: line)
             return services.linkOpener.open(from: pane) { pane, placed in
                 switch page {
                 case .editor:
                     pane.services.viewers.editorPages.open(file, in: pane, focus: placed == nil, userChose: true,
-                                                           at: position, placed: placed)
+                                                           line: position, placed: placed)
                     return true
                 case .viewer:
                     return pane.services.viewers.openFile(file, in: pane, markdown: FilePageKind.isMarkdown(file),
-                                                          at: position, placed: placed)
+                                                          line: position, placed: placed)
                 }
             }
         case .editor:

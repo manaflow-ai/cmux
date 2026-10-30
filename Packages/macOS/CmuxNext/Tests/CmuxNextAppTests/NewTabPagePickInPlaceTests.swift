@@ -16,6 +16,18 @@ import Testing
 /// `layout.linkPlacement` says, and no pane or divider moves. The Debug toggle `newTab.picksFollowLinks`
 /// opts back into the link rule (Lawrence 2026-10-19). Serialized: the toggle is the shared store's.
 @MainActor @Suite(.serialized) struct NewTabPagePickInPlaceTests {
+    @Test(arguments: [
+        (AgentPaneTabKind.terminal, true, true),
+        (AgentPaneTabKind.browser, true, true),
+        (AgentPaneTabKind.agent, true, false),
+        (AgentPaneTabKind.terminal, false, false),
+        (AgentPaneTabKind.browser, false, false),
+        (AgentPaneTabKind.agent, false, false),
+    ])
+    func dockPagesRouteOnlyToolPicksToTheStrip(kind: AgentPaneTabKind, dock: Bool, expected: Bool) {
+        #expect(NewTabPage.pickOpensInStrip(kind, inChatDock: dock) == expected)
+    }
+
     /// A pane holding a terminal (surface 1) and the New Tab page (surface 2), or the page alone, with
     /// the Debug toggle `newTab.picksFollowLinks` on (`optedIn`) or at its default.
     private static func pane(withTerminal: Bool, optedIn: Bool = false) throws -> (AppServices, PaneController, String) {

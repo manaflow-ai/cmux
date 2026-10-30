@@ -25,7 +25,7 @@ import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { SoftBroken, softBreakNodes } from "./softBreaks";
 import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
+import { codeReplyPath, linkReplyPath, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -314,6 +314,8 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** Labels of an outer link keep formatting without automatic path or URL chips. */
+  linkLabel?: boolean;
   /** Link a bare `#N` too (default). Off in a quote: quoted words are someone else's, whose `#1`
    *  is rarely this repository's pull request (Leo 2026-10-29: "these auto render to the pr
    *  instead of just #1 #2..."). `owner/repo#N` and addresses still link there. */
@@ -423,12 +425,6 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
-/// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
-function lineLabel(path: string, written: string): string | undefined {
-  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
-  return line ? `${pathName(path)}:${line}` : undefined;
-}
-
 const NO_REPOSITORY = "-/-";
 
 function linkedGithubText(
@@ -512,6 +508,7 @@ function quietCommitReferences(text: string, issues: GithubReference[], reposito
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
+  if (opts.linkLabel) return [text];
   const out: ReactNode[] = [];
   let index = 0;
   for (const part of splitTimeTokens(text)) {
@@ -573,10 +570,10 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
     const named = m[1] ? opts.started?.mentions.find((mention) => mention.text === t.slice(1, -1)) : undefined;
     if (named) out.push(<StartedSessionChip key={k++} mention={named} text={named.text} onOpen={opts.started!.open} />);
     else if (m[1]) {
-      const path = codePath(t.slice(1, -1));
+      const path = opts.linkLabel ? undefined : codeReplyPath(t.slice(1, -1));
       out.push(
         path ? (
-          <PathChip key={k++} path={path} written={t.slice(1, -1)} label={lineLabel(path, t.slice(1, -1))} />
+          <PathChip key={k++} {...path} written={t.slice(1, -1)} code />
         ) : (
           <code key={k++} className="cv-code">
             <SoftBroken text={t.slice(1, -1)} />
@@ -592,8 +589,14 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const href = safeHref(lm[2]);
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
-      const path = linkPath(lm[2]);
-      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+      const path = linkReplyPath(lm[2]);
+      const labelOpts = {
+        ...opts,
+        githubRepository: undefined,
+        linkGithubReferences: false,
+        started: undefined,
+        linkLabel: true,
+      };
       // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
@@ -612,7 +615,15 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      else if (path)
+        out.push(
+          <PathChip
+            key={k++}
+            {...path}
+            suffix={path.suffix && lm[1].endsWith(path.suffix) ? undefined : path.suffix}
+            label={renderInline(lm[1], labelOpts)}
+          />,
+        );
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         out.push(

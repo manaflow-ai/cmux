@@ -201,7 +201,7 @@ enum AgentPaneContextMenu {
         } else if let copyImage {
             image.append(copyImage)
         }
-        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
+        let part = target?.part?.items(copy: actions.copy, openPath: { path, line in actions.page("chat.menu.openPath", ["path": path].merging(line.map { ["line": $0.argument] } ?? [:]) { _, new in new }) }, open: actions.open,
                                        linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
         var copies = edits
         var message: [NSMenuItem] = []

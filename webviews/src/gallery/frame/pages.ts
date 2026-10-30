@@ -444,6 +444,7 @@ function editorConfig(
 ): EditorConfig {
   return {
     ...file,
+    location: state.location,
     ...(recoveredText !== undefined ? { recoveredText } : {}),
     size: file.size ?? file.text.length,
     settings: state.settings,

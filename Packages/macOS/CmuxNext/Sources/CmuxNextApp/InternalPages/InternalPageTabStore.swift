@@ -187,17 +187,25 @@ final class InternalPageTabStore {
             return view
         }
         guard let provider = providers[page] else { return nil }
+        guard let key = prepareStoreTab(tab, page: page, in: store, local: local, window: window) else { return nil }
+        let content = provider.makeView(for: key, in: windows[key])
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
+        view.navigate = navigate
+        views[key] = view
+        return view
+    }
+
+    /// Resolves a restored tab's provider key and route without creating its view.
+    func prepareStoreTab(_ tab: TabModel, page: InternalPageID, in store: DaemonStore, local: Bool,
+                         window: WindowController?) -> String? {
+        guard let provider = providers[page] else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         // A tab this app did not open (Reopen Closed, relaunch, another app): its route says what it shows.
         if local, storeKeys[tab.id] == nil, let route = tab.pageRoute { provider.restore(route, for: key) }
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let content = provider.makeView(for: key, in: windows[key])
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
-        view.navigate = navigate
-        views[key] = view
-        return view
+        return key
     }
 
     /// Opens `page` as a store tab after `pane`'s selected tab. The tab and

@@ -98,9 +98,10 @@ final class LinkOpener {
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
     /// the column on its right). False with no source pane (no window) or when `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true,
+              target: LinkOpenPlacement<LayoutPaneID>.Target? = nil, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
-        switch target(from: source, mainPane: mainPane) {
+        switch target ?? self.target(from: source, mainPane: mainPane) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
@@ -203,14 +204,14 @@ final class LinkOpener {
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
-    /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
+    /// refusal shows). `line` (a Find result, a reply link): the code editor opens with the cursor there.
     @discardableResult
     /// `asText` (Open as Text, u9489): a page cmux renders (Markdown, HTML, SVG) opens as its source
     /// in the code editor, placed as any open is.
     func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, asText: Bool = false,
-                  at position: FilePosition? = nil) -> Bool {
+                  line: FileLineLocation? = nil) -> Bool {
         open(from: source) { pane, placed in
-            pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, at: position, placed: placed)
+            pane.services.viewers.openFile(file, in: pane, markdown: markdown, asText: asText, line: line, placed: placed)
         }
     }
 

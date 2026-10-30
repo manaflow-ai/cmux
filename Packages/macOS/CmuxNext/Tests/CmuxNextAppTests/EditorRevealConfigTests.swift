@@ -1,3 +1,4 @@
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextPages
@@ -6,7 +7,7 @@ import Foundation
 import Testing
 
 /// A Find result opens the code editor at its line and column: a new editor tab's
-/// `cmux.editor.config` carries `reveal: {line, column}` once (the page moves the cursor there
+/// `cmux.editor.config` carries `location: {line, column}` once (the page moves the cursor there
 /// after the load); a later config (a reload, an open in the page) starts at the top again.
 @MainActor @Suite struct EditorRevealConfigTests {
     private final class Host: FilePageHosting {
@@ -40,18 +41,14 @@ import Testing
         try Data("one\ntwo\nthree\n".utf8).write(to: url)
         let provider = FilePageProvider(kind: .editor, file: url, host: Host(), libraries: nil, images: NoImages())
         defer { provider.close() }
-        provider.reveal = FilePosition(line: 3, column: 2)
+        provider.lineLocation.reveal(FileLineLocation(line: 3, column: 2))
         let context = PageCallContext(page: FilePageKind.editor.namespace)
 
         let first = try await provider.call(FilePageKind.editor.op("config"), params: .object([:]), context: context)
-        #expect(first["reveal"]?["line"]?.intValue == 3)
-        #expect(first["reveal"]?["column"]?.intValue == 2)
+        #expect(first["location"]?["line"]?.intValue == 3)
+        #expect(first["location"]?["column"]?.intValue == 2)
 
         let second = try await provider.call(FilePageKind.editor.op("config"), params: .object([:]), context: context)
-        #expect(second["reveal"] == nil)
-    }
-
-    @Test func theRevealCommandTextIsLineAndColumn() {
-        #expect(FilePosition(line: 12, column: 5).pageText == "12:5")
+        #expect(second["location"] == nil)
     }
 }

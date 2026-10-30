@@ -59,6 +59,8 @@ enum AgentBesidePlacement {
         // the column right of the chat is always in view; else the tab moves out.
         let lone = controller.flatMap { ChatColumnPlacement.resolve(from: $0, services: services) == .dockChat ? $0 : nil }
         let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
+        let newTabPages = ChatColumnPlacement.newTabPages(in: anchor.tabs) { services.agentTabs.isNewTabPage($0.id) }
+        let dockIntent = lone?.workspace?.focus.currentState().generation
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         // The chat's strip never lists the tab on its way out: it first shows on the right (OutboundTab).
         let outbound = controller.flatMap { $0.pane === anchor ? OutboundTab.begin(in: $0) : nil }
@@ -87,7 +89,7 @@ enum AgentBesidePlacement {
             guard let surface, let tab = services.locateTab(surface: surface) else {
                 return "beside-caller: the new tab did not open"
             }
-            if let chat, let content = lone?.workspace {
+            if let chat, let content = lone?.workspace, let dockIntent {
                 // The new tab is in the chat's pane, unselected: the chat docks, the tab stays. The
                 // chat stays where it shows; only the tab's pane comes in, from the right.
                 if let lone { content.layoutModel.handOffContent(of: lone.layoutPaneID) }
@@ -101,38 +103,30 @@ enum AgentBesidePlacement {
                     return "beside-caller: the chat did not dock (see the app log)"
                 }
                 moved = true
-                // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
-                // Not when the person acted since the run began: their focus stays where they put it.
-                if (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() {
-                    let listed = Task { @MainActor () -> Bool in
-                        // The store lists the chat in its new dock pane (the window's controller may come later;
-                        // focus goes by the pane's id, which the window applies when it shows the pane).
-                        for await moved in ObservationStream({ services.locateTab(model: chat).map { $0.1 !== anchor } ?? false }) where moved {
-                            return true
-                        }
-                        return false
-                    }
-                    let bound = DemandTimer(owner: "AgentBesidePlacement.chatDock")
-                    bound.schedule(after: openLimit) { @MainActor in
-                        listed.cancel()
-                    }
-                    let moved = await listed.value
-                    bound.cancel()
-                    if moved, let pane = services.locateTab(model: chat)?.1, let clicked {
-                        focus(surface, returningTo: LayoutPaneID(pane.id), in: clicked, generation: intent, services: services)
-                    } else if moved, let pane = services.locateTab(model: chat)?.1 {
+                // The agent's tool is selected beside the chat, unless the person chose a tab since.
+                // Before the New Tab pages follow the chat: that step is skipped when the person
+                // acted meanwhile (its generation moved), and the tool must not stay unselected then.
+                if let left = services.paneController(for: anchor), !(personActed() && content.focusedPane === left) {
+                    left.selectWhenReportedKeepingFocus(surface: surface)
+                }
+                await ChatColumnPlacement.moveNewTabPages(newTabPages, with: chat, from: anchor,
+                                                          in: content, services: services, generation: dockIntent, whenDocked: { dock in
+                    // Keyboard focus stays in the chat, now in its dock, before any New Tab pages follow
+                    // it; a person's click focuses the tab. Not when the person acted since the run
+                    // began: their focus stays where they put it.
+                    guard (chatHadFocus || content.focusedPane?.pane === anchor) && !personActed() else { return }
+                    if let clicked {
+                        focus(surface, returningTo: LayoutPaneID(dock.id), in: clicked, generation: intent, services: services)
+                    } else {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
                         // FocusCoordinator.followMovedTab does for a person's move). Programmatic, so
                         // it is not the person acting for another open in flight (`personActed`).
                         ActionRunScope.carrying(ActionRunScope(origin: .script, allowsViewChange: true)) {
-                            content.focus.send(.focusPane(pane.id, source: .programmatic))
+                            content.focus.send(.focusPane(dock.id, source: .programmatic))
                         }
                     }
-                }
-                if let left = services.paneController(for: anchor), !(personActed() && content.focusedPane === left) {
-                    left.selectWhenReportedKeepingFocus(surface: surface)
-                }
+                })
                 return nil
             }
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of

@@ -20,8 +20,8 @@ struct FileExplorerTests {
         private(set) var copied: [String] = []
         private(set) var openedWith: [(URL, String)] = []
         /// The position each cmux open asked for (nil: the top of the file).
-        private(set) var openedInCmuxAt: [FilePosition?] = []
-        func openInCmux(_ file: URL, at position: FilePosition?) -> Bool {
+        private(set) var openedInCmuxAt: [FileLineLocation?] = []
+        func openInCmux(_ file: URL, at position: FileLineLocation?) -> Bool {
             guard viewable else { return false }
             openedInCmux.append(file)
             openedInCmuxAt.append(position)

@@ -5,8 +5,13 @@ import CmuxNextLayout
 /// What the chat dock refuses (lawrence-call-1006 D): it is a docked
 /// region, not a split that happens to sit on the left. It never splits
 /// (every split, auto layout and split drop goes through `splitRoom`) and
-/// holds only agent chats, so tools dropped or moved into it are refused.
+/// holds agent chats and their New Tab pages, so tools dropped or moved into it are refused.
 enum ChatDockRules {
+
+    /// A New Tab page is a chat that has not started, so it may live beside chats in the dock.
+    nonisolated static func accepts<Tab>(_ tab: Tab, isChat: (Tab) -> Bool, isNewTabPage: (Tab) -> Bool) -> Bool {
+        isChat(tab) || isNewTabPage(tab)
+    }
 
     private static func isChatDock(_ pane: LayoutPaneID, _ columns: [LayoutColumn]) -> Bool {
         columns.first { $0.root.contains(pane) }?.dock?.role == .agentChat
@@ -36,10 +41,18 @@ enum ChatDockRules {
         return isChatDock(layoutPane, ChatColumnPlacement.columns(of: screen, containing: layoutPane))
     }
 
-    /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A
-    /// reorder inside the dock is not a move into it.
+    /// The daemon's current dock, including a pane whose controller has not mounted yet.
+    @MainActor static func isChatDock(_ pane: PaneModel, in store: DaemonStore) -> Bool {
+        guard let screen = store.workspace(containing: pane.handle)?.screens.first(where: { $0.panes.contains { $0 === pane } }) else { return false }
+        return screen.columns.first { $0.layout.paneIDs.contains(pane.handle) }?.dock?.role == .agentChat
+    }
+
+    /// Refuses (and reports) a tool tab moving into a chat dock that takes only chats (and their
+    /// New Tab pages). A reorder inside the dock is not a move into it.
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
-        guard services.locateTab(model: tab)?.1 !== pane, !ChatColumnPlacement.isChat(tab, services: services),
+        guard services.locateTab(model: tab)?.1 !== pane,
+              !accepts(tab, isChat: { ChatColumnPlacement.isChat($0, services: services) },
+                       isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }),
               takesOnlyChats(pane, services: services) else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true
@@ -64,7 +77,7 @@ extension ChatDockRules {
     }
 
     /// The pane a drop on a workspace (the sidebar) lands in: its first
-    /// screen's first pane outside the chat dock (which takes only chats).
+    /// screen's first pane outside the chat dock (which takes chats and New Tab pages).
     static func workspaceDropPane<Pane>(_ panes: [Pane], isChatDock: (Pane) -> Bool) -> Pane? {
         panes.first { !isChatDock($0) } ?? panes.first
     }

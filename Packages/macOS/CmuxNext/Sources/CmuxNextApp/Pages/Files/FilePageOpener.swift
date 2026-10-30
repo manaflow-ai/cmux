@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextFiles
@@ -83,8 +84,9 @@ final class FilePageOpener: FileOpening {
     /// `asText`: Open as Text, the code editor for a page cmux would render (``route(for:userChose:asText:)``).
     /// `placed` (``LinkOpener``): a new tab opens unselected and reports its surface there, to be
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
-    /// `position` (a Find result): the code editor puts the cursor there; other pages ignore it.
-    func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, at position: FilePosition? = nil,
+    /// `line` (a Find result, a reply link): the code editor puts the cursor there; other pages ignore it.
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool, asText: Bool = false, line: FileLineLocation? = nil,
+              revealExistingLine: Bool = true,
               placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
@@ -94,7 +96,7 @@ final class FilePageOpener: FileOpening {
         case .markdown:
             services.viewers.markdownPages.open(url, in: pane, focus: placed == nil, userChose: userChose, placed: placed)
         case .editor:
-            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, at: position, placed: placed)
+            services.viewers.editorPages.open(url, in: pane, focus: placed == nil, userChose: userChose, line: line, revealExistingLine: revealExistingLine, placed: placed)
         case .preview:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url, engine: Self.tabEngine(for: url), background: placed != nil, then: placed)

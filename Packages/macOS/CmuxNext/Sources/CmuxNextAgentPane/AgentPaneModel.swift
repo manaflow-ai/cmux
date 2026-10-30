@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
@@ -119,7 +120,7 @@ public final class AgentPaneModel {
     /// The long recordings uploading now, and the ones whose chip's × stopped them.
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
-    @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget, FileLineLocation?) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?

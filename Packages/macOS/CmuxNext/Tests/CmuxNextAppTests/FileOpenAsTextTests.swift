@@ -151,7 +151,7 @@ struct FileOpenAsTextTests {
 
     @MainActor final class TextRecorder: FileExplorerEffects {
         private(set) var openedAsText: [URL] = []
-        func openInCmux(_ file: URL, at position: FilePosition?) -> Bool { true }
+        func openInCmux(_ file: URL, at position: FileLineLocation?) -> Bool { true }
         func openAsText(_ file: URL) -> Bool { openedAsText.append(file); return true }
         func openInDefaultApp(_ item: URL) {}
         func revealInFinder(_ item: URL) {}

@@ -2221,6 +2221,10 @@ path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_file_open_line_localization.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_fresh_home_launch_smoke.py"
 lane = "linux-guard"
 

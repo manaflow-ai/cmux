@@ -477,6 +477,8 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-scrollbar-hover": "color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent)",
   "--cmux-editor-widget-background": "var(--surface-popup)",
   "--cmux-editor-widget-border": "var(--page-separator)",
+  "--cmux-editor-sticky-background":
+    "color-mix(in srgb, var(--cmux-surface-solid, Canvas) var(--surface-text-min, 92%), transparent)",
   "--cmux-editor-chrome-font-size": "12px",
   "--cmux-editor-toolbar-height": "30px",
   "--cmux-editor-status-height": "22px",
@@ -488,10 +490,7 @@ export type EditorStyleVariable = keyof typeof EDITOR_STYLE_DEFAULTS;
 
 /** The `--cmux-editor-*` properties that become Monaco theme colors, and the Monaco color each sets. */
 export const MONACO_THEME_VARIABLES: Array<[EditorStyleVariable, string[]]> = [
-  [
-    "--cmux-editor-background",
-    ["editor.background", "editorGutter.background", "minimap.background", "editorStickyScroll.background"],
-  ],
+  ["--cmux-editor-background", ["editor.background", "editorGutter.background", "minimap.background"]],
   ["--cmux-editor-foreground", ["editor.foreground"]],
   ["--cmux-editor-line-highlight", ["editor.lineHighlightBackground"]],
   ["--cmux-editor-selection", ["editor.selectionBackground"]],
@@ -508,6 +507,7 @@ export const MONACO_THEME_VARIABLES: Array<[EditorStyleVariable, string[]]> = [
     ["editorWidget.background", "editorSuggestWidget.background", "editorHoverWidget.background"],
   ],
   ["--cmux-editor-widget-border", ["editorWidget.border", "editorSuggestWidget.border", "editorHoverWidget.border"]],
+  ["--cmux-editor-sticky-background", ["editorStickyScroll.background", "editorStickyScrollGutter.background"]],
 ];
 
 const SETTINGS_STYLE = "cmux-editor-settings";

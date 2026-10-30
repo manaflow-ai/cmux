@@ -19,14 +19,17 @@ import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
 import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand, type RevealPosition } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand } from "./keys";
 import { keybindingRules } from "./vscodeKeys";
 import { installNativeEditorMenu } from "./nativeEditorMenu";
 import type { CodeView, EditorDocument } from "./store";
 import type { FindRange, FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
+import { LineReveal } from "./lineReveal";
+import type { FileLocation } from "../../fileLocation";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
+  EDITOR_STYLE_DEFAULTS,
   MONACO_THEME_VARIABLES,
   isLargeFile,
   modelOptions,
@@ -34,7 +37,7 @@ import {
   settingsForLanguage,
   type EditorSettings,
 } from "./settings";
-import { cssColorToHex } from "./colors";
+import { cssColorToHex, editorStickyBackground } from "./colors";
 import { markScrolling, onScrollerStyleChange, scrollerStyle } from "../../scrollers";
 
 declare global {
@@ -294,6 +297,7 @@ function defineStandInThemes(chrome: Record<string, string>): void {
 
 /** Monaco plus Shiki for one page. */
 export class MonacoView implements CodeView {
+  private lineReveal: LineReveal | null = null;
   private readonly editor: monaco.editor.IStandaloneCodeEditor;
   private model: monaco.editor.ITextModel | null = null;
   private endings: LineEndings | null = null;
@@ -492,6 +496,20 @@ export class MonacoView implements CodeView {
       const color = cssColorToHex(style.getPropertyValue(variable), this.container);
       if (color) for (const key of keys) chrome[key] = color;
     }
+    // A theme that sets the sticky color itself keeps it; only the default yields to a solid editor.
+    // Compared as resolved colors: the computed value already has its var()s substituted.
+    const stickyDefault = cssColorToHex(EDITOR_STYLE_DEFAULTS["--cmux-editor-sticky-background"], this.container);
+    const resolvedSticky = chrome["editorStickyScroll.background"];
+    const themed = resolvedSticky !== undefined && resolvedSticky !== stickyDefault;
+    const sticky = editorStickyBackground(
+      chrome["editor.background"] ?? null,
+      chrome["editorStickyScroll.background"] ?? null,
+      themed,
+    );
+    if (sticky) {
+      chrome["editorStickyScroll.background"] = sticky;
+      chrome["editorStickyScrollGutter.background"] = sticky;
+    }
     this.chrome = chrome;
   }
   private chrome: Record<string, string> = {};
@@ -553,6 +571,7 @@ export class MonacoView implements CodeView {
   }
 
   load(document: EditorDocument): void {
+    this.lineReveal?.clear();
     const token = ++this.loadToken;
     const shape = analyzeText(document.text);
     this.endings = new LineEndings(shape);
@@ -581,6 +600,7 @@ export class MonacoView implements CodeView {
       this.endings?.apply(event.changes.map((change) => ({ ...change.range, text: change.text })));
       if (!this.applyingLoad && !event.isFlush) this.callbacks.onUserEdit();
     });
+    if (document.location) this.reveal(document.location);
     this.highlighted = false;
     this.reportStatus();
     if (!large && detected.id !== PLAIN_TEXT_LANGUAGE) {
@@ -594,6 +614,11 @@ export class MonacoView implements CodeView {
       });
     }
   }
+  reveal(location: FileLocation): void {
+    this.lineReveal ??= new LineReveal(this.editor);
+    this.lineReveal.reveal(location);
+  }
+
   private highlighted = false;
   private eolLabel: ViewStatus["eol"] = "LF";
   private modelListener: monaco.IDisposable | null = null;
@@ -760,17 +785,6 @@ export class MonacoView implements CodeView {
     };
   }
 
-  /** Moves the cursor to `position` (clamped to the document) and centers its line, then focuses. */
-  reveal(position: RevealPosition): void {
-    const model = this.model;
-    if (!model) return;
-    const lineNumber = Math.min(Math.max(1, position.line), model.getLineCount());
-    const column = Math.min(Math.max(1, position.column), model.getLineMaxColumn(lineNumber));
-    this.editor.setPosition({ lineNumber, column });
-    this.editor.revealPositionInCenter({ lineNumber, column });
-    this.editor.focus();
-  }
-
   /** A page command from the app's key dispatcher. Returns false for an unknown command. */
   command(command: EditorCommand, text?: string): boolean {
     if (FIND_COMMANDS.has(command) && this.callbacks.find?.(command as FindCommand, text)) return true;
@@ -793,6 +807,7 @@ export class MonacoView implements CodeView {
   }
 
   dispose(): void {
+    this.lineReveal?.clear();
     this.scheme.removeEventListener("change", this.onSchemeChange);
     for (const disposable of this.disposables) disposable.dispose();
     this.modelListener?.dispose();

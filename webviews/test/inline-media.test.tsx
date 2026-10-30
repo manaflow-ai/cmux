@@ -116,15 +116,17 @@ describe("file:line references", () => {
     expect(link).toMatchObject({
       kind: "path",
       path: "webviews/src/app.ts",
-      line: 42,
+      location: { line: 42, column: 7 },
       value: "webviews/src/app.ts:42:7",
     });
   });
   test("an absolute path keeps its line too", () => {
-    expect(textLinks("at /Users/you/x/retry.ts:12.")[0]).toMatchObject({ path: "/Users/you/x/retry.ts", line: 12 });
+    expect(textLinks("at /Users/you/x/retry.ts:12.")[0]).toMatchObject({
+      path: "/Users/you/x/retry.ts",
+      location: { line: 12 },
+    });
   });
-  test("a relative path needs its line, and a domain is not a folder", () => {
-    expect(textLinks("and/or.txt is prose")).toEqual([]);
+  test("a domain is not a folder", () => {
     expect(textLinks("example.com/app.js:1")).toEqual([]);
   });
   test("a code span with a relative file:line is a path", () => {

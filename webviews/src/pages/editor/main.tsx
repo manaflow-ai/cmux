@@ -22,7 +22,7 @@ import {
   EDITOR_KEY_SEQUENCE_OP,
   EDITOR_OPEN_LINK_OP,
 } from "./host";
-import { isEditorCommand, revealPosition } from "./keys";
+import { isEditorCommand } from "./keys";
 import { applyEditorLook, PREFERENCE_KEYS, resolveEditorSettings } from "./settings";
 import { EditorStore } from "./store";
 import { EditorFind } from "./editorFind";
@@ -170,7 +170,6 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
       onCommand: ({ command, text }) => {
         if (command === FOCUS_CONTENT_COMMAND) return focus.request();
         if (command === "save") return void store.save({ format: true });
-        if (command === "reveal") return store.reveal(revealPosition(text));
         if (isEditorCommand(command)) view?.command(command, text);
       },
     });

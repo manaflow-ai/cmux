@@ -44,8 +44,8 @@ final class ViewerService {
 
     /// Opens `file` through ``fileOpener`` (the markdown page, a previewing tab, or the editor).
     /// `userChose` false for a page's or an agent's open. Returns why it did not open.
-    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
-        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose) }
+    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool, line: FileLineLocation? = nil, focus: Bool = false) -> String? {
+        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose, line: line, revealExistingLine: userChose || focus) }
         return fileOpener.open(file, in: pane)
     }
 
@@ -115,13 +115,13 @@ final class ViewerService {
     /// it did not open (the refusal shows). `placed`: a new tab opens unselected and reports its
     /// surface there (``LinkOpener`` moves it right of `pane`); a tab that already shows the file
     /// is selected where it is.
-    /// `position` (a Find result): the code editor opens with the cursor there.
+    /// `line` (a Find result, a reply link): the code editor opens with the cursor there.
     /// `asText` (Open as Text): a page cmux renders opens as its source in the code editor.
     @discardableResult
-    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, asText: Bool = false, at position: FilePosition? = nil,
+    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, asText: Bool = false, line: FileLineLocation? = nil,
                   placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        let refusal = if placed != nil || position != nil || asText, let opener = fileOpener as? FilePageOpener {
-            opener.open(file, in: pane, userChose: true, asText: asText, at: position, placed: placed)
+        let refusal = if let opener = fileOpener as? FilePageOpener {
+            opener.open(file, in: pane, userChose: true, asText: asText, line: line, placed: placed)
         } else {
             fileOpener.open(file, in: pane)
         }

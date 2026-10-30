@@ -31,8 +31,7 @@ final class FilePageService: InternalPageProvider {
         var host: FilePageTabHost?
         /// A recovered crash draft for the page to load as an unsaved edit.
         var recoveredText: String?
-        /// Where the editor's first config puts the cursor (a Find result), until the page asks.
-        var reveal: FilePosition?
+        var line: FileLineLocation?
         /// Ends this tab's flush registration on its quit document.
         var stopFlush: (() -> Void)?
         /// The Markdown omnibar above the page (markdown tabs only).
@@ -130,21 +129,18 @@ final class FilePageService: InternalPageProvider {
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
-    /// the file (a chat transcript); every other markdown file opens writable. `position` (the code
-    /// editor only, a Find result): the cursor goes there, in a new tab after its load
-    /// (``revealAt(_:in:)``).
+    /// the file (a chat transcript); every other markdown file opens writable. `line` (the code
+    /// editor only, a Find result or a reply link): the cursor goes there, in a new tab after its
+    /// load, in an open tab now (unless `revealExistingLine` is false).
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
-              recoveredText: String? = nil, at position: FilePosition? = nil,
-              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+              recoveredText: String? = nil, line: FileLineLocation? = nil, revealExistingLine: Bool = true, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let reveal = kind == .editor ? position : nil
-        let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText, reveal: reveal)
-        let key = show(in: pane, focus: focus, placed: placed, tab) { key in
+        let previouslyOpen = Set(tabs.keys)
+        let key = show(in: pane, focus: focus, placed: placed, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
             self.file(key) == real
         }
-        if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
         if userChose {
             tabs[key]?.userChose = true
@@ -155,23 +151,12 @@ final class FilePageService: InternalPageProvider {
             provider.recoveredText = recoveredText
             tabs[key]?.page?.reload()
         }
-        return key
-    }
-
-    /// Puts tab `key`'s cursor at `position`: a tab whose page is up gets the `reveal` page command;
-    /// a tab whose page is not made yet (or takes no commands yet) carries it into its first config.
-    private func revealAt(_ position: FilePosition, in key: String) {
-        guard tabs[key] != nil else { return }
-        if let page = tabs[key]?.page, let provider = tabs[key]?.provider {
-            if page.send(command: EditorPageCommand.reveal, arguments: ["text": .string(position.pageText)]) {
-                tabs[key]?.reveal = nil
-                provider.reveal = nil
-            } else {
-                provider.reveal = position
-            }
-        } else {
-            tabs[key]?.reveal = position
+        if kind == .editor, let line {
+            if let provider = tabs[key]?.provider {
+                if revealExistingLine || !previouslyOpen.contains(key) { provider.lineLocation.reveal(line) }
+            } else { tabs[key]?.line = line }
         }
+        return key
     }
 
     /// Tab `key` as a holder of its quit document (the markdown and editor pages share documents).
@@ -237,12 +222,13 @@ final class FilePageService: InternalPageProvider {
             // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
             if let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
                 $0.page == kind.page.rawValue && $0.pageRoute == file && services.pages.storeKey(of: $0.id) == nil
-            }) {
+            }), let key = services.pages.prepareStoreTab(unshown, page: kind.page, in: candidate.daemon.store,
+                                                         local: candidate.daemon.isLocal, window: window) {
                 if revealsExisting {
                     candidate.select(StripTabID(unshown.id))
                     candidate.focusContent()
                 }
-                return unshown.id
+                return key
             }
         }
         let key = LocalPageTab.makeKey(kind.page)
@@ -354,8 +340,7 @@ final class FilePageService: InternalPageProvider {
                                         libraries: libraries, images: images, tableWidths: tableWidths,
                                         comments: comments)
         provider.recoveredText = tab.recoveredText
-        provider.reveal = tab.reveal
-        tab.reveal = nil
+        if let line = tab.line { provider.lineLocation.reveal(line); tab.line = nil }
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,

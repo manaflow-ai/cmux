@@ -9,6 +9,7 @@ export type MenuPart = {
   command?: string;
   output?: string;
   path?: string;
+  line?: string;
   link?: string;
 };
 
@@ -28,7 +29,8 @@ export function menuPartAt(target: Element | null): MenuPart | undefined {
     const part = parts.get(element);
     if (part) return part;
     const path = element.getAttribute("data-path");
-    if (path) return { path };
+    if (path)
+      return { path, ...(element.getAttribute("data-line") ? { line: element.getAttribute("data-line")! } : {}) };
     if (element instanceof HTMLAnchorElement && /^https?:\/\//i.test(element.href)) return { link: element.href };
   }
   return undefined;
