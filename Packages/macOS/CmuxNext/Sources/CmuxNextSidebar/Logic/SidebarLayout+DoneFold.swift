@@ -33,7 +33,7 @@ nonisolated extension SidebarLayout {
         var shown: [(index: Int, depth: Int)] = []
         var done: [(index: Int, depth: Int)] = []
         for entry in drawn {
-            if o.foldsDone, let ws = workspace(entry.index), Self.isFinished(ws), ws.id != o.activeWorkspaceID {
+            if o.foldsDone, let ws = workspace(entry.index), ws.taskStatus == .done, ws.id != o.activeWorkspaceID {
                 done.append(entry)
             } else {
                 shown.append(entry)
@@ -69,17 +69,7 @@ nonisolated extension SidebarLayout {
     /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
     static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
         guard o.foldsDone, o.filterMatches == nil, o.sessionTree == nil else { return false }
-        return dragged.contains { Self.isFinished($0) && $0.id != o.activeWorkspaceID }
-    }
-
-    /// Finished agent chats (done, failed, or lost) and workspaces explicitly marked Done settle into the
-    /// collapsed fold. Waiting and red-CI chats remain in place so they stay visible to the person.
-    static func isFinished(_ workspace: SidebarWorkspace) -> Bool {
-        if workspace.taskStatus == .done { return true }
-        switch workspace.agentChip {
-        case .done?, .failed?, .lost?: return true
-        case .needsYou?, .ciFailing?, .working?, .idle?, nil: return false
-        }
+        return dragged.contains { $0.taskStatus == .done && $0.id != o.activeWorkspaceID }
     }
 
     /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row

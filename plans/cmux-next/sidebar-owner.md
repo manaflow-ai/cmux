@@ -17,10 +17,6 @@ sidebar from now on"). Scope: workspace and group rows, nested groups, the group
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
 performance.
 
-- 6cc7f54550f: Finished, failed, and lost agent chats settle into the existing collapsed Done fold; waiting and CI-failing chats stay visible. Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear."
-
-- 5a2696b6dc1: Agent state transitions into done, failed, or lost trigger the finished fold layout so rows settle at the bottom. Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear."
-
 ## Rule for every sidebar change
 
 ### Group editor opening (2026-10-28)
@@ -599,10 +595,6 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 - [f19e4c28604](https://github.com/manaflow-ai/cmux/commit/f19e4c28604) (PR [#24073](https://github.com/manaflow-ai/cmux/pull/24073), test first in 0ccf76674b7). Asked by the coordinator after live QA on nightly 3a63d6d9 ("Agents" header pill beside the traffic lights), verbatim: "keep the list starting level with the panes at rest. When the list is scrolled, extend the top mask so content scrolling under the traffic lights is clipped and faded below the lights (y≈titlebarHeight). Don't use max(tabStripHeight, titlebarHeight) at rest." Look change only while scrolled: `ScrollEdgeFadeView.topClip` clears the mask down to `Metrics.titlebarHeight` when the traffic lights are over this sidebar, and the 18 pt top fade starts below it. At rest the mask, row positions and the list's top are unchanged. The commit predates its branch's first `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `SidebarTopMaskTests`.
 
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
-
-## Archive finished agent chats (2026-10-30)
-
-- Pending PR (this lane), Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear" and "No bulk action by state: closing 234 finished rows took 234 calls." Settled Priority chats remain represented by their existing rows, and the background action archives all settled chats through the same acpmux archive path as an individual row. Working, waiting and CI-failing chats stay visible. Tests: `AgentPriorityRankingTests.settledStatesAreTheOnlyStatesEligibleForFinishedArchive`, `SidebarPriorityRowActionsTests.archiveFinishedArchivesSettledRowsAndLeavesQuestionsVisible`.
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
 

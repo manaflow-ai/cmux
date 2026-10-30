@@ -10,10 +10,9 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDoneFoldTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
-    static func ws(_ id: String, done: Bool = false, chip: SidebarPriorityEntry.State? = nil) -> SidebarWorkspace {
+    static func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
         var row = SidebarWorkspace(id: WorkspaceID(id), title: id)
         if done { row.taskStatus = .done }
-        row.agentChip = chip
         return row
     }
 
@@ -50,19 +49,6 @@ import Testing
         #expect(Self.keys(Self.options()) == [
             Self.w("a"), Self.w("c"), .group(GroupID("g")), Self.w("g2"), .doneFold(Self.groupFold), .doneFold(Self.looseFold),
         ])
-    }
-
-    @Test func finishedAgentChatsJoinTheCollapsedFold() {
-        let nodes: [SidebarNode] = [
-            .workspace(Self.ws("working")),
-            .workspace(Self.ws("finished", chip: .done)),
-            .workspace(Self.ws("failed", chip: .failed)),
-            .workspace(Self.ws("lost", chip: .lost)),
-            .workspace(Self.ws("waiting", chip: .needsYou)),
-            .workspace(Self.ws("ci", chip: .ciFailing)),
-        ]
-        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: nodes)]
-        #expect(Self.keys(Self.options(), sections) == [Self.w("working"), Self.w("waiting"), Self.w("ci"), .doneFold(Self.looseFold)])
     }
 
     @Test func theFoldRowCountsItsWorkspaces() throws {
@@ -113,25 +99,6 @@ import Testing
     }
 
     /// Marking a workspace Done moves its row: the list lays out again instead of patching the row in place.
-    @Test func finishedAgentStateMovesTheRow() {
-        var model = SidebarModel(sections: Self.sections())
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
-        #expect(!model.patchWorkspaces([Self.ws("a", chip: .done)]))
-        #expect(!model.patchWorkspaces([Self.ws("c", chip: .failed)]))
-    }
-
-    @Test func aGroupWithFinishedAgentChatsIsNotSpliced() throws {
-        let o = Self.options()
-        let group = SidebarGroup(id: GroupID("g"), name: "G", color: .green,
-                                 workspaces: [Self.ws("failed", chip: .failed), Self.ws("live")])
-        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: [.group(group)])]
-        let shown = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
-        #expect(shown.folding(group, collapsed: true, in: sections[0], metrics: .standard, options: o) == nil)
-    }
-
     @Test func markingDoneMovesTheRow() {
         let model = SidebarModel(sections: Self.sections())
         TunableStore.shared.activate(file: nil)
