@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -92,9 +93,9 @@ final class CEFVerificationBridge {
 
     /// A `Runtime.bindingCalled` of the detector's binding from the main frame's world: emits the
     /// report. False for every other message.
-    func handle(_ json: String) -> Bool {
-        guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(VerificationPageScripts.channel)\""),
-              let data = json.data(using: .utf8),
+    func handle(_ head: DevToolsMessageHead) -> Bool {
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(VerificationPageScripts.channel)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == VerificationPageScripts.channel
