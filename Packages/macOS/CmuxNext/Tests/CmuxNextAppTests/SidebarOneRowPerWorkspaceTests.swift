@@ -1,0 +1,59 @@
+import CmuxNextDesign
+@testable import CmuxNextSidebar
+import CoreGraphics
+import Testing
+
+/// Cloud machines made from one image share that image's workspace ids, and the list keeps one row view per key:
+/// a second row with the same id drew nothing, a blank slot above the Cloud rows (Leo 2026-10-29: "why is there all
+/// this weird stuff at the bottom of the sidebar", "the rendering gets borked there too :(").
+@MainActor struct SidebarOneRowPerWorkspaceTests {
+    private func machine(_ name: String, kind: SidebarMachine.Kind, _ nodes: [SidebarNode]) -> SidebarSection {
+        SidebarSection(kind: .machine(SidebarMachine(id: MachineID(name), name: name, kind: kind)), nodes: nodes)
+    }
+
+    private func workspace(_ id: String) -> SidebarNode {
+        .workspace(SidebarWorkspace(id: WorkspaceID(id), title: id))
+    }
+
+    private func layout(_ sections: [SidebarSection]) -> SidebarLayout {
+        var options = SidebarLayoutOptions()
+        options.flattensMachines = true
+        return SidebarLayout.make(sections: sections, metrics: .standard, options: options)
+    }
+
+    /// Four Cloud machines, two of them with the image's workspace: like the sidebar in Leo's capture.
+    private var cloned: [SidebarSection] {
+        [machine("local", kind: .local, [workspace("ws_mac")]),
+         machine("vm-a", kind: .cloud, [workspace("ws_image")]),
+         machine("vm-b", kind: .cloud, [workspace("ws_b")]),
+         machine("vm-c", kind: .cloud, [workspace("ws_image")]),
+         machine("vm-d", kind: .cloud, [workspace("ws_d")])]
+    }
+
+    @Test func everyRowHasItsOwnKey() {
+        let keys = layout(cloned).rows.map(\.key)
+        #expect(Set(keys).count == keys.count)
+    }
+
+    @Test func theFirstMachineToListAnIDKeepsIt() throws {
+        let row = try #require(layout(cloned).row(for: .workspace(WorkspaceID("ws_image"))))
+        #expect(row.section == .machine(MachineID("vm-a")))
+    }
+
+    /// Each row starts one row pitch under the one above it: no slot is left for a row that cannot draw.
+    @Test func noBlankSlotBetweenRows() {
+        let rows = layout(cloned).rows
+        let spacing = SidebarLayoutMetrics.standard.rowSpacing
+        for (above, below) in zip(rows, rows.dropFirst()) {
+            #expect(abs(below.y - (above.maxY + spacing)) < 0.5, "\(below.key) starts \(below.y - above.maxY - spacing) pt late")
+        }
+    }
+
+    @Test func aRepeatedGroupMemberListsOnce() {
+        let group = SidebarGroup(id: GroupID("g"), name: "g", workspaces: [SidebarWorkspace(id: WorkspaceID("ws_image"), title: "x")])
+        let sections = [machine("local", kind: .local, [workspace("ws_image")]), machine("vm-a", kind: .cloud, [.group(group)])]
+        let keys = layout(sections).rows.map(\.key)
+        #expect(keys.filter { $0 == .workspace(WorkspaceID("ws_image")) }.count == 1)
+        #expect(keys.contains(.group(GroupID("g"))))
+    }
+}
