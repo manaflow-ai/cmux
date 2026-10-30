@@ -28,6 +28,10 @@ export const queuedMessageRowId = (promptId: string) => `queued-message-${prompt
 const rowsByEntry = new WeakMap<QueuedEntry, AcpmuxRow>();
 let version = 0;
 
+/// A new version for a queued message's row, from the same count as the rows themselves, so a row
+/// derived from one (pendingMessages.ts, its folded copies) never shares a version with any other.
+export const nextQueuedRowVersion = () => ++version;
+
 /// The queue's agent messages as transcript rows (kind `QUEUED_MESSAGE`), in the queue's order.
 /// The same entries give the same array back, so the transcript's rows keep their identity.
 export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonly AcpmuxRow[]): readonly AcpmuxRow[] {

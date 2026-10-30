@@ -103,7 +103,11 @@ test("a hidden duplicate's Find match lands on the group and on the copy it show
   const first = queued("d1", "nx-sidebar", red);
   const again = queued("d2", "nx-sidebar", red);
   const group = pendingMessagesRow([], [first, again])!;
-  expect(group.pendingMessages?.rows).toEqual([{ ...first, queuedMessage: { promptId: "d1", twins: ["d2"] } }]);
+  // The copy carrying its twin is a new version of it (pendingMessages.ts `carrying`).
+  expect(group.pendingMessages?.rows).toEqual([
+    { ...first, version: expect.any(Number), queuedMessage: { promptId: "d1", twins: ["d2"] } },
+  ]);
+  expect(group.pendingMessages?.rows[0]?.version).not.toBe(first.version);
   expect(findMatches([first, again], "d60a3ddc").map((match) => match.rowId)).toEqual([first.id, again.id]);
   expect(findRowIndex([group], again.id)).toBe(0);
   expect(pendingMemberId(group, again.id)).toBe(first.id);

@@ -561,8 +561,20 @@ function queuedEntry(
 /// `entry` with `from`'s Stop hold (`heldByStop`): an entry rebuilt from a record or a list keeps it
 /// while it is still another agent's message. An edit makes it the person's (hub/queue_edit.rs), and
 /// a person's Stop holds only other agents' messages.
+/// It keeps `from`'s preview mark too (keepPreview): every rebuild over the pane's entry goes through here.
 function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): QueuedPrompt {
-  return from?.heldByStop && !entry.heldByStop && entry.message ? { ...entry, heldByStop: true } : entry;
+  const kept = keepPreview(entry, from);
+  return from?.heldByStop && !kept.heldByStop && kept.message ? { ...kept, heldByStop: true } : kept;
+}
+
+/// `entry`, rebuilt from `from` with the same text, still marked as acpmux's cut preview when `from`
+/// was (QueuedPrompt `preview`): the mark says what its text is, so it holds while the text does.
+/// Every path that rebuilds a queue entry over the one the pane had keeps it (a reorder or send now,
+/// a delivery change, a sender's chat being listed, a Stop hold), else two distinct messages sharing
+/// their first 200 characters become twins in the waiting group (pendingMessages.ts) and Dismiss on
+/// one takes both.
+function keepPreview(entry: QueuedPrompt, from: QueuedPrompt | undefined): QueuedPrompt {
+  return from?.preview && !entry.preview && entry.prompt === from.prompt ? { ...entry, preview: true } : entry;
 }
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
@@ -4110,19 +4122,22 @@ export class AcpmuxDirectClient {
         .map((entry) =>
           next === undefined
             ? entry
-            : keepStopHold(
-                queuedEntry(
-                  entry.id,
-                  entry.prompt,
-                  entry.id === next,
-                  false,
-                  entry.images,
-                  entry.message,
-                  entry.author,
-                  entry.inlineParts,
+            : keepPreview(
+                keepStopHold(
+                  queuedEntry(
+                    entry.id,
+                    entry.prompt,
+                    entry.id === next,
+                    false,
+                    entry.images,
+                    entry.message,
+                    entry.author,
+                    entry.inlineParts,
+                  ),
+                  // Sent now, it is no longer held (hub/queue.rs `put_next`), but its text is the same.
+                  entry.id === next ? undefined : entry,
                 ),
-                // Sent now, it is no longer held (hub/queue.rs `put_next`).
-                entry.id === next ? undefined : entry,
+                entry,
               ),
         );
     } else if (event.kind === "queue_paused" || event.kind === "queue_resumed") {
@@ -6015,15 +6030,18 @@ export class AcpmuxDirectClient {
     if (this.queue.some((queued) => queued.id === promptId && Boolean(queued.sending) !== (next.state === "sending")))
       this.queue = this.queue.map((queued) =>
         queued.id === promptId
-          ? queuedEntry(
-              queued.id,
-              queued.prompt,
-              queued.next === true,
-              next.state === "sending",
-              queued.images,
-              queued.message,
-              queued.author,
-              queued.inlineParts,
+          ? keepStopHold(
+              queuedEntry(
+                queued.id,
+                queued.prompt,
+                queued.next === true,
+                next.state === "sending",
+                queued.images,
+                queued.message,
+                queued.author,
+                queued.inlineParts,
+              ),
+              queued,
             )
           : queued,
       );

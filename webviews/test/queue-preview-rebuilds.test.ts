@@ -55,7 +55,7 @@ async function pane() {
 }
 
 const preview = `${"cmux#27602 review: ".padEnd(200, "x")}…`;
-const shownIds = (queue: readonly QueuedPrompt[]) =>
+const shownIds = (queue: QueuedPrompt[]) =>
   pendingMessagesRow([], queuedMessageRows(queue))!.pendingMessages!.rows.map((row) => [
     row.queuedMessage?.promptId,
     row.queuedMessage?.twins ?? [],

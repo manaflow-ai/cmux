@@ -20,6 +20,7 @@
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
+import { nextQueuedRowVersion } from "./queuedMessages";
 
 /// The group's row id: one while any message waits.
 export const PENDING_MESSAGES_ROW_ID = "pending-messages";
@@ -116,8 +117,23 @@ function withTwins(members: readonly AcpmuxRow[], waiting: readonly AcpmuxRow[])
   if (twins.size === 0) return members;
   return members.map((row) => {
     const list = twins.get(row);
-    return list && row.queuedMessage ? { ...row, queuedMessage: { ...row.queuedMessage, twins: list } } : row;
+    return list && row.queuedMessage ? carrying(row, list) : row;
   });
+}
+
+// The copy that carries its twins, by the row it was made from: the same twins give the same row back.
+const carriers = new WeakMap<AcpmuxRow, { key: string; row: AcpmuxRow }>();
+
+/// `row` carrying `twins`, as a new version: the transcript memoizes a queued message's row by its id
+/// and version (App.tsx QueuedMessageRow), so a duplicate that arrives or leaves after the copy was
+/// drawn draws it again, and its Dismiss and Send now take back exactly the twins it shows.
+function carrying(row: AcpmuxRow, twins: string[]): AcpmuxRow {
+  const key = twins.join("\u0000");
+  const held = carriers.get(row);
+  if (held?.key === key) return held.row;
+  const made = { ...row, version: nextQueuedRowVersion(), queuedMessage: { ...row.queuedMessage!, twins } };
+  carriers.set(row, { key, row: made });
+  return made;
 }
 
 let version = 0;
