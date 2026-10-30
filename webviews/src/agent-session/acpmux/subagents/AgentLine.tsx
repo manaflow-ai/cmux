@@ -97,7 +97,7 @@ export function AgentLine({
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
 }) {
-  const progressStore = React.useContext(AgentProgressContext);
+  const progressStore = useContext(AgentProgressContext);
   useLayoutEffect(() => {
     if (progressStore && progressAgent) progressStore.updateAgent(progressAgent);
   }, [progressStore, progressAgent]);
