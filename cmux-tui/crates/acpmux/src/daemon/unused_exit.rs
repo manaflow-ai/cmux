@@ -101,10 +101,9 @@ where
     Fut: Future<Output = Option<&'static str>>,
 {
     loop {
-        let seen = match clients.wait_for(|u| u.clients == 0).await {
-            Ok(u) => u.arrivals,
-            Err(_) => return std::future::pending().await,
-        };
+        // The guard `wait_for` returns is a lock: read from it and drop it before any await.
+        let seen = clients.wait_for(|u| u.clients == 0).await.map(|u| u.arrivals);
+        let Ok(seen) = seen else { return std::future::pending().await };
         let arrived = tokio::select! {
             _ = tokio::time::sleep(grace) => false,
             _ = clients.wait_for(|u| u.arrivals != seen) => true,
