@@ -146,10 +146,11 @@ final class SidebarFooterBand {
         let x: CGFloat, midY: CGFloat
         let columnX = SidebarStyle.trailingColumnCenterX(sidebarWidth: host.bounds.width)
         if let row = bandFirstRow {
-            // The search button shares the list rows' trailing column. A band item that would
-            // cover it is a layout error; keeping the column fixed makes the failure visible in
-            // the trailing-column geometry tests instead of silently adding a per-footer offset.
-            (x, midY) = (columnX - side / 2, row.frame.midY + searchLensDrop)
+            // The search button shares the list rows' trailing column. Preserve the footer's
+            // no-overlap guarantee for a customized row whose leading items are wider than the
+            // normal avatar slot; ordinary rows keep the shared column exactly.
+            let columnMinX = columnX - side / 2
+            (x, midY) = (max(columnMinX, row.itemsMaxX + Metrics.space2), row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
