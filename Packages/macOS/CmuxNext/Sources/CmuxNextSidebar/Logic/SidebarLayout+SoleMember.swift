@@ -10,8 +10,13 @@ nonisolated extension SidebarLayout {
     /// item member, a member named otherwise (names compared trimmed), or subgroups under it.
     static func soleMember(_ group: SidebarGroup, _ members: [SidebarGroupMember], hasSubgroups: Bool) -> SidebarWorkspace? {
         guard members.count == 1, !hasSubgroups, case let .workspace(ws) = members[0] else { return nil }
+        return names(group, ws.title) ? ws : nil
+    }
+
+    /// Whether `title` is `group`'s name (both trimmed, the name not empty).
+    static func names(_ group: SidebarGroup, _ title: String) -> Bool {
         let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !name.isEmpty && ws.title.trimmingCharacters(in: .whitespacesAndNewlines) == name ? ws : nil
+        return !name.isEmpty && title.trimmingCharacters(in: .whitespacesAndNewlines) == name
     }
 
     /// The session-tree depth `ws` draws at when it is `group`'s one live row, or nil when the group keeps its header
