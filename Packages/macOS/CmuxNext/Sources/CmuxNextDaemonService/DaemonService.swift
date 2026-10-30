@@ -425,7 +425,14 @@ public final class DaemonService {
         // The ticket opens now, so an action that awaits its scope waits
         // for this command even before the task starts.
         let ticket = openTicket(label)
-        let task = Task { await failure(label, ticket: ticket, body) }
+        let task = Task {
+            let (failed, notReady) = await outcome(label, ticket: ticket, body)
+            // A pane verb on a pane still opening (``PaneNotReady``): a fire-and-forget `send` that no action.run scope
+            // captures (a key, the menu) shows nothing for its failure, so it says why here, once (rule a). A capturing
+            // caller answers the typed refusal; effect paths show it through the registry.
+            if notReady, ticket == nil, let failed { onPaneNotReady?(failed.message) }
+            return failed
+        }
         workTracker?(task)
     }
 
@@ -449,24 +456,30 @@ public final class DaemonService {
 
     func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
+        await outcome(label, ticket: ticket, body).failure
+    }
+
+    /// ``failure(_:ticket:_:)`` and whether it was a ``PaneNotReady`` (refused before it was sent).
+    private func outcome(_ label: String, ticket: CommandTicket?,
+                         _ body: DaemonCommandBody) async -> (failure: ActionWorkFailure?, notReady: Bool) {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
+            return (ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"), false)
         }
+        // One return after the do/catch (an awaiting do and its catch must not each return a tuple: swiftlang/swift#92698).
+        var failure: ActionWorkFailure?
+        var notReady = false
         do {
             try await body(connection)
             await closeTicket(ticket, label: label, error: nil, replying: connection)
-            return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            let failure = workFailure(label, error)
-            // A pane verb on a pane still opening: a run nobody captures (a key, the menu) shows nothing for a failed
-            // `send`, so this one says why, once (rule a). A capturing caller gets the typed refusal instead.
-            if error is PaneNotReady, ticket == nil { onPaneNotReady?(failure.message) }
-            return failure
+            failure = workFailure(label, error)
+            notReady = error is PaneNotReady
         }
+        return (failure, notReady)
     }
 
     /// Receives every command task `send` starts, so an action run from the
