@@ -32,7 +32,8 @@ export type WebhookErrorSample = {
 const WEBHOOK_ERROR_WINDOW_MS = 60 * 60 * 1_000;
 /**
  * Lease contention between sibling events of one purchase clears within
- * minutes through Stripe redelivery and the five-minute replay cron.
+ * minutes through the inbox's retries on the five-minute cron. An event still
+ * unprocessed after this, with or without an error, pages.
  */
 const RETRYABLE_WEBHOOK_ERROR_GRACE_MS = 15 * 60 * 1_000;
 const UNSENT_EMAIL_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -103,11 +104,14 @@ async function countWebhookErrorsInDb(
     .select({ id: stripeWebhookEvents.id, type: stripeWebhookEvents.type, error: stripeWebhookEvents.error })
     .from(stripeWebhookEvents)
     .where(and(
-      isNotNull(stripeWebhookEvents.error),
       isNull(stripeWebhookEvents.processedAt),
       gte(stripeWebhookEvents.createdAt, since),
       or(
-        not(like(stripeWebhookEvents.error, `${STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX}%`)),
+        and(
+          isNotNull(stripeWebhookEvents.error),
+          not(like(stripeWebhookEvents.error, `${STRIPE_WEBHOOK_RETRYABLE_ERROR_PREFIX}%`)),
+        ),
+        // Still in the inbox past the grace: failing, or never processed.
         lt(stripeWebhookEvents.createdAt, retryableBefore),
       ),
     ))
