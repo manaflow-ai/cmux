@@ -8,17 +8,18 @@ import Testing
 /// toolbar rows then. Its rows must keep their edge: before, every vertical pin was required, AppKit
 /// broke one of its own choosing, and when that was the toolbar's top pin the omnibar came back at
 /// the bottom of the pane with `browser.toolbarPosition` top (user report, 2026-10-29). Rects are in
-/// window coordinates (y up).
+/// window coordinates (y up). Which pin AppKit breaks is its own choice, so the tests also count the
+/// conflicts it reports (`ConflictRecordingWindow`): there must be none.
 @MainActor @Suite(.serialized) struct BrowserToolbarCollapsedHostTests {
     struct Hosted {
-        let window: NSWindow
+        let window: ConflictRecordingWindow
         let host: NSView
         let chrome: BrowserChromeView
         let page: WebKitTab
 
         init(position: ToolbarPosition) {
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
-                              backing: .buffered, defer: false)
+            window = ConflictRecordingWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
+                                             backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             let root = NSView(frame: window.contentLayoutRect)
             window.contentView = root
@@ -60,6 +61,7 @@ import Testing
         defer { view.tearDown() }
         let height = view.chrome.toolbarHeight.constant
         let collapsed = view.collapseAndRestore()
+        #expect(view.window.verticalConflicts.isEmpty, "AppKit broke a vertical pin: \(view.window.verticalConflicts)")
         #expect(collapsed.collapsed.height == height, "the toolbar row keeps its height while the host is 0 high")
         #expect(collapsed.collapsed.maxY == collapsed.collapsedChrome.maxY, "pinned to the chrome's top while collapsed")
         let toolbar = view.rect(view.chrome.toolbar), page = view.rect(view.chrome.contentContainer), all = view.rect(view.chrome)
@@ -74,6 +76,7 @@ import Testing
         defer { view.tearDown() }
         let height = view.chrome.toolbarHeight.constant
         let collapsed = view.collapseAndRestore()
+        #expect(view.window.verticalConflicts.isEmpty, "AppKit broke a vertical pin: \(view.window.verticalConflicts)")
         #expect(collapsed.collapsed.height == height)
         #expect(collapsed.collapsed.minY == collapsed.collapsedChrome.minY, "pinned to the chrome's bottom while collapsed")
         let toolbar = view.rect(view.chrome.toolbar), page = view.rect(view.chrome.contentContainer), all = view.rect(view.chrome)
@@ -82,4 +85,29 @@ import Testing
         #expect(page.maxY == all.maxY, "the page fills to the top again")
         #expect(page.minY >= toolbar.maxY)
     }
+}
+
+/// A window that keeps the constraint sets AppKit reports as unsatisfiable. AppKit hands each set to
+/// `visualizeConstraints(_:)` when `NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints` is on
+/// (registered here, in memory only).
+@MainActor final class ConflictRecordingWindow: NSWindow {
+    private(set) var conflicts: [[NSLayoutConstraint]] = []
+
+    override init(contentRect: NSRect, styleMask style: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
+        UserDefaults.standard.register(defaults: ["NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints": true])
+        super.init(contentRect: contentRect, styleMask: style, backing: backing, defer: flag)
+    }
+
+    override func visualizeConstraints(_ constraints: [NSLayoutConstraint]?) {
+        conflicts.append(constraints ?? [])
+    }
+
+    /// The reported sets with a vertical constraint in them (a 0-wide layout's horizontal ones are another matter).
+    var verticalConflicts: [[NSLayoutConstraint]] {
+        conflicts.filter { set in set.contains { $0.firstAttribute.isVertical || $0.secondAttribute.isVertical } }
+    }
+}
+
+extension NSLayoutConstraint.Attribute {
+    var isVertical: Bool { [.top, .bottom, .height, .centerY, .firstBaseline, .lastBaseline].contains(self) }
 }
