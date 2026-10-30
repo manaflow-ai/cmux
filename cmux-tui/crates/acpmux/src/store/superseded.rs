@@ -59,16 +59,16 @@ fn call_of(rec: &EventRecord) -> Option<(String, bool)> {
     let params = rec.msg.get("params")?;
     let id = params.pointer("/update/toolCallId")?.as_str()?;
     let owner = params.pointer("/_meta/acpmux/subagent");
-    let plain = match params.get("_meta").and_then(Value::as_object) {
-        None => true,
-        Some(meta) => {
+    // Any `_meta` but that owner, of any type, may be read: the record is not plain.
+    let plain = params.get("_meta").is_none_or(|meta| {
+        meta.as_object().is_some_and(|meta| {
             meta.len() == 1
                 && meta
                     .get("acpmux")
                     .and_then(Value::as_object)
                     .is_some_and(|m| m.len() == 1 && owner.is_some())
-        }
-    };
+        })
+    });
     Some((format!("{}\u{0}{id}", owner.map(Value::to_string).unwrap_or_default()), plain))
 }
 

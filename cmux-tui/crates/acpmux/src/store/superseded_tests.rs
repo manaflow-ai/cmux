@@ -225,6 +225,13 @@ fn a_subagents_call_supersedes_nothing_of_its_chats_call_of_the_same_id() {
     child.msg["params"]["_meta"] = json!({"acpmux": {"subagent": "toolu_task"}});
     let log = vec![output(1, "c", "chat's output"), child];
     assert_eq!(read_back(&log), log);
+    // A `_meta` of any other shape is read as it is: never plain.
+    for meta in [json!(null), json!("x"), json!({"acpmux": {"subagent": "t", "other": 1}})] {
+        let mut older = output(1, "c", "older");
+        older.msg["params"]["_meta"] = meta;
+        let log = vec![older, output(2, "c", "newer")];
+        assert_eq!(read_back(&log), log);
+    }
 }
 
 /// A record a page sends as a stub (too big for a message) carries none of its output: it
