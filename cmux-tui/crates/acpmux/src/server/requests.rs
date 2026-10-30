@@ -12,6 +12,7 @@ mod mailbox;
 pub(super) mod person_stop;
 mod presets;
 mod successor;
+mod turn_opener;
 #[path = "watches.rs"]
 mod watches;
 
@@ -2025,11 +2026,13 @@ async fn dispatch_request(
             } else {
                 events::newest_seq(&page.events)
             };
+            // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
+            let opener = turn_opener::turn_opener(hub, &s.id, &page);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence}),
+                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener}),
             )
         }
         method::MUX_DETACH => {

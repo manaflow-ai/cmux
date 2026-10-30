@@ -15,7 +15,14 @@ import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMes
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { isRunGroup, SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
+import {
+  isRunGroup,
+  SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  WORKFLOW_CARD,
+} from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
@@ -149,6 +156,10 @@ export type QueuedPrompt = {
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;
+  /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
+  /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
+  /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
+  heldByStop?: true;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -242,7 +253,8 @@ export type AcpmuxRow = {
   /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
   /// now already (acpmux marks it `next`; it runs right after the turn).
   /// `lead`: the first of the queued messages, which says "Read after this turn" for them all.
-  queuedMessage?: { promptId: string; next?: boolean; lead?: boolean };
+  /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`).
+  queuedMessage?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -1173,6 +1185,8 @@ function fallbackRowHeight(
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);
+  // Empty child copy is measured on mount; start with two body lines.
+  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.

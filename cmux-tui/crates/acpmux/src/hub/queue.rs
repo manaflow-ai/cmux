@@ -724,22 +724,28 @@ impl Hub {
     /// continuation's end) never ends that hold; only the person's next turn or a resume does.
     /// Read under the queue's lock, where the hold begins and ends.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
-        let mut resumed = false;
+        let mut released = Vec::new();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         for q in queue.iter_mut() {
-            if ids.contains(&q.prompt_id) && !(stop_held && q.run.agent.is_some()) {
-                resumed |= std::mem::take(&mut q.held);
+            if ids.contains(&q.prompt_id)
+                && !(stop_held && q.run.agent.is_some())
+                && std::mem::take(&mut q.held)
+            {
+                released.push(q.prompt_id.clone());
             }
         }
         drop(queue);
+        let resumed = !released.is_empty();
         if resumed {
             session.queue_moved.notify_waiters();
+            // Only those it let go: one the Stop still holds stays held, in a client and after a
+            // restart (`restore_queue`).
             self.append(
                 session,
                 "mux",
                 "queue_resumed",
-                json!({"queued": session.queued(), "promptIds": ids}),
+                json!({"queued": session.queued(), "promptIds": released}),
             );
         }
         resumed

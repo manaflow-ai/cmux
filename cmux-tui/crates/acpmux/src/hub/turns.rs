@@ -37,10 +37,21 @@ pub(super) async fn agent_blocks(
     acp_prompt_blocks(session, if web() { blocks } else { &copied })
 }
 
-/// A prompt not written to its agent: a Stop came while its model-sized copies were made.
+/// A prompt not written to its agent: a Stop came while its model-sized copies were made, or
+/// while its agent started.
 pub(super) fn stopped_before_prompt() -> RpcError {
     RpcError::new(-32000, "the turn was stopped before this prompt reached the agent")
         .with_data(json!({"reason": "stopped"}))
+}
+
+/// Whether `e` is [`stopped_before_prompt`]: the turn it ends is the Stop's, cancelled, not failed.
+fn is_stopped_before_prompt(e: &RpcError) -> bool {
+    e.data.as_ref().is_some_and(|d| d["reason"] == "stopped")
+}
+
+/// What a turn a Stop ended before its prompt reached the agent answers in its `turn_result`.
+fn stopped_answer() -> Value {
+    json!({"stopReason": "cancelled"})
 }
 
 /// ACP v1 does not define a `document` content block. Claude's translator can
@@ -829,8 +840,9 @@ impl Hub {
                         // Its start read the chat ready: the turn runs on.
                         self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
-                            // A Stop while its copies were made: not written (as the first).
-                            let cancels = session.cancels.load(Ordering::SeqCst);
+                            // A Stop since this turn began: not written. That is one while its
+                            // copies were made (as the first), and one while the chat had no
+                            // agent between the two, which found none to cancel (`cancel.rs`).
                             // A prompt that cannot be put into blocks is the turn's error, so
                             // `finish_turn` settles the turn rather than leaving it running.
                             let wire = agent_blocks(self, session, &blocks).await;
@@ -988,9 +1000,8 @@ impl Hub {
         let carried_next = next.filter(|_| !detached);
         // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
         // unless its agent runs on in the turn that takes its place (`carried_turn.rs`).
-        if take_if_turn(&session.stopping, turn_id)
-            && let Some(n) = carried_next
-        {
+        let was_stopping = take_if_turn(&session.stopping, turn_id);
+        if was_stopping && let Some(n) = carried_next {
             *session.stopping.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(n.next.turn_id.clone());
         }
@@ -1104,6 +1115,18 @@ impl Hub {
             super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
+        // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`),
+        // or the agent of a turn a Stop was stopping ended it with an error (it exited, its
+        // cancel failed, or it reported one): the turn ends as the Stop's, cancelled, and holds
+        // no queue as a failure does; the prompt's caller still hears why.
+        let stopped_early = result
+            .as_ref()
+            .err()
+            .filter(|e| is_stopped_before_prompt(e) || (was_stopping && !carries_on))
+            .cloned();
+        if stopped_early.is_some() {
+            result = Ok(stopped_answer());
+        }
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -1114,8 +1137,11 @@ impl Hub {
                     "turn_end",
                     json!({"stopReason": stop, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
-                let status =
-                    if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
+                // A turn a Stop was stopping ended as the Stop's, whatever stop reason its agent
+                // gave: an adapter that answers the cancel `end_turn` still stopped, so clients
+                // offer Continue on it. Not one whose agent runs on into the next turn.
+                let stopped = stop.as_str() == Some("cancelled") || (was_stopping && !carries_on);
+                let status = if stopped { "cancelled" } else { "completed" };
                 let mut msg = json!({"status": status, "stopReason": stop, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     o.extend(self.turn_error_fields(session, None));
@@ -1205,7 +1231,10 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
-        result
+        match stopped_early {
+            Some(e) => Err(e),
+            None => result,
+        }
     }
 
     /// A turn refused after it was accepted (dispatch check, remote floor): failed unstarted.
@@ -1244,6 +1273,10 @@ impl Hub {
     /// sees the prompt settle instead of a turn that never starts. It fails alone: the prompts
     /// behind it are not held (`pause_queue`), each gets its own try, as after a Stop. Only a turn
     /// whose prompt reached its agent and failed holds them (`finish_turn`).
+    ///
+    /// One a Stop kept from its agent ([`stopped_before_prompt`], a Stop while the agent started
+    /// or the prompt's copies were made) ends as the Stop's turn: cancelled, so clients offer
+    /// Continue on it, as on any stopped turn.
     fn fail_unstarted_turn(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -1254,10 +1287,38 @@ impl Hub {
     ) {
         let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
+        // It no longer reads `stopping`: a Stop that came while its agent started (`cancel.rs`)
+        // ends it as stopped, also when the start then failed.
+        let was_stopping = take_if_turn(&session.stopping, turn_id);
         // The prompt behind it waits for no turn now (`queue_turn`).
         session.queue_moved.notify_waiters();
-        // The agent messages that joined it never reached the agent either: back unheld.
+        // The agent messages that joined it never reached the agent either: back unheld, unless
+        // a person's Stop holds them (`requeue_joined`).
         self.requeue_joined(session, joined, false);
+        let stopped_early = is_stopped_before_prompt(e);
+        if stopped_early || was_stopping {
+            let stop = stopped_answer()["stopReason"].clone();
+            self.append(
+                session,
+                "mux",
+                "turn_end",
+                json!({"stopReason": stop, "turnId": turn_id, "turnSeq": 0}),
+            );
+            let msg = json!({"status": "cancelled", "stopReason": stop, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+            self.record_last_turn(session, &msg);
+            self.append(session, "mux", "turn_result", msg);
+            self.reset_stream(session);
+            // Its agent started (a Stop kept the prompt from it), or failed to: the chat waits
+            // for the next prompt, or says its agent is not running.
+            if session.status() != SessionStatus::Closed {
+                let status =
+                    if stopped_early { SessionStatus::Ready } else { SessionStatus::Disconnected };
+                self.set_status(session, status);
+            }
+            self.save_meta(session);
+            self.lane_turn_ended(session, false, turn);
+            return;
+        }
         let mut e = e.clone();
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
         let typed = crate::recovery::fields(&e);

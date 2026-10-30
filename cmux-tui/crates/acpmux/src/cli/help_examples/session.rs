@@ -175,8 +175,8 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session import",
         &[
             (
-                "Restore an exported bundle on this machine",
-                "acpmux session import ~/.acpmux/bundles/mini-3-review-27",
+                "Restore a bundle exported with --dest ~/bundles",
+                "acpmux session import ~/bundles/mini-3-review-27",
             ),
             (
                 "Import a bundle under a new name",

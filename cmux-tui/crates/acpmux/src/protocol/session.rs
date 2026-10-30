@@ -426,6 +426,12 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+    /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+    /// on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub held_by_stop: bool,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,
