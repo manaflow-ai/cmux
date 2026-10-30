@@ -707,6 +707,70 @@ import Testing
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
 
+    /// On the displayed sheet AppKit dispatches a click's mouse-up as an event of its own, after the
+    /// mouse-down's dispatch or inside it, and Allow's action runs in the mouse-up's dispatch (HQ#5121: a
+    /// click on the displayed Allow on a GUI fleet Mac found no mouse-down held). The person's click on Allow
+    /// grants there. A mouse-up the check refuses, one on Deny, a press while Allow is held, another event
+    /// between the two halves of the click and a press after the click grant nothing.
+    @Test(arguments: [false, true]) func thePersonsClickOnAllowGrantsWhenItsMouseUpIsDispatchedOnItsOwn(nested: Bool) async throws {
+        _ = NSApplication.shared
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        await model.refresh()
+        model.refused(JoinConsentRefusal(requester: "lane-vm-3", surface: .screen))
+        let panel = JoinConsentAskPanel(model: model)
+        panel.content.rebuild()
+        panel.setContentSize(panel.content.fittingSize)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let allow = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.allow") as? NSButton)
+        let deny = try #require(AddDeviceShotsTests.find(panel.content, id: "cmux.joinConsentAsk.deny") as? NSButton)
+        let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
+        var number = 0
+        let event = { (type: NSEvent.EventType, at: NSPoint) throws -> NSEvent in
+            number += 1
+            return try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: TimeInterval(number),
+                                                   windowNumber: panel.windowNumber, context: nil, eventNumber: number, clickCount: 1, pressure: 0))
+        }
+        var genuine: Set<Int> = []
+        panel.isPersonEvent = { genuine.contains($0.eventNumber) }
+        var current: NSEvent?
+        panel.eventInHand = { current }
+        /// The person's mouse-down dispatched on `down`'s view, then `between`, then the mouse-up on `up`'s view
+        /// (the person's when `person`) dispatched with `inside` in it: nested in the mouse-down's dispatch or after it.
+        let click = { (down: NSView, up: NSView, person: Bool, between: () -> Void, inside: () -> Void) throws in
+            let pressed = try event(.leftMouseDown, center(down)), released = try event(.leftMouseUp, center(up))
+            genuine.insert(pressed.eventNumber)
+            if person { genuine.insert(released.eventNumber) }
+            current = pressed
+            panel.dispatch(pressed) {
+                guard nested else { return }
+                between()
+                current = released
+                panel.dispatch(released, inside)
+            }
+            guard !nested else { return }
+            between()
+            current = released
+            panel.dispatch(released, inside)
+        }
+        let other = { (type: NSEvent.EventType) in
+            guard let made = try? event(type, center(allow)) else { return }
+            genuine.insert(made.eventNumber)
+            current = made
+            panel.dispatch(made) { _ = allow.accessibilityPerformPress() }
+        }
+        try click(allow, allow, false, {}) { allow.performClick(nil) } // the check refuses the mouse-up
+        try click(allow, deny, true, {}) { allow.performClick(nil) } // pressed on Allow, released on Deny
+        try click(allow, allow, true, { other(.leftMouseDragged) }) {} // pressed while Allow is still held
+        _ = allow.accessibilityPerformPress() // after the click, its mouse-up still current
+        try click(allow, allow, true, { other(.rightMouseDown) }) { allow.performClick(nil) } // another event between
+        for _ in 0..<50 { await Task.yield() }
+        #expect(fake.writes.isEmpty && model.ask != nil)
+        try click(allow, allow, true, {}) { allow.performClick(nil) }
+        for _ in 0..<1000 where model.ask != nil { await Task.yield() }
+        #expect(fake.writes == ["screen true"] && model.ask == nil)
+    }
+
     @Test func theStrictPersonCheckTakesOnlyTheHIDSystemsInput() throws {
         let event = { (pid: Int64, state: CGEventSourceStateID) throws -> NSEvent in
             // No event source: making one (CGEventSource) can hang inside SkyLight on a headless Mac. The
