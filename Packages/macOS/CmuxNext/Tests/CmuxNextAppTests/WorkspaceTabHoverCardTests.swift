@@ -114,6 +114,19 @@ struct WorkspaceTabHoverCardTests {
         #expect(card.tabList.reportedLines.count == 5)
     }
 
+    @Test func overflowMoreControlIsAnInteractiveHoverCardTarget() throws {
+        let view = WorkspaceTabHoverCardView(rowLimit: 1)
+        view.configure(title: "project", tabs: (1...3).map { SidebarTab(id: TabID("tab-\($0)"), title: "Tab \($0)") })
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 280, height: 160), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.contentView = nil; window.close() }
+        window.contentView = view
+        view.frame = window.contentView?.bounds ?? .zero
+        view.layoutSubtreeIfNeeded()
+        let more = try #require(view.subviews.first?.subviews.compactMap { $0 as? NSButton }.first)
+        let screenPoint = window.convertPoint(toScreen: more.convert(NSPoint(x: more.bounds.midX, y: more.bounds.midY), to: nil))
+        #expect(view.acceptsHoverCardMouse(at: screenPoint, in: window))
+    }
+
     @Test func rowsReportTabDetailsAndReturnFocusesTheSelectedTab() throws {
         let view = WorkspaceTabHoverCardView()
         var selected: TabID?

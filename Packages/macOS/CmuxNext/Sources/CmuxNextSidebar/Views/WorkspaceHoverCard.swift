@@ -543,10 +543,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
-        let point = superview?.convert(panel.convertPoint(fromScreen: screenPoint), from: nil) ?? .zero
+        if tabList.acceptsHoverCardMouse(at: screenPoint, in: panel) { return true }
+        let point = convert(panel.convertPoint(fromScreen: screenPoint), from: nil)
         var hit = hitTest(point)
         while let view = hit {
-            if view === detailsToggle || view is WorkspaceTabHoverCardRow || view is NSControl { return true }
+            if view === detailsToggle { return true }
             if view === customSlot, detailsExpanded { return true }
             hit = view.superview
         }
