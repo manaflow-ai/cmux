@@ -1,3 +1,6 @@
+import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// User-facing reasons for typed "unavailable" and "failed" action
@@ -32,6 +35,8 @@ enum MiscHandlerStrings {
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
     static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
+    /// A create's target was a pending pane whose own create was never made (`PendingPaneNotCreated`, P0 2026-10-30).
+    static var pendingPaneNotCreated: String { String(localized: "handlers.misc.failed.pendingPaneNotCreated", defaultValue: "The pane it was for was not created.", table: "MiscHandlers", bundle: .module) }
     static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
@@ -103,5 +108,15 @@ enum MiscHandlerStrings {
     static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)
+    }
+}
+
+extension ActionWorkFailure {
+    /// The failure of a person's optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it:
+    /// ``PendingPaneNotCreated`` reads in the app's language at this boundary (its English text stays for the log); other
+    /// errors keep the daemon's own text, as before.
+    static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        if error is PendingPaneNotCreated { return ActionWorkFailure("\(label): \(MiscHandlerStrings.pendingPaneNotCreated)") }
+        return ActionWorkFailure(label, error)
     }
 }

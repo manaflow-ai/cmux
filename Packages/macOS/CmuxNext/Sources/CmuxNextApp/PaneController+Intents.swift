@@ -206,7 +206,7 @@ extension PaneController {
             } catch {
                 services.cache.createTabs.released(pending.tab) // the daemon refused it: the stand-in is gone
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new-tab", error)
+                return .create("new-tab", error)
             }
         }
         self.workspace?.pendingCreate = work
