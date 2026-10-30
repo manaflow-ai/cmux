@@ -65,3 +65,23 @@ test("a long mock chat opens on its newest page and pages back to its first mess
     client.close();
   }
 });
+
+test("learning a native chat thread seeds the live subagent fold even when unnamed", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  let seeded: string | undefined;
+  const client = Object.create(AcpmuxDirectClient.prototype) as any;
+  client.summary = { agentSessionId: "native-root" };
+  client.sessions = [];
+  client.selectedSessionId = "chat";
+  client.subagents = {
+    chat: undefined,
+    deferredRun: false,
+    harness: undefined,
+    names: () => false,
+    setRoot: (id: string) => {
+      seeded = id;
+    },
+  };
+  client.learnChatThread();
+  expect(seeded).toBe("native-root");
+});
