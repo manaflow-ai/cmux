@@ -70,7 +70,7 @@
   display: flex;
   align-items: center;
   height: var(--cv-message-subhead);
-  gap: calc(var(--ds-space-1) + 2px);
+  gap: var(--ds-space-1);
   min-width: 0;
   white-space: nowrap;
 }

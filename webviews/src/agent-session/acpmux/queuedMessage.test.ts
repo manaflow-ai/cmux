@@ -87,12 +87,17 @@ test("a queue row the pane never read the record of is an agent's message when t
 });
 
 test("a queue listing with agent_message provenance keeps its sender without fromAgent", () => {
-  const listed = mergeQueue([], [{
-    promptId: "p-provenance",
-    prompt: "Rebase first",
-    client: "acpmux",
-    _meta: { provenance: { kind: "agent_message", from: "acp:s-deputy", fromName: "coord-deputy" } },
-  }]);
+  const listed = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p-provenance",
+        prompt: "Rebase first",
+        client: "acpmux",
+        _meta: { provenance: { kind: "agent_message", from: "acp:s-deputy", fromName: "coord-deputy" } },
+      },
+    ],
+  );
   expect(listed[0]?.message).toEqual({
     name: "coord-deputy",
     sessionId: "s-deputy",

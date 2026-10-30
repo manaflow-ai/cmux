@@ -2714,7 +2714,7 @@ pre.cv-math-source {
   max-width: 45%;
   min-width: 0;
   height: var(--cv-message-line);
-  gap: calc(var(--ds-space-1) + 2px);
+  gap: var(--ds-space-1);
   padding-inline-start: var(--ds-space-1);
 }
 .cv-received__mark {
