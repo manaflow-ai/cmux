@@ -611,3 +611,58 @@ describe("Home attachments: a part keeps its claim until R2 answers, and a recor
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: a request that lost its part's claim changes nothing and is told to send again", { timeout: 120_000 }, () => {
+  it("a stale last part with other bytes, whose claim another request took while R2 wrote it, neither ends the slot nor aborts the upload; its answer is retryable", async () => {
+    const alice = await signIn("att-stale-last-part")
+    const { id } = await group(alice)
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 5) % 199)
+    const m = await multipart(alice, id, body)
+    expect((await m.putPart(1)).status).toBe(200)
+    let written!: () => void
+    const wrote = new Promise<void>((r) => (written = r))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const own = (x: object, q: string | symbol) => {
+      const v = Reflect.get(x, q)
+      return typeof v === "function" ? v.bind(x) : v
+    }
+    const slow = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "resumeMultipartUpload") return own(t, p)
+        return (key: string, uploadId: string) =>
+          new Proxy(t.resumeMultipartUpload(key, uploadId), {
+            get: (u, q) =>
+              q === "uploadPart"
+                ? async (n: number, value: ReadableStream) => {
+                    const done = await u.uploadPart(n, value)
+                    written()
+                    await gate
+                    return done
+                  }
+                : own(u, q)
+          })
+      }
+    })
+    const wrong = new Uint8Array(17).fill(0xee)
+    const stale = handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: wrong, headers: { "content-length": "17", "x-cmux-part-number": "2" } }), { ...testEnv, HOME_ATTACHMENTS: slow }, id, m.token)
+    await wrote
+    // Another request takes part 2 while R2 writes the stale one.
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET part_claim = '2:other', part_claim_at = ? WHERE id = ?", Date.now(), m.slot))
+    release()
+    const res = await stale
+    const json = (await res.json()) as any
+    expect([res.status, json.error?.code, json.error?.retryable]).toEqual([409, "attachment.part_order", true])
+    const row = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT state FROM home_attachment_slots WHERE id = ?", m.slot).toArray()[0] as { state: string })
+    expect(row.state).toBe("open")
+    // The other request ends without recording; the right bytes then complete the upload.
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET part_claim = NULL, part_claim_at = NULL WHERE id = ?", m.slot))
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
