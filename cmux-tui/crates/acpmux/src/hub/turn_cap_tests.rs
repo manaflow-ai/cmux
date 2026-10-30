@@ -484,3 +484,27 @@ async fn an_adopted_turns_timer_counts_from_the_turns_start() {
     f.open("g").await;
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
 }
+
+/// Another agent's message the inbox holds under the cap (`inbox.rs`: the person's prompt waits,
+/// so no inbox notice steers in, and past the cap none does) waits for the turn too: the timer
+/// sends the notice at the cap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_inbox_message_held_under_the_cap_gets_the_notice_at_the_cap() {
+    let mut f = fixture().await;
+    let cap = 1_500;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    let (person, _next) = f.send("next from the person", None, false, false).await;
+    assert_eq!(person.unwrap()["queued"], true);
+    let opts =
+        PromptOptions { agent: Some("lane-a".into()), inbox: true, ..PromptOptions::default() };
+    let (held, _held) = f.send_with("from lane a", false, opts).await;
+    held.unwrap();
+    let in_inbox = |f: &Fixture| f.session.inbox.lock().unwrap().items.iter().any(|i| !i.noticed);
+    assert!(in_inbox(&f), "held in the inbox, no notice carries it");
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    assert_eq!(f.notices(), [turn_id]);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}
