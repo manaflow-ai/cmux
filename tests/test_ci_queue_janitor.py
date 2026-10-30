@@ -3923,5 +3923,569 @@ class ReservedPoolWorkflowTests(unittest.TestCase):
                 self.assertEqual(self.reserved(f".github/workflows/{name}", "v1;release=arm64"), 0)
 
 
+
+# ---------------------------------------------------------------------------
+# The stall-aware failover at an open pull request's head (open_head_lost(), rerun_open_head()):
+# a job GitHub never assigned is cancelled and re-run as cmux-bot at the same head, in the same sweep.
+# Coordinator-approved 2026-10-30, after 23 runs waited 1.5 to 10 hours at open heads.
+# ---------------------------------------------------------------------------
+
+GUI = "glaeda-gui-std-xcode-26.6"
+
+
+def open_head_world(*, age=85, label=SIDE, siblings=(), attempt=1, actor="leo", path=".github/workflows/cmux-next.yml",
+                    name="cmux-next · aaa", event="pull_request", branch="feature", lost=None, evidence_age=None):
+    """A run at open PR #5's head with one lost job, and another run whose newer same-label job started."""
+    stuck, other, jobs = lost_world(age=age, event=event, branch=branch, sha="aaa", evidence_label=label,
+                                    attempt=attempt, actor=actor, siblings=siblings, evidence_age=evidence_age,
+                                    lost=lost or unassigned_job(age=age, label=label, name="cmux-next fast tier"))
+    stuck.update(path=path, name=name)
+    return stuck, other, jobs, {branch: [make_pr(5, head="aaa")], "other-pin": []}
+
+
+def open_head_plan(runs, jobs, prs, *, cmux_bot=True, rerun_state=True):
+    return janitor.build_plan(runs, jobs, prs, threshold=6, max_cancels=10, pull_request_policy="compile-only",
+                              now=NOW, rerun_state=rerun_state, branch_heads={}, app_rerun=True,
+                              cmux_bot_rerun=cmux_bot)
+
+
+class OpenHeadFailoverScopeTests(unittest.TestCase):
+    def test_a_never_assigned_job_queued_thirty_minutes_after_newer_starts_fails_over(self):
+        for label in (SIDE, GUI):
+            for runner_id in (None, 0):
+                with self.subTest(label=label, runner_id=runner_id):
+                    stuck, other, jobs, prs = open_head_world(
+                        label=label, lost=unassigned_job(age=85, label=label, runner_id=runner_id))
+                    decision = decision_for(open_head_plan([stuck, other], jobs, prs), stuck)
+                    self.assertEqual((decision.action, decision.candidate.category), ("cancel", "lost"))
+                    self.assertTrue(decision.candidate.rerun and decision.candidate.open_head)
+                    self.assertIn("PR #5", decision.candidate.reason)
+                    entries = janitor.new_lost_reruns([decision.candidate], {stuck["id"]: "cancelled"}, now=NOW)
+                    self.assertEqual([entry.get("open_head") for entry in entries], [True])
+
+    def test_an_assigned_job_is_never_failed_over(self):
+        stuck, other, jobs, prs = open_head_world(lost=unassigned_job(age=85, runner_id=12))
+        self.assertIsNone(decision_for(open_head_plan([stuck, other], jobs, prs), stuck))
+        stuck, other, jobs, prs = open_head_world(lost=unassigned_job(age=85, runner_name="mini-3-side"))
+        self.assertIsNone(decision_for(open_head_plan([stuck, other], jobs, prs), stuck))
+
+    def test_under_thirty_minutes_is_left_alone(self):
+        stuck, other, jobs, prs = open_head_world(age=25, evidence_age=20)
+        self.assertIsNone(decision_for(open_head_plan([stuck, other], jobs, prs), stuck))
+
+    def test_without_a_newer_start_on_exactly_its_labels_it_is_only_waiting(self):
+        # Backed up: the newer same-label job still queues; a newer job on another label set started.
+        stuck, other, jobs, prs = open_head_world()
+        jobs[other["id"]] = [unassigned_job(age=60), started_job(age=50, label=[SIDE, "glaeda-ios-sim"]),
+                             started_job(age=50, label=GUI)]
+        self.assertEqual(janitor.find_lost([stuck, other], jobs, now=NOW), {})
+        # Category f may list it (an unclaimed leg), but at the open head it keeps OPEN_HEAD_RULE.
+        decision = decision_for(open_head_plan([stuck, other], jobs, prs), stuck)
+        self.assertTrue(decision is None or (decision.action, decision.note) == ("skip", janitor.OPEN_HEAD_RULE))
+
+    def test_a_nightly_dev_or_promote_run_never_fails_over(self):
+        cases = {
+            # A pull request's run of a delivery workflow (the launch smoke): category e may see it, the failover never.
+            "launch smoke PR run": dict(path=".github/workflows/nightly-next-launch-smoke.yml",
+                                        name="nightly-next launch smoke"),
+            "DEV daily title": dict(name="cmux NEXT DEV daily · aaa"),
+        }
+        for case, overrides in cases.items():
+            with self.subTest(case=case):
+                stuck, other, jobs, prs = open_head_world(**overrides)
+                decision = decision_for(open_head_plan([stuck, other], jobs, prs), stuck)
+                self.assertTrue(decision is None or decision.action == "skip", case)
+                if decision is not None:
+                    self.assertEqual(decision.note, janitor.OPEN_HEAD_RULE)
+        # A feat-cmux-next push (the promote gate) and a nightly push are out of category e's scope altogether.
+        for branch, path in (("feat-cmux-next", ".github/workflows/cmux-next.yml"),
+                             ("nightly-next", ".github/workflows/nightly.yml")):
+            with self.subTest(branch=branch):
+                stuck, other, jobs, prs = open_head_world(event="push", branch=branch, path=path,
+                                                          name="Nightly macOS build")
+                self.assertEqual(janitor.find_lost([stuck, other], jobs, now=NOW), {})
+                self.assertIsNone(decision_for(open_head_plan([stuck, other], jobs, prs), stuck))
+        # open_head_lost() refuses one on its own too, whatever reaches it.
+        run = make_run(event="pull_request", path=".github/workflows/nightly.yml", name="Nightly macOS build")
+        verdict = janitor.open_head_lost(run, [], "lost", make_pr(5), rerun_state=True, newer=None, cmux_bot=True)
+        self.assertEqual((verdict.action, verdict.note), ("skip", janitor.OPEN_HEAD_RULE))
+
+    def test_a_bots_re_run_is_never_cancelled_again(self):
+        # Run 40398277457 was the rescue's attempt 2, cancelled at its head: an attempt a bot started never fails over.
+        for actor in ("github-actions[bot]", "cmux-bot[bot]"):
+            with self.subTest(actor=actor):
+                stuck, other, jobs, prs = open_head_world(attempt=2, actor=actor)
+                decision = decision_for(open_head_plan([stuck, other], jobs, prs), stuck)
+                self.assertEqual((decision.action, decision.note), ("skip", janitor.OPEN_HEAD_RULE))
+                self.assertIn("bot's re-run", decision.candidate.reason)
+        # A person's re-run is any other run.
+        stuck, other, jobs, prs = open_head_world(attempt=2, actor="leo")
+        self.assertEqual(decision_for(open_head_plan([stuck, other], jobs, prs), stuck).action, "cancel")
+
+    def test_a_run_that_already_failed_keeps_its_red(self):
+        failed = started_job(age=90, status="completed", label=LINUX, conclusion="failure")
+        failed["completed_at"] = iso(87)
+        stuck, other, jobs, prs = open_head_world(siblings=[failed])
+        decision = decision_for(open_head_plan([stuck, other], jobs, prs), stuck)
+        self.assertEqual((decision.action, decision.note), ("skip", janitor.OPEN_HEAD_RULE))
+        self.assertIn("already failed", decision.candidate.reason)
+
+    def test_a_newer_run_at_the_head_reports_for_it(self):
+        stuck, other, jobs, prs = open_head_world()
+        newer = make_run(event="pull_request", branch="feature", sha="aaa", status="in_progress", age=10,
+                         path=stuck["path"], name=stuck["name"])
+        jobs[newer["id"]] = [started_job(age=5, label=LINUX)]
+        decision = decision_for(open_head_plan([stuck, other, newer], jobs, prs), stuck)
+        self.assertEqual((decision.action, decision.note), ("skip", janitor.OPEN_HEAD_RULE))
+        self.assertIn(f"newer run {newer['id']}", decision.candidate.reason)
+
+    def test_without_cmux_bot_or_re_run_state_nothing_is_cancelled(self):
+        for cmux_bot, rerun_state in ((False, True), (True, False)):
+            with self.subTest(cmux_bot=cmux_bot, rerun_state=rerun_state):
+                stuck, other, jobs, prs = open_head_world()
+                decision = decision_for(open_head_plan([stuck, other], jobs, prs, cmux_bot=cmux_bot,
+                                                       rerun_state=rerun_state), stuck)
+                self.assertEqual((decision.action, decision.note), ("skip", janitor.OPEN_HEAD_RULE))
+
+    def test_an_unread_page_of_open_pull_requests_fails_closed(self):
+        stuck, other, jobs, prs = open_head_world()
+        prs["feature"] = [{janitor.OPEN_PRS_UNREAD: True, "number": None}, *prs["feature"]]
+        decision = decision_for(open_head_plan([stuck, other], jobs, prs), stuck)
+        self.assertTrue(decision is None or decision.action == "skip")
+
+    def test_other_categories_still_never_cancel_at_an_open_head(self):
+        runs, jobs, prs, expected = OpenHeadNeverCancelledTests.world(OpenHeadNeverCancelledTests())
+        heads = {branch: pr_list[-1]["headRefOid"] for branch, pr_list in prs.items() if pr_list}
+        result = janitor.build_plan(runs, jobs, prs, threshold=6, max_cancels=25, pull_request_policy="compile-only",
+                                    now=NOW, branch_heads=heads, app_rerun=True, cmux_bot_rerun=True)
+        cancelled = {c.run["id"]: c for c in result.to_cancel()}
+        for run_id, category in expected.items():
+            with self.subTest(category=category, run=run_id):
+                if category == "lost" and run_id in cancelled:
+                    self.assertTrue(cancelled[run_id].open_head)
+                else:
+                    self.assertNotIn(run_id, cancelled)
+
+
+class SettlingFakeGitHub(FakeGitHub):
+    """A FakeGitHub whose cancel finishes the run as `cancelled`, as GitHub's does for a run with only queued jobs."""
+
+    on_cancel = None  # called with the run once its cancel is posted: what changes while it settles
+
+    def request(self, method, path, body=None, *, app_only=False):
+        result = super().request(method, path, body, app_only=app_only)
+        tail = path.rsplit("/", 1)[-1]
+        if method == "POST" and tail in ("cancel", "force-cancel"):
+            run = self.runs[int(path.rsplit("/", 2)[-2])]
+            if run["status"] == "completed":
+                run["conclusion"] = "cancelled"
+            if self.on_cancel:
+                self.on_cancel(run)
+        return result
+
+
+class OpenHeadFailoverSweepTests(unittest.TestCase):
+    """main() at an open head: cancel, a bounded wait for the cancel, re-run as cmux-bot, in one sweep."""
+
+    def world(self, **kwargs):
+        stuck, other, jobs, prs = open_head_world(**kwargs)
+        fake = SettlingFakeGitHub({stuck["id"]: dict(stuck), other["id"]: dict(other)}, jobs)
+        fake.app_token = True
+        fake.prs.update(prs)
+        return stuck, fake
+
+    def sweep(self, fake, temp, *args, cmux_bot=True):
+        env = {"CMUX_BOT_TOKEN": "t" if cmux_bot else ""}
+        with mock.patch.dict("os.environ", env):
+            return LostAssignmentSweepTests.sweep(self, fake, temp, *args)
+
+    def test_one_sweep_cancels_and_re_runs_as_cmux_bot(self):
+        stuck, fake = self.world()
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"], [str(stuck["id"]), "rerun-failed-jobs"]])
+        # app_only: never retried on the workflow's token, whose re-run would be github-actions[bot]'s.
+        self.assertEqual(fake.app_only_posts, [f"/repos/manaflow-ai/cmux/actions/runs/{stuck['id']}/rerun-failed-jobs"])
+        self.assertEqual(fake.runs[stuck["id"]]["run_attempt"], 2)
+        self.assertEqual(fake.runs[stuck["id"]]["head_sha"], "aaa")
+        self.assertEqual(fake.runs[stuck["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+        self.assertIn("open-head failover freed 1 lost job run(s) this sweep", text)
+
+        # Its attempt 2 lost its runner again: a bot's re-run is never cancelled at the open head.
+        fake.runs[stuck["id"]].update(status="queued", conclusion=None)
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [])
+
+    def test_a_sweep_whose_token_is_not_cmux_bots_leaves_the_open_head_alone(self):
+        stuck, fake = self.world()
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp, cmux_bot=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [])
+        self.assertNotIn("open-head failover freed", text)
+
+    def test_run_40398277457_a_cancel_the_sweep_cannot_re_run_is_never_left_cancelled(self):
+        # Run 40398277457 was cancelled at its open head and stayed cancelled: its re-run waited on a later sweep
+        # that never made it. Here every way the in-sweep re-run can miss keeps the entry for the next sweep.
+        cases = ("cancel not settled", "re-run refused", "next sweep has no cmux-bot", "cancel read fails")
+        for case in cases:
+            with self.subTest(case=case):
+                stuck, fake = self.world()
+                if case == "cancel not settled":
+                    fake.ignore_cancel.add(stuck["id"])
+                if case in ("re-run refused", "next sweep has no cmux-bot"):
+                    fake.refuse_rerun.add(stuck["id"])
+                if case == "cancel read fails":
+                    original = fake.run
+                    reads = []
+
+                    def flaky(run_id, original=original, reads=reads, stuck=stuck):
+                        # The cancel's two guard reads in cancel_plan() work; every read after the cancel fails.
+                        reads.append(run_id)
+                        if run_id == stuck["id"] and len([r for r in reads if r == run_id]) > 2:
+                            raise http.client.IncompleteRead(b"")
+                        return original(run_id)
+                    fake.run = flaky
+                with tempfile.TemporaryDirectory() as temp:
+                    self.sweep(fake, temp)
+                self.assertIn([str(stuck["id"]), "cancel"], fake.posts())
+                self.assertEqual(fake.runs[stuck["id"]]["run_attempt"], 1)
+                entries = fake.snapshots[-1]["lost_reruns"]
+                self.assertEqual([(e["run_id"], e.get("open_head")) for e in entries], [(stuck["id"], True)])
+
+                # The cancel settles; GitHub takes re-runs again; the read works again.
+                fake.runs[stuck["id"]].update(status="completed", conclusion="cancelled")
+                fake.refuse_rerun.clear()
+                if case == "cancel read fails":
+                    fake.run = original
+                if case == "next sweep has no cmux-bot":
+                    fake.log.clear()
+                    with tempfile.TemporaryDirectory() as temp:
+                        self.sweep(fake, temp, cmux_bot=False)
+                    self.assertEqual(fake.posts(), [])
+                    self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [stuck["id"]])
+                fake.log.clear()
+                with tempfile.TemporaryDirectory() as temp:
+                    self.sweep(fake, temp)
+                self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
+                self.assertEqual(fake.runs[stuck["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+                self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_the_entry_is_saved_before_the_first_read_after_the_cancel(self):
+        stuck, fake = self.world()
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(janitor, "rerun_open_head", side_effect=RecursionError("boom")):
+            with self.assertRaises(RecursionError):
+                self.sweep(fake, temp)
+            saved = json.loads((Path(temp) / "load.json").read_text())
+        self.assertEqual([(e["run_id"], e.get("open_head")) for e in saved["lost_reruns"]], [(stuck["id"], True)])
+
+    def test_the_wait_is_bounded(self):
+        stuck, fake = self.world()
+        fake.ignore_cancel.add(stuck["id"])
+        sleeps = []
+        with tempfile.TemporaryDirectory() as temp:
+            load = Path(temp) / "load.json"
+            summary = Path(temp) / "s.md"
+            summary.write_text("")
+            argv = ["--repo", "manaflow-ai/cmux", "--pool-load", str(load), "--summary", str(summary),
+                    "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t", "CMUX_BOT_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", sleeps.append), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                janitor.main(argv)
+        settle = [s for s in sleeps if s == janitor.LOST_SETTLE_INTERVAL_S]
+        self.assertEqual(len(settle), janitor.LOST_SETTLE_READS - 1)
+        self.assertLessEqual(janitor.LOST_SETTLE_READS * janitor.LOST_SETTLE_INTERVAL_S, 120)
+        reads = [path for method, path in fake.log if method == "GET" and path.endswith(f"/runs/{stuck['id']}")]
+        # The cancel's two guard reads (before and after its jobs are read again), then LOST_SETTLE_READS reads.
+        self.assertEqual(len(reads), 2 + janitor.LOST_SETTLE_READS)
+
+    def test_a_push_to_the_pr_while_the_cancel_settles_means_no_re_run_of_the_old_head(self):
+        # The re-run would replay the old head's event and, through ci.yml's concurrency group, cancel the new
+        # head's CI: the PR is read again after the cancel settles.
+        stuck, fake = self.world()
+        fake.on_cancel = lambda run: fake.prs["feature"][0].update(headRefOid="bbb")
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp)
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+        self.assertEqual(fake.runs[stuck["id"]]["run_attempt"], 1)
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+        self.assertIn("open-head failover freed 0 lost job run(s) this sweep", text)
+        self.assertIn("superseded", text)
+
+    def test_a_newer_run_at_its_head_even_a_green_one_means_no_re_run(self):
+        for conclusion in ("success", None):
+            with self.subTest(conclusion=conclusion):
+                stuck, fake = self.world()
+
+                def newer(run, fake=fake, stuck=stuck, conclusion=conclusion):
+                    fake.runs[stuck["id"] + 1000] = dict(
+                        stuck, id=stuck["id"] + 1000, status="completed" if conclusion else "queued",
+                        conclusion=conclusion, run_attempt=1)
+                fake.on_cancel = newer
+                with tempfile.TemporaryDirectory() as temp:
+                    self.sweep(fake, temp)
+                self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+                self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_an_unread_pull_request_after_the_cancel_keeps_the_entry(self):
+        stuck, fake = self.world()
+        calls = []
+        original = fake.pull_requests
+
+        def pull_requests(branches, original=original):
+            calls.append(list(branches))
+            if len(calls) > 1:  # the sweep's own read works; the one after the cancel fails
+                raise RuntimeError("POST /graphql failed (502)")
+            return original(branches)
+        fake.pull_requests = pull_requests
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+        self.assertEqual([(e["run_id"], e.get("open_head")) for e in fake.snapshots[-1]["lost_reruns"]],
+                         [(stuck["id"], True)])
+
+    def test_slow_reads_never_run_the_wait_past_its_budget(self):
+        # Each read takes 40 s (a timeout and its retries): the wait still ends inside LOST_SETTLE_BUDGET_S, keeps
+        # the entry, and posts nothing after it.
+        stuck, fake = self.world()
+        fake.ignore_cancel.add(stuck["id"])
+        clock = [1000.0]
+        started = []
+        original = fake.request
+
+        def slow(method, path, body=None, *, app_only=False):
+            started.append(clock[0])
+            clock[0] += 40.0
+            return original(method, path, body, app_only=app_only)
+        fake.request = slow
+        candidate = mock.Mock(run=dict(stuck, status="completed", conclusion=None), category="lost", rerun=True,
+                              open_head=True, app_actor=False, pr=make_pr(5), reason="lost")
+        entries = janitor.new_lost_reruns([candidate], {stuck["id"]: "cancelled"}, now=NOW)
+        self.assertTrue(entries and entries[0].get("open_head"))
+        with mock.patch.object(janitor.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(janitor.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s)), \
+                mock.patch("builtins.print"):
+            decisions, pending, results, failures = janitor.rerun_open_head(fake, entries, now=NOW)
+        self.assertTrue(started)
+        self.assertTrue(all(at < 1000.0 + janitor.LOST_SETTLE_BUDGET_S for at in started), started)
+        self.assertLessEqual(clock[0], 1000.0 + janitor.LOST_SETTLE_BUDGET_S + 40.0)
+        self.assertEqual([d.action for d in decisions], ["keep"])
+        self.assertEqual([e["run_id"] for e in pending], [stuck["id"]])
+        self.assertEqual(fake.posts(), [])
+        self.assertIsNone(fake.deadline)
+
+    def test_the_client_never_retries_or_waits_past_its_deadline(self):
+        github = janitor.GitHub("token", "manaflow-ai/cmux")
+        sleeps = []
+        with mock.patch.object(janitor.time, "sleep", sleeps.append), \
+                mock.patch.object(github, "_request", side_effect=janitor._Transient("502")), \
+                mock.patch("builtins.print"):
+            github.deadline = janitor.time.monotonic() + 1.0
+            with self.assertRaises(RuntimeError):
+                github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1")
+        self.assertEqual(sleeps, [])  # the first retry's 2 s would end past the deadline
+        timeouts = []
+
+        class Response:
+            headers = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def urlopen(request, timeout):
+            timeouts.append(timeout)
+            return Response()
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen):
+            github.deadline = janitor.time.monotonic() + 5.0
+            github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1")
+            self.assertLessEqual(timeouts[-1], 5.0)
+            github.deadline = janitor.time.monotonic() - 1.0
+            with self.assertRaises(RuntimeError):
+                github.request("POST", "/repos/manaflow-ai/cmux/actions/runs/1/rerun-failed-jobs")
+        self.assertEqual(len(timeouts), 1)
+
+    def test_a_sweep_past_its_cutoff_leaves_the_re_run_to_the_next_sweep(self):
+        stuck, fake = self.world()
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(janitor, "LOST_FAILOVER_CUTOFF_S", -1.0):
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+        self.assertEqual([(e["run_id"], e.get("open_head")) for e in fake.snapshots[-1]["lost_reruns"]],
+                         [(stuck["id"], True)])
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
+        self.assertEqual(fake.runs[stuck["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+
+    def test_a_lost_job_that_took_a_runner_since_the_inventory_is_never_cancelled(self):
+        # The plan judged the sweep's job inventory; the job took a runner before the cancel. Cancelling now would
+        # interrupt valid work at the PR's head, so the jobs are read again first.
+        stuck, other, jobs, prs = open_head_world()
+        candidate = decision_for(open_head_plan([stuck, other], jobs, prs), stuck).candidate
+        self.assertTrue(candidate.open_head)
+        cases = {
+            "took a runner": [started_job(age=1)],
+            "no job is still unassigned": [],
+            "a job failed": [unassigned_job(age=85), started_job(age=2, status="completed", conclusion="failure")],
+        }
+        for case, now_jobs in cases.items():
+            with self.subTest(case=case):
+                if case == "took a runner":
+                    now_jobs[0]["name"] = jobs[stuck["id"]][0]["name"]
+                    now_jobs[0]["created_at"] = jobs[stuck["id"]][0]["created_at"]
+                fake = FakeGitHub({stuck["id"]: dict(stuck)}, {stuck["id"]: now_jobs})
+                results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+                self.assertTrue(results[stuck["id"]].startswith("skipped ("), results)
+                self.assertIn(case, results[stuck["id"]])
+                self.assertEqual((failures, fake.posts()), (0, []))
+                self.assertEqual(janitor.new_lost_reruns([candidate], results, now=NOW), [])
+        with self.subTest(case="jobs not readable"):
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
+            fake.unreadable_jobs.add(stuck["id"])
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertIn("could not be read again", results[stuck["id"]])
+            self.assertEqual(fake.posts(), [])
+        with self.subTest(case="re-run between the run read and the jobs read"):
+            # The jobs listing is the latest attempt's: a re-run started in between lists jobs whose ids match
+            # nothing in the inventory, which would read as "nothing moved".
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, {stuck["id"]: [dict(unassigned_job(age=1), run_attempt=2)]})
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertEqual(results[stuck["id"]], "skipped (now attempt 2)")
+            self.assertEqual(fake.posts(), [])
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
+            original = fake.jobs
+
+            def jobs_then_rerun(run_id, fake=fake, original=original):
+                listed = original(run_id)
+                fake.runs[run_id]["run_attempt"] += 1
+                return listed
+            fake.jobs = jobs_then_rerun
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertEqual(results[stuck["id"]], "skipped (now attempt 2)")
+            self.assertEqual(fake.posts(), [])
+        with self.subTest(case="still lost"):
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertEqual(results[stuck["id"]], "cancelled")
+            self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+
+    def test_one_cancel_that_never_settles_does_not_cost_the_settled_ones_their_re_run(self):
+        settled, fake = self.world()
+        stuck, other, jobs, prs = open_head_world(branch="feature-b")
+        fake.runs[stuck["id"]] = dict(stuck)
+        fake.prs.update(prs)
+        fake.runs[settled["id"]].update(status="completed", conclusion="cancelled")
+        clock = [1000.0]
+        original = fake.request
+
+        def timed(method, path, body=None, *, app_only=False):
+            clock[0] += 1.0
+            return original(method, path, body, app_only=app_only)
+        fake.request = timed
+
+        def entry(run, branch):
+            candidate = mock.Mock(run=dict(run, status="completed", conclusion=None), category="lost", rerun=True,
+                                  open_head=True, app_actor=False, pr=make_pr(5), reason="lost")
+            return janitor.new_lost_reruns([candidate], {run["id"]: "cancelled"}, now=NOW)[0]
+        entries = [entry(settled, "feature"), entry(stuck, "feature-b")]
+        with mock.patch.object(janitor.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(janitor.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s)), \
+                mock.patch("builtins.print"):
+            decisions, pending, results, failures = janitor.rerun_open_head(fake, entries, now=NOW)
+        self.assertEqual([(d.entry["run_id"], d.action) for d in decisions],
+                         [(settled["id"], "rerun"), (stuck["id"], "keep")])
+        self.assertEqual(fake.posts(), [[str(settled["id"]), "rerun-failed-jobs"]])
+        self.assertEqual([e["run_id"] for e in pending], [stuck["id"]])
+        self.assertLessEqual(clock[0], 1000.0 + janitor.LOST_SETTLE_BUDGET_S + 1.0)
+
+    def test_the_failover_and_the_pending_entries_share_one_re_run_cap(self):
+        # A sweep re-runs at most LOST_RERUN_MAX runs, whether this sweep cancelled them or an earlier one did.
+        earlier, fake = self.world()
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(janitor, "LOST_FAILOVER_CUTOFF_S", -1.0):
+            self.sweep(fake, temp)
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [earlier["id"]])
+        fake.runs[earlier["id"]].update(status="completed", conclusion="cancelled")
+        stuck, other, jobs, prs = open_head_world(branch="feature-b")
+        fake.runs.update({stuck["id"]: dict(stuck), other["id"]: dict(other)})
+        fake.job_map.update(jobs)
+        fake.prs.update(prs)
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(janitor, "LOST_RERUN_MAX", 1):
+            self.sweep(fake, temp)
+        reruns = [post for post in fake.posts() if post[1] == "rerun-failed-jobs"]
+        self.assertEqual(reruns, [[str(stuck["id"]), "rerun-failed-jobs"]])
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [earlier["id"]])
+
+    def test_a_cancel_github_took_but_whose_response_was_lost_is_still_re_run(self):
+        # The POST failed on a dropped connection after GitHub took it: the run ends cancelled at the open head,
+        # and only the kept entry brings it back.
+        stuck, fake = self.world()
+        original = fake.request
+
+        def dropped(method, path, body=None, *, app_only=False):
+            result = original(method, path, body, app_only=app_only)
+            if method == "POST" and path.endswith(f"/runs/{stuck['id']}/cancel"):
+                raise RuntimeError(f"POST /repos/manaflow-ai/cmux/actions/runs/{stuck['id']}/cancel failed "
+                                   "(RemoteDisconnected)")
+            return result
+        fake.request = dropped
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+        self.assertEqual(fake.runs[stuck["id"]]["conclusion"], "cancelled")
+        entries = fake.snapshots[-1]["lost_reruns"]
+        self.assertEqual([(e["run_id"], e.get("open_head"), e.get("cancel_unconfirmed")) for e in entries],
+                         [(stuck["id"], True, True)])
+        fake.request = original
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
+        self.assertEqual(fake.runs[stuck["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_a_cancel_that_did_not_take_drops_its_entry_once_the_run_finishes(self):
+        stuck, fake = self.world()
+        original = fake.request
+
+        def failed(method, path, body=None, *, app_only=False):
+            if method == "POST" and path.endswith(f"/runs/{stuck['id']}/cancel"):
+                fake.log.append((method, path))
+                raise RuntimeError(f"POST /repos/manaflow-ai/cmux/actions/runs/{stuck['id']}/cancel failed (500)")
+            return original(method, path, body, app_only=app_only)
+        fake.request = failed
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [stuck["id"]])
+        fake.request = original
+        fake.runs[stuck["id"]].update(status="completed", conclusion="success")
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [])
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_the_workflow_hands_the_janitor_cmux_bots_token_twice(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        step = next(step for step in workflow["jobs"]["sweep"]["steps"] if step.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(step["env"]["CMUX_BOT_TOKEN"], "${{ steps.cmux-bot-token.outputs.token }}")
+        self.assertTrue(step["env"]["GH_TOKEN"].startswith("${{ steps.cmux-bot-token.outputs.token ||"))
+
+
 if __name__ == "__main__":
     unittest.main()

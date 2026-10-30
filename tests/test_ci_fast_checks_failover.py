@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""fast-checks.yml fails over to another Blacksmith Linux size with the overflow switch.
+"""fast-checks.yml takes its Blacksmith Linux size from the linux runner pool.
 
 On 2026-10-27 the 32 vCPU Blacksmith Linux label started no job for the
-organization for a while. ci-cloud-overflow-probe.yml wrote
-CI_CLOUD_OVERFLOW_SAVED, but fast-checks.yml named blacksmith-32vcpu-ubuntu-2404
-directly, so its runs waited on that label. While the record is set the job takes
-blacksmith-16vcpu-ubuntu-2404 instead; an unset record is falsy, so healthy
-routing is unchanged. The failover stays on Blacksmith: no job runs on
-GitHub-hosted Ubuntu, so it never names vars.LINUX_RUNNER (which the switch may
-point at hosted Linux) or a hosted label. Sticky disks work on every Blacksmith
-Linux size, so the cache steps stay as they are.
+organization for a while, and fast-checks.yml named blacksmith-32vcpu-ubuntu-2404
+directly. A first fix chose 16 vCPU while the overflow switch's record was set,
+but the switch trips only when every probed size stalls, so one stalled size
+still held every run. The job now reads fromJSON(vars.RUNNER_POOLS).linux: the
+pool (.github/runners.json) declares the sizes, and scripts/ci/runner_pools.py
+moves it off a size the probe saw stall. The pool stays on Blacksmith: no job
+runs on GitHub-hosted Ubuntu, so it never names vars.LINUX_RUNNER (which the
+switch may point at hosted Linux) or a hosted label. Sticky disks work on every
+Blacksmith Linux size, so the cache steps stay as they are.
 """
 
 from __future__ import annotations
@@ -19,8 +20,7 @@ import unittest
 from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
-FAILOVER = ("vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404'"
-            " || 'blacksmith-32vcpu-ubuntu-2404' }}")
+POOL = "|| fromJSON(vars.RUNNER_POOLS).linux }}"
 
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && 'ubuntu-[0-9.]+' \|\|")
 BLACKSMITH_LINUX = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(-arm)?")
@@ -33,11 +33,21 @@ def runs_on_lines() -> list[str]:
 
 
 class FastChecksFailoverTests(unittest.TestCase):
-    def test_blacksmith_linux_label_fails_over_to_another_blacksmith_size(self) -> None:
-        lines = [line for line in runs_on_lines() if "blacksmith-32vcpu-ubuntu-2404" in line]
-        self.assertTrue(lines)
-        for line in lines:
-            self.assertTrue(line.rstrip().endswith(FAILOVER), line.strip())
+    def test_the_label_comes_from_the_linux_pool(self) -> None:
+        lines = runs_on_lines()
+        self.assertEqual(len(lines), 1)
+        line = lines[0].rstrip()
+        self.assertTrue(line.endswith(POOL), line.strip())
+        # Past the re-dispatch input, no size is written down.
+        self.assertNotRegex(line.split("inputs.runner ||")[-1], BLACKSMITH_LINUX)
+
+    def test_the_linux_pool_is_blacksmith_linux_only(self) -> None:
+        import json
+        runners = json.loads((WORKFLOW.parents[1] / "runners.json").read_text(encoding="utf-8"))
+        members = runners["pools"]["linux"]["members"]
+        self.assertGreaterEqual(len(members), 2)
+        for label in members:
+            self.assertRegex(label, r"^blacksmith-\d+vcpu-ubuntu-2404$")
 
     def test_failover_never_reaches_github_hosted_linux(self) -> None:
         lines = runs_on_lines()

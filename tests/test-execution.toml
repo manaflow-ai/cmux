@@ -1794,6 +1794,10 @@ path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_receipt.py"
 lane = "linux-guard"
 
