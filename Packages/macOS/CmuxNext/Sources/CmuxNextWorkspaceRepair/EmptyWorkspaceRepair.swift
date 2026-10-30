@@ -283,18 +283,20 @@ public final class EmptyWorkspaceRepair {
             do {
                 try await close(key)
             } catch {
-                // Still open and empty: keep the last-tab-close evidence so the
-                // next change this repair sees closes it again, instead of
-                // refilling it with a terminal (#17632). Only when nothing
-                // newer replaced it: after a reconnect (a new epoch) the old
-                // evidence is stale, and a pane seen on the new connection
-                // already recorded its own.
+                // Still open: keep the last-tab-close evidence, so the next
+                // change this repair sees closes it again instead of refilling
+                // it with a terminal (#17632). Only when nothing newer replaced
+                // it: after a reconnect (a new epoch) the old evidence is stale,
+                // and a pane seen on the new connection already recorded its own.
+                // Either way the workspace is examined again on the next change:
+                // its pane changes were ignored while the close owned it, so it
+                // may be empty again with that newer evidence.
                 if states[key] == .closing {
                     states[key] = nil
                     if let populatedEpoch, populatedEpoch == epoch(), populated[key] == nil {
                         populated[key] = populatedEpoch
-                        retries.insert(key)
                     }
+                    if populated[key] == epoch() { retries.insert(key) }
                 }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }
