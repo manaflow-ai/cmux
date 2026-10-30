@@ -3,7 +3,7 @@
   height: 540px;
   display: flex;
   flex-direction: column;
-  font: 12px/1.3 -apple-system, system-ui, sans-serif;
+  font: 12px/1.3 var(--font-ui);
   color: var(--cmux-text, #ddd);
   background: transparent;
 }

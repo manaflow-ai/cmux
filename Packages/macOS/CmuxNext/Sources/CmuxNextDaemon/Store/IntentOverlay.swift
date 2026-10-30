@@ -62,6 +62,11 @@ import Foundation
             let previous = workspace.name
             workspace.setName(name)
             return .workspaceName(key: key, name: previous)
+        case .setWorkspaceColor(let key, let color):
+            guard let workspace = store.workspacesByKey[key], workspace.color != color else { return nil }
+            let previous = workspace.color
+            workspace.setColor(color)
+            return .workspaceColor(key: key, color: previous)
         case .moveWorkspace(let key, let index):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }),
                   let current = store.workspaces[checked: from] else { return nil }
@@ -182,6 +187,8 @@ import Foundation
             store.screensByHandle[screen]?.pinned = pinned
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
+        case .workspaceColor(let key, let color):
+            store.workspacesByKey[key]?.setColor(color)
         case .workspacePlace(let key, let index, let group):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }) else {
                 return store.reportMirrorViolation("intent overlay undo found workspace \(key) missing")

@@ -16,8 +16,10 @@ import Foundation
 /// - A targeted Mac that presence calls offline is not dialed (its
 ///   `LinkMachine` waits in `macOffline`, or probes a live link: a signaling
 ///   reset says "offline" for a moment while the link is fine).
-/// - At most `maxLinks` Macs: the focused one, then online Macs on screen,
-///   then online Macs by most recent use, then offline ones.
+/// - A Mac whose pairing code the phone holds (`pinned`) is targeted next
+///   after the focused one, so the code reaches it whatever else is shown.
+/// - At most `maxLinks` Macs: the focused one, the pinned one, then online
+///   Macs on screen, then online Macs by most recent use, then offline ones.
 public struct MacLinkPolicy: Equatable, Sendable {
     /// The most Macs targeted at once.
     public var maxLinks: Int
@@ -41,11 +43,16 @@ public struct MacLinkPolicy: Equatable, Sendable {
     ///   - focused: the focused Mac (nil: none).
     ///   - showing: the Macs whose data is on screen now.
     ///   - lastShown: when each Mac was last on screen.
+    ///   - pinned: the Mac a held pairing code names (nil: none).
     public func decide(macs: [MacDevice], focused: String?, showing: Set<String>,
-                       lastShown: [String: ContinuousClock.Instant], now: ContinuousClock.Instant) -> Decision {
+                       lastShown: [String: ContinuousClock.Instant], now: ContinuousClock.Instant,
+                       pinned: String? = nil) -> Decision {
         var linked: [String] = []
         if let focused, macs.contains(where: { $0.id == focused }) { linked.append(focused) }
-        let others = macs.filter { $0.id != focused }
+        if let pinned, pinned != focused, linked.count < maxLinks, macs.contains(where: { $0.id == pinned }) {
+            linked.append(pinned)
+        }
+        let others = macs.filter { $0.id != focused && $0.id != pinned }
         // Recent: no longer on screen, used within `idleAfter` (latest first).
         let recent = others
             .filter { !showing.contains($0.id) }

@@ -24,6 +24,7 @@ use serde_json::{Value, json};
 use super::super::GlobalArgs;
 use super::super::agents_doctor::{ACCESSIBILITY_URL, SCREEN_RECORDING_URL, STATUS_METHOD};
 use super::{Outcome, Refusal};
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "computer_use";
 
@@ -52,48 +53,48 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "user_action": Value::Null,
     });
     if !applies(global) {
-        report["state"] = json!("not_applicable");
+        report.set("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let before = match read(global) {
         Ok(status) => status,
         Err(action) => {
-            report["state"] = json!("needs_user");
-            report["user_action"] = action;
+            report.set("state", json!("needs_user"));
+            report.set("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
     };
-    report["before"] = before.clone();
+    report.set("before", before.clone());
     let mut current = before;
     if current["phase"] == "off" {
         // Already on, and the app's phase has not caught up: asking again
         // would show the person a second sheet.
         if enabled(global) {
-            report["state"] = json!("needs_user");
-            report["after"] = current;
-            report["user_action"] = wait_step();
+            report.set("state", json!("needs_user"));
+            report.set("after", current);
+            report.set("user_action", wait_step());
             return Ok(Outcome { report, failed: false });
         }
         if dry_run {
-            report["state"] = json!("planned");
-            report["undo"] = json!(UNDO);
+            report.set("state", json!("planned"));
+            report.set("undo", json!(UNDO));
             return Ok(Outcome { report, failed: false });
         }
         if let Err(action) = turn_on(global) {
-            report["state"] = json!("needs_user");
-            report["user_action"] = action;
+            report.set("state", json!("needs_user"));
+            report.set("user_action", action);
             return Ok(Outcome { report, failed: false });
         }
-        report["undo"] = json!(UNDO);
+        report.set("undo", json!(UNDO));
         current = match read(global) {
             Ok(status) => status,
             Err(action) => {
-                report["state"] = json!("needs_user");
-                report["user_action"] = action;
+                report.set("state", json!("needs_user"));
+                report.set("user_action", action);
                 return Ok(Outcome { report, failed: false });
             }
         };
-        report["after"] = current.clone();
+        report.set("after", current.clone());
     }
     let changed = !report["undo"].is_null();
     // The app's phase follows the setting a moment later: right after the
@@ -101,15 +102,18 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
     // again would show them a second sheet.
     let action =
         if changed && current["phase"] == "off" { Some(wait_step()) } else { next_step(&current) };
-    report["state"] = json!(match (&action, changed) {
-        (Some(_), _) => "needs_user",
-        (None, true) => "changed",
-        (None, false) => "ok",
-    });
+    report.set(
+        "state",
+        json!(match (&action, changed) {
+            (Some(_), _) => "needs_user",
+            (None, true) => "changed",
+            (None, false) => "ok",
+        }),
+    );
     if report["after"].is_null() {
-        report["after"] = current;
+        report.set("after", current);
     }
-    report["user_action"] = action.unwrap_or(Value::Null);
+    report.set("user_action", action.unwrap_or(Value::Null));
     Ok(Outcome { report, failed: false })
 }
 
@@ -256,6 +260,15 @@ fn next_step(status: &Value) -> Option<Value> {
             );
         }
         "starting" => return Some(wait_step()),
+        "failed" => {
+            return action(
+                "app",
+                "The cmux Computer Use helper did not respond. Run the Restart Computer Use \
+                 Helper palette action, or click Restart Helper in Settings > Agents.",
+                Some("cmux action run palette.computerUse.restart".into()),
+                None,
+            );
+        }
         phase => {
             let text = format!(
                 "The Computer Use helper is not ready ({}); Computer Use Setup in cmux shows why",
@@ -290,4 +303,21 @@ fn wait_step() -> Value {
         "command": "cmux setup computer-use",
         "url": Value::Null,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_helper_offers_restart_instead_of_waiting() {
+        let step = next_step(&json!({"phase": "failed", "accessibility": null,
+                                    "screen_recording": null}))
+        .expect("restart step");
+        assert_eq!(step["kind"], "app");
+        assert_eq!(step["command"], "cmux action run palette.computerUse.restart");
+        let text = step["text"].as_str().unwrap();
+        assert!(text.contains("did not respond"));
+        assert!(text.contains("Settings > Agents"));
+    }
 }

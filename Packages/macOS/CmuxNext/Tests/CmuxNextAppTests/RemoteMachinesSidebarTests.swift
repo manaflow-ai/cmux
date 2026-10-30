@@ -79,28 +79,6 @@ struct RemoteMachinesSidebarTests {
         sidebar.expanded = []
     }
 
-    /// The user 2026-10-25: machines are not separate things. Remote chats show as plain rows (no machine
-    /// header, no Offline row), each carrying only its machine's name as a small caption.
-    @Test func mergedRowsHaveNoMachineHeadersAndHideOfflineMachines() {
-        let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true), AcpmuxPeerList.Peer(name: "big-red", connected: false),
-                     AcpmuxPeerList.Peer(name: "idle-box", connected: true)]
-        let machines = RemoteMachinesSidebar.machines(
-            lanes: [Self.lane("old", peer: "huge-blue", since: 10, title: "Old"), Self.lane("new", peer: "huge-blue", .working, since: 20, title: "New"),
-                    Self.lane("gone", peer: "big-red", .working, since: 30, title: "Gone")], peers: peers)
-        let rows = RemoteMachinesSidebar.mergedRows(machines: machines, displayName: { $0 == "huge-blue" ? "Huge Blue" : nil })
-        #expect(rows.map(\.info.title) == ["New", "Old"])
-        #expect(rows.allSatisfy { $0.info.caption == "Huge Blue" && $0.info.indent == 0 && $0.info.icon != .cloud })
-        #expect(rows[0].info.activity == .working)
-        #expect(rows[0].item.id.rawValue == LayoutItemID.transientPrefix + "remote:session:id-new")
-        #expect(RemoteMachinesSidebar(lanes: AgentLaneStore()).activate(rows[0].item.id))
-    }
-
-    @Test func mergedRowsAreCappedToOnePage() {
-        let lanes = (0..<(RemoteMachinesSidebar.pageSize + 5)).map { Self.lane("s\($0)", peer: "huge-blue", since: TimeInterval($0)) }
-        let rows = RemoteMachinesSidebar.mergedRows(machines: RemoteMachinesSidebar.machines(lanes: lanes, peers: nil), displayName: { _ in nil })
-        #expect(rows.count == RemoteMachinesSidebar.pageSize)
-    }
-
     /// The groups draw after the top items, above the workspaces, in order.
     @Test func groupsFollowTheTopItems() {
         let model = SidebarModel()
@@ -125,19 +103,42 @@ struct RemoteMachinesSidebarTests {
         #expect(ids == ["itm_home", SidebarTransientItem.channelsID.rawValue, LayoutItemID.transientPrefix + "remote:machine:huge-blue"])
     }
 
-    /// The user 2026-10-25: "pressing cmd 1 no longer takes me to home". Remote chat rows anchor after Home in
-    /// the document's top block; they are stops after Home and the App Store, never before them, so Cmd-1 is Home.
+    /// The user 2026-10-25: "pressing cmd 1 no longer takes me to home". Client-only rows anchored after Home in
+    /// the document's top block are stops after Home and the App Store, never before them, so Cmd-1 is Home.
     @Test func remoteChatsNeverComeBeforeHomeInTheCmdNumberOrder() throws {
         let model = SidebarModel(sections: [SidebarSection(
             kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue, title: "", showsTitle: false)), nodes: [])])
-        model.transientTopItems = RemoteMachinesSidebar.mergedRows(
-            machines: RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue", since: 2), Self.lane("b", peer: "huge-blue", since: 1)],
-                                                     peers: nil),
-            displayName: { _ in nil })
+        model.transientTopItems = Self.rows(RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue"), Self.lane("b", peer: "big-red")],
+                                                                           peers: nil))
         try #require(model.transientTopItems.count == 2)
         let settings = SidebarNavigationSettings(numbering: .allItems, cmd9: .last)
         let first = try #require(model.itemOrder.pick(1, settings))
         #expect(first == .topItem(LayoutItemID("itm_home")), "Cmd-1 is \(first); order \(model.itemOrder.items)")
+    }
+
+    /// The user 2026-10-26: "CMUX performance lead, CMUX community lead, and CMUX and chief 2-week/fast iteration
+    /// are the ones I actually manually drag up there. Everything that is [a subagent] I did not put there." The top
+    /// band holds Home and what the person put there; the agent chats of another machine (here a Cloud VM's eleven
+    /// idle Chief subagents, titled with their prompt) never draw in it.
+    @Test func remoteChatsNeverDrawInTheTopBand() {
+        // The app's own remote model holds the chats, as the running app's does.
+        let remote = RemoteMachinesSidebar.shared
+        let prompt = "You are a subagent of Chief, an AI agent that works for one user"
+        remote.machines = RemoteMachinesSidebar.machines(
+            lanes: (0..<11).map { Self.lane("optchat-sub-2e448bc2-a6\($0)", peer: "chief-subagents-2", since: TimeInterval($0), title: prompt) }
+                + [Self.lane("busy", peer: "cmux-lawrence", .working, since: 99, title: "Fix the rail")],
+            peers: nil)
+        defer { remote.machines = [] }
+        let model = SidebarModel()
+        model.transientTopItems = SidebarModel.topItems(chief: ChiefSidebar(lanes: AgentLaneStore()))
+            .filter { $0.item.id != SidebarTransientItem.channelsID }
+        let pinned = ["itm_perf", "itm_chromium", "itm_tui"]
+        let section = LayoutSection(id: SidebarLayoutDocument.topSectionID, showsTitle: false, region: .top, look: .builtIn,
+                                    items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home"))]
+                                        + pinned.map { LayoutItem(id: LayoutItemID($0), ref: .app("example/\($0)")) })
+        let ids = model.placingTransientItems(in: [section]).flatMap(\.items).map(\.id.rawValue)
+        #expect(ids == ["itm_home"] + pinned, "the top band drew \(ids)")
+        #expect(model.transientTopItems.isEmpty, "no client-only remote row at all: \(model.transientTopItems.map(\.info.title))")
     }
 
     @Test func peerListReadsNamesAndLinks() {

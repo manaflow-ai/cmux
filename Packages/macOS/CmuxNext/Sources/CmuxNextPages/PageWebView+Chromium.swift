@@ -10,6 +10,23 @@ import Foundation
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
+    /// Re-syncs every Chromium page in a view subtree with its AppKit state.
+    public static func syncChromiumVisibility(in root: NSView) {
+        if let page = root as? PageWebView { page.setChromiumVisibility(true) }
+        for child in root.subviews { syncChromiumVisibility(in: child) }
+    }
+
+    /// Synchronizes the separate Chromium child window with the page's actual visibility.
+    /// AppKit does not propagate an ancestor's alpha to a child window, so paint holds call this
+    /// explicitly when they make the host transparent. The page's own alpha does not count: a pane
+    /// clears its page while it waits for the page's first frame (loading state, move cover), and
+    /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
+    public func setChromiumVisibility(_ requested: Bool) {
+        let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
+            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
+        chromiumSession?.page.setVisible(visible)
+    }
+
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
@@ -60,7 +77,11 @@ extension PageWebView {
 
     /// Loads `url` (a document of this page) in whichever engine shows it.
     func loadDocument(_ url: URL) {
-        if let chromiumSession { chromiumSession.page.load(url) } else { webView.load(URLRequest(url: url)) }
+        if let chromiumSession { chromiumSession.page.load(url) } else {
+            // The host loaded a document itself: the crash notice's pending WebKit load is moot.
+            webKitLoadsOnReload = false
+            webView.load(URLRequest(url: url))
+        }
     }
 
     /// Reloads the document in whichever engine shows it.
@@ -137,7 +158,7 @@ extension PageWebView {
         }
         chromiumSession = session
         scriptTarget.bridge = bridge
-        bridge.evaluate(DesignSettings.shared.interfaceScaleScript)
+        bridge.evaluate(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         page.setZoom(pageZoom)
         // The WebKit page draws no background (`drawsBackground` off): the Chromium page neither.
         page.setSeeThrough(true)
@@ -145,7 +166,7 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
-        page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setChromiumVisibility(true)
         #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.navigationStart)
         #endif
@@ -159,8 +180,10 @@ extension PageWebView {
         if shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
     }
 
-    /// Chromium failed for this page: it reopens in WebKit, at the route it showed.
-    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String) {
+    /// Chromium failed for this page: it reopens in WebKit, at the route it showed. A host that
+    /// shows the crash notice (``reloadsAfterCrash`` false) gets the notice instead when Chromium
+    /// ended under a page that had loaded (`ended`), and the WebKit load waits for its Reload.
+    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false) {
         // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
         guard !isClosed else { return }
         chromiumStart?.cancel()
@@ -176,6 +199,12 @@ extension PageWebView {
         webView.isHidden = false
         router.reset()
         loaded = false
+        if ended, !reloadsAfterCrash {
+            logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
+            webKitLoadsOnReload = true
+            onCrash?(self, false)
+            return
+        }
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
@@ -213,7 +242,7 @@ extension PageWebView {
         case .crashed:
             contentProcessTerminated()
         case .ended:
-            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
+            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):

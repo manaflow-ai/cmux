@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextWakeups
 import os
 
@@ -23,18 +24,33 @@ public final class AgentPaneLoadingView: NSView {
     static let markDelay: Duration = .milliseconds(800)
     /// How often the loading state checks on a page that has not painted (cx-txnr): WebKit
     /// holds the animation frames of a page it thinks is not visible (a window occluded at a
-    /// relaunch), and its `pane.painted` may then never come. Seen unpainted at two checks in a
-    /// row (4-8 s in sight), the page counts as painted and shows as it is: like the pane's
+    /// relaunch), and its `pane.painted` may then never come. Seen unpainted at ``silentChecks``
+    /// checks in a row, the page counts as painted and shows as it is: like the pane's
     /// other covers (`PanePaintHold.limit`, the launch image), it never stays for good. Out of
     /// sight (a parked spare, a hidden tab, a window ordered out) it waits.
     var paintCheckInterval: Duration = .seconds(4) {
         didSet { if onGiveUp != nil { schedulePaintCheck() } }
     }
+    /// How many checks in sight a page that has said nothing at all gets before it shows as it is.
+    static let silentChecks = 2
+    /// How many a page that has answered the handshake gets, counted from the handshake. A page
+    /// whose bridge is up is not the stuck case this give-up is for: it is waiting on its own
+    /// chat, and it reports its first paint by `CHAT_DRAW_HOLD_MS` (10 s after the handshake,
+    /// acpmux/App.tsx) whether the chat arrived or not. Revealing it before its own deadline
+    /// showed Leo a chat that painted, went black for seconds, then came back (2026-10-22), so
+    /// this bound clears that 10 s page budget. Counted from the handshake rather than from the pane,
+    /// because a slow daemon can answer at any point inside the silent bound; the cost is that a
+    /// page that handshakes and then truly hangs holds a spinner for this long after it spoke.
+    static let aliveChecks = 3
     private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
     private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
     private var onGiveUp: (@MainActor () -> Void)?
-    /// The last check saw the pane, still unpainted.
-    private var seenUnpainted = false
+    /// Whether the page's bridge is up: it answered the handshake, so it speaks for itself.
+    var pageIsAlive: (@MainActor () -> Bool)?
+    /// How many checks in a row have seen the pane, still unpainted.
+    private var seenUnpainted = 0
+    /// Whether a check has already seen the page answer, so the count starts over only once.
+    private var sawAlive = false
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
@@ -84,11 +100,12 @@ public final class AgentPaneLoadingView: NSView {
         }
     }
 
-    /// Runs `giveUp` once the pane has been seen unpainted at two checks in a row, unless the
-    /// loading state leaves first.
+    /// Runs `giveUp` once the pane has been seen unpainted at ``silentChecks`` checks in a row, or
+    /// ``aliveChecks`` while ``pageIsAlive`` answers true, unless the loading state leaves first.
     func giveUpWhenSeenUnpainted(_ giveUp: @escaping @MainActor () -> Void) {
         onGiveUp = giveUp
-        seenUnpainted = false
+        seenUnpainted = 0
+        sawAlive = false
         schedulePaintCheck()
     }
 
@@ -98,13 +115,22 @@ public final class AgentPaneLoadingView: NSView {
 
     private func checkPaint() {
         guard superview != nil, !leaving, let giveUp = onGiveUp else { return }
-        let seen = paneIsSeen
-        if seen, seenUnpainted {
+        // Out of sight the count starts over: the checks measure time the page had on screen to
+        // paint, not time since the pane was made.
+        seenUnpainted = paneIsSeen ? seenUnpainted + 1 : 0
+        // Read at the check, not when this was armed: a page handshakes while the count runs. The
+        // first check that sees it answer starts the count over, so its budget runs from the
+        // handshake however late in the silent bound that landed.
+        let alive = pageIsAlive?() == true
+        if alive, !sawAlive {
+            sawAlive = true
+            seenUnpainted = 0
+        }
+        if seenUnpainted >= (alive ? Self.aliveChecks : Self.silentChecks) {
             onGiveUp = nil
             giveUp()
             return
         }
-        seenUnpainted = seen
         schedulePaintCheck()
     }
 
@@ -138,6 +164,7 @@ public final class AgentPaneLoadingView: NSView {
         guard superview != nil, !leaving else { return }
         paintTimer.cancel()
         onGiveUp = nil
+        pageIsAlive = nil
         hideMark()
         leaving = true
         leftFading = fades
@@ -145,15 +172,18 @@ public final class AgentPaneLoadingView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if !fades || !overImage { page.alphaValue = 1 }
+        PageWebView.syncChromiumVisibility(in: page)
         CATransaction.commit()
         guard fades else { return left(page) }
         Motion.home.animate(.fadeIn, in: self, {
             if overImage { page.animator().alphaValue = 1 } else { animator().alphaValue = 0 }
+            PageWebView.syncChromiumVisibility(in: page)
         }, completion: { [weak self, weak page] in self?.left(page) })
     }
 
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
+        if let page { PageWebView.syncChromiumVisibility(in: page) }
         leaving = false
         #if DEBUG || CMUX_BENCH_HOOKS
         // Still in its pane: the pane's trace takes it.
@@ -188,6 +218,7 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
+        loadingView.pageIsAlive = { [weak self] in self?.model.hasHandshake ?? false }
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })

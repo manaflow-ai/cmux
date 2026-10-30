@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { keyFingerprint } from "../src/crypto";
-import { Device, PAID_USER, approvedSession, auditEvents, setup, signIn } from "./helpers";
+import { Device, approvedSession, auditEvents, billingPlans, setup, signIn } from "./helpers";
 
 describe("permissions", () => {
   it("defaults to ask and lists every other device", async () => {
@@ -115,7 +115,9 @@ describe("session flow", () => {
     expect(f.vt.ice).toEqual([]);
     expect((await free.viewer.call("POST", `/v1/sessions/${f.sid}/ice`)).json).toEqual({ ice: [] });
 
-    const paid = await setup({ userId: PAID_USER });
+    const paidSub = `pro-${crypto.randomUUID()}`;
+    billingPlans.set(paidSub, { subscriptionPlanId: "pro" });
+    const paid = await setup({ userId: paidSub });
     const p = await approvedSession(paid.host, paid.viewer);
     expect(p.vt.ice).toEqual([
       { urls: ["stun:stun.cloudflare.com:3478"] },

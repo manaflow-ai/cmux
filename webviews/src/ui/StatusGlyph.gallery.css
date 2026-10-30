@@ -10,6 +10,7 @@
   line-height: var(--text-body--line-height);
   background: var(--cmux-app-content, Canvas);
   border-radius: 8px;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .status-glyphs-sheet th,
@@ -24,6 +25,7 @@
   line-height: var(--text-caption--line-height);
   font-weight: var(--weight-regular);
   color: var(--cmux-app-text-secondary, GrayText);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .status-glyphs-sheet tbody th {
@@ -40,6 +42,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cmux-app-text-secondary, GrayText);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .status-glyphs-row {

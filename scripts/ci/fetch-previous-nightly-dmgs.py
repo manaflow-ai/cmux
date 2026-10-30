@@ -10,6 +10,10 @@ build number, and the newest <count> below --exclude-build are chosen. Each
 it is not chosen yet), so a Mac that was offline for a day still finds a delta.
 The chosen builds are downloaded by the asset API URL from that same listing,
 then checked against the listed digest.
+--dates-out FILE writes {"<build>": "<upload time, ISO 8601>"} for every fetched
+build, and each DMG's modification time is set to that upload time:
+generate_appcast dates an item by its archive's mtime, so without this every
+earlier item would get the time of this delta run (scripts/ci/appcast_keep_pubdates.py).
 `gh release download --pattern` is not used: it resolves names against the REST
 release object, whose embedded asset list is incomplete on a release holding
 ~1000 assets, so a DMG present in the paginated listing could be "not found".
@@ -23,6 +27,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -43,6 +48,7 @@ def main() -> int:
     parser.add_argument("--count", type=int, default=2)
     parser.add_argument("--older-than-hours", type=float, action="append", default=[])
     parser.add_argument("--out", required=True)
+    parser.add_argument("--dates-out", help="JSON file mapping each fetched build to its upload time")
     args = parser.parse_args()
 
     pattern = re.compile(
@@ -76,11 +82,18 @@ def main() -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     fetched = 0
+    dates: dict[str, str] = {}
     for build, asset in chosen:
         name = asset["name"]
         print(f"downloading previous {args.variant} build {build}: {name}")
         if download_asset(asset, out / name):
             fetched += 1
+            uploaded = uploaded_at(asset)
+            if uploaded:
+                os.utime(out / name, (uploaded.timestamp(), uploaded.timestamp()))
+                dates[str(build)] = uploaded.isoformat()
+    if args.dates_out:
+        Path(args.dates_out).write_text(json.dumps(dates, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"fetched {fetched} of {len(chosen)} previous {args.variant} build(s) into {out}")
     return 0
 

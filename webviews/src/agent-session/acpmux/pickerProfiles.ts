@@ -1,8 +1,6 @@
-// The accounts the model menu lists under a harness (Leo 2026-10-22: "it's not per-account
-// available"). buildPickerCatalog (modelCatalogData.ts) folds every acpmux profile of a catalog
-// harness's family into that harness's one entry and keeps only the profile it runs
-// (`acpmuxHarness`): with `claude` and `claude-sr` installed, the picker sees one Claude Code. These
-// are that family's profiles again, each one the account a pick starts (or a started chat forks) on.
+// The installed launch configurations shown as named harness entries. buildPickerCatalog
+// folds profiles of one family into one harness entry; these restore those configurations without
+// presenting internal launchers as signed-in accounts. Account uses route identities separately.
 import { agentKey } from "../shared/agentKey";
 import type { AcpmuxSnapshot } from "./model";
 

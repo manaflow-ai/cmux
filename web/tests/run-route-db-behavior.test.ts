@@ -4,6 +4,7 @@ import postgres, { type Sql } from "postgres";
 import type { AuthedUser } from "../services/vms/auth";
 import { artifactDigest } from "../services/runs/model";
 import {
+  requestDigest,
   claimAttemptLease,
   consumeRunAttachTicket,
   ingestRunEvent,
@@ -32,6 +33,8 @@ const realAuth = await import("../services/vms/auth");
 const realVerifyRequest = realAuth.verifyRequest;
 const realDogfood = await import("../services/runs/dogfood");
 const realLaunchQueued = realDogfood.launchQueuedCloudVmAttempts;
+const realLaunchSandbox = realDogfood.launchSandboxRun;
+const sandboxLaunches: Array<Parameters<typeof realLaunchSandbox>[0]> = [];
 
 // The route wrapper uses Stack authentication. Keep the route's real wrapper,
 // but pin its auth result to a fixture while this suite is active. The
@@ -49,12 +52,20 @@ mock.module("../services/runs/dogfood", () => ({
     if (active) return;
     return realLaunchQueued(...args);
   }) as typeof realLaunchQueued,
+  launchSandboxRun: (async (...args: Parameters<typeof realLaunchSandbox>) => {
+    if (active) {
+      sandboxLaunches.push(args[0]);
+      return;
+    }
+    return realLaunchSandbox(...args);
+  }) as typeof realLaunchSandbox,
 }));
 
 const createRunRoute = await import("../app/api/runs/route");
 const snapshotRoute = await import("../app/api/runs/[id]/route");
 const eventsRoute = await import("../app/api/runs/[id]/events/route");
 const cancelRoute = await import("../app/api/runs/[id]/cancel/route");
+const waitRoute = await import("../app/api/runs/[id]/wait/route");
 const leaseRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/lease/route");
 const attemptEventsRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/events/route");
 const artifactRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/artifacts/route");
@@ -439,3 +450,186 @@ describe("Run HTTP routes with a live database", () => {
   });
 });
 
+
+describe("persistent Run idempotency across the sandbox deploy", () => {
+  dbTest("a retry of a Run created before sandboxes existed still replays", async () => {
+    const userId = `legacy-digest-${randomUUID()}`;
+    authedUser = user(userId);
+    try {
+      const key = `legacy-${randomUUID()}`;
+      const created = await createRun(userId, key, 1);
+      // The digest a pre-deploy server stored: the parsed body without the sandbox fields.
+      const legacy = requestDigest({
+        source: { repository: "manaflow-ai/cmux", ref: "main", commit: "a".repeat(40) },
+        recipe: "parallel-review",
+        desiredAttempts: 1,
+        provider: "cloud-vm",
+        routing: {},
+      });
+      const [stored] = await sql!`select request_digest from runs where id = ${created.id}`;
+      expect(stored?.request_digest).toBe(legacy);
+      const replay = await createRunRoute.POST(createRequest(userId, key, 1, TEAM_ID));
+      expect(replay.status).toBe(202);
+      expect((await json<{ id: string }>(replay)).id).toBe(created.id);
+    } finally {
+      await deleteRuns(userId);
+    }
+  });
+});
+
+describe("sandboxed Run create (hq#3367)", () => {
+  function sandboxRequest(key: string, body: Record<string, unknown>): Request {
+    return new Request("https://cmux.test/api/runs", {
+      method: "POST",
+      headers: { ...authHeaders(), "idempotency-key": key, "x-cmux-team-id": TEAM_ID },
+      body: JSON.stringify({ environment: "sandboxed", ...body }),
+    });
+  }
+
+  dbTest("pins the manifest default image on the Run and launches one sandbox attempt", async () => {
+    const userId = `sandbox-route-${randomUUID()}`;
+    authedUser = user(userId);
+    sandboxLaunches.length = 0;
+    try {
+      const response = await createRunRoute.POST(sandboxRequest(`sandbox-${randomUUID()}`, { task: "print hello", agent: "claude", timeoutMs: 60_000 }));
+      expect(response.status).toBe(202);
+      const body = await json<{ id: string; environment: string; image: { id: string } ; attempts: unknown[] }>(response);
+      expect(body.environment).toBe("sandboxed");
+      expect(body.image.id).toMatch(/\S/);
+      expect(body.attempts).toHaveLength(1);
+      const [row] = await sql!`select environment, image_id, desired_attempts, recipe from runs where id = ${body.id}`;
+      expect(row).toMatchObject({ environment: "sandboxed", image_id: body.image.id, desired_attempts: 1, recipe: "sandbox-task" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(sandboxLaunches.map((launch) => ({ runId: launch.runId, task: launch.task, agent: launch.agent, image: launch.image.id }))).toEqual([
+        { runId: body.id, task: "print hello", agent: "claude", image: body.image.id },
+      ]);
+      const snapshot = await json<{ run: { environment: string; image: { id: string } }; receipt: unknown }>(await snapshotRoute.GET(new Request(`https://cmux.test/api/runs/${body.id}`, { headers: authHeaders() }), routeParams(body.id)));
+      expect(snapshot.run).toMatchObject({ environment: "sandboxed", image: { id: body.image.id } });
+      expect(snapshot.receipt).toBeNull();
+    } finally {
+      await deleteRuns(userId);
+    }
+  });
+
+  // The app's contract (CloudAPIClient.createSandboxRun, then waitRun until the snapshot has a
+  // top-level `receipt`): exactly the body and headers it sends, and the snapshot it polls for.
+  dbTest("accepts exactly what the app sends, and its wait ends on a top-level receipt", async () => {
+    const userId = `sandbox-route-${randomUUID()}`;
+    authedUser = user(userId);
+    sandboxLaunches.length = 0;
+    try {
+      const appRequest = (body: Record<string, unknown>) => new Request("https://cmux.test/api/runs", {
+        method: "POST",
+        headers: { ...authHeaders(), "Idempotency-Key": randomUUID(), "X-Cmux-Team-Id": TEAM_ID, "X-Cmux-Client": "cmux-mac" },
+        body: JSON.stringify(body),
+      });
+      // The app's default timeout and agent; with no agent; a task at the composer's limit as it
+      // counts it (16,000 characters of four UTF-16 units each).
+      const bodies = [
+        { environment: "sandboxed", task: "print hello", agent: "codex", timeoutMs: 600_000 },
+        { environment: "sandboxed", task: "print hello", timeoutMs: 600_000 },
+        { environment: "sandboxed", task: "\u{1F44D}\u{1F3FD}".repeat(16_000), agent: "claude", timeoutMs: 600_000 },
+      ];
+      const ids: string[] = [];
+      for (const body of bodies) {
+        const created = await createRunRoute.POST(appRequest(body));
+        expect(created.status).toBe(202);
+        ids.push((await json<{ id: string }>(created)).id);
+      }
+      // Too many characters, or one character made of an unbounded run of combining marks.
+      for (const task of ["x".repeat(16_001), `a${"\u0301".repeat(1_000_000)}`]) {
+        const refused = await createRunRoute.POST(appRequest({ environment: "sandboxed", task, timeoutMs: 600_000 }));
+        expect(await json(refused)).toMatchObject({ error: "run_task_required" });
+      }
+      const wait = async (id: string) => json<Record<string, unknown>>(await waitRoute.GET(
+        new Request(`https://cmux.test/api/runs/${id}/wait?timeoutMs=0`, { headers: authHeaders() }), routeParams(id)));
+      const id = ids[0]!;
+      expect((await wait(id)).receipt).toBeNull();
+      // The launcher's end, as it records it: the attempt and the Run finish with an outcome.
+      await sql!`update run_attempts set status = 'succeeded', exit_code = 0, started_at = now(), finished_at = now() where run_id = ${id}`;
+      await sql!`update runs set status = 'succeeded', completed_at = now(), receipt = ${sql!.json({ reply: "hello", exitCode: 0, signal: null, timedOut: false, bootMs: 1 })} where id = ${id}`;
+      const done = await wait(id);
+      expect(done.run).toMatchObject({ id, status: "succeeded", environment: "sandboxed" });
+      expect(done.receipt).toMatchObject({ schema: "cmux.run.receipt/v1", status: "succeeded", reply: "hello" });
+    } finally {
+      await deleteRuns(userId);
+    }
+  });
+
+  dbTest("a retry replays the same Run and its pinned image even after the manifest default moved", async () => {
+    const userId = `sandbox-route-${randomUUID()}`;
+    authedUser = user(userId);
+    try {
+      const key = `sandbox-${randomUUID()}`;
+      const first = await json<{ id: string; image: { id: string } }>(await createRunRoute.POST(sandboxRequest(key, { task: "print hello" })));
+      // The default the first request resolved is no longer what the manifest would pick.
+      await sql!`update runs set image_id = 'sh-retired-default', image_version = 'retired' where id = ${first.id}`;
+      const retry = await createRunRoute.POST(sandboxRequest(key, { task: "print hello" }));
+      expect(retry.status).toBe(202);
+      expect(await json(retry)).toMatchObject({ id: first.id, image: { id: "sh-retired-default" } });
+      // A replay launches nothing: the original request's launcher owns the attempt (and the sweep
+      // fails it if that process died), whatever the attempt's state.
+      sandboxLaunches.length = 0;
+      await sql!`update run_attempts set status = 'queued' where run_id = ${first.id}`;
+      const queuedRetry = await createRunRoute.POST(sandboxRequest(key, { task: "print hello" }));
+      expect((await json<{ id: string }>(queuedRetry)).id).toBe(first.id);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(sandboxLaunches).toEqual([]);
+      // The same key with another task is a conflict, not a second Run.
+      const other = await createRunRoute.POST(sandboxRequest(key, { task: "something else" }));
+      expect(other.status).toBe(409);
+    } finally {
+      await deleteRuns(userId);
+    }
+  });
+
+  dbTest("refuses a sandbox without a task, with a non-manifest image, or with more than one attempt", async () => {
+    const userId = `sandbox-route-${randomUUID()}`;
+    authedUser = user(userId);
+    try {
+      const cases: Array<[Record<string, unknown>, string]> = [
+        [{}, "run_task_required"],
+        [{ task: "x", image: "sh-not-in-the-manifest" }, "run_image_invalid"],
+        [{ task: "x", desiredAttempts: 2 }, "run_attempts_invalid"],
+        [{ task: "x", timeoutMs: 60 * 60_000 }, "run_timeout_invalid"],
+        [{ task: "x", agent: "unknown-agent" }, "run_agent_invalid"],
+        [{ task: "x", image: "" }, "run_image_invalid"],
+        [{ task: "x", image: null }, "run_image_invalid"],
+        [{ task: "x", timeoutMs: null }, "run_timeout_invalid"],
+        [{ task: "x", agent: null }, "run_agent_invalid"],
+      ];
+      for (const [body, error] of cases) {
+        const response = await createRunRoute.POST(sandboxRequest(`sandbox-${randomUUID()}`, body));
+        expect(response.status).toBe(400);
+        expect(await json(response)).toMatchObject({ error });
+      }
+      const [count] = await sql!`select count(*)::int as n from runs where user_id = ${userId}`;
+      expect(count?.n).toBe(0);
+
+      // A Run created while the account was allowed (local dev allows everyone) is created first,
+      // so its retry below runs under the deployment's allowlist.
+      const replayKey = `sandbox-${randomUUID()}`;
+      const replayed = await json<{ id: string }>(await createRunRoute.POST(sandboxRequest(replayKey, { task: "x" })));
+      // Its attempt is still queued (the launcher is mocked in this suite): a retry must still recover it.
+      // A deployment allows only the accounts it names.
+      const saved = { vercel: process.env.VERCEL, users: process.env.CMUX_RUN_SANDBOX_USER_IDS };
+      process.env.VERCEL = "1";
+      try {
+        process.env.CMUX_RUN_SANDBOX_USER_IDS = "";
+        const refused = await createRunRoute.POST(sandboxRequest(`sandbox-${randomUUID()}`, { task: "x" }));
+        expect(refused.status).toBe(403);
+        expect(await json(refused)).toMatchObject({ error: "run_sandbox_unavailable" });
+        // A retry of a Run that already launched answers it before any deployment check (the
+        // allowlist, provisioning scope and the allocation rate limit all refuse here).
+        const replay = await createRunRoute.POST(sandboxRequest(replayKey, { task: "x" }));
+        expect(replay.status).toBe(202);
+        expect((await json<{ id: string }>(replay)).id).toBe(replayed.id);
+      } finally {
+        if (saved.vercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = saved.vercel;
+        if (saved.users === undefined) delete process.env.CMUX_RUN_SANDBOX_USER_IDS; else process.env.CMUX_RUN_SANDBOX_USER_IDS = saved.users;
+      }
+    } finally {
+      await deleteRuns(userId);
+    }
+  });
+});

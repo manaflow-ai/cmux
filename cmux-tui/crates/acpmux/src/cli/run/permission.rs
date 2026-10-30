@@ -9,6 +9,7 @@ pub(crate) async fn answer_permission(
     session: &str,
     option: Option<String>,
     allow: bool,
+    json_out: bool,
 ) -> Result<()> {
     let client = connect(true).await?;
     let id = resolve_id(&client, session).await?;
@@ -33,14 +34,26 @@ pub(crate) async fn answer_permission(
         (None, true) => pick(&["allow_once", "allow_always"]),
         (None, false) => pick(&["reject_once", "reject_always"]),
     };
+    let selected_kind = option_id.as_deref().and_then(|id| {
+        options
+            .iter()
+            .find(|o| o.get("optionId").and_then(Value::as_str) == Some(id))
+            .and_then(|o| o.get("kind").and_then(Value::as_str))
+    });
     client
         .request(
             method::MUX_PERMISSION_RESPOND,
-            json!({"sessionId": id, "permissionId": pid, "optionId": option_id}),
+            json!({"sessionId": id, "permissionId": pid, "optionId": option_id.clone()}),
         )
         .await
         .map_err(|e| explain_person_required(e, session))?;
-    println!("{}", if allow { "allowed" } else { "denied" });
+    if json_out {
+        print_json(
+            &json!({"sessionId": id, "permissionId": pid, "optionId": option_id, "kind": selected_kind}),
+        );
+    } else {
+        println!("{}", if allow { "allowed" } else { "denied" });
+    }
     Ok(())
 }
 
@@ -70,7 +83,7 @@ fn explain_person_required(e: anyhow::Error, session: &str) -> anyhow::Error {
 /// pending permission's question with the allow option and the
 /// harness-shaped `answers`. With no --answer it prints the questions and
 /// the command (exit 2). A person runs this; nothing answers on its own.
-pub(crate) async fn answer_question(session: &str, args: &[String]) -> Result<()> {
+pub(crate) async fn answer_question(session: &str, args: &[String], json_out: bool) -> Result<()> {
     let client = connect(true).await?;
     let id = resolve_id(&client, session).await?;
     let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -86,8 +99,13 @@ pub(crate) async fn answer_question(session: &str, args: &[String]) -> Result<()
         );
     };
     if args.is_empty() {
-        print!("{}", question_answer::usage(question, session));
-        return Err(AppError::usage("answer every question with --answer").into());
+        let mut error = AppError::usage("answer every question with --answer");
+        if json_out {
+            error.data = Some(json!({"sessionId": id, "question": question.clone()}));
+        } else {
+            print!("{}", question_answer::usage(question, session));
+        }
+        return Err(error.into());
     }
     let answers = question_answer::parse_answers(question, args).map_err(AppError::usage)?;
     let option_id = request
@@ -104,11 +122,17 @@ pub(crate) async fn answer_question(session: &str, args: &[String]) -> Result<()
     client
         .request(
             method::MUX_PERMISSION_RESPOND,
-            json!({"sessionId": id, "permissionId": pid, "optionId": option_id, "answers": answers}),
+            json!({"sessionId": id, "permissionId": pid, "optionId": option_id, "answers": answers.clone()}),
         )
         .await
         .map_err(|e| explain_person_required(e, session))?;
-    println!("answered");
+    if json_out {
+        print_json(
+            &json!({"sessionId": id, "permissionId": pid, "answered": true, "answers": answers}),
+        );
+    } else {
+        println!("answered");
+    }
     Ok(())
 }
 

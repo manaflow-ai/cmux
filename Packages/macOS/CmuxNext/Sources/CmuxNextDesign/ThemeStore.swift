@@ -66,6 +66,9 @@ public final class ThemeStore {
         input = .ghosttyDefault
         tokens = .fallback
         self.publishesGlobally = publishesGlobally
+        // The app's store comes first at launch (ThemeBridge.start): the UI font (Inter) is
+        // registered and its page script read off the main thread before chrome or a page needs them.
+        if publishesGlobally { BundledFonts.prepareInBackground() }
     }
 
     /// The appearance that matches the theme, for windows and panels.
