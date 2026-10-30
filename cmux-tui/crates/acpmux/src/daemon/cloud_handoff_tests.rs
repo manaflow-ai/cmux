@@ -953,3 +953,18 @@ async fn a_begin_from_before_a_loss_ends_the_hold_and_follows_nothing() {
     r.step(S, done(1, "Back.")).await;
     assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", Some("Back."))]);
 }
+
+/// The unused exit's Cloud check (`reports_here`): a socket made after the start is seen, and once
+/// seen it stays so while the agent restarts.
+#[test]
+fn a_cloud_agent_socket_is_seen_when_made_later_and_kept_once_gone() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("agent.sock");
+    let seen = AtomicBool::new(false);
+    assert!(!reports_to(&socket, &seen), "no socket yet");
+    std::fs::write(&socket, "").unwrap();
+    let linux = cfg!(target_os = "linux");
+    assert_eq!(reports_to(&socket, &seen), linux, "the socket made later");
+    std::fs::remove_file(&socket).unwrap();
+    assert_eq!(reports_to(&socket, &seen), linux, "the agent restarting");
+}

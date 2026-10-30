@@ -52,7 +52,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -822,8 +822,35 @@ impl Io for AgentSocket {
 
 /// Follows this daemon's own sessions (never a peer's) and reports their turns to their
 /// hand-offs while the Cloud agent's socket is there.
+/// The Cloud agent's socket: `ACPMUX_CLOUD_AGENT_SOCKET`, else [`SOCKET`].
+fn agent_socket() -> PathBuf {
+    std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from)
+}
+
+/// The Cloud agent's socket was seen, by the census or by [`handoff_loop`] as it queued a report.
+static SEEN: AtomicBool = AtomicBool::new(false);
+
+/// Whether this machine has a Cloud agent to report to: its reports wait in memory, so a daemon
+/// here never stops for being unused (`unused_exit.rs`, which asks at each census). Once seen, for
+/// the rest of the daemon's life: the agent's restart removes its socket for a while, and the
+/// reports wait for it (`handoff_loop`).
+pub(super) fn reports_here() -> bool {
+    reports_to(&agent_socket(), &SEEN)
+}
+
+fn reports_to(socket: &std::path::Path, seen: &AtomicBool) -> bool {
+    if seen.load(Ordering::SeqCst) {
+        return true;
+    }
+    let here = cfg!(target_os = "linux") && socket.exists();
+    if here {
+        seen.store(true, Ordering::SeqCst);
+    }
+    here
+}
+
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
-    let path = std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from);
+    let path = agent_socket();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Queued>(QUEUE_CAP);
     // Bumped when steps were lost (a full queue, a lagging event stream).
     let losses = Arc::new(AtomicU64::new(0));
@@ -896,7 +923,8 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         };
         // Off a Cloud machine only a session's close and reopen are kept (a few bytes each).
         // Once the socket was seen, steps are kept while it is gone (an agent restart).
-        cloud = cloud || path.exists();
+        // The same latch the unused exit reads, so a report queued here keeps the daemon.
+        cloud = cloud || reports_to(&path, &SEEN);
         if !cloud && !matches!(step, Step::Closed | Step::Reopened) {
             continue;
         }

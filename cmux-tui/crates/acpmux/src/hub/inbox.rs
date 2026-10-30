@@ -13,6 +13,18 @@
 //! a team message, a correction under a supersede key, a steer-only send, and the prompts acpmux
 //! makes itself (lane reports, task cards, a paused pair's release) still queue.
 //!
+//! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
+//! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
+//! never steers into its turn (`turns.rs`; `inbox_digest.rs` refuses to drain one): it queues
+//! behind the review and runs as a turn of its own (none joins another, `digest.rs`) once the review
+//! ends, which answers its sender; one sent with `interrupt` stops no review either. Nor does a
+//! notice steer into its turn: messages its inbox
+//! took before it became one (a `review.` tag set later) wait for the turn's end, as an idle
+//! chat's do. The person's own steer still goes in, and so does a queued message the person
+//! sends with Send now: that is the person's choice, not another agent's. A coordinator
+//! found notices steered into review turns (2026-10-30): "The reviewer then reads the thread
+//! instead of reviewing and ends with no SHIP/BLOCK verdict."
+//!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
 //! with new messages (how many, from whom, the newest one's first line), blockers first, the way
 //! Claude Code tells it of background work; it reads a thread whole with the `inbox_read` tool
@@ -195,6 +207,20 @@ pub(super) fn takes(
         && super::forum::slash_command(blocks).is_none()
         && !crate::prompt_uploads::any(blocks)
         && !super::subsession_guard::is_family_prompt(provenance)
+}
+
+/// Whether the chat is a review box (`review_box.rs`): it has no inbox, and another agent's
+/// message waits behind its running turn instead of steering in (`turns.rs`).
+pub(super) fn review_box(session: &Session) -> bool {
+    crate::review_box::of_meta(&session.meta.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// The refusal of a steer-only message from another agent to a review box's running turn.
+pub(super) fn review_box_steer_refused() -> RpcError {
+    RpcError::invalid_params(
+        "steer.unavailable: a review box takes no other agent's steer; send without steer-only to queue behind its review",
+    )
+    .with_data(json!({"reason": "steer.unavailable", "turnCap": false, "reviewBox": true}))
 }
 
 /// Whether a prompt's provenance is a notice's.
@@ -385,7 +411,9 @@ fn prompt_waits(session: &Session) -> bool {
 /// past its cap (`turns.rs` checks it again at dispatch).
 pub(super) fn notice_held(session: &Session) -> bool {
     let started = session.turn().map(|t| t.started_at);
-    prompt_waits(session) || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
+    prompt_waits(session)
+        || review_box(session)
+        || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
 }
 
 /// Whether the session's running turn is past its cap.
@@ -422,8 +450,12 @@ impl Hub {
         plain: bool,
     ) -> Option<(String, PromptClass)> {
         // A chat closing or closed takes a message as it did before the inbox: none waits in
-        // the inbox of a chat that will not wake.
-        if !plain || !plain_kind(provenance) || super::queue::closing(session) {
+        // the inbox of a chat that will not wake. A review box has no inbox (module docs).
+        if !plain
+            || !plain_kind(provenance)
+            || super::queue::closing(session)
+            || review_box(session)
+        {
             return None;
         }
         let agent = super::digest::agent_sender(provenance, agent)?;
@@ -606,9 +638,12 @@ impl Hub {
                                 0 => 0,
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
+                            // A review box's turn takes no notice: what its inbox held before
+                            // it became one waits for the turn's end (module docs).
                             if !steers
                                 || capped(&meta, turn.started_at, now)
                                 || prompt_waits(session)
+                                || crate::review_box::of_meta(&meta)
                             {
                                 Next::Nothing
                             } else if retry > now {
