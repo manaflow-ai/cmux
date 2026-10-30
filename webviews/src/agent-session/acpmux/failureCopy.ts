@@ -166,7 +166,8 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "subscription-login":
     case "auth":
       return "sign-in";
-    case "rate-limited":
+    // Capacity passes: Continue (or Retry) leads, Switch model beside it (Lawrence 2026-10-29: "should
+    // have a try again/continue type button here").
     case "invalid-key":
     case "proxy-auth":
       return "switch-model";

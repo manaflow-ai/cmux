@@ -20,6 +20,7 @@ import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
+import { errorRecovery, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
 import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
@@ -329,10 +330,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const [retryNote, setRetryNote] = useState<RetryNote>();
   // acpmux's retry needs no prompt: an attempt it sent (a hidden prompt row) that failed again
   // still offers Retry. Without it, Retry sends the turn's prompt again, so it needs one.
-  // `retryFailed` reaches only the chat the row was drawn for; App gives none to a View Only chat, a
-  // read-only pane or one whose composer cannot send, where Retry falls back to the plain resend.
-  const ownedRetry =
-    failed && retryFailed && row.retryable
+  const failedRetry = !failed
+    ? undefined
+    : retryFailed && row.retryable
       ? () => {
           setRetrying(true);
           setRetryNote(undefined);
@@ -340,9 +340,23 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             .then(setRetryNote, () => setRetryNote("retry.failed"))
             .finally(() => setRetrying(false));
         }
-      : undefined;
-  const resend = failed && retry && prompt && row.retryRowId ? () => retry(row.retryRowId!, prompt) : undefined;
-  const failedRetry = ownedRetry ?? resend;
+      : retry && prompt && row.retryRowId
+        ? () => retry(row.retryRowId!, prompt)
+        : undefined;
+  // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
+  // ran; it shares the footer Retry's one-at-a-time state and refusal note.
+  const recovery = failed ? errorRecovery(row, route, { resume, retry, retryFailed, reauthenticate }) : undefined;
+  const goOn =
+    recovery &&
+    (() => {
+      if (retrying) return;
+      setRetrying(true);
+      setRetryNote(undefined);
+      void recovery
+        .run()
+        .then(setRetryNote, () => setRetryNote("retry.failed"))
+        .finally(() => setRetrying(false));
+    });
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -358,7 +372,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           compact={compact}
           reauthenticate={reauthenticate}
           retry={failedRetry}
-          retryOwned={ownedRetry !== undefined}
+          goOn={goOn}
+          goOnLabel={recovery?.label}
           retrying={retrying}
           retryNote={retryNote}
         />
@@ -453,8 +468,8 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
 /// A failed turn's card (cx-w10a; Leo 2026-10-22: "we need to have prettier errors"): the cause in
 /// one human line, naming the harness and the proxy or endpoint when the error names one, never a
 /// generic "sign-in expired" and never the agent's raw words; the way out first (Retry, or Switch
-/// model for capacity, key and proxy failures, and for sign-in ones beside the footer's Sign in
-/// again; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
+/// model for capacity, key and proxy failures; Sign in again for a sign-in failure, with Retry and
+/// Switch model after it; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
 /// `turn-error-card` experiment's arm (turnErrorCard.experiment.ts).
 function TurnFailure({
   message,
@@ -464,7 +479,8 @@ function TurnFailure({
   compact,
   reauthenticate,
   retry,
-  retryOwned = false,
+  goOn,
+  goOnLabel,
   retrying = false,
   retryNote,
 }: {
@@ -476,13 +492,15 @@ function TurnFailure({
   /// Runs the chat harness's login (only the CLI's own login, or an unexplained 401 on a direct
   /// route, asks to sign in; cx-w10a).
   reauthenticate?: () => void;
+  /// Sends the prompt again; CodeRouter's move runs it once the chat is on the new route.
   retry?: () => void;
-  /// `retry` is the failed turn's own (TurnActions `retryFailed`): it reaches only the chat the row
-  /// was drawn for, never a View Only chat, a read-only pane or the next chat during a switch.
-  retryOwned?: boolean;
-  /// A Retry is in flight: its button waits.
+  /// The way on (errorRecovery.ts): Continue or Retry, the card's lead and its Return.
+  goOn?: () => void;
+  /// What the lead says: Continue when the turn had done work, Retry when nothing ran.
+  goOnLabel?: ErrorRecovery["label"];
+  /// A Continue or Retry is in flight: its button waits.
   retrying?: boolean;
-  /// Why acpmux refused the last Retry (turnRetry.ts), shown beside the actions.
+  /// Why acpmux refused the last Continue or Retry (turnRetry.ts), shown beside the actions.
   retryNote?: RetryNote;
 }) {
   const t = useT();
@@ -498,15 +516,13 @@ function TurnFailure({
   const offersSwitch =
     switchModel &&
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
-  // An expired login leads with Sign in again, and Retry follows it for once the login is done.
-  // Where the chat has no login to run (a Cloud chat, a harness that names none), the card is as it
-  // was: Switch model or CodeRouter, and no Retry, which would fail the same way.
+  // An expired login leads with Sign in again, and Continue or Retry follows it for once the login
+  // is done. Where the chat has no login to run (a Cloud chat, a harness that names none), the card
+  // is as it was: Switch model or CodeRouter, and no Retry, which would fail the same way.
   const signInFirst = recovery === "sign-in" && reauthenticate !== undefined;
-  // Retry is the way out, or the second one after Switch model, Compact or Sign in again; never for trust.
-  // A sign-in card's Retry is only the failed turn's own, which reaches only its chat: a View Only
-  // chat or a read-only pane keeps Sign in again without one, as before.
-  const offersRetry =
-    recovery !== undefined && retry !== undefined && (recovery !== "sign-in" || (signInFirst && retryOwned));
+  // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
+  // failure, or after Sign in again; never for trust (errorRecovery.ts).
+  const offersRetry = goOn !== undefined && (recovery !== "sign-in" || signInFirst);
   // A chat that outgrew its context window fails the same way on Retry until it is compacted, so
   // Compact leads and Retry follows it; a harness without /compact keeps Retry alone.
   const compactFirst = recovery === "compact" && compact !== undefined;
@@ -586,10 +602,12 @@ function TurnFailure({
           <button
             type="button"
             className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst || signInFirst ? "" : " cv-turn-error__primary"}`}
+            // The card's first stop in the tab order, so Return on the focused card goes on.
+            aria-keyshortcuts="Enter"
             disabled={retrying}
-            onClick={retry}
+            onClick={goOn}
           >
-            {t("turn.retry")}
+            {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}
         {!switchFirst && switchButton}

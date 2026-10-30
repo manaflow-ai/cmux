@@ -89,12 +89,13 @@ test("cloud auth failures explain safe causes without leaking provider output or
   expect(failureKind("needs a team account on this machine; run cr add claude", cloud)).toBe("no-team-account");
 });
 
-test("the way out: Retry for what may pass, Switch model for capacity and keys, Sign in again for sign-in", () => {
+test("the way out: Retry for what may pass (capacity too), Switch model for keys, Sign in again for sign-in", () => {
   expect(failureRecovery("disk-full")).toBe("retry");
   expect(failureRecovery("tailscale")).toBe("retry");
   expect(failureRecovery("agent-exited")).toBe("retry");
   expect(failureRecovery("other")).toBe("retry");
-  expect(failureRecovery("rate-limited")).toBe("switch-model");
+  // Capacity passes (Lawrence 2026-10-29): Continue or Retry leads, Switch model beside it.
+  expect(failureRecovery("rate-limited")).toBe("retry");
   expect(failureRecovery("invalid-key")).toBe("switch-model");
   expect(failureRecovery("subscription-login")).toBe("sign-in");
   expect(failureRecovery("auth")).toBe("sign-in");
@@ -224,7 +225,7 @@ test("cloud credential transfer retries only the failed prompt after a successfu
   expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
 });
 
-test("capacity puts Switch model first, Retry after it", async () => {
+test("capacity puts Retry first, Switch model after it", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
@@ -233,9 +234,9 @@ test("capacity puts Switch model first, Retry after it", async () => {
     ),
   );
   const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
-  expect(labels).toEqual(["Switch model", "Retry"]);
-  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(labels).toEqual(["Retry", "Switch model"]);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
 test("the typed reason reaches the card", async () => {
