@@ -73,6 +73,9 @@ public final class SidebarDocStore {
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
+    /// The projection paired with `lastLive`: presentation-only `reshow` must not erase a departed remote's item
+    /// before `show` sends its close and removes any emptied ancestor groups.
+    @ObservationIgnored var lastLiveProjection: SidebarDocProjection?
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
@@ -87,6 +90,12 @@ public final class SidebarDocStore {
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
     /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
     @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
+    /// The Chief's adds not echoed yet, oldest first, with their keys (`SidebarPendingChief`): what the sidebar draws
+    /// for it until then.
+    @ObservationIgnored var pendingChief: [(key: String, add: SidebarPendingChief)] = []
+    /// Those the daemon answered, by key, with the revision that holds each: a load at that revision or later holds
+    /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
+    @ObservationIgnored var answeredChief: [String: UInt64] = [:]
 
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
@@ -122,7 +131,7 @@ public final class SidebarDocStore {
                 if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
             }
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
-                  mirror.load(data) else {
+                  let dropped = mirror.load(data) else {
                 // Unanswered changes wait for a load: ask again (a bounded number of times; a reconnect loads anyway).
                 if let self, !answering.isEmpty, self.failedLoads < Self.unsettledAsks {
                     self.failedLoads += 1
@@ -132,7 +141,12 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            for key in answering { mirror.reject(key) }
+            // So does each answered Chief change at the load's revision or before it: it stops replaying too.
+            let settled = answering.union(self.answeredChief.filter { $0.value <= records.revision }.keys)
+            let rejected = settled.flatMap { mirror.reject($0) }
+            // A Chief change the load holds or the mirror dropped (it no longer applies, on the load or behind a
+            // change put back) is settled; one it replays stays pending.
+            self.settlePendingChief(settled.union(dropped).union(rejected))
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -151,8 +165,17 @@ public final class SidebarDocStore {
             if loading, mirror != nil, earlyBatches.count < 512 { earlyBatches.append(data) }
             return
         }
-        // The reducer judges the revision chain: a skipped one refetches.
-        switch mirror.apply(batch: data) {
+        // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
+        // names the intents the batch settled or dropped.
+        let outcome: SidebarMirror.BatchOutcome
+        if pendingChief.isEmpty {
+            outcome = mirror.apply(batch: data)
+        } else {
+            let (applied, dropped) = mirror.applyDropping(batch: data)
+            outcome = applied
+            if settlePendingChief(Set(dropped)) { bump() }
+        }
+        switch outcome {
         case .stale: return
         case .refetch: return refresh()
         case .applied(let revision):
@@ -316,6 +339,7 @@ public final class SidebarDocStore {
         } catch {
             throw refused(SidebarDocStrings.unavailable)
         }
+        if let chief = SidebarPendingChief(ops: intent.ops) { pendingChief.append((intent.idempotencyKey, chief)) }
         if redraws { bump() }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
@@ -332,6 +356,9 @@ public final class SidebarDocStore {
                     // echo, and the first echo may have gone to a closed connection. The next load settles the key.
                     if asked > 1 { self.settleByLoad(key) }
                     self.foldRefusals[key] = nil
+                    if reply.hasInverse, let revision = reply.revision, self.pendingChief.contains(where: { $0.key == key }) {
+                        self.answeredChief[key] = revision
+                    }
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
                         self.drop(key, redraws: redraws)
@@ -381,7 +408,7 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String, redraws: Bool = true) {
-        mirror?.reject(key)
+        settlePendingChief(Set(mirror?.reject(key) ?? []).union([key]))
         if redraws { bump() }
     }
 

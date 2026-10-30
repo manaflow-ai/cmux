@@ -15,7 +15,9 @@ needs the plan.
 ## When
 
 - A Cloud machine create or start fails with `cloud.plan.required` (or a size
-  is locked: `details.plan` names the plan that lifts it).
+  is locked: `details.plan` names the plan that lifts it). `cmux cloud
+  new-machine` names it at the end of its message: `(plan: pro)` or
+  `(plan: max)`.
 - The model router or CodeRouter refuses because the team has no paid plan,
   or Chief credits ran out (`credits_exhausted`).
 - The user asks to upgrade, subscribe, buy cmux, or pay for Cloud.
@@ -30,9 +32,9 @@ Do not start a checkout the task does not need, and never twice for one ask.
 | `max` | $200/mo | 20 Cloud VMs at once, up to 32 vCPU / 64 GB; more included usage |
 | `team` | $60/seat/mo | Pro for every member of a team; needs `--team ID` of a team the user administers |
 
-Pick the cheapest plan that unblocks the task: `details.plan` of a refusal
-when it names one, else `pro`; `team` only when the user works in a shared
-team.
+Pick the cheapest plan that unblocks the task: the plan a refusal names
+(`details.plan`, or `(plan: …)` in its message), else `pro`; `team` only when
+the user works in a shared team.
 
 ## How
 
@@ -42,6 +44,9 @@ team.
    in to Stripe Link (one-click pay), else the default browser. The result
    has `url`, `flow`, `mode` (`test` or `live`), `opened_in` (`cmux`,
    `default` or `none`) and `link_session`.
+   Add `--no-open` when the app already shows its own upgrade dialog (a
+   Cloud create refusal does): the result still has `url`, and nothing opens
+   on top of the dialog.
 2. Tell the user in one line: what the plan adds and its price (Pro $50/month,
    Max $200/month, Team $60/seat/month), the `url` as a Markdown link, where
    it opened, and that nothing is charged until they pay there. For example:
