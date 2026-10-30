@@ -3074,7 +3074,7 @@ jobs:
     # Resume already retained these exact assets in build-nightly-app.
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     if: needs.decide.outputs.build_only != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 20
@@ -3126,7 +3126,7 @@ jobs:
     # needs this job: a quota wait must neither occupy a Mac nor delay the feed.
     needs: [build-nightly-remote-daemon]
     if: inputs.nightly_next_unsigned_run == ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       attestations: write

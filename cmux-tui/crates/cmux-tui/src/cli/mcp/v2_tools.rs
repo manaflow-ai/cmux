@@ -514,6 +514,18 @@ impl V2Tool {
             let selector = selectors.is_some_and(|selectors| selectors.contains_key(name))
                 && self.selector_argument(name);
             let field = fields.and_then(|fields| fields.get(name));
+            // A record a tool returned, passed where its id goes (`tab_list({pane: n.pane})`
+            // after `pane_neighbor_get` answered `{pane: {id, ...}}`): its `id` is the
+            // argument (tests/tool-evals: 22 such calls from two models). Only where an id
+            // goes: a selector or a resource-id field. A json field (`settings_set {value}`,
+            // `keybindings_set {args}`) keeps its object.
+            let takes_id =
+                selector || field.is_some_and(|field| field["type"]["kind"] == "resource_id");
+            let record_id = value
+                .as_object()
+                .and_then(|record| record.get("id"))
+                .filter(|id| takes_id && id.is_string());
+            let value = record_id.unwrap_or(value);
             match name.as_str() {
                 "session" => set_session(&mut session, text(name, value)?)?,
                 "idempotency_key" if self.mutation => {
@@ -537,6 +549,7 @@ impl V2Tool {
                             .then(|| field["type"]["resource"].as_str())
                             .flatten()
                     });
+                    let decimal = field.is_some_and(|field| field["type"]["name"] == "decimal");
                     let value = match (resource, value.as_str()) {
                         (Some(resource), Some(raw)) => {
                             let id = self.id_argument(name, resource, raw, &mut session)?;
@@ -545,11 +558,50 @@ impl V2Tool {
                             }
                             Value::String(id.0)
                         }
+                        // The wire's decimal string from a JSON number.
+                        _ if decimal && value.is_u64() => Value::String(value.to_string()),
+                        _ if decimal
+                            && value
+                                .as_f64()
+                                .is_some_and(|n| n >= 0.0 && n.fract() == 0.0 && n < 1e19) =>
+                        {
+                            Value::String(format!("{}", value.as_f64().unwrap_or_default() as u64))
+                        }
                         _ => value.clone(),
                     };
                     params.insert(name.clone(), value);
                 }
                 _ => return Err(invalid(format!("{} has no argument {name:?}", self.name))),
+            }
+        }
+        // A missing required selector names the fix, where the daemon's
+        // answer ("required selector is missing") did not (tests/tool-evals:
+        // `workspace_get({})`, `terminal_input_write({terminal_id})`).
+        for (name, requiredness) in selectors.into_iter().flatten() {
+            // A terminal named by its tab: the server puts the tab's terminal in its
+            // place before sending (mcp.rs `terminal_of_tab`).
+            if name == "terminal" && !arguments.contains_key(name) && arguments.contains_key("tab")
+            {
+                continue;
+            }
+            if requiredness.as_str() == Some("required")
+                && self.selector_argument(name)
+                && !arguments.contains_key(name)
+            {
+                let current = if matches!(name.as_str(), "workspace" | "screen" | "pane" | "tab") {
+                    ", or `current` for this chat's own"
+                } else {
+                    ""
+                };
+                let also = if name == "terminal" {
+                    " (a create call answers it as value.terminal_id)"
+                } else {
+                    ""
+                };
+                return Err(invalid(format!(
+                    "{} needs {name}: an id{also}, a unique prefix or an exact name{current}",
+                    self.name
+                )));
             }
         }
         if self.waits() {
@@ -588,6 +640,12 @@ impl V2Tool {
     fn selector_argument(&self, selector: &str) -> bool {
         (selector == "machine" && self.operation == ResourceOperation::MachineGet)
             || !matches!(selector, "machine" | "session")
+    }
+
+    /// Whether the operation needs a `terminal` selector (`terminal_list` only filters by
+    /// one, through its optional `tab`).
+    pub(super) fn needs_terminal(&self) -> bool {
+        self.descriptor["params"]["selectors"]["terminal"] == "required"
     }
 
     fn waits(&self) -> bool {

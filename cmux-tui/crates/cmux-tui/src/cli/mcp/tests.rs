@@ -41,6 +41,11 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// `Backend::identity` fails, as with no app on the socket.
+    identity_fails: bool,
+    /// What `Backend::caller_terminal` answers (none by default, whatever
+    /// terminal the test runs in).
+    caller_terminal: Option<String>,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     /// The app's `computer_use.status` through `Backend::app_caller`; no
@@ -340,12 +345,19 @@ impl Backend for Fake {
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "caller"}));
+        if self.identity_fails {
+            return Err(CallFailure::local(FailureKind::NotRun, "socket.no_app", "no cmux app"));
+        }
         Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "focus"}));
         Ok(self.focus.clone())
+    }
+
+    fn caller_terminal(&self) -> Option<String> {
+        self.caller_terminal.clone()
     }
 
     fn acpmux(
@@ -1464,11 +1476,13 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     );
     assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
 
-    // Docs returns a matching tool's schema, best match first.
+    // Docs returns a matching tool's schema, best match first: the daemon's
+    // tool before the app action that does the same.
     let found = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
-    let first = &found["structuredContent"]["tools"][0];
-    assert_eq!(first["name"], "app_workspace_rename", "{found}");
-    assert_eq!(first["inputSchema"]["required"], json!(["name"]));
+    let tools = found["structuredContent"]["tools"].as_array().cloned().unwrap_or_default();
+    assert_eq!(tools[0]["name"], "workspace_rename", "{found}");
+    let app = tools.iter().find(|tool| tool["name"] == "app_workspace_rename").expect("app twin");
+    assert_eq!(app["inputSchema"]["required"], json!(["name"]));
     let index = call(&mut server, "cmux_docs", json!({}));
     assert!(index["structuredContent"]["families"]["workspace"].is_array(), "{index}");
     let exact = call(&mut server, "cmux_docs", json!({"names": ["window_list", "nope"]}));
@@ -1533,15 +1547,17 @@ fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
     );
     let syntax = call(&mut server, "cmux_exec", json!({"script": "return (;"}));
     assert_eq!(syntax["structuredContent"]["state"], "not_run");
-    // The engine has no file, network or process access.
+    // The engine has no file, network, process or timer access (setTimeout only
+    // throws, naming terminal_wait).
     let sandboxed = call(
         &mut server,
         "cmux_exec",
-        json!({"script": "return [typeof require, typeof fetch, typeof process, typeof setTimeout];"}),
+        json!({"script": "let timer = 'ran'; try { setTimeout(() => {}, 1); } catch { timer = 'threw'; } \
+                          return [typeof require, typeof fetch, typeof process, timer];"}),
     );
     assert_eq!(
         sandboxed["structuredContent"]["result"],
-        json!(["undefined", "undefined", "undefined", "undefined"])
+        json!(["undefined", "undefined", "undefined", "threw"])
     );
 }
 
@@ -1631,6 +1647,42 @@ fn cmux_docs_answers_a_task_with_its_guide() {
     assert!(plain["structuredContent"].get("guides").is_none(), "{plain}");
 }
 
+/// An agent's docs query is often a sentence with a word no tool has
+/// ("pane split terminal send"). It finds the tool that matches the most
+/// words, not nothing (tests/tool-evals, 2026-10-27: Sonnet searched three
+/// times before its first call).
+#[test]
+fn cmux_docs_finds_a_tool_from_a_sentence() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let found = call(
+        &mut server,
+        "cmux_docs",
+        json!({"query": "split the pane to the right and send text"}),
+    );
+    let names = found["structuredContent"]["tools"]
+        .as_array()
+        .map(|tools| tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert_eq!(names.first(), Some(&"pane_split"), "{found}");
+    // The answer is compact: no protocol tags or shared idempotency text,
+    // and the shared arguments by name only.
+    let split = &found["structuredContent"]["tools"][0];
+    let text = split.to_string();
+    assert!(!text.contains("cmux.protocol/2") && !text.contains("may have applied"), "{split}");
+    assert!(split["alsoTakes"].to_string().contains("idempotency_key"), "{split}");
+    assert!(split["inputSchema"]["properties"]["direction"]["enum"].is_array(), "{split}");
+
+    // A tool's own name finds that tool first, not a longer one that holds it.
+    let exact = call(&mut server, "cmux_docs", json!({"query": "tab_list"}));
+    assert_eq!(exact["structuredContent"]["tools"][0]["name"], "tab_list", "{exact}");
+
+    // A script that calls a name no tool has hears the near ones.
+    let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    let message = ran["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("did you mean"), "{ran}");
+}
+
 /// The tools the acpmux sub-session server's instructions point agents at
 /// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
 /// instructions reach them the way an agent's `cmux mcp serve` does: in
@@ -1650,3 +1702,144 @@ fn the_subsession_servers_instructions_name_real_cmux_tools() {
 
 #[path = "upstream_tests.rs"]
 mod upstream_tests;
+
+/// With no app, a link an agent opens keeps the daemon's `workspace.open_url`:
+/// the app's `browser.open_split` cannot run without the app (review of the
+/// no-app placement fallback, 2026-10-27).
+#[test]
+fn open_url_without_an_app_stays_on_the_daemon() {
+    // The daemon places the caller (terminal, tab, pane, screen and
+    // workspace, and a pane to its right), so the fallback would find a
+    // place for the link if it took links.
+    let place = json!({"tab_id": "tab_1", "pane_id": "pane_1", "screen_id": "screen_1",
+                       "workspace_id": "ws_1", "pane": {"id": "pane_2"}});
+    let fake = Fake {
+        identity_fails: true,
+        caller_terminal: Some("term_1".into()),
+        resource_result: Some(place),
+        ..Fake::default()
+    };
+    let mut server = Server::new(fake, None);
+    server
+        .call(&json!({"name": "workspace_open_url",
+                        "arguments": {"url": "https://example.com"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    assert!(!sent.iter().any(|sent| sent["method"] == "browser.open_split"), "{sent:?}");
+    assert!(
+        sent.iter().any(|sent| sent["request"]["operation"] == "workspace.open_url"),
+        "{sent:?}"
+    );
+}
+
+/// What models write and the code mode now takes (tests/tool-evals, 11-model panel
+/// 2026-10-27): a call's `.catch()`, a script wrapped as one async function, and a
+/// missing selector or a timer that names its fix.
+#[test]
+fn code_mode_takes_the_shapes_models_write() {
+    let mut server = code_mode_server(Fake::default());
+    let wrapped = "async function () {\n  const r = await cmux.workspace_list({}).catch(() => null);\n  return {listed: r !== null};\n}";
+    let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
+    assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{ran}");
+
+    let missing = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script":
+        "try { await cmux.workspace_get({}); } catch (e) { return e.message; }"}),
+    );
+    let message = missing["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("needs workspace") && message.contains("current"), "{missing}");
+
+    // Every function form models send runs and returns its value.
+    for wrapped in [
+        "async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; }",
+        "(async () => {\n  const r = await cmux.workspace_list({});\n  return {listed: !!r.items};\n})",
+        "async (c) => { return {listed: !!(await c.workspace_list({})).items}; }",
+    ] {
+        let ran = call(&mut server, "cmux_exec", json!({"script": wrapped}));
+        assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{wrapped}: {ran}");
+    }
+    // A body that only starts like a function (an awaited call in parentheses) and ends
+    // with a block runs as written.
+    let body =
+        "(await cmux.workspace_list({})).items.map((t) => t.id);\nif (1) { return {ran: true}; }";
+    let ran = call(&mut server, "cmux_exec", json!({"script": body}));
+    assert_eq!(ran["structuredContent"]["result"]["ran"], true, "{ran}");
+    // A function that calls itself returns its value too.
+    let called =
+        "(async () => { const r = await cmux.workspace_list({}); return {listed: !!r.items}; })()";
+    let ran = call(&mut server, "cmux_exec", json!({"script": called}));
+    assert_eq!(ran["structuredContent"]["result"]["listed"], true, "{ran}");
+
+    let timer = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script":
+        "try { setTimeout(() => {}, 10); } catch (e) { return e.message; }"}),
+    );
+    let message = timer["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("terminal_wait"), "{timer}");
+}
+
+/// A terminal tool named by a tab gets that tab's terminal, in the tab's session; a tool
+/// that only filters by tab (`terminal_list`) keeps the tab (review of `terminal_of_tab`).
+#[test]
+fn a_tab_names_its_terminal_only_where_a_terminal_is_needed() {
+    let shown = json!({"id": "tab_1", "content_id": "term_00000000000000000000000000000abc"});
+    let fake = Fake { resource_result: Some(shown), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+
+    server
+        .call(&json!({"name": "terminal_screen_read", "arguments": {"tab": "build:tab_1"}}))
+        .expect("a tool result");
+    server
+        .call(&json!({"name": "terminal_list", "arguments": {"tab": "tab_1"}}))
+        .expect("a tool result");
+
+    let sent = server.backend.sent.borrow();
+    let requests: Vec<&Value> = sent.iter().filter(|s| s["kind"] == "resource").collect();
+    let read = requests.iter().find(|s| s["request"]["operation"] == "terminal.screen.read");
+    let read = read.unwrap_or_else(|| panic!("{requests:?}"));
+    assert_eq!(read["session"], "build", "the read goes to the tab's session: {read}");
+    assert_eq!(
+        read["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+        "{read}"
+    );
+    let list = requests.iter().find(|s| s["request"]["operation"] == "terminal.list");
+    let list = list.unwrap_or_else(|| panic!("{requests:?}"));
+    assert_eq!(
+        list["request"]["params"]["tab"], "tab_1",
+        "terminal_list keeps its tab filter: {list}"
+    );
+}
+
+/// A record a tool returned works where its id goes: models pass `n.pane` from
+/// `pane_neighbor_get` (`{pane: {id, ...}}`) to `tab_list` (tests/tool-evals, h7).
+#[test]
+fn a_record_works_where_its_id_goes() {
+    let mut server = Server::new(Fake::default(), None);
+    let answer = server
+        .call(&json!({"name": "tab_list",
+                       "arguments": {"pane": {"id": "pane_00000000000000000000000000000abc", "focused": false}}}))
+        .expect("a tool result");
+    assert_eq!(answer["isError"], false, "{answer}");
+    let sent = server.backend.sent.borrow();
+    let list =
+        sent.iter().find(|s| s["request"]["operation"] == "tab.list").expect("a tab.list request");
+    assert_eq!(
+        list["request"]["params"]["pane"], "pane_00000000000000000000000000000abc",
+        "{list}"
+    );
+    drop(sent);
+
+    // A json field keeps its object even when it has an `id` (review of 7c83a9f).
+    let device = json!({"id": "phone-1", "title": "Phone", "screen": {"vertical": {"width": 390, "height": 844}}});
+    server
+        .call(&json!({"name": "browser_devices_add_custom", "arguments": {"device": device}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let add = sent.iter().find(|s| s["request"]["operation"] == "browser.devices.add_custom");
+    let add = add.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(add["request"]["params"]["device"], device, "{add}");
+}

@@ -269,3 +269,8 @@
 .ui-combobox-scroll { min-height: 0; }
 .ui-combobox-pinned > button { display: flex; align-items: center; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
 .ui-combobox-pinned > button:hover, .ui-combobox-pinned > button:focus-visible { background: var(--ui-row); }
+
+/* A popup that keeps its side and slides along it to stay in the window (openSide.ts "shift": a
+   composer's location menu, which must not open onto the chat) is not held to the room on that
+   side: it may cover its own anchor, so it fits the window less the edge margins. */
+.ui-popup[data-popup-shift] { --available-height: calc(100vh - 16px); }
