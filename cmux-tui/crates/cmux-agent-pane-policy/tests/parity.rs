@@ -109,12 +109,13 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
     })
 }
 
-/// The full check in Swift's order (tests/cases/check.json; Swift runs the
-/// same file against `AgentPaneTransport.checkOne`).
+/// The full check in Swift's order (tests/cases/check.json). Only this crate
+/// runs the file: no Swift test reads it, so `AgentPaneTransport.checkOne` has
+/// its own Swift tests (for example `AgentPaneForkRelayTests`).
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 54, "check.json: the full order's 54 cases");
+    assert_eq!(all.as_array().unwrap().len(), 55, "check.json: the full order's 55 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
