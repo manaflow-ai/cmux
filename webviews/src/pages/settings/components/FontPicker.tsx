@@ -97,7 +97,9 @@ export function FontPicker({
     const chosen = name === DEFAULT_FONT_ROW ? null : names.includes(name) ? name : undefined;
     if (chosen === undefined || chosen === value) return end();
     const pickOwner = owner.current;
-    void Promise.resolve(onPick(chosen)).finally(() => end(pickOwner ?? undefined));
+    void Promise.resolve(onPick(chosen)).finally(() => {
+      if (pickOwner) end(pickOwner);
+    });
   };
   const { rows, recent: recentRows } = fontRows({ names, recent, query });
   return (

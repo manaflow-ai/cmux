@@ -116,7 +116,9 @@ export function ThemePicker({
     const chosen = name === CONFIG ? null : names.includes(name) ? name : undefined;
     if (chosen === undefined) return end();
     const pickOwner = owner.current;
-    void Promise.resolve(onPick(chosen)).finally(() => end(pickOwner ?? undefined));
+    void Promise.resolve(onPick(chosen)).finally(() => {
+      if (pickOwner) end(pickOwner);
+    });
   };
   return (
     <>
