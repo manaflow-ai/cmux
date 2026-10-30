@@ -171,6 +171,26 @@ git -C "$repo" add -A
 python3 -I "$CHECK" --base "$base4" "$repo" >/dev/null 2>"$tmp/err" && grep -q "G/Red.swift is new in .* but already imported SwiftUI" "$tmp/err" \
   || { echo "FAIL: must pass with a note: a moved base red listed under its new path" >&2; cat "$tmp/err" >&2; exit 1; }
 git -C "$repo" mv "$SRC/G/Red.swift" "$SRC/D/Red.swift"
+# Dropping a gone entry while listing a base red of the same file name pairs them as a move, but the
+# base red imported SwiftUI at the base: not new SwiftUI.
+mkdir -p "$repo/$SRC/J" "$repo/$SRC/K"; printf 'import SwiftUI\nstruct Pair {}\n' > "$repo/$SRC/K/Pair.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/J/Pair.swift" > "$repo/$LIST"
+commit base4b-gone-entry
+base4b=$(git -C "$repo" rev-parse HEAD)
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/K/Pair.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base4b" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a base red listed in place of a gone entry of its name" >&2; cat "$tmp/err" >&2; exit 1; }
+# The same when the change also moves the base red (a git rename).
+mkdir -p "$repo/$SRC/L"; git -C "$repo" mv "$SRC/K/Pair.swift" "$SRC/L/Pair.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/L/Pair.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base4b" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a moved base red listed in place of a gone entry of its name" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" mv "$SRC/L/Pair.swift" "$SRC/K/Pair.swift"
+git -C "$repo" rm -q -f "$SRC/K/Pair.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
 # An allowlist already unsorted on the base warns while the change leaves it alone, and fails once the change edits it.
 printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" > "$repo/$LIST"
 commit base5-unsorted

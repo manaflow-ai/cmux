@@ -213,7 +213,10 @@ def main() -> int:
                     origins = dropped[name]
                 else:
                     continue  # an entry this change added: the growth check above judges it
-                if not any(imported_at(root, args.base, o) for o in origins):
+                # The file at its own path (or git's rename source) importing SwiftUI at the base is not
+                # new SwiftUI either: a base red the change lists while it drops a gone entry of its name.
+                origins += [f, moves.get(f, f)]
+                if not any(imported_at(root, args.base, o) for o in dict.fromkeys(origins)):
                     findings.append(f"{f}: imports SwiftUI, which it did not at {args.base}; its allowlist entry "
                                     f"was stale there, so delete the line and keep the file AppKit")
 
