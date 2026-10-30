@@ -56,7 +56,9 @@ struct WorkspaceSpawner {
         let key = WorkspaceKey.generate()
         let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         var rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
-        if !spawn.placesFromCurrent, rule?.placement != .afterCurrent { rule?.current = nil }
+        // Section creation opts out of the selected workspace even when the shared default is
+        // afterCurrent; its anchor-free rule resolves the top slot (below Home when visible).
+        if !spawn.placesFromCurrent { rule?.current = nil }
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })

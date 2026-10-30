@@ -71,11 +71,10 @@ enum WorkspaceSetVerbs {
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .workspaces:
-            // Section creation keeps #24374's explicit top slot. The shared setting controls Cmd-N
-            // and other workspace creates, while this action remains independent of the selected row.
-            let slot = NewWorkspacePlacements.home(context.services.machines).map { WorkspaceSlot.below($0) }
-                ?? .top(anchor: nil)
-            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: slot, fromCurrent: false)
+            // Section creation keeps #24374's top slot through the anchor-free rule. The shared
+            // setting controls Cmd-N and other workspace creates, while this action remains
+            // independent of the selected row.
+            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: nil, fromCurrent: false)
         case .items:
             let origin = invocation.origin, sectionID = section.id, services = context.services, end = section.items.count
             try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil)) { id, _ in
