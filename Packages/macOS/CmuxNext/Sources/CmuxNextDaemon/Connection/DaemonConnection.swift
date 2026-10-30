@@ -70,6 +70,8 @@ public actor DaemonConnection {
     var handoffHoldNext: UInt64 = 0
     var handoffQueue: [CheckedContinuation<Void, Never>] = []
     var handoffHoldTimer: DemandTimer?
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
+    private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -169,9 +171,32 @@ public actor DaemonConnection {
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
-        let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
+        let response: R.Response
+        do {
+            response = try await Self.perform(request, on: ready.transport, timeout: timeout)
+        } catch let refused as PaneNotReady {
+            throw reported(refused)
+        }
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
+    }
+
+    /// Rule (a) of the P0 2026-10-30, at the one place every sender's request goes through: a request refused because
+    /// it names a pane still opening shows why once, for every sender (a `DaemonService` funnel, or a handler that calls
+    /// this connection itself). An open action scope (`action.run` from the CLI or MCP) answers the refusal itself, so
+    /// it shows nothing here. The returned error is marked shown, so no reporter shows it again.
+    private func reported(_ refused: PaneNotReady) -> PaneNotReady {
+        guard DaemonCommandScope.current?.isOpen != true, let paneNotReadyObserver else { return refused }
+        var shown = refused
+        shown.shown = true
+        paneNotReadyObserver(shown)
+        return shown
+    }
+
+    /// Sets what shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action
+    /// scope answers it; `DaemonService` sets it on each connection it makes. Runs on this connection's executor.
+    public func observePaneNotReady(_ observer: (@Sendable (PaneNotReady) -> Void)?) {
+        paneNotReadyObserver = observer
     }
 
     /// The event sequence this connection has routed so far, or nil when
