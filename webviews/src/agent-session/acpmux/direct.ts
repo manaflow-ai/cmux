@@ -654,8 +654,12 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
-      // The resume read before holds while its text does; an edit the pane missed reads the listing.
-      message || author ? undefined : ((whole ? had.retry : undefined) ?? subagentRetryNotice(preview, entry)),
+      // The resume read before holds while its text does: the listing's preview is that text, or cut
+      // from it ("…"). An edit the pane missed, a shorter prompt included, reads the listing.
+      message || author
+        ? undefined
+        : ((whole && (preview.endsWith("…") || oneLine(had.prompt) === preview) ? had.retry : undefined) ??
+          subagentRetryNotice(preview, entry)),
     );
   });
 }

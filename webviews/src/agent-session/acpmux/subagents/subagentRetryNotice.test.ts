@@ -91,4 +91,12 @@ test("a teammate's prompt in acpmux's words, or an edit the pane missed, is no r
   // The person rewrote it while the pane was away: the listing's own words decide.
   const [edited] = mergeQueue([held!], [{ promptId: "p-5", client: "acpmux", prompt: "just check the logs" }]);
   expect(edited?.retry).toBeUndefined();
+  // Cut to a shorter prompt it began with, whole (no "…"): the edit is the person's too.
+  const [whole] = mergeQueue([], [{ promptId: "p-6", client: "acpmux", prompt: named }]);
+  expect(whole?.retry?.agentId).toBe("af0cbece62b15d0e1");
+  const [shorter] = mergeQueue([whole!], [{ promptId: "p-6", client: "acpmux", prompt: named.slice(0, 40) }]);
+  expect(shorter?.retry).toBeUndefined();
+  // The same prompt listed again keeps its resume.
+  const [again] = mergeQueue([whole!], [{ promptId: "p-6", client: "acpmux", prompt: `${named.slice(0, 199)}…` }]);
+  expect(again?.retry?.agentId).toBe("af0cbece62b15d0e1");
 });
