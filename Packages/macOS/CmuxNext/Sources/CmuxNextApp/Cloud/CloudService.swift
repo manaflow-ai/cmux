@@ -514,6 +514,8 @@ final class CloudService {
             if let session = machines.session(machine.id) {
                 apply(machine, to: session, read: read)
             } else {
+                // Do not resurrect a machine removed by a newer detail/list response.
+                guard read > recordReadApplied[machine.id, default: 0] else { continue }
                 // The machine's record now comes from this list: older reads land behind it.
                 recordReadApplied[machine.id] = read
                 addSession(machine)
@@ -537,16 +539,26 @@ final class CloudService {
             // A status request for another machine cannot delay this removal.
             guard !recordReadsOutstanding.contains(where: { $0.key > read && $0.value == machineID }) else { continue }
             deferredRecordRemovals[machineID] = nil
-            guard machines.session(machineID) != nil else { continue }
-            if let user = auth.user {
-                let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-                // task-owner: server-driven removal; the adapter stops renewal before cleanup.
-                Task { try? await codexBroker.revoke(machineID: machineID, scope: scope) }
-            }
-            creations.machineRemoved(machineID)
-            recordReadApplied[machineID] = nil
-            machines.remove(machineID)?.disconnect()
+            recordReadApplied[machineID] = max(read, recordReadApplied[machineID, default: 0])
+            removeConfirmedMachine(machineID)
         }
+    }
+
+    /// Both an authoritative list omission and a destroyed detail confirm removal.
+    /// Keep the read watermark so an older list cannot recreate the removed session.
+    private func removeConfirmedMachine(_ machineID: String) {
+        deferredRecordRemovals[machineID] = nil
+        guard machines.session(machineID) != nil else { return }
+        if let user = auth.user {
+            let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
+            // task-owner: confirmed removal stops renewal, then discards the deleted target.
+            Task {
+                try? await codexBroker.revoke(machineID: machineID, scope: scope)
+                await codexBroker.machineWasDeleted(machineID, scope: scope)
+            }
+        }
+        creations.machineRemoved(machineID)
+        machines.remove(machineID)?.disconnect()
     }
 
     /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
@@ -556,10 +568,14 @@ final class CloudService {
     func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
         // Apply the newer record before releasing any removal it was protecting.
         defer { finishRecordRead(read) }
-        guard read > recordReadApplied[machine.id, default: 0] else { return }
+        guard read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
         recordReadApplied[machine.id] = read
         let wasLive = session.machine.status.isLive
         session.machine = machine
+        if machine.status == .destroyed {
+            removeConfirmedMachine(machine.id)
+            return
+        }
         if wasLive, !machine.status.isLive {
             session.suspend()
         } else if !wasLive, machine.status.isLive {
