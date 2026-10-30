@@ -1,15 +1,14 @@
 //! Helpers for copying process stderr into user-visible text.
 
-/// Remove terminal control sequences and the prefix emitted by tracing's compact formatter.
-///
-/// Process stderr remains available in its raw form for logs and transcript entries. Callers
-/// use this only when they copy a line into an error or diagnostic shown to a person.
+/// One line without its terminal control sequences or the prefix tracing's compact formatter adds.
+/// Callers clean whole texts ([`clean_stderr_lines`]) or streams ([`StderrStream`]).
+#[cfg(test)]
 pub(crate) fn clean_stderr_line(line: &str) -> String {
     clean_stripped_line(&strip_ansi(line))
 }
 
-/// Each line of `text` as [`clean_stderr_line`] cleans it, with control sequences removed from the
-/// whole text first: a string control's payload (DCS, OSC, SOS, PM, APC) may span lines, and none
+/// Each line of `text` without terminal control sequences or the prefix tracing's compact
+/// formatter adds, with control sequences removed from the whole text first: a string control's payload (DCS, OSC, SOS, PM, APC) may span lines, and none
 /// of it may reach the person. Empty lines stay, so callers keep their own filtering.
 pub(crate) fn clean_stderr_lines(text: &str) -> Vec<String> {
     strip_ansi(text).lines().map(clean_stripped_line).collect()
