@@ -57,7 +57,6 @@ public struct ConnectMacSteps: View {
                     .accessibilityIdentifier("connect-mac.account")
             }
         }
-        .accessibilityIdentifier("connect-mac.other-account")
     }
 
     private var signInText: Text {
