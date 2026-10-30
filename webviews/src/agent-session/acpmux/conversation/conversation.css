@@ -709,7 +709,7 @@
   width: min(100%, 560px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--cv-tool-gap);
   padding: 10px 12px 8px;
   border-radius: 16px;
   background: var(--cv-bubble);
