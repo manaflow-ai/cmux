@@ -384,3 +384,77 @@ test("turning workflows off while a workflow agent's transcript shows steps back
   );
   expect(container.querySelector<HTMLElement>(".acpmux-bg__list")!.hidden).toBe(false);
 });
+
+/// IntersectionObservers that a test fires by hand, by the sentinel they watch.
+function manualObservers() {
+  const watching = new Map<Element, () => void>();
+  scope.IntersectionObserver = class {
+    constructor(private readonly callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe(target: Element) {
+      watching.set(target, () => this.callback([{ isIntersecting: true }]));
+    }
+    disconnect() {
+      for (const [target, fire] of watching) if (fire === undefined) watching.delete(target);
+    }
+  };
+  saved.set("IntersectionObserver", undefined);
+  return (container: HTMLElement, which: "first" | "last") => {
+    const sentinels = [...container.querySelectorAll(".acpmux-bg__sentinel")];
+    const sentinel = which === "first" ? sentinels[0] : sentinels.at(-1);
+    const fire = sentinel && watching.get(sentinel);
+    if (!fire) throw new Error(`no ${which} sentinel watched`);
+    return act(async () => fire());
+  };
+}
+
+test("paging up and down from a task opened early in a long transcript keeps the mounted rows bounded", async () => {
+  const container = installDom();
+  const page = manualObservers();
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(2000)} running={false} anchor="r1000" />));
+  for (let step = 0; step < 6; step += 1) {
+    await page(container, "first");
+    expect(container.querySelectorAll("[data-row-id]").length).toBeLessThanOrEqual(2 * WINDOW);
+  }
+  for (let step = 0; step < 12; step += 1) {
+    await page(container, "last");
+    expect(container.querySelectorAll("[data-row-id]").length).toBeLessThanOrEqual(2 * WINDOW);
+  }
+});
+
+test("a workflow agent's long first page mounts one window, not every row", async () => {
+  const container = installDom();
+  const text = (value: string) => ({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: value } });
+  const prompt = (value: string) => ({ sessionUpdate: "user_message_chunk", content: { type: "text", text: value } });
+  let resolve!: (value: unknown) => void;
+  const read = () => new Promise<unknown>((done) => (resolve = done));
+  const pane = 'workflow:["chat","wf_demo","review"]';
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <BackgroundTasksPanel
+        groups={[]}
+        initialDrill={{ agentId: pane, workflow: true }}
+        workflow={{ sessionId: "chat", chat: "This chat", connection: "connected", read }}
+        onClearFinished={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    ),
+  );
+  expect(container.querySelector(".acpmux-bg__transcript")!.textContent).toContain("Loading");
+  // Every row ever mounted, those a commit trimmed right after included.
+  let most = 0;
+  const watch = new window.MutationObserver((records) => {
+    for (const record of records)
+      for (const node of record.addedNodes)
+        if (node instanceof window.HTMLElement)
+          most += (node.matches("[data-row-id]") ? 1 : 0) + node.querySelectorAll("[data-row-id]").length;
+  });
+  watch.observe(container, { childList: true, subtree: true });
+  const updates = Array.from({ length: 300 }, (_, index) => [prompt(`Ask ${index}`), text(`Answer ${index}`)]).flat();
+  await act(async () => resolve({ start: 0, end: updates.length, lines: updates.length, truncated: false, updates }));
+  watch.disconnect();
+  expect(container.querySelectorAll("[data-row-id]").length).toBeGreaterThan(0);
+  expect(most).toBeLessThanOrEqual(WINDOW);
+});
