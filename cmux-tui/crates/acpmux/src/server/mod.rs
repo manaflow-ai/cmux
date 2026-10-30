@@ -2043,6 +2043,10 @@ mod request_admission_tests {
 }
 
 #[cfg(test)]
+#[path = "acp_list_tests.rs"]
+mod acp_list_tests;
+
+#[cfg(test)]
 mod key_route_tests;
 
 #[cfg(test)]
