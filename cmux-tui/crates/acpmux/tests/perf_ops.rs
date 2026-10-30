@@ -1,9 +1,9 @@
 //! SCRATCH BENCH (acpmux-durable-ab, never merged; listed in stopped.txt): the acpmux request
 //! latency, send to reply, with and without the "answer only after the write" commits, on a
-//! loaded Mac. Run by `scripts/measure/acpmux-overhead.sh --arg=bench=daemon --arg=before=A`:
-//! - the before side (arm A, this file in the A tree) only writes the path of its release
-//!   daemon to `<overhead>/arm-a-bin` and ends;
-//! - the after side (arm B) starts the load once (a memory hog into swap, F_FULLFSYNC writers,
+//! loaded Mac. Run by `scripts/measure/acpmux-overhead.sh --arg=bench=daemon` at arm B (no
+//! `before=`: the step checkout has no `origin` to fetch it from). The test builds arm A's
+//! release daemon itself from a worktree of HEAD with `durable_ab_arm_a.patch` applied, then:
+//! - starts the load once (a memory hog into swap, F_FULLFSYNC writers,
 //!   CPU spinners), then runs arm A's and arm B's daemons in turn, A B A B A B, under the same
 //!   load. Each run: 80 chats stream at once (the background agents), then N = 1, 16 and 80
 //!   clients, each on its own connection and chat, send the request mix for a fixed time.
@@ -14,7 +14,15 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process starts the stand-in agent only.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// It keeps the toolchain variables: it builds arm A's daemon with cargo before any daemon starts.
+// Every daemon still gets the hermetic environment (`daemon_env::apply`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "PATH",
+    "HOME",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+]);
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -651,33 +659,66 @@ async fn run_arm(
     by_n
 }
 
-/// `<work>` of acpmux-overhead.sh: the before tree is `<work>/before-src`, the after tree's
-/// work is `<root>/.build/acpmux-overhead`.
-fn overhead_dir() -> (PathBuf, bool) {
-    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let tree = manifest.join("../../..");
-    let tree = tree.canonicalize().unwrap_or(tree);
-    if tree.file_name().is_some_and(|n| n == "before-src") {
-        (tree.parent().unwrap().to_owned(), true)
-    } else {
-        (tree.join(".build/acpmux-overhead"), false)
+/// Runs `cmd` to its end; panics with `what` when it fails.
+fn must(cmd: &mut Command, what: &str) {
+    let status = cmd.status().unwrap_or_else(|e| panic!("{what}: {e}"));
+    assert!(status.success(), "{what}: {status}");
+}
+
+/// Builds arm A's release daemon: a worktree of this checkout's HEAD with the arm A patch
+/// (`durable_ab_arm_a.patch`: perf 3ae4c8c922b with 0599e2aee73, 8b2fe7eba54 and 6a5173856d0
+/// reverted, exactly cp-scratch/acpmux-durable-ab-a's source) applied. The step checkout has no
+/// `origin` remote, so acpmux-overhead.sh's `before=` cannot fetch it (job ad7383091037).
+fn build_arm_a(root: &Path, work: &Path) -> PathBuf {
+    let patch = root.join("cmux-tui/crates/acpmux/tests/durable_ab_arm_a.patch");
+    let tree = work.join("arm-a-src");
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["worktree", "remove", "--force"])
+        .arg(&tree)
+        .status();
+    must(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["worktree", "add", "--detach"])
+            .arg(&tree)
+            .arg("HEAD"),
+        "git worktree add for arm A",
+    );
+    must(
+        Command::new("git").arg("-C").arg(&tree).arg("apply").arg(&patch),
+        "git apply arm A patch",
+    );
+    assert!(
+        !tree.join("cmux-tui/crates/acpmux/src/hub/request_writes.rs").exists(),
+        "arm A still has the request write rule"
+    );
+    let target = work.join("target-arm-a");
+    let started = Instant::now();
+    let mut cargo = Command::new(env!("CARGO"));
+    cargo
+        .current_dir(tree.join("cmux-tui"))
+        .args(["build", "--release", "--locked", "-p", "acpmux", "--bin", "acpmux"])
+        .env("CARGO_TARGET_DIR", &target);
+    if let Some(rustc) = Path::new(env!("CARGO")).parent().map(|d| d.join("rustc"))
+        && rustc.exists()
+    {
+        cargo.env("RUSTC", rustc);
     }
+    must(&mut cargo, "cargo build of arm A's daemon");
+    eprintln!("ACPMUX-PERF arm-a-built secs={:.0}", started.elapsed().as_secs_f64());
+    target.join("release/acpmux")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn acpmux_durable_ab_under_load() {
-    let (work, before_side) = overhead_dir();
-    let arm_a_file = work.join("arm-a-bin");
-    if before_side {
-        std::fs::write(&arm_a_file, daemon_env::bin().display().to_string()).unwrap();
-        eprintln!("ACPMUX-PERF arm-a-bin {}", daemon_env::bin().display());
-        return;
-    }
-    let a = PathBuf::from(
-        std::fs::read_to_string(&arm_a_file)
-            .expect("no arm-a-bin: run with --arg=before=<arm A sha>")
-            .trim(),
-    );
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = manifest.join("../../..").canonicalize().expect("the checkout root");
+    let work = root.join(".build/acpmux-overhead");
+    std::fs::create_dir_all(&work).unwrap();
+    let a = build_arm_a(&root, &work);
     assert!(a.exists(), "arm A's daemon is missing: {}", a.display());
     let b = daemon_env::bin().to_owned();
     // Short: socket paths must stay under the macOS limit.
@@ -752,6 +793,12 @@ async fn acpmux_durable_ab_under_load() {
         pressure()
     );
     load.stop();
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["worktree", "remove", "--force"])
+        .arg(work.join("arm-a-src"))
+        .status();
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/acpmux-perf");
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(

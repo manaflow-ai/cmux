@@ -1,0 +1,1703 @@
+diff --git a/cmux-tui/crates/acpmux/src/hub/btw.rs b/cmux-tui/crates/acpmux/src/hub/btw.rs
+index 7801f880e91..e35fca47b8f 100644
+--- a/cmux-tui/crates/acpmux/src/hub/btw.rs
++++ b/cmux-tui/crates/acpmux/src/hub/btw.rs
+@@ -185,10 +185,6 @@ impl Hub {
+             self.btw_discard(&side).await;
+             return Err(e);
+         }
+-        // Its records up to the acceptance were appended on the spawned turn's task: the answer
+-        // waits for them, and keeps its Ok, since a retry would ask twice (`request_writes.rs`).
+-        super::request_writes::note_session(&side);
+-        super::request_writes::note_kept();
+         Ok(json!({"sessionId": side.id, "model": model, "readOnly": read_only}))
+     }
+ 
+diff --git a/cmux-tui/crates/acpmux/src/hub/fork.rs b/cmux-tui/crates/acpmux/src/hub/fork.rs
+index 288f6e5bbba..d89104bae93 100644
+--- a/cmux-tui/crates/acpmux/src/hub/fork.rs
++++ b/cmux-tui/crates/acpmux/src/hub/fork.rs
+@@ -401,8 +401,6 @@ impl Hub {
+             forked.set("harness", json!(parent_meta.harness));
+         }
+         self.append(&new, "mux", "forked", forked);
+-        // The fork exists: a retry would make a second one (`request_writes.rs`).
+-        super::request_writes::note_kept();
+         self.append(session, "mux", "fork_child", json!({"childId": id}));
+         // The forked agent session lives in the parent's process. Load it in
+         // its own process so one session keeps one child.
+diff --git a/cmux-tui/crates/acpmux/src/hub/handoff/ops.rs b/cmux-tui/crates/acpmux/src/hub/handoff/ops.rs
+index f915de22644..f4172bcd297 100644
+--- a/cmux-tui/crates/acpmux/src/hub/handoff/ops.rs
++++ b/cmux-tui/crates/acpmux/src/hub/handoff/ops.rs
+@@ -609,16 +609,10 @@ impl Hub {
+                 async move { hub.prompt_with(&session, blocks, "handoff", false, opts).await },
+             );
+         match rx.await {
+-            // Accepted on the spawned prompt task: the request waits for the target's records up
+-            // to the acceptance (`request_writes.rs`), and a retry would hand off twice.
+-            Ok(accepted) => {
+-                crate::hub::request_writes::note_session(target);
+-                crate::hub::request_writes::note_kept();
+-                match accepted.get("turnId").and_then(Value::as_str) {
+-                    Some(t) => Ok(Some(t.to_owned())),
+-                    None => Ok(self.handoff_turn_lookup(target, prompt_id).await),
+-                }
+-            }
++            Ok(accepted) => match accepted.get("turnId").and_then(Value::as_str) {
++                Some(t) => Ok(Some(t.to_owned())),
++                None => Ok(self.handoff_turn_lookup(target, prompt_id).await),
++            },
+             // Refused before it was recorded: the prompt's own error.
+             Err(_) => match run.await {
+                 Ok(Ok(v)) => {
+@@ -678,7 +672,3 @@ impl Hub {
+         found
+     }
+ }
+-
+-#[cfg(test)]
+-#[path = "ops_tests.rs"]
+-mod tests;
+diff --git a/cmux-tui/crates/acpmux/src/hub/handoff/ops_tests.rs b/cmux-tui/crates/acpmux/src/hub/handoff/ops_tests.rs
+deleted file mode 100644
+index 86abecc904b..00000000000
+--- a/cmux-tui/crates/acpmux/src/hub/handoff/ops_tests.rs
++++ /dev/null
+@@ -1,92 +0,0 @@
+-//! A handoff's start under the write rule (`hub/request_writes.rs`):
+-//! `cargo test -p acpmux handoff_start_waits`.
+-
+-use std::path::Path;
+-use std::sync::Arc;
+-
+-use serde_json::{Value, json};
+-use tokio::sync::mpsc;
+-
+-use crate::config::{Config, StoreMode};
+-use crate::hub::{Control, Hub, request_writes};
+-use crate::rpc::{Message, method};
+-
+-/// A hub with two fake harnesses of different families (a handoff goes to another family), and
+-/// a session on the first one, made over a connection as a client makes it.
+-async fn hub_with_source() -> (Arc<Hub>, String) {
+-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+-    let mut cfg: Config = serde_json::from_value(json!({
+-        "harnesses": {
+-            "fsource": {"argv": ["python3", fake], "family": "source"},
+-            "ftarget": {"argv": ["python3", fake], "family": "target"},
+-        },
+-        "defaultHarness": "fsource",
+-        "permissionPolicy": "approve-all",
+-    }))
+-    .unwrap();
+-    cfg.store.mode = StoreMode::Memory;
+-    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+-    let hub = Hub::new(cfg, store);
+-    let (in_tx, in_rx) = mpsc::channel(8);
+-    let (out_tx, mut out_rx) = mpsc::channel(256);
+-    tokio::spawn(crate::server::serve_connection_with(
+-        hub.clone(),
+-        in_rx,
+-        out_tx,
+-        crate::server::Origin::Local,
+-    ));
+-    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+-    in_tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
+-    loop {
+-        let line = out_rx.recv().await.expect("the session/new reply");
+-        let reply: Value = serde_json::from_str(&line).unwrap();
+-        if reply["id"] == 1 {
+-            let id = reply["result"]["sessionId"].as_str().expect("a session id").to_owned();
+-            // The connection stays open while the test runs: its sender lives in a task.
+-            tokio::spawn(async move {
+-                let _keep = in_tx;
+-                std::future::pending::<()>().await;
+-            });
+-            return (hub, id);
+-        }
+-    }
+-}
+-
+-/// Third review: a handoff's prompt runs on a spawned task, so the request that answers
+-/// "started" must wait for the target's records up to the acceptance, and count as committed
+-/// work (a retry would hand off twice).
+-#[tokio::test]
+-async fn handoff_start_waits_for_the_targets_prompt_records() {
+-    let (hub, source) = hub_with_source().await;
+-    let p = json!({"sessionId": source, "harness": "ftarget", "handoffKey": "k-writes"});
+-    let prepared = hub.handoff_prepare(&p, false).await.expect("prepare");
+-    let id = prepared["handoffId"].as_str().expect("a handoff id").to_owned();
+-    let target = prepared["target"]["sessionId"].as_str().expect("a target").to_owned();
+-    let start = json!({"handoffId": id, "revision": 1,
+-                       "checkpoint": {"ref": "abc123", "attest": true}});
+-    let (started, writes) = request_writes::scope(Box::pin({
+-        let hub = hub.clone();
+-        async move { hub.handoff_start(&start, Control::Local).await }
+-    }))
+-    .await;
+-    let started = started.expect("start");
+-    assert_eq!(started["outcome"], json!("started"), "{started}");
+-    // The record of the handoff's prompt in the target's log (its user message or its place in
+-    // the queue), which the acceptance comes after.
+-    let prompt_id = started["promptId"].as_str().expect("a prompt id").to_owned();
+-    let events = hub.store.events(&target, 0, usize::MAX).expect("the target's log");
+-    let prompt_seq = events
+-        .iter()
+-        .find(|e| {
+-            matches!(e.kind.as_str(), "user_message" | "queued")
+-                && e.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
+-        })
+-        .map(|e| e.seq)
+-        .unwrap_or_else(|| panic!("no record of the handoff's prompt: {events:?}"));
+-    assert!(
+-        writes.noted(&target).is_some_and(|seq| seq >= prompt_seq),
+-        "the handoff answered `started` before its prompt's record {prompt_seq} was waited for: \
+-         {writes:?}"
+-    );
+-    assert!(writes.kept(), "a started handoff is committed work");
+-}
+diff --git a/cmux-tui/crates/acpmux/src/hub/hosts.rs b/cmux-tui/crates/acpmux/src/hub/hosts.rs
+index 4321cebe06d..daa3beb943b 100644
+--- a/cmux-tui/crates/acpmux/src/hub/hosts.rs
++++ b/cmux-tui/crates/acpmux/src/hub/hosts.rs
+@@ -791,8 +791,6 @@ impl Hub {
+         // so its answers are checked like a new ask's.
+         super::questions::normalize(&mut request, Self::preview_format(session));
+         let (tx, rx) = oneshot::channel();
+-        // The decision's seq, for the request that answers (`PendingPermission::decision_seq`).
+-        let (seq_tx, seq_rx) = oneshot::channel();
+         let decision_nonce = super::person::new_nonce();
+         session.permissions.lock_or_recover().pending.insert(
+             permission_id.clone(),
+@@ -801,7 +799,6 @@ impl Hub {
+                 ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
+                 request: request.clone(),
+                 reply: tx,
+-                decision_seq: seq_rx,
+                 decision_nonce: decision_nonce.clone(),
+                 // Settled by the task below, from a turn or none (`status_after_ask`).
+                 prev_status: SessionStatus::Waiting,
+@@ -823,15 +820,12 @@ impl Hub {
+         let c = child.clone();
+         self.supervise("hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
+             let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
+-            let (record, stored) = hub.append_logged(
++            hub.append(
+                 &s,
+                 "mux",
+                 "permission_decision",
+                 json!({"permissionId": permission_id, "outcome": outcome}),
+-                None,
+             );
+-            // Sent with no await since the answer woke this task: the answering request waits.
+-            let _ = seq_tx.send(stored.then_some(record.seq));
+             {
+                 let state = s.permissions.lock_or_recover();
+                 if state.pending.is_empty()
+diff --git a/cmux-tui/crates/acpmux/src/hub/idle_exit_tests.rs b/cmux-tui/crates/acpmux/src/hub/idle_exit_tests.rs
+index ae50f93084f..32d73634f7b 100644
+--- a/cmux-tui/crates/acpmux/src/hub/idle_exit_tests.rs
++++ b/cmux-tui/crates/acpmux/src/hub/idle_exit_tests.rs
+@@ -108,8 +108,6 @@ async fn idle_exit_a_pending_permission_is_live() {
+     let pending = PendingPermission {
+         request: json!({"toolCall": {"title": "rm -rf build"}}),
+         reply,
+-        // No asking task: closed, nothing to wait for.
+-        decision_seq: tokio::sync::oneshot::channel().1,
+         decision_nonce: "n1".into(),
+         ancestor_may_answer: false,
+         prev_status: SessionStatus::Running,
+diff --git a/cmux-tui/crates/acpmux/src/hub/lifecycle.rs b/cmux-tui/crates/acpmux/src/hub/lifecycle.rs
+index 6e1c342ae53..d1bb98d9f14 100644
+--- a/cmux-tui/crates/acpmux/src/hub/lifecycle.rs
++++ b/cmux-tui/crates/acpmux/src/hub/lifecycle.rs
+@@ -219,8 +219,6 @@ impl Hub {
+             }
+         }
+         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+-        // The session exists: a retry would make a second one (`request_writes.rs`).
+-        super::request_writes::note_kept();
+         if let Some(a) = &adopt {
+             let adopted = if fork_from.is_some() {
+                 json!({"agentSessionId": a.agent_session_id, "fork": true})
+diff --git a/cmux-tui/crates/acpmux/src/hub/mod.rs b/cmux-tui/crates/acpmux/src/hub/mod.rs
+index d285a549203..e09c729d926 100644
+--- a/cmux-tui/crates/acpmux/src/hub/mod.rs
++++ b/cmux-tui/crates/acpmux/src/hub/mod.rs
+@@ -7,7 +7,6 @@
+ mod activity;
+ mod adoption;
+ mod agent_pairs;
+-pub(crate) mod request_writes;
+ pub use agent_pairs::PairGuard;
+ mod aside;
+ pub(crate) mod auto_resume;
+@@ -241,10 +240,6 @@ pub struct RemoteSession {
+ pub(super) struct PendingPermission {
+     pub(super) request: Value,
+     pub(super) reply: oneshot::Sender<Value>,
+-    /// The seq of the `permission_decision` record the asking task appends once `reply` wakes it
+-    /// (None: that append failed): the answering request waits for it (`request_writes.rs`).
+-    /// It closes with nothing sent when the asking task is gone, which then appends nothing.
+-    pub(super) decision_seq: oneshot::Receiver<Option<u64>>,
+     /// The nonce a relayed allow's decision proof covers (`person.rs`,
+     /// cx-0q7o): new for each prompt, valid only while it is pending.
+     pub(super) decision_nonce: String,
+@@ -1029,16 +1024,10 @@ impl Hub {
+         }
+         self.touch(session);
+         let stored = match self.store.append(&session.id, &record) {
+-            Ok(()) => {
+-                // A request answers only once this record is written (`request_writes.rs`).
+-                request_writes::note_log(&session.id, seq);
+-                true
+-            }
++            Ok(()) => true,
+             Err(e) => {
+                 session.append_errors.fetch_add(1, Ordering::SeqCst);
+                 tracing::warn!(session = %session.id, "append failed: {e}");
+-                // Not saved: a request that appended it does not answer Ok (`request_writes.rs`).
+-                request_writes::note_failed();
+                 false
+             }
+         };
+diff --git a/cmux-tui/crates/acpmux/src/hub/permission_groups.rs b/cmux-tui/crates/acpmux/src/hub/permission_groups.rs
+index 805ca542c20..7df6e9fa887 100644
+--- a/cmux-tui/crates/acpmux/src/hub/permission_groups.rs
++++ b/cmux-tui/crates/acpmux/src/hub/permission_groups.rs
+@@ -342,112 +342,101 @@ impl Hub {
+             .ok_or_else(|| RpcError::invalid_params("revision is required"))?;
+         let body = json!({"groupId":id,"revision":revision,"decisionKey":key,"decision":choice});
+         let cfg = self.config.read().await;
+-        let (result, replies) = {
+-            let mut state = session.permissions.lock_or_recover();
+-            // A decision key belongs to one body within this session.
+-            if let Some((previous, receipt)) = state
+-                .groups
+-                .iter()
+-                .filter_map(|g| g.receipt.as_ref())
+-                .find(|(b, _)| b["decisionKey"] == key)
+-            {
+-                if previous != &body {
+-                    return Err(RpcError::invalid_params("key_conflict")
+-                        .with_data(json!({"reason":"key_conflict"})));
+-                }
+-                let mut result = receipt.clone();
+-                result.set("replayed", json!(true));
+-                return Ok(result);
+-            }
+-            // The group and the pending replies are separate fields: one borrow each.
+-            let state = &mut *state;
+-            let g = state
+-                .groups
+-                .iter_mut()
+-                .find(|g| g.id == id)
+-                .ok_or_else(|| RpcError::not_found("not_found"))?;
+-            let value = g.value(&session.id);
+-            if g.terminal() {
+-                return Err(conflict("already_resolved", value));
++        let mut state = session.permissions.lock_or_recover();
++        // A decision key belongs to one body within this session.
++        if let Some((previous, receipt)) = state
++            .groups
++            .iter()
++            .filter_map(|g| g.receipt.as_ref())
++            .find(|(b, _)| b["decisionKey"] == key)
++        {
++            if previous != &body {
++                return Err(RpcError::invalid_params("key_conflict")
++                    .with_data(json!({"reason":"key_conflict"})));
+             }
+-            if g.state == "collecting" {
+-                return Err(conflict("collecting", value));
++            let mut result = receipt.clone();
++            result.set("replayed", json!(true));
++            return Ok(result);
++        }
++        // The group and the pending replies are separate fields: one borrow each.
++        let state = &mut *state;
++        let g = state
++            .groups
++            .iter_mut()
++            .find(|g| g.id == id)
++            .ok_or_else(|| RpcError::not_found("not_found"))?;
++        let value = g.value(&session.id);
++        if g.terminal() {
++            return Err(conflict("already_resolved", value));
++        }
++        if g.state == "collecting" {
++            return Err(conflict("collecting", value));
++        }
++        if g.revision != revision {
++            return Err(conflict("stale_revision", value));
++        }
++        let meta = session.meta();
++        let policy = self.policy_for(session, cfg.permission_policy);
++        if choice != "deny"
++            && (policy == PermissionPolicy::DenyAll
++                || g.items.iter().filter(|i| i.state == "pending").any(|i| {
++                    meta.permission_rules
++                        .as_ref()
++                        .and_then(|rules| super::rules::decide(rules, &i.request))
++                        == Some(super::rules::RuleDecision::Deny)
++                }))
++        {
++            return Err(conflict("policy_changed", value));
++        }
++        let mut answers = Vec::new();
++        for item in g.items.iter().filter(|i| i.state == "pending") {
++            let selected =
++                option(&item.request, if choice == "deny" { "reject_once" } else { "allow_once" });
++            if selected.is_none() && choice != "deny" {
++                return Err(RpcError::invalid_params("no single-use allow option"));
+             }
+-            if g.revision != revision {
++            if !state.pending.contains_key(&item.id) {
+                 return Err(conflict("stale_revision", value));
+             }
+-            let meta = session.meta();
+-            let policy = self.policy_for(session, cfg.permission_policy);
+-            if choice != "deny"
+-                && (policy == PermissionPolicy::DenyAll
+-                    || g.items.iter().filter(|i| i.state == "pending").any(|i| {
+-                        meta.permission_rules
+-                            .as_ref()
+-                            .and_then(|rules| super::rules::decide(rules, &i.request))
+-                            == Some(super::rules::RuleDecision::Deny)
+-                    }))
+-            {
+-                return Err(conflict("policy_changed", value));
+-            }
+-            let mut answers = Vec::new();
+-            for item in g.items.iter().filter(|i| i.state == "pending") {
+-                let selected = option(
+-                    &item.request,
+-                    if choice == "deny" { "reject_once" } else { "allow_once" },
+-                );
+-                if selected.is_none() && choice != "deny" {
+-                    return Err(RpcError::invalid_params("no single-use allow option"));
+-                }
+-                if !state.pending.contains_key(&item.id) {
+-                    return Err(conflict("stale_revision", value));
+-                }
+-                let outcome = selected.map_or_else(
+-                    || json!({"outcome":"cancelled"}),
+-                    |o| json!({"outcome":"selected","optionId":o}),
+-                );
+-                answers.push((item.id.clone(), outcome));
+-            }
+-            let mut replies = Vec::new();
+-            for (id, outcome) in answers {
+-                if let Some(pending) = state.pending.remove(&id) {
+-                    replies.push((id, pending.reply, pending.decision_seq, outcome));
+-                }
+-            }
+-            if choice == "allow_chat" {
+-                state.chat_allowed = true;
+-                self.append(session, "mux", "permission_chat_allowance", json!({"active":true}));
++            let outcome = selected.map_or_else(
++                || json!({"outcome":"cancelled"}),
++                |o| json!({"outcome":"selected","optionId":o}),
++            );
++            answers.push((item.id.clone(), outcome));
++        }
++        let mut replies = Vec::new();
++        for (id, outcome) in answers {
++            if let Some(pending) = state.pending.remove(&id) {
++                replies.push((id, pending.reply, outcome));
+             }
+-            for item in &mut g.items {
+-                if item.state == "pending" {
+-                    item.state = if replies.iter().any(|(id, _, _, outcome)| {
+-                        id == &item.id && outcome["outcome"] == "cancelled"
+-                    }) {
+-                        "cancelled"
+-                    } else {
+-                        "resolved"
+-                    };
+-                }
++        }
++        if choice == "allow_chat" {
++            state.chat_allowed = true;
++            self.append(session, "mux", "permission_chat_allowance", json!({"active":true}));
++        }
++        for item in &mut g.items {
++            if item.state == "pending" {
++                item.state = if replies
++                    .iter()
++                    .any(|(id, _, outcome)| id == &item.id && outcome["outcome"] == "cancelled")
++                {
++                    "cancelled"
++                } else {
++                    "resolved"
++                };
+             }
+-            g.state = "resolved";
+-            g.revision += 1;
+-            // Include decision in the snapshot before storing the replay receipt.
+-            g.receipt = Some((body.clone(), Value::Null));
+-            let result = json!({"group":g.value(&session.id),"replayed":false});
+-            g.receipt = Some((body, result.clone()));
+-            self.append(session, "mux", "permission_group", json!({"group":result.field("group")}));
+-            state.prune();
+-            (result, replies)
+-        };
+-        drop(cfg);
++        }
++        g.state = "resolved";
++        g.revision += 1;
++        // Include decision in the snapshot before storing the replay receipt.
++        g.receipt = Some((body.clone(), Value::Null));
++        let result = json!({"group":g.value(&session.id),"replayed":false});
++        g.receipt = Some((body, result.clone()));
++        self.append(session, "mux", "permission_group", json!({"group":result.field("group")}));
++        state.prune();
+         // All callbacks were removed and the receipt saved before any wake.
+-        let mut decisions = Vec::with_capacity(replies.len());
+-        for (_, reply, decision_seq, outcome) in replies {
++        for (_, reply, outcome) in replies {
+             let _ = reply.send(outcome);
+-            decisions.push(decision_seq);
+-        }
+-        // Each asking task appends its decision record once woken: the answer waits for them too.
+-        for decision_seq in decisions {
+-            super::request_writes::note_decision(&session.id, decision_seq).await;
+         }
+         Ok(result)
+     }
+diff --git a/cmux-tui/crates/acpmux/src/hub/permissions.rs b/cmux-tui/crates/acpmux/src/hub/permissions.rs
+index cb0fc9c2f1c..686f5cd3a91 100644
+--- a/cmux-tui/crates/acpmux/src/hub/permissions.rs
++++ b/cmux-tui/crates/acpmux/src/hub/permissions.rs
+@@ -434,7 +434,7 @@ impl Hub {
+         // record see the request (questions.rs).
+         super::questions::normalize(&mut request, Self::preview_format(session));
+         let needs_person = super::questions::needs_person(&request);
+-        let (rx, seq_tx, prev, grouping, permission_id) = {
++        let (rx, prev, grouping, permission_id) = {
+             let cfg = self.config.read().await;
+             let mut state = session.permissions.lock_or_recover();
+             if session.permission_epoch.load(Ordering::SeqCst) != epoch
+@@ -541,8 +541,6 @@ impl Hub {
+                 return json!({"outcome":{"outcome":"cancelled"}});
+             }
+             let (tx, rx) = oneshot::channel();
+-            // The decision's seq, for the request that answers (`PendingPermission::decision_seq`).
+-            let (seq_tx, seq_rx) = oneshot::channel();
+             let grouping = if super::permission_groups::eligible(&request) && turn_id.is_some() {
+                 match state.register(
+                     &permission_id,
+@@ -572,14 +570,13 @@ impl Hub {
+                     ),
+                     request: request.clone(),
+                     reply: tx,
+-                    decision_seq: seq_rx,
+                     decision_nonce: decision_nonce.clone(),
+                     prev_status: prev,
+                 },
+             );
+             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+             self.set_status(session, SessionStatus::Waiting);
+-            (rx, seq_tx, prev, grouping, permission_id)
++            (rx, prev, grouping, permission_id)
+         };
+         // Joined its group (or none): the group's timer need not wait for it.
+         drop(ask);
+@@ -590,10 +587,7 @@ impl Hub {
+         // Who answered for the person (`hub/person.rs` answered_by): audit
+         // only, never sent to the agent.
+         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
+-        let seq =
+-            self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
+-        // Sent with no await since the answer woke this task: the answering request waits for it.
+-        let _ = seq_tx.send(seq);
++        self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
+         // The agent reads the answer's `_meta` beside `outcome`, not in it.
+         let meta = outcome.as_object_mut().and_then(|o| o.remove("_meta"));
+         let mut out = json!({"outcome": outcome});
+@@ -607,7 +601,6 @@ impl Hub {
+     /// card on) and, once the session asks nothing else, takes back its Waiting status
+     /// (`status_after_ask` from `prev`, the status before the prompt). Every prompt this process
+     /// raised ends here, also a trust card withdrawn without its task (`trust_wait.rs`).
+-    /// Returns the decision record's seq, or None when its append failed.
+     pub(super) fn settle_permission(
+         &self,
+         session: &Session,
+@@ -615,13 +608,12 @@ impl Hub {
+         outcome: Value,
+         answered_by: Option<Value>,
+         prev: SessionStatus,
+-    ) -> Option<u64> {
++    ) {
+         let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
+         if let Some(by) = answered_by {
+             decision.set("answeredBy", by);
+         }
+-        let (record, stored) =
+-            self.append_logged(session, "mux", "permission_decision", decision, None);
++        self.append(session, "mux", "permission_decision", decision);
+         let state = session.permissions.lock_or_recover();
+         if state.pending.is_empty()
+             && session.status() == SessionStatus::Waiting
+@@ -629,7 +621,6 @@ impl Hub {
+         {
+             self.set_status(session, status_after_ask(session, prev));
+         }
+-        stored.then_some(record.seq)
+     }
+ 
+     /// Answer a pending permission. `option_id = None` cancels. `answers`
+@@ -800,10 +791,7 @@ impl Hub {
+         if let Some(by) = answered_by {
+             outcome.set(ANSWERED_BY_SLOT, by);
+         }
+-        drop(cfg);
+         let _ = pending.reply.send(outcome);
+-        // The asking task appends the decision record once woken: the answer waits for it too.
+-        super::request_writes::note_decision(&session.id, pending.decision_seq).await;
+         Ok(())
+     }
+ 
+diff --git a/cmux-tui/crates/acpmux/src/hub/queue.rs b/cmux-tui/crates/acpmux/src/hub/queue.rs
+index f6e8a273fff..41075a10f6a 100644
+--- a/cmux-tui/crates/acpmux/src/hub/queue.rs
++++ b/cmux-tui/crates/acpmux/src/hub/queue.rs
+@@ -598,7 +598,6 @@ impl Hub {
+         if session.moving().is_some() {
+             return Err(moving_error());
+         }
+-        // Answered once its record is written (`request_writes.rs`).
+         Ok(self.remove_queued(session, prompt_id))
+     }
+ 
+diff --git a/cmux-tui/crates/acpmux/src/hub/queue_edit.rs b/cmux-tui/crates/acpmux/src/hub/queue_edit.rs
+index 2c9c75952e8..6132f73f13f 100644
+--- a/cmux-tui/crates/acpmux/src/hub/queue_edit.rs
++++ b/cmux-tui/crates/acpmux/src/hub/queue_edit.rs
+@@ -142,8 +142,19 @@ impl Hub {
+                 return Err(RpcError::invalid_params(e));
+             }
+         };
+-        // The reply says the change holds: it goes once the change's record is written
+-        // (`request_writes.rs`), so a restart restores the queue with it.
++        // The reply says the edit holds: its record is on disk first, so a daemon that dies
++        // right after the reply (a crash, SIGKILL) restores the queue with it. The log is
++        // written in the background (`store/log_writer.rs`), as an agent host's entry is
++        // acknowledged only once its record is written (`WriteTicket`).
++        let logged = crate::agent::WriteTicket::new(
++            session.seq.load(Ordering::SeqCst),
++            self.store.progress(&session.id),
++        );
++        if !logged.written().await {
++            return Err(RpcError::internal(
++                "the queue change could not be saved to the chat's log",
++            ));
++        }
+         reply.set("ok", ok);
+         Ok(reply)
+     }
+diff --git a/cmux-tui/crates/acpmux/src/hub/request_writes.rs b/cmux-tui/crates/acpmux/src/hub/request_writes.rs
+deleted file mode 100644
+index ba332a2e919..00000000000
+--- a/cmux-tui/crates/acpmux/src/hub/request_writes.rs
++++ /dev/null
+@@ -1,257 +0,0 @@
+-//! One rule for every acpmux request that changes state: **it answers only after what it wrote
+-//! is on disk.** Trains 333 and 338 (2026-10-29) lost an answered queue edit: the event log is
+-//! written by one background thread (`store/log_writer.rs`), and a daemon killed between the
+-//! answer and that write brought the old queue back.
+-//!
+-//! The request runner (`server/request_task.rs`) runs each request inside [`scope`] and, before
+-//! the answer goes out, [`Hub::wait_written`] waits until every event log record noted in it is
+-//! written: the noted sessions move to the front of the writer's turn (`LogWriter::expedite`),
+-//! then the request waits on the store's progress. Noted:
+-//! - every record the request appends on its own task (`Hub::append_at` calls [`note_log`]),
+-//!   which covers the records a transfer's import copied on a blocking thread before it: the
+-//!   import's `imported` record comes after them in the same log;
+-//! - the `permission_decision` record of a prompt it answers (`_acpmux/permission_respond`,
+-//!   `_acpmux/permission_group_respond`, an ancestor's answer): the task that asked appends it
+-//!   once the answer wakes it and sends its seq back (`PendingPermission::decision_seq`,
+-//!   [`note_decision`]); an asking task that is gone appended nothing, and nothing is waited for;
+-//! - the records of a prompt a handler runs on a spawned task, up to its acceptance, which the
+-//!   handler notes itself with [`note_session`]: `send_family_prompt` (the receiving session),
+-//!   `start_session` (also the parent's `subsession` "started" record, appended at the
+-//!   acceptance) and `_acpmux/btw` (the side session).
+-//!
+-//! A log that failed (an append on the request's task failed, [`note_failed`], or the store
+-//! reports the session's log failed) is not saved, and the answer says so ([`answer`]): an error
+-//! with `data.reason = "log.failed"`, except for a request that committed work a retry would do
+-//! twice ([`note_kept`]: a prompt accepted, `Hub::run_prompt_joined`'s acceptance, and a session
+-//! created or forked, `Hub::new_session`, `Hub::fork`). That one keeps its Ok, marked
+-//! `_meta.acpmux.saved = false`, whatever its entrypoint (`session/prompt`, `_acpmux/steer`,
+-//! `session/new`, `_acpmux/dispatch`, `_acpmux/btw`, `session/fork`, the agent tools'
+-//! `start_session` and `send_message`).
+-//!
+-//! Not waited for, by design:
+-//! - a session record (`session.json`, `meta_writer.rs`): its write syncs the file (20-50 ms on
+-//!   macOS) against the 2 ms op budget; what a restart needs from it is in the event log too
+-//!   (`renamed`, `tags`, `policy`...), and the log is the source of truth.
+-//! - a config file (`Hub::save_config`, `config_writer.rs`): its write syncs the file too, and a
+-//!   model, effort or mode pick saves one, against the same budget. A pick answered right before a
+-//!   crash can come back as the previous pick at the next start; the person picks it again.
+-//! - bookkeeping a request logs beside its answer, run through [`unnoted`]: the seen mark
+-//!   (`seen.rs`: `_acpmux/attach` and `_acpmux/view` showing an unread chat). Those requests
+-//!   answer what they read; the mark is a side effect, and the chat switch does not wait for a
+-//!   log write. `_acpmux/markUnread` is the person's own change and waits for its record.
+-//! - work a request hands to another task (a spawned turn past its acceptance, a supervised job,
+-//!   a blocking thread): it is not the request's answer, except the prompts noted above.
+-//! - the records of a session deleted while the request waits: nothing of it is kept, so it
+-//!   counts as saved, not as a failed log.
+-//!
+-//! Known gaps, answered before the asking task appends its decision (a crash in that window
+-//! loses it, and the person may be asked again or the turn ends as cancelled anyway):
+-//! - a prompt's cancelled decision after `session/cancel` sent as a request, or `_acpmux/kill`
+-//!   (`cancel_pending_permissions`);
+-//! - a secret's answer (`submit_secret`, `secrets.rs`): the waiting task records it.
+-//!
+-//! Known gaps where the work is another task's, past the answer:
+-//! - an agent message held between a paused pair on the `send_message` path: the hold is
+-//!   recorded on the spawned prompt task (`subsessions.rs`), after the request answered;
+-//! - forum posts' urgent pushes (`forum.rs`), run in a JoinSet after the post is answered;
+-//! - `_acpmux/dispatch` and the task request (`requests.rs`, `requests/briefs.rs`): the brief
+-//!   ledger answers before the prompt is accepted.
+-
+-use std::cell::RefCell;
+-use std::collections::HashMap;
+-use std::sync::atomic::Ordering;
+-
+-use futures::future::BoxFuture;
+-use serde_json::{Value, json};
+-use tokio::sync::oneshot;
+-
+-use super::{Hub, Session};
+-use crate::no_panic::LockExt;
+-use crate::rpc::RpcError;
+-
+-/// What one request wrote: the last record of each session's log, whether an append failed, and
+-/// whether it committed work a retry would do twice (a prompt accepted, a session made).
+-#[derive(Debug, Default)]
+-pub(crate) struct Writes {
+-    logs: HashMap<String, u64>,
+-    failed: bool,
+-    kept: bool,
+-}
+-
+-impl Writes {
+-    /// The request committed work a retry would do twice: its Ok stands even when not saved.
+-    pub(crate) fn kept(&self) -> bool {
+-        self.kept
+-    }
+-
+-    /// The last record of session `id`'s log this request waits for, if any.
+-    #[cfg(test)]
+-    pub(crate) fn noted(&self, id: &str) -> Option<u64> {
+-        self.logs.get(id).copied()
+-    }
+-}
+-
+-tokio::task_local! {
+-    static WRITES: RefCell<Writes>;
+-}
+-
+-/// Runs `request` and returns its result with what it wrote. Takes the request boxed: a
+-/// handler's future is large, and only a pointer moves into the scope.
+-pub(crate) async fn scope<T>(request: BoxFuture<'_, T>) -> (T, Writes) {
+-    WRITES
+-        .scope(RefCell::new(Writes::default()), async {
+-            let result = request.await;
+-            let writes = WRITES.with(|w| std::mem::take(&mut *w.borrow_mut()));
+-            (result, writes)
+-        })
+-        .await
+-}
+-
+-/// The request on this task appended record `seq` to session `id`'s log.
+-pub(crate) fn note_log(id: &str, seq: u64) {
+-    let _ = WRITES.try_with(|w| {
+-        let mut w = w.borrow_mut();
+-        let w = &mut *w;
+-        // Per append: no key allocated once the session is noted.
+-        if let Some(last) = w.logs.get_mut(id) {
+-            *last = (*last).max(seq);
+-        } else {
+-            w.logs.insert(id.to_owned(), seq);
+-        }
+-    });
+-}
+-
+-/// The request on this task waits for every record `session` holds so far: records appended
+-/// for it on another task, up to a point this task saw (a family prompt's acceptance).
+-pub(crate) fn note_session(session: &Session) {
+-    note_log(&session.id, session.seq.load(Ordering::SeqCst));
+-}
+-
+-/// An append on this task failed: what the request changed is not saved.
+-pub(crate) fn note_failed() {
+-    let _ = WRITES.try_with(|w| w.borrow_mut().failed = true);
+-}
+-
+-/// The request on this task committed work a retry would do twice: a prompt accepted (started,
+-/// queued or steered in, with the prompt ledger holding its outcome) or a session created.
+-pub(crate) fn note_kept() {
+-    let _ = WRITES.try_with(|w| w.borrow_mut().kept = true);
+-}
+-
+-/// Runs `bookkeeping` with what it appends not noted for the request on this task: a record that
+-/// tells the clients, not what the answer acknowledges (the seen mark, `seen.rs`).
+-pub(crate) fn unnoted<R>(bookkeeping: impl FnOnce() -> R) -> R {
+-    WRITES.sync_scope(RefCell::new(Writes::default()), bookkeeping)
+-}
+-
+-/// Notes the decision record the task that asked appends for a prompt this request answered
+-/// (`PendingPermission::decision_seq`). That task sends the seq with no await after the answer
+-/// wakes it; one that is gone (aborted, dropped) appended nothing and closes the channel, so this
+-/// never waits on more than that task's next synchronous step.
+-pub(crate) async fn note_decision(id: &str, decision_seq: oneshot::Receiver<Option<u64>>) {
+-    match decision_seq.await {
+-        Ok(Some(seq)) => note_log(id, seq),
+-        Ok(None) => note_failed(),
+-        Err(_) => {}
+-    }
+-}
+-
+-/// The answer to a request once `saved` says whether what it wrote is on disk; `kept`: it
+-/// committed work a retry would do twice ([`Writes::kept`]).
+-pub(crate) fn answer(
+-    result: Result<Value, RpcError>,
+-    saved: bool,
+-    kept: bool,
+-) -> Result<Value, RpcError> {
+-    if saved {
+-        return result;
+-    }
+-    // Kept: the prompt ledger holds an accepted prompt's Ok (a retry would start a second turn),
+-    // and a new session exists. The client learns the log did not keep it.
+-    match result {
+-        Ok(mut value) if kept => {
+-            mark_not_saved(&mut value);
+-            Ok(value)
+-        }
+-        Ok(_) => Err(RpcError::internal("the chat's event log failed: this change is not saved")
+-            .with_data(json!({"reason": "log.failed"}))),
+-        Err(e) => Err(e),
+-    }
+-}
+-
+-/// Sets `_meta.acpmux.saved = false` on an object result; any other result is left as it is.
+-fn mark_not_saved(value: &mut Value) {
+-    let Some(result) = value.as_object_mut() else { return };
+-    let Some(meta) = result.entry("_meta").or_insert_with(|| json!({})).as_object_mut() else {
+-        return;
+-    };
+-    if let Some(acpmux) = meta.entry("acpmux").or_insert_with(|| json!({})).as_object_mut() {
+-        acpmux.insert("saved".to_owned(), json!(false));
+-    }
+-}
+-
+-impl Hub {
+-    /// Runs one request under the rule (`server/request_task.rs` runs every request through it):
+-    /// its handler in [`scope`], then [`Hub::wait_written`] for what it wrote, then [`answer`].
+-    pub(crate) async fn answer_request(
+-        &self,
+-        request: BoxFuture<'_, Result<Value, RpcError>>,
+-    ) -> Result<Value, RpcError> {
+-        let (result, writes) = scope(request).await;
+-        let kept = writes.kept();
+-        // An error that committed records (a held agent message: "held, do not send it again")
+-        // waits for them too; its answer stays the error.
+-        let saved = self.wait_written(writes).await;
+-        answer(result, saved, kept)
+-    }
+-
+-    /// Waits until what `writes` names is on disk; false when a log failed.
+-    pub(crate) async fn wait_written(&self, writes: Writes) -> bool {
+-        if writes.failed {
+-            return false;
+-        }
+-        // Every noted session goes first in the writer's turn before the request waits on any.
+-        for id in writes.logs.keys() {
+-            self.store.expedite(id);
+-        }
+-        let mut saved = true;
+-        for (id, seq) in writes.logs {
+-            saved &= self.log_written(&id, seq).await;
+-        }
+-        saved
+-    }
+-
+-    /// Waits until record `seq` of session `id`'s log is written; false when its log failed.
+-    async fn log_written(&self, id: &str, seq: u64) -> bool {
+-        // Deleted already: nothing of it is kept, and asking the writer for its progress would
+-        // make a new entry for a log it forgot.
+-        if self.deleted(id) {
+-            return true;
+-        }
+-        let Some(mut progress) = self.store.progress(id) else { return true };
+-        loop {
+-            let p = *progress.borrow_and_update();
+-            if p.failed {
+-                return false;
+-            }
+-            if p.covers(seq) {
+-                return true;
+-            }
+-            if progress.changed().await.is_err() {
+-                // The writer forgot the log (`LogWriter::forget`): its session was deleted while
+-                // the request waited, and nothing of it is kept. Any other close loses the record.
+-                let p = *progress.borrow();
+-                return p.covers(seq) || self.deleted(id);
+-            }
+-        }
+-    }
+-
+-    /// Session `id` was deleted (purged), or is not this hub's any more.
+-    fn deleted(&self, id: &str) -> bool {
+-        self.sessions.lock_or_recover().get(id).is_none_or(|s| s.purged.load(Ordering::SeqCst))
+-    }
+-}
+-
+-#[cfg(test)]
+-#[path = "request_writes_tests.rs"]
+-mod tests;
+diff --git a/cmux-tui/crates/acpmux/src/hub/request_writes_tests.rs b/cmux-tui/crates/acpmux/src/hub/request_writes_tests.rs
+deleted file mode 100644
+index 1b79409e5a9..00000000000
+--- a/cmux-tui/crates/acpmux/src/hub/request_writes_tests.rs
++++ /dev/null
+@@ -1,417 +0,0 @@
+-//! What a request wrote is noted on its own task only, and a failed log is never answered as
+-//! saved (`cargo test -p acpmux request_writes`).
+-
+-use std::sync::Arc;
+-
+-use super::*;
+-use crate::store::{EventRecord, MemoryStore, SessionMeta, Store};
+-
+-#[tokio::test]
+-async fn request_writes_notes_the_last_record_of_each_log_on_its_task() {
+-    let ((), writes) = scope(Box::pin(async {
+-        note_log("a", 3);
+-        note_log("a", 7);
+-        note_log("a", 5);
+-        note_log("b", 1);
+-        // Another task's writes are not this request's.
+-        tokio::spawn(async { note_log("c", 9) }).await.unwrap();
+-    }))
+-    .await;
+-    assert_eq!(writes.logs.get("a"), Some(&7));
+-    assert_eq!(writes.logs.get("b"), Some(&1));
+-    assert_eq!(writes.logs.get("c"), None);
+-    assert!(!writes.failed);
+-}
+-
+-#[tokio::test]
+-async fn request_writes_outside_a_request_notes_nothing() {
+-    // Notes made with no request on the task are dropped, not kept for a later request.
+-    note_log("a", 1);
+-    note_failed();
+-    let ((), writes) = scope(Box::pin(async {})).await;
+-    assert!(writes.logs.is_empty(), "{writes:?}");
+-    assert!(!writes.failed, "{writes:?}");
+-}
+-
+-/// A store whose appends all fail, as a log that failed refuses every later record.
+-struct FailingStore(MemoryStore);
+-
+-impl Store for FailingStore {
+-    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+-        self.0.list()
+-    }
+-    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+-        self.0.load(id)
+-    }
+-    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+-        self.0.save(meta)
+-    }
+-    fn append(&self, _id: &str, _record: &EventRecord) -> anyhow::Result<()> {
+-        anyhow::bail!("the log failed")
+-    }
+-    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+-        self.0.events(id, after, limit)
+-    }
+-    fn delete(&self, id: &str) -> anyhow::Result<()> {
+-        self.0.delete(id)
+-    }
+-}
+-
+-fn hub_on(store: Box<dyn Store>) -> Arc<Hub> {
+-    let mut cfg = crate::config::Config::default();
+-    cfg.store.mode = crate::config::StoreMode::Memory;
+-    Hub::new(cfg, store)
+-}
+-
+-fn chat(hub: &Arc<Hub>, id: &str) -> Arc<Session> {
+-    let meta: SessionMeta = serde_json::from_value(json!({
+-        "schema": crate::store::META_SCHEMA, "id": id, "name": id, "harness": "claude",
+-        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+-    }))
+-    .unwrap();
+-    let session = hub.make_session(meta);
+-    hub.sessions.lock().unwrap().insert(id.to_owned(), session.clone());
+-    session
+-}
+-
+-/// Review aa3529b1 item C: once a log failed, a later append fails in `append_at` and noted
+-/// nothing, so its request answered Ok with nothing saved. Now the request is not saved.
+-#[tokio::test]
+-async fn request_writes_a_failed_append_is_not_saved() {
+-    let hub = hub_on(Box::new(FailingStore(MemoryStore::default())));
+-    let session = chat(&hub, "s1");
+-    let ((), writes) = scope(Box::pin(async {
+-        hub.append(&session, "mux", "queue_order", json!({"order": []}));
+-    }))
+-    .await;
+-    assert!(writes.failed, "{writes:?}");
+-    assert!(!hub.wait_written(writes).await, "a failed append was answered as saved");
+-}
+-
+-#[tokio::test]
+-async fn request_writes_a_stored_append_is_saved() {
+-    let hub = hub_on(Box::new(MemoryStore::default()));
+-    let session = chat(&hub, "s1");
+-    let ((), writes) = scope(Box::pin(async {
+-        hub.append(&session, "mux", "queue_order", json!({"order": []}));
+-    }))
+-    .await;
+-    assert_eq!(writes.logs.get("s1"), Some(&session.seq.load(Ordering::SeqCst)));
+-    assert!(hub.wait_written(writes).await);
+-}
+-
+-/// Review aa3529b1 item B: a family prompt's records are appended on the turn's task; the
+-/// request notes the target session's records so far once the prompt is accepted.
+-#[tokio::test]
+-async fn request_writes_note_session_notes_records_another_task_appended() {
+-    let hub = hub_on(Box::new(MemoryStore::default()));
+-    let session = chat(&hub, "s1");
+-    let ((), writes) = scope(Box::pin(async {
+-        let (h, s) = (hub.clone(), session.clone());
+-        tokio::spawn(async move {
+-            h.append(&s, "mux", "queued", json!({}));
+-            h.append(&s, "mux", "queued", json!({}));
+-        })
+-        .await
+-        .unwrap();
+-        note_session(&session);
+-    }))
+-    .await;
+-    let last = session.seq.load(Ordering::SeqCst);
+-    assert!(last >= 2, "{last}");
+-    assert_eq!(writes.logs.get("s1"), Some(&last));
+-}
+-
+-#[tokio::test]
+-async fn request_writes_a_decision_from_the_asking_task_is_noted() {
+-    let ((), writes) = scope(Box::pin(async {
+-        let (tx, rx) = oneshot::channel();
+-        let asker = tokio::spawn(async move { tx.send(Some(4)).unwrap() });
+-        note_decision("a", rx).await;
+-        asker.await.unwrap();
+-        // The asking task is gone: nothing to wait for, and no hang.
+-        let (tx, rx) = oneshot::channel::<Option<u64>>();
+-        drop(tx);
+-        note_decision("b", rx).await;
+-    }))
+-    .await;
+-    assert_eq!(writes.logs.get("a"), Some(&4));
+-    assert_eq!(writes.logs.get("b"), None);
+-    assert!(!writes.failed);
+-    let ((), writes) = scope(Box::pin(async {
+-        let (tx, rx) = oneshot::channel();
+-        tx.send(None).unwrap();
+-        note_decision("a", rx).await;
+-    }))
+-    .await;
+-    assert!(writes.failed, "a decision whose append failed was taken as saved");
+-}
+-
+-#[test]
+-fn request_writes_an_unsaved_answer() {
+-    let ok = || Ok(json!({"stopReason": "end_turn"}));
+-    // Saved: the answer is the handler's.
+-    assert_eq!(answer(ok(), true, false).unwrap(), json!({"stopReason": "end_turn"}));
+-    assert_eq!(answer(ok(), true, true).unwrap(), json!({"stopReason": "end_turn"}));
+-    // Not saved: an error with its reason...
+-    let e = answer(ok(), false, false).unwrap_err();
+-    assert_eq!(e.data, Some(json!({"reason": "log.failed"})));
+-    // ...but a request that committed work a retry would redo keeps its Ok, marked.
+-    let v = answer(ok(), false, true).unwrap();
+-    assert_eq!(v["_meta"]["acpmux"]["saved"], false, "{v}");
+-    assert_eq!(v["stopReason"], "end_turn");
+-    let marked = answer(Ok(json!({"_meta": {"acpmux": {"turnId": "t"}}})), false, true).unwrap();
+-    assert_eq!(marked, json!({"_meta": {"acpmux": {"turnId": "t", "saved": false}}}));
+-    assert_eq!(answer(Ok(json!(null)), false, true).unwrap(), json!(null));
+-    // An error stays the handler's error.
+-    let refused = answer(Err(RpcError::invalid_params("bad")), false, true).unwrap_err();
+-    assert_eq!(refused.data, None);
+-}
+-
+-/// Second review, item 3: whether a request keeps its Ok comes from what it committed, not its
+-/// method name, so every entrypoint that accepts a prompt or makes a session behaves the same.
+-#[tokio::test]
+-async fn request_writes_kept_is_noted_on_the_requests_task_only() {
+-    let ((), writes) = scope(Box::pin(async {})).await;
+-    assert!(!writes.kept());
+-    let ((), writes) = scope(Box::pin(async {
+-        // A prompt accepted on a spawned task is not this request's: its handler notes it.
+-        tokio::spawn(async { note_kept() }).await.unwrap();
+-    }))
+-    .await;
+-    assert!(!writes.kept());
+-    let ((), writes) = scope(Box::pin(async { note_kept() })).await;
+-    assert!(writes.kept());
+-}
+-
+-/// A bookkeeping append through `unnoted` is neither noted nor marks the request failed, and
+-/// the request's own notes around it stay.
+-#[tokio::test]
+-async fn request_writes_unnoted_bookkeeping_leaves_the_requests_notes() {
+-    let ((), writes) = scope(Box::pin(async {
+-        note_log("a", 2);
+-        unnoted(|| {
+-            note_log("b", 5);
+-            note_failed();
+-        });
+-        note_log("a", 3);
+-    }))
+-    .await;
+-    assert_eq!(writes.logs.get("a"), Some(&3));
+-    assert_eq!(writes.logs.get("b"), None);
+-    assert!(!writes.failed);
+-}
+-
+-/// Second review, item 4: showing an unread chat (`_acpmux/attach` visible, `_acpmux/view`)
+-/// logs its seen mark for the clients; that is bookkeeping, not what the answer acknowledges,
+-/// and must not make the chat switch wait for a log write.
+-#[tokio::test]
+-async fn request_writes_showing_an_unread_chat_is_not_waited_for() {
+-    let hub = hub_on(Box::new(MemoryStore::default()));
+-    let session = chat(&hub, "s1");
+-    // `_acpmux/attach` with `visible`, then `_acpmux/view`.
+-    for view in [false, true] {
+-        session.meta.lock().unwrap().unread = true;
+-        let before = session.seq.load(Ordering::SeqCst);
+-        let ((), writes) = scope(Box::pin(async {
+-            if view {
+-                hub.set_visible(&session, true);
+-            } else {
+-                hub.attach_count(&session, 1, true);
+-            }
+-        }))
+-        .await;
+-        assert!(session.seq.load(Ordering::SeqCst) > before, "the seen mark is logged");
+-        assert!(writes.logs.is_empty(), "a seen mark made the answer wait: {writes:?}");
+-    }
+-}
+-
+-/// `_acpmux/markUnread` is the person's own change, not bookkeeping: its answer waits for its
+-/// `status` record, which a restart rebuilds the mark from (lead, 2026-10-29: the write rule
+-/// covers every acknowledged change).
+-#[tokio::test]
+-async fn request_writes_an_answered_mark_unread_waits_for_its_record() {
+-    let hub = hub_on(Box::new(MemoryStore::default()));
+-    let session = chat(&hub, "s1");
+-    let ((), writes) = scope(Box::pin(async { hub.mark_unread(&session) })).await;
+-    let seq = session.seq.load(Ordering::SeqCst);
+-    assert_eq!(writes.logs.get("s1"), Some(&seq), "markUnread did not wait for its record");
+-}
+-
+-/// A store whose log progress the test holds: queued and not written until the test says.
+-struct HeldStore {
+-    inner: MemoryStore,
+-    progress: Arc<std::sync::Mutex<Option<tokio::sync::watch::Sender<crate::store::Progress>>>>,
+-}
+-
+-impl Store for HeldStore {
+-    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+-        self.inner.list()
+-    }
+-    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+-        self.inner.load(id)
+-    }
+-    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+-        self.inner.save(meta)
+-    }
+-    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+-        self.inner.append(id, record)
+-    }
+-    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+-        self.inner.events(id, after, limit)
+-    }
+-    fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<crate::store::Progress>> {
+-        self.progress.lock().unwrap().as_ref().map(tokio::sync::watch::Sender::subscribe)
+-    }
+-    fn delete(&self, id: &str) -> anyhow::Result<()> {
+-        self.inner.delete(id)
+-    }
+-}
+-
+-/// Waits for a request's write while the store forgets the log (its session deleted): the
+-/// answer is `saved` when the session is `deleted`, and not saved when it still exists.
+-async fn wait_while_the_log_is_forgotten(deleted: bool) -> bool {
+-    let progress = crate::store::Progress { queued: 100, written: 0, failed: false };
+-    let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+-    let hub = hub_on(Box::new(HeldStore { inner: MemoryStore::default(), progress: held.clone() }));
+-    let session = chat(&hub, "s1");
+-    let ((), writes) = scope(Box::pin(async {
+-        hub.append(&session, "mux", "queue_order", json!({"order": []}));
+-    }))
+-    .await;
+-    assert!(!writes.logs.is_empty());
+-    let waiting = tokio::spawn({
+-        let hub = hub.clone();
+-        async move { hub.wait_written(writes).await }
+-    });
+-    // The wait subscribes to the log's progress; the session is deleted while it waits (a
+-    // session deleted before the wait is not waited on at all: the test after this one).
+-    while held.lock().unwrap().as_ref().is_some_and(|tx| tx.receiver_count() == 0) {
+-        tokio::task::yield_now().await;
+-    }
+-    if deleted {
+-        session.purged.store(true, Ordering::SeqCst);
+-        hub.sessions.lock().unwrap().remove("s1");
+-    }
+-    held.lock().unwrap().take();
+-    waiting.await.unwrap()
+-}
+-
+-/// Second review, item 5: a request whose session is deleted while it waits answered a false
+-/// `log.failed` (its log's progress closed). Nothing of a deleted session is kept.
+-#[tokio::test]
+-async fn request_writes_a_session_deleted_while_waiting_is_not_a_failed_log() {
+-    assert!(wait_while_the_log_is_forgotten(true).await, "a deleted chat answered log.failed");
+-    assert!(!wait_while_the_log_is_forgotten(false).await, "a live chat's lost log was saved");
+-}
+-
+-/// Third review: a request on a session deleted before it waits counts as saved at once, and
+-/// asks the writer for no progress (asking would make a new entry for a log it forgot).
+-#[tokio::test]
+-async fn request_writes_a_session_deleted_before_the_wait_is_saved_at_once() {
+-    let progress = crate::store::Progress { queued: 100, written: 0, failed: false };
+-    let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+-    let hub = hub_on(Box::new(HeldStore { inner: MemoryStore::default(), progress: held.clone() }));
+-    let session = chat(&hub, "gone");
+-    let ((), writes) = scope(Box::pin(async {
+-        hub.append(&session, "mux", "queue_order", json!({"order": []}));
+-    }))
+-    .await;
+-    session.purged.store(true, Ordering::SeqCst);
+-    hub.sessions.lock().unwrap().remove("gone");
+-    let wait = std::time::Duration::from_secs(5);
+-    let saved = tokio::time::timeout(wait, hub.wait_written(writes)).await;
+-    assert_eq!(saved.ok(), Some(true), "a deleted session's records held or failed the request");
+-    let asked = held.lock().unwrap().as_ref().map_or(0, tokio::sync::watch::Sender::receiver_count);
+-    assert_eq!(asked, 0, "the wait asked the writer for a deleted session's progress");
+-}
+-
+-/// A chat `s1` with one queued prompt, `p1`, restored from its log as a restart restores it. It
+-/// is an agent's message (it has a provenance), so `_acpmux/prompt_withdraw` may unsend it.
+-fn chat_with_a_queued_prompt(hub: &Arc<Hub>) -> Arc<Session> {
+-    let session = chat(hub, "s1");
+-    let provenance = json!({"from": "sender", "msgId": "m1"});
+-    let queued = json!({"promptId": "p1", "turnId": "t1", "text": "hi", "client": "c",
+-        "_meta": {"provenance": provenance}});
+-    hub.append(&session, "mux", "queued", queued);
+-    hub.restore_queue(&session);
+-    assert_eq!(session.queue().len(), 1, "the queued prompt was not restored");
+-    session
+-}
+-
+-/// The requests that change the queue (`_acpmux/queue_edit`, `_acpmux/queue_remove`,
+-/// `_acpmux/prompt_withdraw`), each run as the request runner runs it ([`Hub::answer_request`]).
+-#[derive(Clone, Copy, Debug)]
+-enum QueueChange {
+-    Edit,
+-    Remove,
+-    Withdraw,
+-}
+-
+-impl QueueChange {
+-    const ALL: [Self; 3] = [Self::Edit, Self::Remove, Self::Withdraw];
+-
+-    async fn answer(self, hub: Arc<Hub>, session: Arc<Session>) -> Result<Value, RpcError> {
+-        let (hub, session) = (&hub, &session);
+-        let request: BoxFuture<'_, Result<Value, RpcError>> =
+-            match self {
+-                Self::Edit => Box::pin(async move {
+-                    let params = json!({"promptId": "p1", "op": "update", "text": "edited"});
+-                    hub.queue_edit(session, &params, crate::hub::Control::Local, false, None).await
+-                }),
+-                Self::Remove => Box::pin(async move {
+-                    let removed = hub.withdraw_queued(session, "p1")?;
+-                    Ok(json!({"removed": removed}))
+-                }),
+-                Self::Withdraw => Box::pin(async move {
+-                    hub.prompt_withdraw(session, &json!({"promptId": "p1"})).await
+-                }),
+-            };
+-        hub.answer_request(request).await
+-    }
+-}
+-
+-/// One wait per request (merge of perf's `queue_change_logged`, 6a5173856d0, with this rule): a
+-/// queue change on a chat deleted while it waits counts as saved, as every request does, since
+-/// nothing of the chat is kept. A second wait inside the handler answered an internal error.
+-#[tokio::test]
+-async fn request_writes_a_queue_change_on_a_chat_deleted_while_it_waits_is_saved() {
+-    for change in QueueChange::ALL {
+-        let progress = crate::store::Progress { queued: 100, written: 0, failed: false };
+-        let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+-        let store = HeldStore { inner: MemoryStore::default(), progress: held.clone() };
+-        let hub = hub_on(Box::new(store));
+-        let session = chat_with_a_queued_prompt(&hub);
+-        let answer = tokio::spawn(change.answer(hub.clone(), session.clone()));
+-        // The request waits on the log's progress; the chat is deleted while it waits.
+-        let subscribed = async {
+-            while held.lock().unwrap().as_ref().is_some_and(|tx| tx.receiver_count() == 0) {
+-                tokio::task::yield_now().await;
+-            }
+-        };
+-        let wait = std::time::Duration::from_secs(5);
+-        assert!(tokio::time::timeout(wait, subscribed).await.is_ok(), "{change:?} never waited");
+-        session.purged.store(true, Ordering::SeqCst);
+-        hub.sessions.lock().unwrap().remove("s1");
+-        held.lock().unwrap().take();
+-        let answer = answer.await.unwrap();
+-        assert!(answer.is_ok(), "{change:?} on a chat deleted while it waited: {answer:?}");
+-    }
+-}
+-
+-/// The same merge: a queue change whose log failed answers `log.failed`, the reason every other
+-/// request gives; the handler's own wait answered a plain internal error with no reason.
+-#[tokio::test]
+-async fn request_writes_a_queue_change_on_a_failed_log_answers_log_failed() {
+-    for change in QueueChange::ALL {
+-        let progress = crate::store::Progress { queued: 100, written: 0, failed: true };
+-        let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+-        let store = HeldStore { inner: MemoryStore::default(), progress: held };
+-        let hub = hub_on(Box::new(store));
+-        let session = chat_with_a_queued_prompt(&hub);
+-        let answer = change.answer(hub, session).await;
+-        let reason = answer.as_ref().err().and_then(|e| e.data.clone());
+-        let expected = Some(json!({"reason": "log.failed"}));
+-        assert_eq!(reason, expected, "{change:?} on a failed log: {answer:?}");
+-    }
+-}
+diff --git a/cmux-tui/crates/acpmux/src/hub/seen.rs b/cmux-tui/crates/acpmux/src/hub/seen.rs
+index 5e673a336d5..33555c3aef3 100644
+--- a/cmux-tui/crates/acpmux/src/hub/seen.rs
++++ b/cmux-tui/crates/acpmux/src/hub/seen.rs
+@@ -52,8 +52,6 @@ impl Hub {
+     pub fn mark_unread(&self, session: &Session) {
+         // Changed and logged in one step: a restart rebuilds the mark from this record
+         // (`meta_replay.rs`). The status is read from `m`: the meta lock is held here.
+-        // The person's change: `_acpmux/markUnread` answers once this record is on disk
+-        // (`request_writes.rs`: the append notes it).
+         let logged = self.change_logged(session, "status", |m| {
+             (!std::mem::replace(&mut m.unread, true))
+                 .then(|| json!({"status": m.status.to_string(), "read": false}))
+@@ -72,13 +70,9 @@ impl Hub {
+         {
+             return;
+         }
+-        // It tells the clients, and the chat switch does not wait for it: a lost read mark
+-        // only shows the dot again (`request_writes.rs`: unnoted).
+-        let logged = request_writes::unnoted(|| {
+-            self.change_logged(session, "status", |m| {
+-                std::mem::replace(&mut m.unread, false)
+-                    .then(|| json!({"status": m.status.to_string(), "read": true}))
+-            })
++        let logged = self.change_logged(session, "status", |m| {
++            std::mem::replace(&mut m.unread, false)
++                .then(|| json!({"status": m.status.to_string(), "read": true}))
+         });
+         if logged.is_some() {
+             self.save_meta(session);
+diff --git a/cmux-tui/crates/acpmux/src/hub/subsession_answer.rs b/cmux-tui/crates/acpmux/src/hub/subsession_answer.rs
+index e71a15dd6d1..13a1ccd8af4 100644
+--- a/cmux-tui/crates/acpmux/src/hub/subsession_answer.rs
++++ b/cmux-tui/crates/acpmux/src/hub/subsession_answer.rs
+@@ -264,8 +264,6 @@ mod tests {
+         let entry = PendingPermission {
+             request,
+             reply,
+-            // No asking task: closed, so the answer waits for no decision record.
+-            decision_seq: oneshot::channel().1,
+             decision_nonce: super::super::person::new_nonce(),
+             ancestor_may_answer: may,
+             prev_status: SessionStatus::Waiting,
+@@ -329,8 +327,6 @@ mod tests {
+         let entry = PendingPermission {
+             request,
+             reply,
+-            // No asking task: closed, so the answer waits for no decision record.
+-            decision_seq: oneshot::channel().1,
+             decision_nonce: super::super::person::new_nonce(),
+             ancestor_may_answer: true,
+             prev_status: SessionStatus::Waiting,
+diff --git a/cmux-tui/crates/acpmux/src/hub/subsessions.rs b/cmux-tui/crates/acpmux/src/hub/subsessions.rs
+index 97d9ecfefe2..856266d2dab 100644
+--- a/cmux-tui/crates/acpmux/src/hub/subsessions.rs
++++ b/cmux-tui/crates/acpmux/src/hub/subsessions.rs
+@@ -718,9 +718,6 @@ impl Hub {
+                 return Err(e);
+             }
+         };
+-        // The parent's `subsession` "started" record was appended at the acceptance, on the
+-        // child's turn task: the answer waits for it too (`request_writes.rs`).
+-        super::request_writes::note_session(parent);
+         // The row get_session reads, not the session summary: a summary's
+         // `shown` says whether a client has the chat open right now, which a
+         // parent read as "the user cannot see it" (it is under the parent's
+@@ -835,14 +832,7 @@ impl Hub {
+             hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
+         });
+         match rx.await {
+-            Ok(v) => {
+-                // Its records up to the acceptance were appended on the turn's task, which the
+-                // request's write scope does not see: the answer waits for them, and keeps its
+-                // Ok, since a retry would send the prompt twice (`request_writes.rs`).
+-                super::request_writes::note_session(to);
+-                super::request_writes::note_kept();
+-                Ok(v)
+-            }
++            Ok(v) => Ok(v),
+             // Dropped before acceptance: the prompt was refused.
+             Err(_) => match turn.await {
+                 Ok(Err(e)) => Err(e),
+diff --git a/cmux-tui/crates/acpmux/src/hub/turns.rs b/cmux-tui/crates/acpmux/src/hub/turns.rs
+index ef7b8825e70..a1a18c7d8f6 100644
+--- a/cmux-tui/crates/acpmux/src/hub/turns.rs
++++ b/cmux-tui/crates/acpmux/src/hub/turns.rs
+@@ -210,9 +210,6 @@ impl Hub {
+         let supersede = opts.supersede.clone();
+         let replaced = std::sync::OnceLock::<Vec<String>>::new();
+         let mut accept = |mut v: Value| {
+-            // Committed: a request that runs this prompt on its task keeps its Ok even if the
+-            // log then fails, since a retry would start a second turn (`request_writes.rs`).
+-            super::request_writes::note_kept();
+             if let Some(f) = on_accepted.take() {
+                 if supersede.is_some() {
+                     super::queue::supersede::mark(&mut v, replaced.get());
+diff --git a/cmux-tui/crates/acpmux/src/hub/withdraw.rs b/cmux-tui/crates/acpmux/src/hub/withdraw.rs
+index 5081ba063d5..62b8c8c049c 100644
+--- a/cmux-tui/crates/acpmux/src/hub/withdraw.rs
++++ b/cmux-tui/crates/acpmux/src/hub/withdraw.rs
+@@ -224,9 +224,7 @@ impl Hub {
+         Some(signed)
+     }
+ 
+-    /// `_acpmux/prompt_withdraw`; see the module docs. Its answer, an unsend or a retract,
+-    /// says a queue change was made: it goes once the change's records are written
+-    /// (`request_writes.rs`).
++    /// `_acpmux/prompt_withdraw`; see the module docs.
+     pub async fn prompt_withdraw(
+         self: &Arc<Self>,
+         session: &Arc<Session>,
+diff --git a/cmux-tui/crates/acpmux/src/server/request_task.rs b/cmux-tui/crates/acpmux/src/server/request_task.rs
+index 69b761fc565..4283976a24c 100644
+--- a/cmux-tui/crates/acpmux/src/server/request_task.rs
++++ b/cmux-tui/crates/acpmux/src/server/request_task.rs
+@@ -37,23 +37,15 @@ pub(super) fn spawn(
+         let (hub, conn, method) = (hub.clone(), conn.clone(), method.clone());
+         Box::pin(async move {
+             let params = params.unwrap_or(Value::Null);
+-            // One rule for every request: it answers only after what it wrote is on disk
+-            // (`hub/request_writes.rs`).
+-            // Boxed before the scope takes it: the handlers' futures are large, and a debug
+-            // build overflowed its worker's stack moving one by value into the scope.
+-            let request: BoxFuture<'_, Result<Value, RpcError>> = Box::pin(async {
+-                match conn.agent_tools() {
+-                    // Boxed: the tool calls hold a whole `chats::route` of their own.
+-                    Some(tools) => {
+-                        Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+-                    }
+-                    None => chats::route(&hub, &conn, &method, params).await,
++            let result = match conn.agent_tools() {
++                // Boxed: the tool calls hold a whole `chats::route` of their own.
++                Some(tools) => {
++                    Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+                 }
+-            });
+-            let result = hub.answer_request(request).await;
++                None => chats::route(&hub, &conn, &method, params).await,
++            };
+             // The reply follows every event published before it on this connection: a turn's
+-            // `session/update`s reach the client before its `session/prompt` result. After the
+-            // write wait, right before the reply: every event published until now precedes it.
++            // `session/update`s reach the client before its `session/prompt` result.
+             conn.events_handed_on(&hub).await;
+             result
+         })
+diff --git a/cmux-tui/crates/acpmux/src/store.rs b/cmux-tui/crates/acpmux/src/store.rs
+index ef51a158d12..96189b2ff0e 100644
+--- a/cmux-tui/crates/acpmux/src/store.rs
++++ b/cmux-tui/crates/acpmux/src/store.rs
+@@ -618,8 +618,6 @@ pub trait Store: Send + Sync {
+     fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
+         None
+     }
+-    /// Writes session `id`'s queued records next: a request waits for them (`request_writes.rs`).
+-    fn expedite(&self, _id: &str) {}
+     fn delete(&self, id: &str) -> Result<()>;
+     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
+         None
+@@ -1110,10 +1108,6 @@ impl Store for LocalStore {
+         Some(self.log.progress(id))
+     }
+ 
+-    fn expedite(&self, id: &str) {
+-        self.log.expedite(id);
+-    }
+-
+     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
+     /// holds nothing past it and is not opened, and a line at or before `after` is passed
+     /// on its `seq` alone, unparsed. A forward page of a long log costs its own records,
+diff --git a/cmux-tui/crates/acpmux/src/store/log_writer.rs b/cmux-tui/crates/acpmux/src/store/log_writer.rs
+index 235705cc125..89e9040abc7 100644
+--- a/cmux-tui/crates/acpmux/src/store/log_writer.rs
++++ b/cmux-tui/crates/acpmux/src/store/log_writer.rs
+@@ -161,18 +161,6 @@ impl LogWriter {
+         Ok(())
+     }
+ 
+-    /// Writes session `id`'s queued lines next, ahead of other sessions' (a request waits for
+-    /// them; `hub/request_writes.rs`): the person's request goes before background streaming.
+-    pub(super) fn expedite(&self, id: &str) {
+-        let mut state = lock(&self.shared.state);
+-        if let Some(at) = state.order.iter().position(|o| o == id)
+-            && at > 0
+-            && let Some(id) = state.order.remove(at)
+-        {
+-            state.order.push_front(id);
+-        }
+-    }
+-
+     /// Waits until every line queued for session `id` is written: before its log is read.
+     pub(super) fn settle(&self, id: &str) {
+         let mut state = lock(&self.shared.state);
+@@ -256,25 +244,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+ /// The writer thread's name, also its name in a hang record.
+ const THREAD: &str = "acpmux-log-writer";
+ 
+-/// Debug builds only: `ACPMUX_TEST_LOG_WRITE_DELAY_MS` holds each write that long, so a test can
+-/// stop the daemon while a record is queued and not yet written (at most 2 s). Release builds
+-/// have no seam.
+-fn test_write_delay() -> Option<std::time::Duration> {
+-    #[cfg(debug_assertions)]
+-    {
+-        std::env::var("ACPMUX_TEST_LOG_WRITE_DELAY_MS")
+-            .ok()
+-            .and_then(|ms| ms.parse::<u64>().ok())
+-            // Capped as the other test seams are: a stray value never stalls the writer long.
+-            .map(|ms| std::time::Duration::from_millis(ms.min(2_000)))
+-    }
+-    #[cfg(not(debug_assertions))]
+-    None
+-}
+-
+ fn run(shared: &Shared) {
+     let watched = SyncThread::register(THREAD, WRITE_ITEM);
+-    let delay = test_write_delay();
+     let mut state = lock(&shared.state);
+     loop {
+         let Some(id) = state.order.pop_front() else {
+@@ -287,9 +258,6 @@ fn run(shared: &Shared) {
+         let Some(q) = state.queued.remove(&id) else { continue };
+         state.writing = Some(id.clone());
+         drop(state);
+-        if let Some(delay) = delay {
+-            cmux_threads::checked::sync::sleep(delay);
+-        }
+         let result = {
+             let _item = watched.item();
+             lock(&shared.files).write(&id, &q.lines)
+diff --git a/cmux-tui/crates/acpmux/tests/durable_agents.rs b/cmux-tui/crates/acpmux/tests/durable_agents.rs
+index 6acab25531a..9eaf27b4880 100644
+--- a/cmux-tui/crates/acpmux/tests/durable_agents.rs
++++ b/cmux-tui/crates/acpmux/tests/durable_agents.rs
+@@ -1771,184 +1771,6 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
+     assert_eq!(order, ["q-2", "q-1"]);
+ }
+ 
+-/// The test pattern of the rule "an acpmux request answers only after what it wrote is on disk"
+-/// (`hub/request_writes.rs`; trains 333 and 338 lost an answered queue edit). The daemon runs
+-/// with `ACPMUX_TEST_LOG_WRITE_DELAY_MS` (debug builds only): every log write is held, so a
+-/// daemon killed right after an answer loses the change unless the answer waited for its
+-/// records. Two prompts wait behind a gated turn; `change` makes requests and must be kept
+-/// after a SIGKILL right after its answers; returns the restarted daemon's attach.
+-async fn answered_change_survives_a_crash(
+-    tag: &str,
+-    change: impl AsyncFnOnce(&mut Rpc, &str),
+-) -> (Daemon, String, PathBuf, Value) {
+-    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+-    let mut daemon = Daemon::with_env(tag, "approve-all", &slow);
+-    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+-    for (id, text) in [("q-1", "one"), ("q-2", "two")] {
+-        client
+-            .send(
+-                "session/prompt",
+-                json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": id}}}),
+-            )
+-            .await;
+-        daemon.wait_event(&session, "queued record", |e| {
+-            e["kind"] == "queued" && e["msg"]["promptId"] == id
+-        });
+-    }
+-    let mut rpc = daemon.rpc().await;
+-    change(&mut rpc, &session).await;
+-    // At once after the answers: what they acknowledged must be on disk already.
+-    daemon.sigkill();
+-    drop((client, rpc));
+-    daemon.start();
+-    let mut rpc = daemon.rpc().await;
+-    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+-    (daemon, session, gate, attached)
+-}
+-
+-fn queued_ids(attached: &Value) -> Vec<String> {
+-    let queue = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+-    queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+-}
+-
+-#[tokio::test]
+-async fn an_answered_queue_edit_survives_a_crash_right_after_its_answer() {
+-    let (_daemon, _session, gate, attached) =
+-        answered_change_survives_a_crash("qedit-slow", async |rpc, session| {
+-            let edit = |op: &str, id: &str, extra: Value| {
+-                let mut p = json!({"sessionId": session, "promptId": id, "op": op});
+-                p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+-                p
+-            };
+-            rpc.call("_acpmux/queue_edit", edit("move", "q-2", json!({"index": 0}))).await;
+-            rpc.call("_acpmux/queue_edit", edit("update", "q-1", json!({"text": "one edited"})))
+-                .await;
+-        })
+-        .await;
+-    assert_eq!(queued_ids(&attached), ["q-2", "q-1"], "an answered reorder was lost: {attached:#}");
+-    let queue = attached["session"]["queue"].as_array().expect("queue");
+-    assert_eq!(queue[1]["prompt"], "one edited", "an answered edit was lost: {attached:#}");
+-    std::fs::write(&gate, b"go").unwrap();
+-}
+-
+-#[tokio::test]
+-async fn an_answered_queue_removal_survives_a_crash_right_after_its_answer() {
+-    let (_daemon, _session, gate, attached) =
+-        answered_change_survives_a_crash("qrm-slow", async |rpc, session| {
+-            rpc.call("_acpmux/queue_remove", json!({"sessionId": session, "promptId": "q-1"}))
+-                .await;
+-        })
+-        .await;
+-    assert_eq!(queued_ids(&attached), ["q-2"], "an answered removal was lost: {attached:#}");
+-    std::fs::write(&gate, b"go").unwrap();
+-}
+-
+-/// The same rule for a permission answer: its `permission_decision` record is appended by the
+-/// task that asked, after the answer wakes it, so the answer must wait for that task's record.
+-/// Lost, the restarted daemon's log has the ask and no answer (the first red, fleet 0492f8bf:
+-/// the agent host, adopted, had the answer and finished its turn, so the chat's card for the ask
+-/// never shows it was answered); with no host it is asked again (`permission_reissued`).
+-#[tokio::test]
+-async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
+-    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+-    let mut daemon = Daemon::with_env("perm-slow", "ask", &slow);
+-    let session = new_session(&daemon).await;
+-    let mut client = daemon.rpc().await;
+-    client
+-        .send(
+-            "session/prompt",
+-            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+-        )
+-        .await;
+-    let asked =
+-        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+-    let permission_id = asked["msg"]["permissionId"].clone();
+-    let mut rpc = daemon.rpc().await;
+-    rpc.call(
+-        "_acpmux/permission_respond",
+-        json!({"sessionId": session, "permissionId": permission_id, "optionId": "no"}),
+-    )
+-    .await;
+-    // At once after the answer: the decision it acknowledged must be on disk already.
+-    daemon.sigkill();
+-    drop((client, rpc));
+-    daemon.start();
+-    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+-    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+-    let events = daemon.events(&session);
+-    let of_ask = |kind: &str| {
+-        events
+-            .iter()
+-            .filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == permission_id)
+-            .count()
+-    };
+-    assert_eq!(
+-        of_ask("permission_decision"),
+-        1,
+-        "an answered permission's decision was lost in the crash: {:#}",
+-        json!(events)
+-    );
+-    assert_eq!(of_ask("permission_reissued"), 0, "the person was asked again: {:#}", json!(events));
+-}
+-
+-/// The same for a group answer (`_acpmux/permission_group_respond`): every prompt it answers has
+-/// its `permission_decision` appended by the task that asked, and the answer waits for each.
+-#[tokio::test]
+-async fn an_answered_permission_group_survives_a_crash_right_after_its_answer() {
+-    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+-    let mut daemon = Daemon::with_env("pgrp-slow", "ask", &slow);
+-    let session = new_session(&daemon).await;
+-    let mut client = daemon.rpc().await;
+-    client
+-        .send(
+-            "session/prompt",
+-            json!({"sessionId": session, "prompt": [{"type": "text", "text": "permission-batch: parallel"}]}),
+-        )
+-        .await;
+-    let shown = daemon.wait_event(&session, "a pending permission group", |e| {
+-        e["kind"] == "permission_group" && e["msg"]["group"]["state"] == "pending"
+-    });
+-    let group = &shown["msg"]["group"];
+-    let mut rpc = daemon.rpc().await;
+-    // A deny: this plain socket client is not the person (`hub/person.rs`).
+-    rpc.call(
+-        "_acpmux/permission_group_respond",
+-        json!({"sessionId": session, "groupId": group["groupId"], "revision": group["revision"],
+-               "decisionKey": "crash", "decision": "deny"}),
+-    )
+-    .await;
+-    // At once after the answer: every decision it acknowledged must be on disk already.
+-    daemon.sigkill();
+-    drop((client, rpc));
+-    daemon.start();
+-    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+-    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+-    let events = daemon.events(&session);
+-    let asked: Vec<&Value> = events
+-        .iter()
+-        .filter(|e| e["kind"] == "permission_request" && e["msg"]["groupId"] == group["groupId"])
+-        .map(|e| &e["msg"]["permissionId"])
+-        .collect();
+-    assert_eq!(asked.len(), 3, "the batch asks three prompts: {:#}", json!(events));
+-    for id in asked {
+-        let of_ask = |kind: &str| {
+-            events.iter().filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == *id).count()
+-        };
+-        assert_eq!(
+-            of_ask("permission_decision"),
+-            1,
+-            "a group answer's decision was lost in the crash: {:#}",
+-            json!(events)
+-        );
+-        assert_eq!(
+-            of_ask("permission_reissued"),
+-            0,
+-            "the person was asked again: {:#}",
+-            json!(events)
+-        );
+-    }
+-}
+-
+ /// An answered rename, tag, policy and rules come back after a crash that came before their
+ /// session record (`session.json`) was written: the restart rebuilds them from the event log,
+ /// the source of truth (`hub/meta_replay.rs`). `ACPMUX_TEST_META_WRITE_DELAY_MS` (debug builds
