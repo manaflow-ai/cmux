@@ -600,7 +600,7 @@ impl Hub {
             (blocks, text)
         };
         let mut blocks = blocks;
-        let (draft_cleared, draft_before) = {
+        let (draft_cleared, draft_before, draft_tombstone) = {
             let mut m = session.meta.lock().unwrap();
             let draft_before = (m.composer_draft.clone(), m.composer_draft_generation);
             // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
@@ -621,7 +621,8 @@ impl Hub {
                 m.delegator = Some(from);
             }
             m.turn_count += 1;
-            (draft_cleared, draft_before)
+            let draft_tombstone = (m.composer_draft.clone(), m.composer_draft_generation);
+            (draft_cleared, draft_before, draft_tombstone)
         };
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
@@ -643,12 +644,11 @@ impl Hub {
         // failed save leaves a journaled prompt paired with the old draft on restart. A failed
         // save refuses the prompt before it reaches the journal.
         if draft_cleared && let Err(error) = self.save_meta_result(session) {
-            // Restore the in-memory draft before failure handling saves metadata again. A
-            // refused prompt must never turn a transient tombstone-save error into data loss.
+            // Restore the in-memory draft before failure handling saves metadata again, but only
+            // while this send's tombstone is still present. A concurrent draft_set must win.
             {
                 let mut m = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                m.composer_draft = draft_before.0;
-                m.composer_draft_generation = draft_before.1;
+                drafts::restore_after_failed_send(&mut m, &draft_before, &draft_tombstone);
             }
             let e = RpcError::internal(format!("save sent composer draft failed: {error}"));
             self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);

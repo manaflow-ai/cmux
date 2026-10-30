@@ -17,6 +17,8 @@ type Write = { sessionId: string; text: string };
 const scope = globalThis as Record<string, unknown>;
 const hadWindow = "window" in scope;
 const savedWindow = scope.window;
+const hadLocalStorage = "localStorage" in scope;
+const savedLocalStorage = scope.localStorage;
 const writeLimits = { ...draftWriteLimits };
 
 let currentWriter: { release: () => void } | undefined;
@@ -65,6 +67,8 @@ afterEach(async () => {
   currentWriter = undefined;
   if (hadWindow) scope.window = savedWindow;
   else delete scope.window;
+  if (hadLocalStorage) scope.localStorage = savedLocalStorage;
+  else delete scope.localStorage;
 });
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -370,4 +374,62 @@ test("late stale rejection drops superseded edits but preserves the next generat
   expect(generations).toEqual([0, 1]);
   expect(hasPendingDraftWrite("stale-newer")).toBe(false);
   expect(composerHold()).toBeNull();
+});
+
+test("a stale rejection adopts the daemon generation for the mounted composer's next edit", async () => {
+  const values = new Map<string, string>();
+  const generations = new Map<string, number>();
+  scope.localStorage = {
+    getItem: (key: string) => {
+      if (!key.endsWith(".state-v1")) return null;
+      const session = decodeURIComponent(
+        key.slice("cmux.acpmux.composer-draft.".length, -".state-v1".length),
+      );
+      const text = values.get(session);
+      const generation = generations.get(session);
+      return generation === undefined ? null : JSON.stringify({ text, generation, known: true });
+    },
+    setItem: (key: string, raw: string) => {
+      if (!key.endsWith(".state-v1")) return;
+      const session = decodeURIComponent(
+        key.slice("cmux.acpmux.composer-draft.".length, -".state-v1".length),
+      );
+      const state = JSON.parse(raw) as { text: string; generation: number };
+      values.set(session, state.text);
+      generations.set(session, state.generation);
+    },
+    removeItem: () => {},
+  };
+  let rejectWrite: ((error: unknown) => void) | undefined;
+  let readCount = 0;
+  const writes: { text: string; generation: number }[] = [];
+  scope.window = {
+    cmuxAcpmuxActions: {
+      "chat.writeDraft": ({ text, generation }: Record<string, unknown>) => {
+        writes.push({ text: String(text), generation: Number(generation) });
+        if (writes.length === 1) return new Promise((_, reject) => (rejectWrite = reject));
+        return Promise.resolve();
+      },
+      "chat.readDraft": async () => {
+        readCount += 1;
+        return { draft: "newer saved", generation: 4 };
+      },
+    },
+  };
+  writePersistedDraft("stale-adopt", "old", 3);
+  await tick();
+  rejectWrite!(staleGeneration());
+  await tick();
+  await settlePendingDraftWrites();
+  expect(readCount).toBe(1);
+  expect(generations.get("stale-adopt")).toBe(4);
+
+  // The mounted composer still passes its old generation, as it would after the rejection. The
+  // cache promotion makes this edit use the daemon's generation and survive a remount.
+  writePersistedDraft("stale-adopt", "new edit", 3);
+  await settlePendingDraftWrites();
+  expect(writes).toEqual([
+    { text: "old", generation: 3 },
+    { text: "new edit", generation: 4 },
+  ]);
 });

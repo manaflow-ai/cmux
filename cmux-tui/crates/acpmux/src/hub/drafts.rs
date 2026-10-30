@@ -71,3 +71,40 @@ pub(super) fn clear_sent_draft(meta: &mut SessionMeta, text: &str) -> bool {
     }
     false
 }
+
+/// Restores the draft around a failed send only while the failed send's tombstone is still
+/// present. A concurrent `draft_set` changes either the text or generation and must win.
+pub(super) fn restore_after_failed_send(
+    meta: &mut SessionMeta,
+    before: &(Option<String>, u64),
+    tombstone: &(Option<String>, u64),
+) {
+    if failed_send_tombstone_matches(
+        meta.composer_draft.as_deref(),
+        meta.composer_draft_generation,
+        tombstone.0.as_deref(),
+        tombstone.1,
+    ) {
+        meta.composer_draft = before.0.clone();
+        meta.composer_draft_generation = before.1;
+    }
+}
+
+fn failed_send_tombstone_matches(
+    current_draft: Option<&str>,
+    current_generation: u64,
+    tombstone_draft: Option<&str>,
+    tombstone_generation: u64,
+) -> bool {
+    current_draft == tombstone_draft && current_generation == tombstone_generation
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn failed_send_tombstone_matches_only_its_empty_generation() {
+        assert!(super::failed_send_tombstone_matches(None, 4, None, 4));
+        assert!(!super::failed_send_tombstone_matches(Some("new edit"), 5, None, 4));
+        assert!(!super::failed_send_tombstone_matches(None, 5, None, 4));
+    }
+}

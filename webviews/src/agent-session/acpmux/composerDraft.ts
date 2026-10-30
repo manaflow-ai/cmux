@@ -168,7 +168,15 @@ function discardStaleDraftWrite(write: DraftWrite): void {
     .then((value) => {
       const state = value as Awaited<ReturnType<typeof readDurableDraftState>>;
       if (!state || draftWriteSequence !== sequence || hasPendingDraftWrite(write.sessionId)) return;
-      if (state.generation !== readPersistedDraftGeneration(write.sessionId)) return;
+      // A stale write means the daemon advanced this chat while this page was in flight.  Keep
+      // that generation in the remount cache: the mounted composer will promote its next edit
+      // to it in `writePersistedDraft`, rather than sending another write the daemon must reject.
+      // Never replace a newer local cache (or a write that raced this read).
+      if (
+        state.generation < write.generation ||
+        state.generation < readPersistedDraftGeneration(write.sessionId)
+      )
+        return;
       cachePersistedDraft(write.sessionId, state.draft ?? "", state.generation);
     })
     .catch(() => undefined);
@@ -399,9 +407,17 @@ export function writePersistedDraft(
   generation = readPersistedDraftGeneration(sessionId),
   knowledge = readPersistedDraftVersion(sessionId),
 ): void {
-  if (!sessionId?.trim() || generation < readPersistedDraftGeneration(sessionId)) return;
-  cachePersistedDraft(sessionId, text, generation, knowledge);
-  pendingDraftWrites.set(sessionId, { sessionId, text, generation, sequence: ++draftWriteSequence });
+  if (!sessionId?.trim()) return;
+  // A stale-generation rejection can arrive after the mounted composer has already learned the
+  // daemon's newer state.  Promote this edit to the cached generation so the next write is accepted.
+  const effectiveGeneration = Math.max(generation, readPersistedDraftGeneration(sessionId));
+  cachePersistedDraft(sessionId, text, effectiveGeneration, knowledge);
+  pendingDraftWrites.set(sessionId, {
+    sessionId,
+    text,
+    generation: effectiveGeneration,
+    sequence: ++draftWriteSequence,
+  });
   if (text) lastQueuedDraft.set(sessionId, text);
   else lastQueuedDraft.delete(sessionId);
   flushPendingDraftWrites();
