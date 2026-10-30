@@ -32,7 +32,7 @@ struct CmuxToastDetailsTests {
         view.layoutSubtreeIfNeeded()
         #expect(view.showsDetails)
         #expect(!detail.isHidden)
-        #expect(button.isOn, "the Details button is not lit while the details show")
+        #expect(button.isOn && button.shownFill != nil, "the Details button is not lit while the details show")
         #expect(view.messageLabel?.maximumNumberOfLines == 0, "the message is still cut at three lines")
         #expect(view.fittingSize.height > closed.height + 8, "the toast did not grow to show the detail")
         #expect(abs(view.fittingSize.width - closed.width) < 1, "showing the detail changed the toast's width")
@@ -40,8 +40,40 @@ struct CmuxToastDetailsTests {
         button.performClick(nil)
         view.layoutSubtreeIfNeeded()
         #expect(!view.showsDetails && detail.isHidden && !button.isOn)
+        #expect(button.shownFill == nil, "the Details button stayed lit after hiding the details")
         #expect(abs(view.fittingSize.height - closed.height) < 0.5)
         #expect(view.messageLabel?.themedToolTip == Self.reason)
+    }
+
+    /// Sized as the overlay host sizes it (its own frame, autoresizing), the shown detail sits
+    /// under the message inside the toast, and the message stays at the top: the row's bottom pin
+    /// is off while the details show, so the two layouts never fight.
+    @Test func theShownDetailSitsUnderTheMessageInsideTheToast() throws {
+        let view = CmuxToastView(toast: Self.toast())
+        view.layoutSubtreeIfNeeded()
+        view.translatesAutoresizingMaskIntoConstraints = true
+        view.frame = NSRect(origin: .zero, size: view.fittingSize)
+        let closedHeight = view.frame.height
+        view.setShowsDetails(true)
+        view.layoutSubtreeIfNeeded()
+        view.setFrameSize(view.fittingSize)
+        view.layoutSubtreeIfNeeded()
+        let detail = try #require(view.detailLabel)
+        let message = try #require(view.messageLabel)
+        let detailFrame = detail.convert(detail.bounds, to: view)
+        let messageFrame = message.convert(message.bounds, to: view)
+        #expect(view.frame.height > closedHeight + 8)
+        #expect(detailFrame.minY >= Metrics.space4 - 0.5 && detailFrame.maxY <= view.bounds.maxY + 0.5, "\(detailFrame) in \(view.bounds)")
+        #expect(messageFrame.minY > detailFrame.maxY - 0.5, "the message is not above the detail: \(messageFrame) \(detailFrame)")
+        #expect(view.bounds.maxY - messageFrame.maxY < closedHeight, "the message left the top of the toast")
+    }
+
+    /// A lit control keeps its fill with no pointer on it, and never takes the selection fill;
+    /// it does not ask calm mode, which only stops the pointer's own hover fill.
+    @Test func aLitControlKeepsTheHoverFill() {
+        #expect(ChromeHover.fillColor(ChromeHover.State(lit: true)) != nil)
+        #expect(ChromeHover.fillColor(ChromeHover.State(lit: true)) != Palette.selectionFill)
+        #expect(ChromeHover.fillColor(ChromeHover.State()) == nil)
     }
 
     /// The hidden detail never widens the toast: a toast with Details is as wide as one without.
@@ -79,6 +111,15 @@ struct CmuxToastDetailsTests {
         #expect(center.toasts(in: window).count == 1)
     }
 
+    /// A toast stacked above one showing its details sits above that toast's real height; a slot
+    /// with no toast in it counts as one as tall as this one (a toast pushed out moves one slot
+    /// past the stack before its successor shows, and must stay clear of it).
+    @Test func anEmptySlotBelowCountsAsTallAsTheToast() {
+        let bounds = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        let even = CmuxToastOverlayHost.anchor(slot: 3, height: 36, in: bounds)
+        #expect(CmuxToastOverlayHost.anchor(slot: 3, height: 36, in: bounds, below: [36, 36, 36]) == even)
+    }
+
     /// A toast stacked above one showing its details sits above that toast's real height.
     @Test func aToastAboveATallerOneStacksOnItsHeight() {
         let bounds = NSRect(x: 0, y: 0, width: 1200, height: 800)
@@ -97,6 +138,8 @@ private final class KeepingToastHost: CmuxToastHosting {
     private(set) var views: [CmuxToastView] = []
     func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
         toast.layoutSubtreeIfNeeded()
+        // As the overlay host does: the toast keeps its own frame.
+        toast.translatesAutoresizingMaskIntoConstraints = true
         toast.frame = NSRect(origin: .zero, size: toast.fittingSize)
         views.append(toast)
     }

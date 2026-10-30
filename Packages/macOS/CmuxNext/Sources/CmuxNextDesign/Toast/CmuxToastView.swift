@@ -113,7 +113,6 @@ public final class CmuxToastView: NSView {
             row.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             row.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             row.topAnchor.constraint(equalTo: content.topAnchor),
-            row.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             surface.leadingAnchor.constraint(equalTo: leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: trailingAnchor),
             surface.topAnchor.constraint(equalTo: topAnchor),
@@ -125,14 +124,15 @@ public final class CmuxToastView: NSView {
             label.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Self.messageInset),
             row.bottomAnchor.constraint(greaterThanOrEqualTo: label.bottomAnchor, constant: Self.messageInset),
         ])
-        collapsedHeight = heightAnchor.constraint(equalTo: row.heightAnchor)
-        collapsedHeight?.isActive = true
+        collapsed = [row.bottomAnchor.constraint(equalTo: content.bottomAnchor), heightAnchor.constraint(equalTo: row.heightAnchor)]
+        NSLayoutConstraint.activate(collapsed)
     }
 
-    /// The toast's height while Details is off: the row's.
-    private var collapsedHeight: NSLayoutConstraint?
-    /// The toast's height while Details is on: down to the detail, or the row's without one.
-    private var expandedHeight: NSLayoutConstraint?
+    /// The toast's height while Details is off: the row's, down to the content's bottom.
+    private var collapsed: [NSLayoutConstraint] = []
+    /// The toast's height while Details is on: the detail's bottom on the content's, the row
+    /// free above it. Empty without a detail.
+    private var expanded: [NSLayoutConstraint] = []
 
     /// The detail under the row, inset like the message, as wide as the toast and wrapping in it,
     /// selectable (a reason to copy into a bug), shown only while Details is on.
@@ -156,7 +156,7 @@ public final class CmuxToastView: NSView {
             label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.space5),
             label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Metrics.space5),
         ])
-        expandedHeight = bottomAnchor.constraint(equalTo: label.bottomAnchor, constant: Metrics.space4)
+        expanded = [content.bottomAnchor.constraint(equalTo: label.bottomAnchor, constant: Metrics.space4)]
     }
 
     /// Details on or off: on, the message has no line limit and the detail shows under it (its
@@ -171,8 +171,9 @@ public final class CmuxToastView: NSView {
         if let detailLabel {
             detailLabel.preferredMaxLayoutWidth = max(0, width - 2 * Metrics.space5)
             detailLabel.isHidden = !shows
-            collapsedHeight?.isActive = !shows
-            expandedHeight?.isActive = shows
+            // Off before on, so the two sets never hold at once.
+            NSLayoutConstraint.deactivate(shows ? collapsed : expanded)
+            NSLayoutConstraint.activate(shows ? expanded : collapsed)
         }
         actionButton?.isOn = shows
         actionButton?.setAccessibilityExpanded(shows)

@@ -37,8 +37,13 @@ public final class CmuxToastOverlayHost: CmuxToastHosting, CmuxToastReanchoring 
 
     private func anchor(for toast: CmuxToastView, slot: Int, in window: NSWindow) -> NSRect {
         let bounds = window.contentView?.bounds ?? .zero
-        // A toast showing its details is taller: the ones above it stack on its real height.
-        let below = handles.values.filter { $0.window === window && $0.slot < slot }.map(\.view.frame.height)
+        // A toast showing its details is taller: the ones above it stack on its real height. A slot
+        // with no toast (one pushed out moves past the stack before its successor shows) or several
+        // (mid-restack) takes the tallest there, else this toast's height, as before.
+        let others = handles.values.filter { $0.window === window && $0.view !== toast }
+        let below = (0..<max(slot, 0)).map { lower in
+            others.filter { $0.slot == lower }.map(\.view.frame.height).max() ?? toast.frame.height
+        }
         return Self.anchor(slot: slot, height: toast.frame.height, in: bounds,
                            floor: Self.floor(width: toast.frame.width, in: bounds, window: window), below: below)
     }
