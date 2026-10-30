@@ -72,6 +72,9 @@ export const INTERNAL_WORDS = new RegExp(
   "i",
 );
 /** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
+/** Backend and provider plumbing stays in the collapsed Under the hood section. */
+const INTERNAL_BACKEND =
+  /\b(?:postgres(?:ql)?|vitess|snapshot cutoff|env(?:ironment)? projection|projection (?:read|write|shadow)|provider allocations?|cloud-3|credential plumbing|credential recovery|keyring credentials)\b/i;
 const BRANDS =
   /\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
 /** Code-looking text: backticks, dotted names, snake_case, versioned ids, bead ids, camelCase,
@@ -169,6 +172,7 @@ export function readableChange(subject: string): ReadableChange {
   if (
     !text ||
     INTERNAL_WORDS.test(text) ||
+    INTERNAL_BACKEND.test(text) ||
     CODE_LIKE.test(text.replace(BRANDS, "")) ||
     TOOL_NAME.test(text) ||
     PR_NUMBER.test(text) ||

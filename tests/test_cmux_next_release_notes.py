@@ -16,6 +16,53 @@ def git(cwd, *args):
 
 
 class ReleaseNotesTests(unittest.TestCase):
+    def test_pr_body_description_is_plain_and_deterministic(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        body = """## Summary\n\nInternal implementation details.\n\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart\n\n## Testing\n\n- not user copy\n"""
+        self.assertEqual(notes.pr_description(body), "Tabs keep their position after restart.")
+        self.assertEqual(notes.pr_description("## Changelog\n\nnone\n"), "")
+
+    def test_backend_descriptions_are_internal_and_summary_digest_uses_description(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertTrue(notes.internal_change("fix: encode snapshot cutoff for Postgres"))
+        self.assertFalse(notes.internal_change("fix: tabs keep their position"))
+        args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+        digest = notes.summary_whats_new_digest(args, [{"group": "fixed", "title": "Tabs keep their position", "description": "They stay put after restart."}])
+        self.assertEqual(digest["entries"][0]["summary"]["en"], "They stay put after restart.")
+
+    def test_build_pr_descriptions_are_embedded_and_backend_items_are_hidden(self):
+        since = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "fix: tabs keep their position after restart (#123)")
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "fix: encode snapshot cutoff for Postgres (#124)")
+        head = git(self.repo, "rev-parse", "HEAD")
+        fixture = os.path.join(self.repo, "pr-fixture.json")
+        with open(fixture, "w") as out:
+            json.dump({"bodies": {
+                "123": "<!-- generated -->\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart",
+                "124": "## Summary\n\nInternal database cutoff plumbing.",
+            }, "files": {}}, out)
+        notes_dir = os.path.join(self.repo, "pr-notes")
+        env = {**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture}
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "build", "--build", "9", "--short", "1.0.0-nightly.9", "--date", "2026-10-30",
+             "--head", head, "--since", since, "--out", notes_dir, "--pr-descriptions"],
+            cwd=self.repo, env=env, capture_output=True, text=True, check=True,
+        )
+        self.assertTrue(result.stdout.strip())
+        with open(os.path.join(notes_dir, "9.json")) as source:
+            notes = json.load(source)
+        by_pr = {item["pr"]: item for item in notes["items"]}
+        self.assertEqual(by_pr[123]["description"], "Tabs keep their position after restart.")
+        self.assertTrue(by_pr[124]["internal"])
+        self.assertEqual([line["title"] for line in notes["summary"]], ["Tabs keep their position after restart"])
+        self.assertEqual(notes["whatsNew"]["entries"][0]["summary"]["en"], "Tabs keep their position after restart.")
+
     def test_digest_titles_are_unique_when_long_lines_share_a_first_clause(self):
         # Review of #22099: short_title cuts both lines to "Sidebar rows keep their order",
         # and the pre-publish check rejects a digest that shows one title twice.

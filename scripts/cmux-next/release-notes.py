@@ -38,7 +38,7 @@ with internal commits (ci, test, refactor, docs, chore, red tests, lint and
 fleet work) left out. The update cards show its first lines, and `appcast`
 writes the same lines as plain text into the build's appcast <description>.
 
-  release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR] [--pr-media]
+  release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR] [--pr-media] [--pr-descriptions]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
@@ -55,6 +55,7 @@ HIGHLIGHTS = "release-notes/next/highlights"
 MAX_CHANGES = 200
 SUMMARY_LIMIT = 8
 PR_LIMIT = 40
+DESCRIPTION_LIMIT = 240
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
 INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "style", "build", "lint", "release-note",
@@ -64,6 +65,9 @@ INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test"
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
                    "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps",
                    "cmux-git", "cmux-tui-core", "release-notes", "appcast"}
+# Subject words that mark internal work even without a type.
+INTERNAL_BACKEND_WORDS = re.compile(
+    r"\b(?:postgres(?:ql)?|vitess|snapshot cutoff|env(?:ironment)? projection|projection (?:read|write|shadow)|provider allocations?|cloud-3|credential plumbing|credential recovery|keyring credentials)\b", re.I | re.A)
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
@@ -155,7 +159,8 @@ def summary_entry(subject):
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)
     text = REFS.sub("", text).strip(" .")
-    if (not text or INTERNAL_WORDS.search(text) or CODE_LIKE.search(BRANDS.sub("", text))
+    if (not text or INTERNAL_WORDS.search(text) or INTERNAL_BACKEND_WORDS.search(text)
+            or CODE_LIKE.search(BRANDS.sub("", text))
             or TOOL_NAME.search(text) or PR_NUMBER.search(text) or SQUASH_REPAIR.search(text)):
         return None
     if group == "changed" and re.match(r"^(add|adds|new|introduce|support|show)\b", text, re.I):
@@ -164,6 +169,58 @@ def summary_entry(subject):
         group = "fixed"
     # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
     return group, capitalized(text)
+
+
+# PR bodies are read only while the release is cut. The same deterministic extraction is used for
+# every nightly: an explicit Changelog line wins, then the first prose in Summary, then the title.
+CHANGELOG_LINE = re.compile(r"^(?:[-*+]\s*)?(?:Added|Changed|Fixed|Removed)\s*:\s*(?P<text>.+?)\s*$", re.I)
+HEADING = re.compile(r"^#{1,6}\s*(?P<name>[^#].*?)\s*#*\s*$")
+MARKDOWN_LINK = re.compile(r"\[([^]]+)\]\([^)]*\)")
+INLINE_MARKUP = re.compile(r"[`*_~]")
+HTML_COMMENT = re.compile(r"<!--.*?(?:-->|$)", re.S)
+
+def _plain_line(text):
+    text = MARKDOWN_LINK.sub(r"\1", text)
+    text = INLINE_MARKUP.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    if not text:
+        return ""
+    if len(text) >= DESCRIPTION_LIMIT:
+        text = text[:DESCRIPTION_LIMIT - 1].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    return sentence(text)
+
+def pr_description(body, fallback=""):
+    """Extract one plain-language sentence from a PR body, without headings or markup."""
+    if not body:
+        return _plain_line(fallback)
+    body = HTML_COMMENT.sub("", body.replace("\r", ""))
+    lines = [line.strip() for line in body.splitlines()]
+    section = None
+    candidates = []
+    for line in lines:
+        heading = HEADING.match(line)
+        if heading:
+            section = heading["name"].lower()
+            continue
+        if line.startswith("<!--") or not line:
+            continue
+        if section == "changelog":
+            match = CHANGELOG_LINE.match(line)
+            if match:
+                return _plain_line(match["text"])
+            if not line.startswith(("##", "###")):
+                candidates.append(line.lstrip("-*+ "))
+        elif section == "summary":
+            candidates.append(line.lstrip("-*+ "))
+    for candidate in candidates:
+        text = _plain_line(candidate)
+        if text and not text.lower().startswith(("none", "generated with", "agent session")):
+            return text
+    return _plain_line(fallback)
+
+def internal_change(subject, paths=(), description=""):
+    """Whether a change belongs under the collapsed Under the hood section."""
+    return tooling_only(paths) or bool(INTERNAL_BACKEND_WORDS.search(" ".join((subject, description))))
 
 
 CLAUSE = re.compile(r",|;| —| - | \(| so | because | while ")
@@ -194,7 +251,7 @@ def title_tail(full, title):
     return capitalized(tail)
 
 
-def summarize_changes(subjects, limit=SUMMARY_LIMIT):
+def summarize_changes(subjects, limit=SUMMARY_LIMIT, descriptions=None):
     """The user-facing lines, New then Fixed then Changed, newest first, deduplicated, at most `limit`."""
     seen, groups = set(), {"new": [], "fixed": [], "changed": []}
     for subject in subjects:
@@ -202,14 +259,19 @@ def summarize_changes(subjects, limit=SUMMARY_LIMIT):
         if entry is None or entry[1].lower() in seen:
             continue
         seen.add(entry[1].lower())
-        groups[entry[0]].append(entry[1])
+        line = {"group": entry[0], "title": entry[1]}
+        if descriptions:
+            description = descriptions.get(subject, "")
+            if description:
+                line["description"] = description
+        groups[entry[0]].append(line)
     # A fair share per group first (New 3, Fixed 3, Changed 2), then the rest in order.
     chosen = {g: groups[g][:n] for g, n in (("new", 3), ("fixed", 3), ("changed", 2))}
-    rest = [(g, t) for g in ("new", "fixed", "changed") for t in groups[g][len(chosen[g]):]]
+    rest = [(g, line) for g in ("new", "fixed", "changed") for line in groups[g][len(chosen[g]):]]
     while sum(map(len, chosen.values())) < limit and rest:
         g, t = rest.pop(0)
         chosen[g].append(t)
-    return [{"group": g, "title": t} for g in ("new", "fixed", "changed") for t in chosen[g]][:limit]
+    return [line for g in ("new", "fixed", "changed") for line in chosen[g]][:limit]
 
 
 def summary_text(lines):
@@ -372,14 +434,20 @@ def find_pr_media(highlight, path, head):
         return
 
 
-def change_item(subject, author, paths=()):
-    """One structured change (UPDATE-CARD "What's changed"): the subject's
-    title without its "(#1234)" suffix, the commit author, the PR number, and
-    "internal": true when every file it touches is CI or tooling (tooling_only)."""
-    item = {"title": subject.strip(), "author": author.strip() or None, "internal": tooling_only(paths) or None}
+def change_item(subject, author, paths=(), descriptions=None):
+    """One structured change (UPDATE-CARD): title, author, PR, and a deterministic one-line
+    description from the PR body when the release job has enabled PR descriptions.
+    """
+    description = ""
     match = PR_SUFFIX.match(subject)
+    if match and descriptions is not None:
+        description = descriptions.get(int(match["pr"]), "")
+    item = {"title": subject.strip(), "author": author.strip() or None,
+            "internal": internal_change(subject, paths, description) or None}
     if match and match["title"].strip():
         item["title"], item["pr"] = match["title"].strip(), int(match["pr"])
+        if description:
+            item["description"] = description
     return {k: v for k, v in item.items() if v is not None}
 
 
@@ -436,8 +504,10 @@ def summary_whats_new_digest(args, lines):
             continue
         # The summary says what the title leaves out, or repeats a title that is the whole line.
         full = " ".join(line["title"].split()).rstrip(". ")
+        description = line.get("description", "")
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
-                 "title": {"en": title}, "summary": {"en": sentence(title_tail(full, title) if title != full else full)},
+                 "title": {"en": title},
+                 "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},
                  "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
         problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
         if problems:
@@ -559,9 +629,26 @@ def build(args):
     span = rev_range(args.since, args.head)
     commits = span_commits(args.since, args.head)
     changes = [subject for subject, _, _ in commits]
-    items = [change_item(subject, author, paths) for subject, author, paths in commits]
-    # The summary (and the What's New digest made from it) never names a tooling-only commit.
-    user_changes = [subject for subject, _, paths in commits if not tooling_only(paths)]
+    descriptions = {}
+    pr_descriptions = {}
+    if args.pr_descriptions:
+        fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
+        fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
+        for subject, _, _ in commits:
+            match = PR_SUFFIX.match(subject)
+            if not match:
+                continue
+            number = int(match["pr"])
+            if number not in pr_descriptions:
+                fallback = summary_entry(match["title"])
+                fallback_title = fallback[1] if fallback else match["title"]
+                pr_descriptions[number] = pr_description(pr_body(number, fixture), fallback_title)
+            descriptions[subject] = pr_descriptions[number]
+    items = [change_item(subject, author, paths, pr_descriptions if args.pr_descriptions else None)
+             for subject, author, paths in commits]
+    # The summary (and the What's New digest made from it) never names tooling-only or backend-only commits.
+    user_changes = [subject for subject, _, paths in commits
+                    if not internal_change(subject, paths, descriptions.get(subject, ""))]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
@@ -577,7 +664,7 @@ def build(args):
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
-             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes)}
+             "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(user_changes, descriptions=descriptions)}
     digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
@@ -766,6 +853,8 @@ def main():
     b.add_argument("--out", default="notes")
     b.add_argument("--pr-media", action="store_true",
                    help="give each highlight the first pr-media picture of the pull request that added it (needs gh)")
+    b.add_argument("--pr-descriptions", action="store_true",
+                   help="derive one-line descriptions from PR bodies at release time (needs gh)")
     a = sub.add_parser("appcast")
     a.add_argument("--head", required=True)
     a.add_argument("--since", default="")
