@@ -22,6 +22,8 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod connection_budget;
+pub use connection_budget::{ConnectionBudget, ConnectionLane, ConnectionSlot};
 mod connection_leases;
 pub use connection_leases::{ConnectionLease, PeerClosed};
 mod write_path;
@@ -477,16 +479,19 @@ pub struct JournalWriterSnapshot {
     pub phase_for_us: u64,
 }
 
-/// Connection admission on the control socket.
-#[derive(Default)]
+/// Connection admission on the control socket: per-lane budgets and fair
+/// shares (`connection_budget`), slots taken back from hung-up clients
+/// (`connection_leases`), and the counts `server-stats` reports.
 pub struct ConnectionStats {
+    budget: Mutex<ConnectionBudget>,
+    lanes: Mutex<connection_budget::LaneCounts>,
     active: AtomicU64,
     peak: AtomicU64,
     refused: AtomicU64,
     accepted: AtomicU64,
     /// Connections whose client hung up while their thread still runs (most
-    /// often parked on the registry lock): their slot went back to `active`'s
-    /// limit (`connection_leases`), bounded by that same limit.
+    /// often parked on the registry lock): their slot went back to its lane
+    /// (`connection_leases`), bounded by the budget.
     hung_up: AtomicU64,
     /// Slots taken back from hung-up clients since start.
     reclaimed: AtomicU64,
@@ -494,46 +499,36 @@ pub struct ConnectionStats {
     leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
 }
 
-impl ConnectionStats {
-    /// Claims a slot if fewer than `limit` connections are active.
-    /// At the limit it first takes back the slots of clients that hung up
-    /// (`reclaim_hung_up`): a connection thread parked on the registry lock
-    /// outlives its client, and those threads held every slot while the app
-    /// was refused (#27669).
-    pub fn try_claim(&self, limit: u64) -> bool {
-        let claim = |count: u64| (count < limit).then_some(count + 1);
-        let mut claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
-        if claimed.is_err() && self.reclaim_hung_up(limit) > 0 {
-            claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
-        }
-        match claimed {
-            Ok(previous) => {
-                // Use the count this claim produced, not a later reload: a
-                // release in between would under-report the peak.
-                self.peak.fetch_max(previous + 1, Ordering::Relaxed);
-                self.accepted.fetch_add(1, Ordering::Relaxed);
-                true
-            }
-            Err(_) => {
-                self.refused.fetch_add(1, Ordering::Relaxed);
-                false
-            }
-        }
+impl Default for ConnectionStats {
+    fn default() -> Self {
+        Self::with_budget(ConnectionBudget::of_process())
     }
+}
 
-    pub fn release(&self) {
-        self.active.fetch_sub(1, Ordering::AcqRel);
+impl ConnectionStats {
+    pub fn with_budget(budget: ConnectionBudget) -> Self {
+        Self {
+            budget: Mutex::new(budget),
+            lanes: Mutex::default(),
+            active: AtomicU64::default(),
+            peak: AtomicU64::default(),
+            refused: AtomicU64::default(),
+            accepted: AtomicU64::default(),
+            hung_up: AtomicU64::default(),
+            reclaimed: AtomicU64::default(),
+            leases: Mutex::default(),
+        }
     }
 
     pub fn active(&self) -> u64 {
         self.active.load(Ordering::Acquire)
     }
 
-    pub fn snapshot(&self, limit: u64) -> ConnectionSnapshot {
+    pub fn snapshot(&self) -> ConnectionSnapshot {
         ConnectionSnapshot {
             active: self.active.load(Ordering::Acquire),
             peak: self.peak.load(Ordering::Relaxed),
-            limit,
+            limit: self.limit(),
             accepted: self.accepted.load(Ordering::Relaxed),
             refused: self.refused.load(Ordering::Relaxed),
             hung_up: self.hung_up.load(Ordering::Acquire),
@@ -546,10 +541,13 @@ impl ConnectionStats {
 pub struct ConnectionSnapshot {
     pub active: u64,
     pub peak: u64,
+    /// Connections admitted at once, the app's lane and the session socket's
+    /// together (`ConnectionBudget`, from the open-file limit).
     pub limit: u64,
     pub accepted: u64,
-    /// Connections dropped because `limit` was reached. Any non-zero value
-    /// means a client saw a failed connect, which for hooks is a lost event.
+    /// Connections refused: a lane at its limit or a client at its share. Any
+    /// non-zero value means a client saw a failed connect, which for hooks is
+    /// a lost event.
     pub refused: u64,
     /// Connections whose client hung up before their thread ended; they hold
     /// no slot of `limit`.

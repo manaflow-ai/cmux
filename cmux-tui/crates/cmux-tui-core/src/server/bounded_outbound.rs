@@ -5,7 +5,6 @@
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
-use super::MAX_SERVER_CONNECTIONS;
 use super::MessageSink;
 use super::OUTBOUND_BACKPRESSURED_STREAM_CAPACITY;
 use super::OUTBOUND_BYTE_CAPACITY;
@@ -16,6 +15,7 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
+use crate::diagnostics::ConnectionLane;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
 use std::collections::HashMap;
@@ -74,31 +74,40 @@ pub(super) struct ConnectionPermit {
     pub(super) _lease: Arc<crate::diagnostics::ConnectionLease>,
 }
 
+/// A slot on the shared lane with no fair share: the remote entry and the
+/// WebSocket listener, whose clients are told apart only after their
+/// handshake.
 pub(super) fn claim_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
 ) -> Option<ConnectionPermit> {
-    claim_connection_watching(connections, None)
+    claim_connection_watching(connections, ConnectionLane::Shared, None, None)
 }
 
-/// A slot for a local client, taken back if the client hangs up while its
-/// thread is still parked (`diagnostics::ConnectionLease`, #27669).
+/// A slot for a local client on `lane`, counted against `identity`'s fair
+/// share, and taken back if the client hangs up while its thread is still
+/// parked (`diagnostics::ConnectionLease`, #27669).
 pub(super) fn claim_watched_connection(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
+    lane: ConnectionLane,
+    identity: Option<u32>,
     stream: &dyn transport::Stream,
 ) -> Option<ConnectionPermit> {
     let peer: Option<crate::diagnostics::PeerClosed> = match stream.try_clone_box() {
         Ok(peer) => Some(Box::new(move || peer.peer_closed())),
         Err(_) => None,
     };
-    claim_connection_watching(connections, peer)
+    claim_connection_watching(connections, lane, identity, peer)
 }
 
 fn claim_connection_watching(
     connections: &Arc<crate::diagnostics::ConnectionStats>,
+    lane: ConnectionLane,
+    identity: Option<u32>,
     peer_closed: Option<crate::diagnostics::PeerClosed>,
 ) -> Option<ConnectionPermit> {
-    connections.try_claim(MAX_SERVER_CONNECTIONS as u64).then(|| ConnectionPermit {
-        _lease: crate::diagnostics::ConnectionLease::new(connections.clone(), peer_closed),
+    let slot = connections.try_claim_in(lane, identity)?;
+    Some(ConnectionPermit {
+        _lease: crate::diagnostics::ConnectionLease::new(connections.clone(), slot, peer_closed),
     })
 }
 
@@ -589,10 +598,6 @@ impl SynchronizedTcpStream {
         self.stream.set_read_timeout(timeout)
     }
 
-    pub(super) fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
-        self.stream.set_write_timeout(timeout)
-    }
-
     pub(super) fn write_websocket_text(&mut self, text: &str) -> std::io::Result<()> {
         if text.len() > RENDER_ATTACH_MAX_BYTES {
             return Err(std::io::Error::new(
@@ -608,9 +613,22 @@ impl SynchronizedTcpStream {
     }
 
     /// An empty Ping, written whole under the shared write lock so it never
-    /// lands inside another frame.
+    /// lands inside another frame. Skipped while the writer holds that lock:
+    /// a frame still being written already asks the peer for its window, and
+    /// the read loop that pings must never wait on a peer that does not read
+    /// (its dead-peer clock runs on inbound bytes only).
     pub(super) fn write_websocket_ping(&mut self) -> std::io::Result<()> {
-        self.write_websocket_frame(0x9, &[])
+        let (header, header_len) = websocket_server_frame_header(0x9, 0);
+        let Some(_guard) = (match self.write_lock.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(std::sync::TryLockError::Poisoned(poison)) => Some(poison.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }) else {
+            return Ok(());
+        };
+        let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
+        self.stream.write_all(header)?;
+        self.stream.flush()
     }
 
     pub(super) fn write_websocket_frame(
@@ -688,6 +706,26 @@ impl SinkControl {
     }
 }
 
+impl QueuedSink {
+    /// The client stopped reading while its replies filled the connection's
+    /// bounded control queue (`OUTBOUND_CONTROL_RESERVE` messages,
+    /// `OUTBOUND_CONTROL_BYTE_RESERVE` bytes): the daemon ends the connection
+    /// now, so its reader and its writer, which may wait on the socket, end
+    /// too. This is the slow-reader rule. A client that only reads late
+    /// within the bound keeps its connection however long it waits: no write
+    /// deadline ends a connection (#27698, a stalled app main thread lost its
+    /// connection after 2 s and resynced everything).
+    fn evict_on_overflow(&self, result: std::io::Result<()>) -> std::io::Result<()> {
+        if let (Err(error), Some(control)) = (&result, &self.control)
+            && error.kind() == std::io::ErrorKind::WouldBlock
+        {
+            self.outbound.close();
+            let _ = control.shutdown();
+        }
+        result
+    }
+}
+
 impl MessageSink for QueuedSink {
     fn send_initial(
         &self,
@@ -710,7 +748,7 @@ impl MessageSink for QueuedSink {
     }
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
-        self.outbound.push_control(text)
+        self.evict_on_overflow(self.outbound.push_control(text))
     }
 
     fn send_terminal(
@@ -718,7 +756,7 @@ impl MessageSink for QueuedSink {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
-        self.outbound.push_terminal(text, stream)
+        self.evict_on_overflow(self.outbound.push_terminal(text, stream))
     }
 
     fn send_ordered_terminal(

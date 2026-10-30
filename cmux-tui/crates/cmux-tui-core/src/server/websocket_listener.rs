@@ -344,14 +344,17 @@ fn handle_websocket_connection_with_permit(
     if websocket.get_mut().set_read_timeout(Some(keepalive.ping_interval)).is_err() {
         return;
     }
-    let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
+    // No write deadline: the ping clock above is the liveness signal, and a
+    // reader whose replies overflow the bounded queue is ended (`QueuedSink`).
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
     // Shares the write lock with the writer thread and tungstenite's Pong
     // replies, so a Ping is never written inside another frame.
     let Ok(mut ping_stream) = websocket.get_ref().try_clone() else { return };
     let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
+    // Ends the socket once the ping clock says the peer is gone, so a writer
+    // waiting on it (no write deadline) ends with the connection.
+    let Ok(dead_peer_shutdown) = writer_stream.try_clone_raw() else { return };
     let Ok(control) = writer_stream.try_clone_raw() else { return };
-    let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
@@ -456,6 +459,7 @@ fn handle_websocket_connection_with_permit(
                 ) =>
             {
                 if idle_since.elapsed() >= keepalive.dead_peer_timeout {
+                    let _ = dead_peer_shutdown.shutdown(Shutdown::Both);
                     break;
                 }
                 if ping_stream.write_websocket_ping().is_err() {

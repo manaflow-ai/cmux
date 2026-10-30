@@ -2546,13 +2546,11 @@ const BACKPRESSURE_RECHECK: Duration = Duration::from_millis(100);
 /// First and longest pause after an accept error that can persist.
 const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(10);
 const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
-const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const SHUTDOWN_ACK_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
-const MAX_SERVER_CONNECTIONS: usize = 64;
 const WEBSOCKET_AUTH_MAX_BYTES: usize = 4 * 1024;
 const WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 // One outbound render budget chain:
@@ -2650,8 +2648,9 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, app_lane_socket_path,
+    bind_session_socket, connect_session_socket, prepare_socket_parent, serve, serve_bound,
+    serve_paused,
 };
 mod restoring;
 #[cfg(test)]
@@ -2865,8 +2864,14 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     Ok(workspaces)
 }
 
-/// Remove the socket file (call on clean shutdown).
+/// Remove the session socket file and the app's socket next to it
+/// (`app_lane_socket_path`; call on clean shutdown).
+///
+/// The app's socket goes first: a daemon that binds the session socket right
+/// after the first removal (under the start lock) then binds a fresh `.app`
+/// that this call no longer touches.
 pub fn cleanup(path: &Path) {
+    let _ = std::fs::remove_file(app_lane_socket_path(path));
     let _ = std::fs::remove_file(path);
 }
 
