@@ -263,7 +263,13 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
     {
         Ok(created) => created,
         Err(error) if unconfirmed(&error) => {
-            return Err(cancel_unconfirmed(client, &key_text, error).await);
+            return match recover_creation(client, &key_text).await {
+                // The create committed and only its answer was lost: run on
+                // that VM, which every exit path below then ends.
+                Recovered::Vm(id) => Ok(id),
+                Recovered::Settled(what) => Err(error.with_recovery(what)),
+                Recovered::Open(what) => Err(error.with_recovery(&what)),
+            };
         }
         Err(error) => return Err(error),
     };
@@ -285,26 +291,74 @@ fn unconfirmed(error: &CliError) -> bool {
     }
 }
 
-/// Cancels whatever an unconfirmed create allocated, by its idempotency key,
-/// so a lost answer never leaves a VM running (with --keep it would have no
-/// auto-delete deadline). Returns the create's error with what was done.
-async fn cancel_unconfirmed(client: &Client, key_text: &str, error: CliError) -> CliError {
-    let cancelled = match parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(key_text) {
-        Ok(key) => {
-            match retrying(|| fetch_body(client.vm_creations_cancel_vm_creation(&key, None))).await
-            {
-                // 404: the server holds no creation under this key.
-                Err(cancel) if cancel.status() == Some(404) => Ok(()),
-                other => other.map(drop),
-            }
-        }
-        Err(parse) => Err(parse),
+/// What an unconfirmed create left behind, read back by its idempotency key.
+#[derive(Debug, PartialEq, Eq)]
+enum Recovered {
+    /// The create committed: this VM exists and the run goes on with it.
+    Vm(String),
+    /// Nothing is left running (never created, cancelled or deleted).
+    Settled(&'static str),
+    /// Cleanup is not confirmed; the text names the command that finishes it.
+    Open(String),
+}
+
+/// Reads an unconfirmed create back by its key, cancels it while it is still
+/// pending, and says what is left (with --keep a lost VM would have no
+/// auto-delete deadline).
+async fn recover_creation(client: &Client, key_text: &str) -> Recovered {
+    let open = |why: &str| {
+        Recovered::Open(format!(
+            "{why}: run `cmux vm creation get --idempotency-key {key_text}`, then `cmux vm creation cancel --idempotency-key {key_text} --yes` while it is pending, or `cmux vm rm <id> --yes` once it is committed"
+        ))
     };
-    match cancelled {
-        Ok(()) => error.with_recovery("the create was not confirmed, so any VM it allocated was cancelled"),
-        Err(_) => error.with_recovery(&format!(
-            "the create was not confirmed and its cancellation failed: run `cmux vm creation cancel --idempotency-key {key_text} --yes`"
-        )),
+    let Ok(get_key) = parse_key::<types::VmCreationsGetVmCreationIdempotencyKey>(key_text) else {
+        return open("the create was not confirmed");
+    };
+    let read = || async {
+        retrying(|| fetch_body(client.vm_creations_get_vm_creation(&get_key, None)))
+            .await
+            .map(|body| serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null))
+    };
+    let status = match read().await {
+        Ok(status) => status,
+        // 404: the server holds no creation under this key, so none ran.
+        Err(error) if error.status() == Some(404) => {
+            return Recovered::Settled("the create was not confirmed and the server holds no creation under its key");
+        }
+        Err(_) => return open("the create was not confirmed and its state could not be read"),
+    };
+    match settled(&status) {
+        Some(found) => return found,
+        None if !matches!(status["state"].as_str(), Some("pending" | "cancelling")) => {
+            return open("the create was not confirmed and its state is unresolved");
+        }
+        None => {}
+    }
+    let Ok(cancel_key) = parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(key_text)
+    else {
+        return open("the create was not confirmed");
+    };
+    let cancelled =
+        retrying(|| fetch_body(client.vm_creations_cancel_vm_creation(&cancel_key, None))).await;
+    let answer = match cancelled {
+        Ok(body) => serde_json::from_slice::<Value>(&body).unwrap_or(Value::Null),
+        // 409: it committed or changed between the read and the cancel.
+        Err(error) if error.status() == Some(409) => match read().await {
+            Ok(status) => status,
+            Err(_) => return open("the create was not confirmed and changed while it was cancelled"),
+        },
+        Err(_) => return open("the create was not confirmed and its cancellation failed"),
+    };
+    settled(&answer).unwrap_or_else(|| open("the create was not confirmed and its cancellation is still in progress"))
+}
+
+/// A creation state that needs nothing more: committed (with its VM), or gone.
+fn settled(status: &Value) -> Option<Recovered> {
+    match status["state"].as_str() {
+        Some("committed") => status["id"].as_str().map(|id| Recovered::Vm(id.to_owned())),
+        Some("cancelled") => Some(Recovered::Settled("the create was not confirmed, and its VM was cancelled")),
+        Some("deleted") => Some(Recovered::Settled("the create was not confirmed, and its VM is deleted")),
+        _ => None,
     }
 }
 
@@ -1064,6 +1118,19 @@ mod tests {
         assert!(!unconfirmed(&CliError::from_status(429, b"")));
         assert!(!unconfirmed(&CliError::from_status(402, b"")));
         assert!(!unconfirmed(&CliError::usage("bad flag")));
+    }
+
+    #[test]
+    fn a_recovered_creation_is_run_on_or_reported_by_its_state() {
+        assert_eq!(
+            settled(&json!({"state": "committed", "id": "vm_1"})),
+            Some(Recovered::Vm("vm_1".to_owned()))
+        );
+        assert!(matches!(settled(&json!({"state": "cancelled", "id": "vm_1"})), Some(Recovered::Settled(_))));
+        assert!(matches!(settled(&json!({"state": "deleted", "id": "vm_1"})), Some(Recovered::Settled(_))));
+        assert_eq!(settled(&json!({"state": "cancelling", "id": "vm_1"})), None);
+        assert_eq!(settled(&json!({"state": "pending", "id": "vm_1"})), None);
+        assert_eq!(settled(&json!({"state": "committed"})), None);
     }
 
     #[test]

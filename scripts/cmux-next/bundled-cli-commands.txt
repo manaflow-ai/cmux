@@ -7,3 +7,4 @@ vm --help
 vm run --help
 vm token --help
 vm token status --help
+vm creation cancel --help

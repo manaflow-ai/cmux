@@ -32,7 +32,7 @@ pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
     (first == "vm").then_some(rest)
 }
 
-const VM_VERBS: &str = "run, new, ls, get, pause, resume, start, stop, rm, exec, fork, snapshot, client-session, token";
+const VM_VERBS: &str = "run, new, ls, get, pause, resume, start, stop, rm, exec, fork, snapshot, client-session, token, creation";
 
 const VM_HELP: &str = "usage: cmux vm <verb> [options]
 
@@ -51,6 +51,7 @@ VERBS
   snapshot  Manage snapshots (create, get, list, delete)
   client-session  Manage scoped client sessions (create, list, revoke)
   token     A VM-only agent token for any process (create, status, revoke)
+  creation  Recover a create whose answer was lost (list, get, cancel, reconcile)
 
 Use `cmux cloud resize-machine` for Cloud machine resizing.
 Use `cmux vm <verb> --help` for the bundled cmux-vm command's options.
@@ -72,7 +73,7 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "ls" | "list" => "list",
         "rm" | "delete" => "delete",
         "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot"
-        | "client-session" | "run" | "token" => verb.as_str(),
+        | "client-session" | "run" | "token" | "creation" => verb.as_str(),
         "resize" => {
             return Err(usage("`cmux vm resize` moved to `cmux cloud resize-machine`"));
         }
