@@ -12,7 +12,7 @@ import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import type { BrowseRequest } from "./AddProjectPanel";
+import { type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
 import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import {
   defaultRow,
@@ -320,7 +320,7 @@ type Props = NewTabCommandActions & {
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
-  onBrowseProject?(request?: BrowseRequest): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
   now?: number;
 };
 
@@ -389,7 +389,7 @@ export function NewTabPage({
     setBrowseError(undefined);
     try {
       const path = await onBrowseProject?.(request);
-      if (browseRequest.current === id && path) setProjectCwd(path);
+      if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
       return path;
     } catch (error) {
       if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));

@@ -14,12 +14,18 @@ import "./addProject.css";
 
 type Step = "environment" | "source" | "directory";
 export type BrowseRequest = { deferPick?: boolean };
+/// A second folder request while the native chooser is still active stays in its caller.
+export type BrowseBusy = { readonly status: "busy" };
+export type BrowseResult = string | BrowseBusy | undefined;
+export const BROWSE_BUSY: BrowseBusy = { status: "busy" };
+export const isBrowseBusy = (value: BrowseResult | void): value is BrowseBusy =>
+  typeof value === "object" && value !== null && value.status === "busy";
 export type AddProjectPanelProps = {
   host?: ProjectDirectoryHost;
   localName?: string;
   peers?: string[];
   /** Existing native folder chooser, used until a reviewed directory-list host operation exists. */
-  onBrowse?(request?: BrowseRequest): Promise<string | undefined> | string | undefined | void;
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   onPick(path: string): void;
   onClose(): void;
 };
@@ -131,8 +137,8 @@ export function AddProjectPanel({
     void Promise.resolve()
       .then(() => onBrowse?.({ deferPick: true }))
       .then((path) => {
-        if (browseRequest.current !== id) return;
-        if (path) onPick(path);
+        if (browseRequest.current !== id || isBrowseBusy(path)) return;
+        if (typeof path === "string" && path) onPick(path);
         else if (path === undefined) onClose();
       })
       .catch((failure: unknown) => {

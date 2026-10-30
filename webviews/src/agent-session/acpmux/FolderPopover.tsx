@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { AddProjectDialog, type BrowseRequest } from "./AddProjectPanel";
+import { AddProjectDialog, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -48,7 +48,7 @@ export function FolderPopover({
   current?: string;
   onPick(cwd: string): void;
   /// The host's folder panel: Add project's Browse and Choose folder….
-  onBrowse?(request?: BrowseRequest): Promise<string | undefined> | string | undefined | void;
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree of the current folder.
   onNewWorktree?(): void;
   /// Do not work in a project (Leo 2026-10-18, as ChatGPT and Claude Code offer): the chat starts
@@ -107,7 +107,7 @@ export function FolderPopover({
   const actions: {
     value: string;
     text: string;
-    run(): Promise<string | undefined> | string | undefined | void;
+    run(): Promise<BrowseResult> | BrowseResult | void;
   }[] = [
     ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),

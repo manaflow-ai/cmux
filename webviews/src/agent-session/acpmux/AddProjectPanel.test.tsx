@@ -98,3 +98,29 @@ test("keeps the native chooser panel open when browse rejects", async () => {
   await act(async () => Promise.resolve());
   expect(attempts).toBe(2);
 });
+
+test("closes Add Project when the native chooser is cancelled", async () => {
+  const container = installDom();
+  let closed = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <AddProjectPanel
+        host={{}}
+        onBrowse={async () => undefined}
+        onPick={() => {}}
+        onClose={() => {
+          closed += 1;
+        }}
+      />,
+    );
+  });
+  const choose = async (label: string) => {
+    const item = [...container.querySelectorAll("li")].find((candidate) => candidate.textContent?.includes(label));
+    expect(item).toBeTruthy();
+    await act(async () => item!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
+  };
+  await choose("This Mac");
+  await choose("Local folder");
+  expect(closed).toBe(1);
+});

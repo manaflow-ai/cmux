@@ -3,7 +3,7 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { browseFailureMessage } from "./BrowseFailure";
 import { ChevronIcon } from "./ComposerPickers";
-import type { BrowseRequest } from "./AddProjectPanel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
 import {
   SAVED_ENVIRONMENT_NAME_LIMIT,
   savedEnvironmentReady,
@@ -25,7 +25,7 @@ export type SavedEnvironmentPanelProps = {
   initial?: Pick<SavedEnvironmentDraft, "kind" | "folder">;
   /// This computer's folders (the page's projects), and the host's folder panel (Choose folder…).
   folders: FolderChoice[];
-  onBrowse?(request?: BrowseRequest): Promise<string | undefined>;
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult>;
   /// The SSH machines (acpmux's `ssh://` peers) and each one's folders, from its chats.
   machines: string[];
   machineFolders(machine: string): FolderChoice[];
@@ -101,7 +101,8 @@ export function SavedEnvironmentPanel({
       .finally(() => setSaving(false));
   };
   const browse = (request?: BrowseRequest) => {
-    if (!onBrowse || browsePending.current) return Promise.resolve(undefined);
+    if (!onBrowse) return Promise.resolve(undefined);
+    if (browsePending.current) return Promise.resolve(BROWSE_BUSY);
     const id = ++browseRequest.current;
     browsePending.current = true;
     setBrowsing(true);
@@ -111,7 +112,7 @@ export function SavedEnvironmentPanel({
       .then(() => onBrowse(request))
       .then((folder) => {
         if (browseRequest.current !== id) return undefined;
-        if (folder && !request?.deferPick) {
+        if (typeof folder === "string" && folder.length > 0 && !request?.deferPick) {
           setDraft((current) => ({ ...current, folder }));
           setBrowseFailed(false);
           setError(undefined);

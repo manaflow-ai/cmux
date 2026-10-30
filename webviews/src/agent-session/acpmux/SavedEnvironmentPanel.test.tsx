@@ -175,11 +175,16 @@ test("back from Add Project cannot apply its deferred browse to the environment"
     expect(item).toBeTruthy();
     await act(async () => item!.click());
   };
-  await pick("Add project");
+  await pick("New project");
   await pick("This Mac");
   await pick("Local folder");
   expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
   await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
+  await pick("This Mac");
+  await pick("Local folder");
+  // The native chooser is still pending: the second attempt must stay in Add Project,
+  // rather than interpreting the busy guard as cancellation and closing the dialog.
+  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
   await act(async () => resolveBrowse("/Users/you/src/stale"));
   expect(container.querySelector('.acpmux-env-select[title="/Users/you/src/cmux"]')).toBeTruthy();
 });

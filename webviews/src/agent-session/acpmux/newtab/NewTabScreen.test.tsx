@@ -396,3 +396,44 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
   await machine("ssh");
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
+
+test("keeps the project chooser open when a second Add Project browse is already pending", async () => {
+  let resolveBrowse!: (folder: string | undefined) => void;
+  let calls = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        pageWidgets={new Set(["projects"])}
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        onBrowseProject={(request) => {
+          expect(request?.deferPick).toBe(true);
+          calls += 1;
+          return new Promise<string | undefined>((resolve) => {
+            resolveBrowse = resolve;
+          });
+        }}
+      />,
+    );
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes("New project"));
+  expect(add).toBeTruthy();
+  await act(async () => add!.click());
+  const pick = async (label: string) => {
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(label));
+    expect(option).toBeTruthy();
+    await act(async () => option!.click());
+  };
+  await pick("This Mac");
+  await pick("Local folder");
+  expect(calls).toBe(1);
+  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
+  // Back and re-enter while the first native chooser remains pending. Busy is not cancellation.
+  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
+  await pick("This Mac");
+  await pick("Local folder");
+  expect(calls).toBe(1);
+  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
+  await act(async () => resolveBrowse("/Users/you/src/new"));
+});
