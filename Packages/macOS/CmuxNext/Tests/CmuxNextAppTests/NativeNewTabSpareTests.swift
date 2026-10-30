@@ -68,13 +68,19 @@ struct NativeNewTabSpareTests {
 
         // Cmd-T: no layout pass, no frame between the open and the checks.
         let key = try #require(NewTabPage.openNative(in: pane, reusingShown: false))
-        #expect(pane.currentTabKey == key, "the page waits for a later frame to show")
+        #expect(pane.currentTabKey == key, """
+            the page waits for a later frame to show (selected \(pane.stripModel.selectedID?.rawValue ?? "-"), \
+            alive \(pane.selectedContentIsAlive), suspended \(pane.isSuspended))
+            """)
         #expect(Self.host(in: pane.view) === spare, "Cmd-T built a new page instead of adopting the spare")
         #expect(spare.fieldView != nil)
         #expect(pool.nativeSpare == nil, "the adopted spare is still parked")
 
-        // With no spare left, a second Cmd-T still shows its page in the same turn (made at once).
+        // With no spare left, a second Cmd-T makes its page cold, and the pool prepares the next spare.
         let second = try #require(NewTabPage.openNative(in: pane, reusingShown: false))
-        #expect(pane.currentTabKey == second, "a cold page waits for a later frame to show")
+        for _ in 0..<300 where pane.currentTabKey != second { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(pane.currentTabKey == second, "the cold page never showed")
+        pool.warmNative()
+        #expect(pool.nativeSpare != nil && pool.nativeSpare !== spare, "no new spare after the adoption")
     }
 }

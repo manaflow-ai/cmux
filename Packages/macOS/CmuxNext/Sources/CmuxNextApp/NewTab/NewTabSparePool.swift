@@ -115,6 +115,9 @@ final class NewTabSparePool {
         return host
     }
 
+    /// Tab `key` shows a spare already made (its showing builds nothing: the presentation budget allows it now).
+    func hasNativeAdoption(_ key: String) -> Bool { nativeAdoptions[key] != nil }
+
     /// The spare taken for tab `key`, once.
     func claimNative(_ key: String) -> NativeNewTabHostingView? { nativeAdoptions.removeValue(forKey: key) }
 
