@@ -29,7 +29,7 @@ import dataclasses
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import Any
 
 GITHUB_STORE_LIMIT_BYTES = 10 * 1024**3
@@ -325,32 +325,47 @@ def aggregate_restores(sampled: Iterable[tuple[str, int, Sequence[CacheEvent]]])
     return sorted(rows.values(), key=order)
 
 
-def is_cache_job(job: Mapping[str, Any]) -> bool:
-    """A finished job with a step whose name says it restores or caches, or a
-    setup action that can restore one."""
+NOT_CACHE_JOB, SETUP_ONLY_JOB, CACHE_STEP_JOB = 0, 1, 2
+
+
+def is_cache_job(job: Mapping[str, Any]) -> int:
+    """How a finished job qualifies for the log sample: CACHE_STEP_JOB when a
+    step's name says it restores or caches, SETUP_ONLY_JOB when only a setup
+    action that may restore a cache ran (most run without one, so these fill
+    the sample last), NOT_CACHE_JOB otherwise."""
     if job.get("conclusion") not in _JOB_CONCLUSIONS:
-        return False
+        return NOT_CACHE_JOB
+    rank = NOT_CACHE_JOB
     for step in job.get("steps") or ():
         name = str(step.get("name") or "").lower()
         if step.get("conclusion") in ("skipped", None):
             continue
-        if "cache" in name or "restore" in name or _SETUP_STEP.search(name):
-            return True
-    return False
+        if "cache" in name or "restore" in name:
+            return CACHE_STEP_JOB
+        if _SETUP_STEP.search(name):
+            rank = SETUP_ONLY_JOB
+    return rank
 
 
-def choose_log_jobs(candidates: Sequence[tuple[str, str, int]], cap: int) -> list[tuple[str, str, int]]:
-    """Up to `cap` jobs, one per (workflow, job name) per round, newest first."""
-    groups: dict[tuple[str, str], list[tuple[str, str, int]]] = defaultdict(list)
-    for candidate in candidates:
-        groups[(candidate[0], candidate[1])].append(candidate)
+def choose_log_jobs(
+    candidates: Sequence[tuple[str, str, int]], cap: int, deferred: Collection[int] = ()
+) -> list[tuple[str, str, int]]:
+    """Up to `cap` jobs, one per (workflow, job name) per round, newest first.
+    Jobs in `deferred` (setup-only jobs) only fill what the others leave."""
     chosen: list[tuple[str, str, int]] = []
-    depth = 0
-    while len(chosen) < cap and any(len(group) > depth for group in groups.values()):
-        for key in sorted(groups):
-            if len(groups[key]) > depth and len(chosen) < cap:
-                chosen.append(groups[key][depth])
-        depth += 1
+    for tier in (
+        [c for c in candidates if c[2] not in deferred],
+        [c for c in candidates if c[2] in deferred],
+    ):
+        groups: dict[tuple[str, str], list[tuple[str, str, int]]] = defaultdict(list)
+        for candidate in tier:
+            groups[(candidate[0], candidate[1])].append(candidate)
+        depth = 0
+        while len(chosen) < cap and any(len(group) > depth for group in groups.values()):
+            for key in sorted(groups):
+                if len(groups[key]) > depth and len(chosen) < cap:
+                    chosen.append(groups[key][depth])
+            depth += 1
     return chosen
 
 

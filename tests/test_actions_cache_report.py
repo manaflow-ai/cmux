@@ -196,6 +196,20 @@ class ParseTests(unittest.TestCase):
         ))
         self.assertEqual(kinds(cache.parse_job_log(log)), [])
 
+    def test_an_actions_cache_exact_hit_is_counted_once(self):
+        log = "\n".join(T + line for line in (
+            "##[group]Run actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+            "with:",
+            "  key: bun-web-lint-Linux-X64-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "##[endgroup]",
+            "Cache restored successfully",
+            "Cache restored from key: bun-web-lint-Linux-X64-0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "##[group]Run bun run lint",
+            "Post job cleanup.",
+            "Cache hit occurred on the primary key bun-web-lint-Linux-X64-0f1e2d3c4b5a69788796a5b4c3d2e1f0, not saving cache.",
+        ))
+        self.assertEqual(kinds(cache.parse_job_log(log)), [("bun-web-lint-Linux-X64", "exact")])
+
 
 class AggregateTests(unittest.TestCase):
     def test_rows_are_per_workflow_and_cache_worst_hit_rate_first(self):
@@ -233,6 +247,15 @@ class SelectionTests(unittest.TestCase):
         self.assertTrue(cache.is_cache_job({"conclusion": "timed_out", "steps": [step]}))
         for name in ("Set up Node", "Run actions/setup-node@v4", "Set up Go", "Run actions/setup-go@abc"):
             self.assertTrue(cache.is_cache_job({"conclusion": "success", "steps": [{"name": name, "conclusion": "success"}]}), name)
+
+    def test_setup_only_jobs_rank_below_jobs_with_a_cache_step(self):
+        setup = {"name": "Set up Node", "conclusion": "success"}
+        named = {"name": "Restore web bundles", "conclusion": "success"}
+        self.assertEqual(cache.is_cache_job({"conclusion": "success", "steps": [setup]}), cache.SETUP_ONLY_JOB)
+        self.assertEqual(cache.is_cache_job({"conclusion": "success", "steps": [setup, named]}), cache.CACHE_STEP_JOB)
+        candidates = [("a.yml", "setup", 1), ("a.yml", "setup", 2), ("b.yml", "cache", 3), ("c.yml", "cache", 4)]
+        self.assertEqual(cache.choose_log_jobs(candidates, 3, deferred={1, 2}),
+                         [("b.yml", "cache", 3), ("c.yml", "cache", 4), ("a.yml", "setup", 1)])
 
     def test_the_sample_spreads_across_jobs_before_going_deep(self):
         candidates = [("a.yml", "x", 1), ("a.yml", "x", 2), ("a.yml", "x", 3), ("b.yml", "y", 4)]

@@ -119,8 +119,9 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
 - **Restores.** The report reads the logs of up to `CI_HEALTH_CACHE_LOG_JOBS`
   (default 20) sampled jobs that have a cache step or a setup action that can
   restore one (`actions/setup-node` with `cache: npm`, say), one per workflow
-  and job name per round. Jobs that succeeded, failed or timed out count;
-  cancelled jobs and runs from forks do not. It classifies every cache invocation from the lines the cache
+  and job name per round; jobs whose only candidate is a setup action fill the
+  sample last. Jobs that succeeded, failed or timed out count; cancelled jobs
+  and runs from forks do not. Log reads stop after 5 minutes, with a note. It classifies every cache invocation from the lines the cache
   actions print, on either store. The classes are an exact hit, a prefix
   (`restore-keys`) hit, a miss, and a failed restore, where the action printed
   `Failed to restore`: at lookup, or after the entry downloaded and the untar

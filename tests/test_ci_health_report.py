@@ -843,6 +843,35 @@ class RenderTests(unittest.TestCase):
             self.assertNotIn("SECRET", str(raised.exception))
             self.assertNotIn("blob.example", str(raised.exception))
 
+    def test_raw_transport_errors_and_the_time_budget_leave_notes(self):
+        class CacheGitHub:
+            def __init__(self):
+                self.now = 0.0
+
+            def caches(self, max_pages):
+                raise TimeoutError("The read operation timed out")
+
+            def cache_usage(self):
+                return {}
+
+            def job_log(self, job_id):
+                self.now += 200.0
+                if job_id == 1:
+                    raise ConnectionResetError("reset")
+                return "##[group]Run actions/cache@abc\n  key: k-1-deadbeefcafe\nCache not found for input keys: k-1-deadbeefcafe\n"
+
+        github = CacheGitHub()
+        lines = report.collect_cache_section(
+            github, [("a.yml", "x", 1), ("b.yml", "y", 2), ("c.yml", "z", 3)], log_sample=5,
+            budget_s=300.0, clock=lambda: github.now,
+        )
+        text = "\n".join(lines)
+        self.assertIn("GitHub cache store not read: The read operation timed out", text)
+        self.assertIn("a log was skipped: reset", text)
+        self.assertIn("stopped after 1 jobs: the 300s budget ran out", text)
+        self.assertIn("| b.yml | `k-1` |", text)
+        self.assertNotIn("c.yml", text)
+
     def test_fork_runs_are_not_sampled_for_cache_logs(self):
         self.assertFalse(report.cache_log_candidate({"head_repository": {"full_name": "someone/cmux"}}, REPO))
         self.assertTrue(report.cache_log_candidate({"head_repository": {"full_name": REPO}}, REPO))

@@ -45,12 +45,13 @@ import http.client
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -1510,6 +1511,7 @@ def collect_window(
     window_slices: int,
     linux_only: frozenset[str],
     cache_jobs: list[tuple[str, str, int]] | None = None,
+    cache_setup_only: set[int] | None = None,
 ) -> WindowMetrics:
     runs, slices, partial = github.runs_in_window(window, max_run_pages, window_slices)
     runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
@@ -1530,11 +1532,13 @@ def collect_window(
         sampled += 1
         rows.extend(job_rows(run, jobs, repo))
         if cache_jobs is not None and cache_log_candidate(run, repo):
-            cache_jobs.extend(
-                (workflow_name(run), str(job.get("name") or ""), int(job["id"]))
-                for job in jobs
-                if job.get("id") and cache_report.is_cache_job(job)
-            )
+            for job in jobs:
+                rank = cache_report.is_cache_job(job) if job.get("id") else cache_report.NOT_CACHE_JOB
+                if rank == cache_report.NOT_CACHE_JOB:
+                    continue
+                cache_jobs.append((workflow_name(run), str(job.get("name") or ""), int(job["id"])))
+                if rank == cache_report.SETUP_ONLY_JOB and cache_setup_only is not None:
+                    cache_setup_only.add(int(job["id"]))
     return build_metrics(
         window=window, runs=runs, rows=rows, sampled_runs=sampled, partial=partial, slices=slices
     )
@@ -1547,30 +1551,50 @@ def cache_log_candidate(run: Mapping[str, Any], repo: str) -> bool:
     return bool(head) and not is_fork_run(run, repo)
 
 
-def collect_cache_section(github: GitHub, cache_jobs: Sequence[tuple[str, str, int]], *, log_sample: int) -> list[str]:
+# What a read can raise: RuntimeError (RateLimited included) from GitHub's
+# wrappers, and a raw timeout or cut connection.
+CACHE_READ_ERRORS = (RuntimeError, OSError, http.client.HTTPException)
+# Log reads stop once this much time has gone, so the section can never take the
+# job past its timeout (each signed-blob read can take up to two minutes).
+CACHE_LOG_BUDGET_S = 300.0
+
+
+def collect_cache_section(
+    github: GitHub,
+    cache_jobs: Sequence[tuple[str, str, int]],
+    *,
+    log_sample: int,
+    setup_only: Collection[int] = (),
+    budget_s: float = CACHE_LOG_BUDGET_S,
+    clock: Callable[[], float] = time.monotonic,
+) -> list[str]:
     """The Actions cache section: the GitHub store, and restores from a bounded
     sample of job logs. A failed read leaves a note, never a failed report."""
     notes: list[str] = []
     store = None
     try:
         entries = github.caches(cache_report.MAX_STORE_PAGES)
-    except RuntimeError as error:  # RateLimited included
+    except CACHE_READ_ERRORS as error:
         notes.append(f"GitHub cache store not read: {error}")
     else:
         usage = None
         try:
             usage = github.cache_usage()
-        except RuntimeError as error:
+        except CACHE_READ_ERRORS as error:
             notes.append(f"GitHub cache usage not read, so the store figures are the listed entries only: {error}")
         store = cache_report.summarize_store(entries, usage)
     sampled: list[tuple[str, int, list[cache_report.CacheEvent]]] = []
-    for workflow, _job, job_id in cache_report.choose_log_jobs(cache_jobs, log_sample):
+    deadline = clock() + budget_s
+    for workflow, _job, job_id in cache_report.choose_log_jobs(cache_jobs, log_sample, setup_only):
+        if clock() >= deadline:
+            notes.append(f"log sampling stopped after {len(sampled)} jobs: the {budget_s:.0f}s budget ran out")
+            break
         try:
             text = github.job_log(job_id)
         except RateLimited as error:
             notes.append(f"log sampling stopped after {len(sampled)} jobs: {error}")
             break
-        except RuntimeError as error:
+        except CACHE_READ_ERRORS as error:
             notes.append(f"a log was skipped: {error}")
             continue
         sampled.append((workflow, job_id, cache_report.parse_job_log(text)))
@@ -1663,10 +1687,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     linux_only = linux_only_workflow_paths(args.workflows_dir)
 
     cache_jobs: list[tuple[str, str, int]] = []
+    cache_setup_only: set[int] = set()
     current = collect_window(
         github, current_window, repo=args.repo, max_run_pages=max_run_pages,
         max_job_listings=max_job_listings, jobs_per_workflow=jobs_per_workflow,
         window_slices=window_slices, linux_only=linux_only, cache_jobs=cache_jobs,
+        cache_setup_only=cache_setup_only,
     )
     # The previous window only has to carry the headline comparison, so it gets
     # a smaller share of the call budget.
@@ -1676,7 +1702,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         window_slices=window_slices, linux_only=linux_only,
     )
 
-    cache_section = collect_cache_section(github, cache_jobs, log_sample=cache_log_jobs)
+    cache_section = collect_cache_section(
+        github, cache_jobs, log_sample=cache_log_jobs, setup_only=cache_setup_only
+    )
     report = render_report(
         current, previous, repo=args.repo, now=now, api_calls=github.calls, cache_section=cache_section
     )
