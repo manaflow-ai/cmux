@@ -69,6 +69,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
+    /// `readAloud.speak` / `readAloud.stop`: the speaker under a message (``AgentPaneReadAloud``).
+    case readAloud(AgentPaneReadAloud.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched

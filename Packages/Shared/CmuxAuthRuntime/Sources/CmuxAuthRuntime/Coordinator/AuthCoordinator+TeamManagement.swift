@@ -23,6 +23,16 @@ public extension AuthCoordinator {
         }
     }
 
+    /// Emails a team invitation to each address. The membership changes only when someone
+    /// accepts, so the team list is not re-read here.
+    func inviteToTeam(id: String, emails: [String], role: CMUXTeamRole = .member) async throws -> CMUXTeamInviteResult {
+        guard isAuthenticated else { throw CMUXTeamError.signedOut }
+        guard let manager = client as? any TeamManaging else { throw CMUXTeamError.unavailable }
+        return try await runPhase(.teamManagement, timeout: timeouts.network) {
+            try await manager.inviteToTeam(id: id, emails: emails, role: role)
+        }
+    }
+
     /// Renames a team (admins only), then shows the new name in the
     /// membership list at once and re-reads it.
     /// - Returns: The renamed team as the server stored it.
