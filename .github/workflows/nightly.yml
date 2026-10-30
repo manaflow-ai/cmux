@@ -1592,23 +1592,19 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    # Build slot. Attempt 1 of a nightly-next push that takes the dedicated
-    # warm runner (the same condition as its runs-on below) shares one slot:
-    # one build runs, at most one waits, and a newer push replaces the waiting
-    # build, so the newest promoted head builds next and older heads are skipped
-    # instead of queuing. Per-run slots (de5912c9fe41) queued every push FIFO
-    # on the one runner; at a push every ~10 min, a waiting build passed the
-    # owned-pool rescue's 930 s stuck limit, was cancelled and re-run on
-    # Blacksmith, and waited there over an hour (2026-10-19: runs 39318999424,
-    # 39320477722 and 39329116254). A slot-held job is "pending", never
-    # "queued", so the rescue does not see it; it watches only the running
-    # holder. The first shared slot (#21917) failed because its holder sat
-    # queued on Blacksmith before the warm runner existed: every other route
-    # (Blacksmith, retries, dispatch, fast, main, a missing variable) keeps a
-    # slot per run, so a rescued re-run on Blacksmith never holds this slot.
-    # report-nightly-failure drops a build replaced here before it started.
+    # Build slot: one per run. nightly-next builds on a pool of builders (the
+    # rolling build train, docs/ci/nightly-next-builder-pool.md): every runner
+    # labelled vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER takes the next queued build,
+    # so builds of successive heads overlap. Coalescing moved to main's promote
+    # guard: an automatic request is held while a nightly-next build still
+    # waits for a builder, so at most one waits, and the tick promotes the
+    # newest head once a builder is free. The shared slot this replaced
+    # (nightly-next-build-app-warm, one running, one waiting) kept a single
+    # builder busy and left every other builder idle. A waiting build is never
+    # rescued off its builders (owned_pool_rescue.py reserved_runner, #22645),
+    # and report-nightly-failure drops a build a newer published one superseded.
     concurrency:
-      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
+      group: ${{ format('nightly-build-app-{0}', github.run_id) }}
       cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
@@ -6986,6 +6982,30 @@ jobs:
   # nightly-next the signed release notes are part of the publication: a
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
+  # The rolling build train (docs/ci/nightly-next-builder-pool.md): once this
+  # run's build leaves its builder, ask main's tick for the next head. Main's
+  # promote guard holds an automatic request while a nightly-next build waits
+  # for a builder, so a quiet branch can leave a buildable head unpromoted
+  # until some builder is free; this is that signal. The tick promotes only
+  # what the guard admits (newest buildable feat-cmux-next head, or a train
+  # commit), and does nothing when nightly-next already has it.
+  rearm-train:
+    needs: [decide, build-nightly-app]
+    if: always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && needs.build-nightly-app.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Ask main's tick for the next head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build-nightly-app.result }}
+        run: |
+          set -euo pipefail
+          echo "build-nightly-app ended ($BUILD_RESULT): its builder is free"
+          gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
+
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-final-dmg-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
@@ -7040,6 +7060,28 @@ jobs:
               } catch (error) {
                 core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
               }
+            }
+            // The rolling build train builds successive heads at once, so an
+            // older head can finish after a newer one published. Its build
+            // number (run id plus attempt) is then not above the feed, and
+            // check-build refuses it before publishing: that build is dropped,
+            // not failing. Any failure of a run a newer published build
+            // supersedes belongs to a head the feed has moved past.
+            let superseded = false;
+            if (process.env.TRACK === 'nightly-next' && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
+              const own = BigInt(`${context.runId}${String(process.env.GITHUB_RUN_ATTEMPT || 1).padStart(2, '0')}`);
+              try {
+                const response = await fetch(`${process.env.NIGHTLY_NEXT_FEED_BASE}/appcast-arm64.xml`, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const builds = [...(await response.text()).matchAll(/sparkle:version(?:>\s*|="\s*)([0-9]+)/g)].map((m) => BigInt(m[1]));
+                superseded = builds.some((build) => build > own);
+              } catch (error) {
+                core.warning(`Could not read the cmux NEXT feed (${error.message}); reporting this run.`);
+              }
+            }
+            if (superseded) {
+              core.info(`A newer nightly-next build is already on the feed, above this run's build ${context.runId}; this run's older head is dropped, not reported.`);
+              return;
             }
             const failed = Object.entries(results)
               .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app'))

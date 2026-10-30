@@ -147,7 +147,11 @@ request() { # <sha>
     echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); an older or later commit with fresh strings is promoted"
     return 1
   fi
-  if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"; then
+  # promote_nightly_next_debounce: an automatic request, so main's guard holds
+  # it while a nightly-next build still waits for a free builder (the rolling
+  # build train, docs/ci/nightly-next-builder-pool.md). A person's dispatch
+  # (no flag) never waits.
+  if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1" -f promote_nightly_next_debounce=true; then
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
