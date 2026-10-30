@@ -40,6 +40,8 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "subagents_working"
         // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
         | "usage_stats" => record_kind,
+        // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.
+        "stopping" | "stop_escalated" | "stop_restarted" | "unstuck" => "status",
         k if k == "dequeued" || k.starts_with("queue") => "queue",
         "permission_auto" => "permission_resolved",
         "permission_reissued" => "permission_request",

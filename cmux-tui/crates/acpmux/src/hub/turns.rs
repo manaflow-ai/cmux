@@ -4,6 +4,11 @@ use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
+use super::message_events::{
+    embed_message_context, ensure_message_provenance, message_context, name_message,
+    record_message_context,
+};
+
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
 /// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
 /// device controls: it is read from this machine's disk as the prompt's sender, who was local.
@@ -141,6 +146,27 @@ impl Hub {
         self.wait_adopted(session).await;
         self.pair_logs(opts.provenance.as_ref()).await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
+            // `session/prompt` accepts prompts without a client id.  They still need a
+            // durable message id when they came from another session, so wrap the
+            // acceptance callback with a generated id without adding a prompt ledger
+            // entry (the ledger is only for client-supplied idempotency keys).
+            let generated_id = uuid::Uuid::now_v7().to_string();
+            opts.prompt_id = Some(generated_id.clone());
+            ensure_message_provenance(&mut opts, &session.id);
+            let message = message_context(self, session, &blocks, &opts, &generated_id);
+            embed_message_context(&mut opts, message.as_ref(), &session.id);
+            let target_id = session.id.clone();
+            let hub = self.clone();
+            let prior = opts.on_accepted.take();
+            opts.on_accepted = Some(Box::new(move |mut v| {
+                if let Some(message) = message.as_ref() {
+                    record_message_context(&hub, &target_id, message);
+                    name_message(&mut v, message);
+                }
+                if let Some(prior) = prior {
+                    prior(v);
+                }
+            }));
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
@@ -184,18 +210,38 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return Ok(logged);
         }
+        // Message events are acknowledged at the same point as the prompt. This covers direct
+        // sends and automatic lane reports, both of which can call `prompt_with` without passing
+        // through the RPC request handler. A duplicate or a refused prompt never records a new
+        // event.
+        ensure_message_provenance(&mut opts, &session.id);
+        let message = message_context(self, session, &blocks, &opts, &prompt_id);
+        embed_message_context(&mut opts, message.as_ref(), &session.id);
         // Remember the outcome only for a prompt that reached the session:
         // one refused before that (no agent, a bad session) may be sent again.
         let accepted = Arc::new(AtomicBool::new(false));
         if let Some(f) = opts.on_accepted.take() {
             let accepted = accepted.clone();
-            opts.on_accepted = Some(Box::new(move |v| {
+            let hub = self.clone();
+            let target_id = session.id.clone();
+            opts.on_accepted = Some(Box::new(move |mut v| {
                 accepted.store(true, Ordering::SeqCst);
+                if let Some(message) = message.as_ref() {
+                    record_message_context(&hub, &target_id, message);
+                    name_message(&mut v, message);
+                }
                 f(v);
             }));
         } else {
             let accepted = accepted.clone();
-            opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
+            let hub = self.clone();
+            let target_id = session.id.clone();
+            opts.on_accepted = Some(Box::new(move |_| {
+                accepted.store(true, Ordering::SeqCst);
+                if let Some(message) = message.as_ref() {
+                    record_message_context(&hub, &target_id, message);
+                }
+            }));
         }
         let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         let mut ledger = session.prompts.lock().unwrap();
@@ -580,6 +626,8 @@ impl Hub {
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
         session.stderr_tail.lock().unwrap().clear();
+        // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
+        session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
         let turn_seq = self
             .append(
                 session,
@@ -898,6 +946,9 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // The agent a Stop ended starts again on the same conversation now, while this turn's
+        // lock is still held: the next queued turn finds it running (`cancel.rs`).
+        self.respawn_stopped_agent(session, &turn_id, stops).await;
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
@@ -935,6 +986,19 @@ impl Hub {
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
         let carried_next = next.filter(|_| !detached);
+        // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
+        // unless its agent runs on in the turn that takes its place (`carried_turn.rs`).
+        if take_if_turn(&session.stopping, turn_id)
+            && let Some(n) = carried_next
+        {
+            *session.stopping.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(n.next.turn_id.clone());
+        }
+        // A Stop ended the process of an agent that worked on through it (`cancel.rs`): the
+        // prompt that failed as that process ended answers as the forced cancel.
+        if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
+            result = Ok(super::cancel::forced_answer(true));
+        }
         let carries_on = carried_next.is_some();
         // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
         let carried_to = || {
@@ -1066,8 +1130,13 @@ impl Hub {
                 }
                 self.write_turn_result(session, msg, git);
                 // The chat works again: agent messages a failed turn held go in (`digest.rs`).
-                if status == "completed" {
-                    self.release_held_agent_messages(session);
+                // Not while a person's Stop that came after this turn began holds them
+                // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
+                let hold = session.stop_hold.load(Ordering::SeqCst);
+                if status == "completed"
+                    && (hold == 0 || hold == session.turn_hold.load(Ordering::SeqCst))
+                {
+                    self.release_held_agent_messages(session, hold);
                 }
             }
             Err(e) => {
@@ -1676,5 +1745,16 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+}
+
+/// Clears `slot` when it names `turn_id`; whether it did.
+fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
+    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if slot.as_deref() == Some(turn_id) {
+        *slot = None;
+        true
+    } else {
+        false
     }
 }
