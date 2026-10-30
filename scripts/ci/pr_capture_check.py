@@ -54,6 +54,8 @@ VISUAL_VERDICT = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 VERDICT_PLACEHOLDER = "<one sentence: would Leo accept this next to ChatGPT/Claude?>"
+SENTENCE_BOUNDARY = re.compile(r"(?<![.!?])[.!?](?![.!?])(?:[\"')\]]*)(?=\s+[A-Z])")
+ABBREVIATIONS = {"dr", "e", "eg", "etc", "g", "i", "ie", "mr", "mrs", "prof", "s", "vs"}
 
 
 def ui_tours(paths: list[str]) -> list[str]:
@@ -87,9 +89,13 @@ def visual_judgment(body: str) -> bool:
     value = verdict.group("verdict").strip()
     if value.casefold() == VERDICT_PLACEHOLDER.casefold():
         return False
+    for boundary in SENTENCE_BOUNDARY.finditer(value):
+        preceding = re.search(r"([A-Za-z]{1,4})$", value[:boundary.start()])
+        if not preceding or preceding.group(1).casefold() not in ABBREVIATIONS:
+            return False
     return (len(re.findall(r"\b[\w']+\b", value)) >= 2
             and value[-1] in ".!?"
-            and not any(mark in value[:-1] for mark in ".!?"))
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
