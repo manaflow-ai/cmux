@@ -46,7 +46,7 @@ extension CloudService {
 }
 
 /// Resumes its continuation with the first answer given; later answers are dropped.
-private final class FirstAnswer<T: Sendable>: @unchecked Sendable {
+private nonisolated final class FirstAnswer<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<T, Never>?
 
