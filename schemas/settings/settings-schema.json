@@ -6661,7 +6661,9 @@
       "keywords" : [
         "scroll",
         "scrollbar",
-        "minimap"
+        "column",
+        "visible range",
+        "overview"
       ],
       "kind" : "choice",
       "page_hidden" : false,
