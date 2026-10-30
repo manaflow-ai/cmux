@@ -325,3 +325,33 @@ fn a_reserved_host_is_never_a_placement_candidate() {
     reg["reservations"][0]["until"] = json!("2001-01-02T00:00:00Z");
     assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
 }
+
+/// A hold or a reservations list the registry cannot be read for fails closed: the machine (for
+/// reservations, every machine it might name) takes no new work.
+#[test]
+fn unreadable_holds_and_reservations_hold() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(30.0, 8, 1.0, 300.0, 0))];
+    for bad in [json!(" "), json!(3), json!(["x"])] {
+        let mut reg = registry();
+        reg["machines"]["big"]["hold"] = bad.clone();
+        let v = place(&both, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], "small", "{bad}: {v}");
+        assert!(host(&v, "big")["refused"].as_str().unwrap().contains("cannot be read"), "{bad}");
+    }
+    for bad in [
+        json!({"hosts": ["big"]}),
+        json!([{"id": "r", "hosts": "big"}]),
+        json!([{"id": "r"}]),
+        json!([{"id": "r", "hosts": ["small", 7]}]),
+    ] {
+        let mut reg = registry();
+        reg["reservations"] = bad.clone();
+        let v = place(&both, Some(&reg), Work::Agent);
+        assert_eq!(v["pick"], Value::Null, "{bad}: {v}");
+        assert!(held(Some(&reg), "big").unwrap().contains("cannot be read"), "{bad}");
+    }
+    let mut reg = registry();
+    reg["reservations"] = Value::Null;
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}

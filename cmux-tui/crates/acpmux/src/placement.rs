@@ -157,11 +157,13 @@ const HELD: &str = "_held";
 /// Why a machine's registry entry holds it at `now_ms` (Unix ms): its `hold`, as `true`, a
 /// reason, or `{reason|why, owner, until}`. A hold whose `until` passed holds nothing; one whose
 /// `until` cannot be read still holds (fail closed, as the registry's `reservations` readers do).
-/// `None`: no hold, or `hold: false`/null.
+/// `None`: no hold, or `hold: false`/null. Any other value (a blank string, a number, a list)
+/// cannot be read, and holds.
 pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
     let hold = machine.get("hold")?;
     let text = |k: &str| hold.get(k).and_then(Value::as_str).filter(|s| !s.trim().is_empty());
     let (reason, until) = match hold {
+        Value::Null | Value::Bool(false) => return None,
         Value::Bool(true) => (None, None),
         Value::String(s) if !s.trim().is_empty() => (Some(s.clone()), None),
         Value::Object(_) => (
@@ -169,7 +171,7 @@ pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
             hold.get("until")
                 .map(|u| u.as_str().and_then(crate::server::machine_health::rfc3339_ms)),
         ),
-        _ => return None,
+        _ => return Some(format!("held (its hold {hold} cannot be read)")),
     };
     if let Some(Some(end)) = until
         && end <= now_ms
@@ -260,14 +262,21 @@ fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> 
         return Some(why);
     }
     let time = |v: &Value| v.as_str().and_then(crate::server::machine_health::rfc3339_ms);
-    for e in registry.get("reservations").and_then(Value::as_array).into_iter().flatten() {
-        let named = e
-            .get("hosts")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .any(|h| names.contains(&canonical(h)));
+    // A list, or an entry's hosts, that cannot be read may name any machine: it holds them all.
+    const UNREADABLE: &str = "held: the registry's reservations cannot be read";
+    let entries = match registry.get("reservations") {
+        None | Some(Value::Null) => return None,
+        Some(Value::Array(entries)) => entries,
+        Some(_) => return Some(UNREADABLE.into()),
+    };
+    for e in entries {
+        let Some(hosts) = e.get("hosts").and_then(Value::as_array) else {
+            return Some(UNREADABLE.into());
+        };
+        if hosts.iter().any(|h| !h.is_string()) {
+            return Some(UNREADABLE.into());
+        }
+        let named = hosts.iter().filter_map(Value::as_str).any(|h| names.contains(&canonical(h)));
         if !named {
             continue;
         }
