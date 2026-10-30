@@ -19,6 +19,11 @@
 //! A strict scan ([`Store::scan_kinds_strict`], the transfer authority's) fails on a line that
 //! does not read, as one of the whole log would: a copy says whether every line it covers read,
 //! and a strict scan takes no other.
+//!
+//! Two of a log load's reads still read the whole log, each only in a state a restart rarely
+//! leaves: a subagent retry the saved meta marks open (`settle_subagent_retries`, whose
+//! `subagent_state_update` records are an agent's own and many), and a turn cut with its host gone
+//! (`log_restart_continuation`, which reads every record's head up to the cut turn).
 
 use super::*;
 
