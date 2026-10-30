@@ -97,6 +97,10 @@ struct CloudHandoffTurnOpener {
             case .none: return .refused(handoff.state == "closed" ? "handoff.closed" : "handoff.turn_running")
             case .begin(let after):
                 let begun = try await begin(handoff.id, after)
+                // The store may close the hand-off after the create but before this POST. Its
+                // refusal carries the current hand-off (whose turn still equals `after`), so
+                // preserve that authoritative code before validating the normal success shape.
+                if let refusal = begun.refusal, refusal != "handoff.turn_conflict" { return .refused(refusal) }
                 guard begun.id == handoff.id, begun.sessionId == session, begun.machine == machine, begun.turn > after else {
                     return .refused("handoff.turn_conflict")
                 }

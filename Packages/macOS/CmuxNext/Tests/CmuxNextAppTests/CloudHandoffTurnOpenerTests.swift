@@ -39,6 +39,14 @@ struct CloudHandoffTurnOpenerTests {
         }
     }
 
+    @Test func aHandoffClosedBetweenCreateAndBeginPropagatesItsRefusal() async throws {
+        var closed = view(turn: 3, status: "done", state: "closed")
+        closed.refusal = "handoff.closed"
+        let opened = try await open(view(turn: 3, status: "done"), begun: [closed])
+        #expect(opened.opened == .refused("handoff.closed"))
+        #expect(opened.begins == [3])
+    }
+
     @Test func aRunningTurnAClosedHandoffOrAnotherMachineNamesNoneAndSaysWhy() async throws {
         #expect(try await open(view(turn: 2, status: "running")).opened == .refused("handoff.turn_running"))
         #expect(try await open(view(turn: 2, status: "needs-you")).opened == .refused("handoff.turn_running"))
