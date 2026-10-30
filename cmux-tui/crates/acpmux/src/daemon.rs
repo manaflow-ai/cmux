@@ -13,7 +13,9 @@ pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
-use lock::{DaemonLock, LockHeld, acquire_lock, wait_for_lock_release};
+use lock::{DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release};
+mod running;
+pub use running::connect_running;
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;

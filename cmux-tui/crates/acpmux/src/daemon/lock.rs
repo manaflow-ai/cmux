@@ -98,6 +98,26 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     alive.then_some(pid as u32)
 }
 
+/// Whether a live daemon holds the lock at `path`, read from the pid it wrote there, without
+/// taking the lock or creating the file: a listing asks this to tell a daemon in a restart's
+/// handover (wait for it) from none at all (start none, `running.rs`).
+#[cfg(unix)]
+pub(super) fn lock_has_live_holder(path: &Path) -> bool {
+    std::fs::File::open(path).ok().as_ref().and_then(holder_pid).is_some()
+}
+
+/// Windows: the lock covers the file, so its holder's pid cannot be read; ask the lock itself. A
+/// shared try fails while a daemon holds it exclusively; when none does, it is taken and dropped
+/// at once. A daemon that tries the lock in that instant reports `lockHeld`, and both starters
+/// try again (`start_and_connect`, `start_keyed`), so the probe can delay a start, never fail it.
+#[cfg(windows)]
+pub(super) fn lock_has_live_holder(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    matches!(file.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
+}
+
 /// Write this daemon's pid and the socket it serves into the lock it now holds: the pid for the
 /// refusal a second daemon prints, the socket for a command whose own socket is another one
 /// ([`holder_socket`]). Best effort: the lock itself is the flock, never the file's contents.

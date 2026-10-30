@@ -128,8 +128,13 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
   - After the open, the descriptor's real path (`F_GETPATH`) is checked again,
     so a component swapped for a symlink in between cannot escape.
 - **What it serves.** Regular files only (opened non-blocking, so a FIFO
-  cannot hold the open), up to 64 MiB. It never writes, lists
-  directories, or executes anything.
+  cannot hold the open), of any size: the host reads one 64 KiB buffer at a
+  time and waits for room in the channel's bounded send queue, so a large file
+  costs neither side memory, and it stops at the size the file had when it was
+  opened. The phone writes the bytes to a file in its temporary folder as they
+  arrive and previews from there. It never writes, lists directories, or
+  executes anything. Test: `a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks`
+  (`tests/host.rs`).
 
 ## `chief`: a splice to the Mac's Chief conversation owner
 
