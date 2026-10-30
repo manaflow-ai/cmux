@@ -13,16 +13,16 @@ extension SidebarBridge {
         if status == .updateRequired || status == .updateAvailable, let compat = machines.compatibility(of: session.daemon) {
             detail = CloudStrings.compatibility(compat)
         }
-        let tooltip = sshTooltip(destination: session.host.destination, session: session.host.session, detail: detail)
+        let tooltip = sshTooltip(destination: session.host.destination, session: session.host.session, detail: detail, updates: machines.updates)
         return SidebarMachine(id: MachineID(session.machineID), name: session.host.label, kind: .ssh, status: status, detail: tooltip)
     }
 
     /// An ssh machine header's tooltip: the destination (with its cmux-tui session when not the
-    /// default), then `detail`, then the machine's daemon update line (``DaemonUpdateBoard``). One
+    /// default), then `detail`, then the machine's daemon update line (`updates`, the app's board). One
     /// place for the live header and `debug.daemon_update`'s fixture.
-    static func sshTooltip(destination: SSHDestination, session: String, detail: String?) -> String {
+    static func sshTooltip(destination: SSHDestination, session: String, detail: String?, updates: DaemonUpdateBoard) -> String {
         [destination.description + (session == RemoteSessionName.defaultName ? "" : " · " + session), detail,
-         DaemonUpdateBoard.shared.detail(sshHost: destination.host)]
+         updates.detail(sshHost: destination.host)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 

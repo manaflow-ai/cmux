@@ -11,13 +11,13 @@ extension ChatsFeed {
     /// Nil without a local acpmux environment.
     static func started(for services: AppServices) -> ChatsFeed? {
         guard let environment = QuitAgents.environment(services) else { return nil }
-        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
+        // An acpmux peer that connects later in the launch gets the app's build too.
+        let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath,
+                                                                   peerSessionChanged: { [updates = services.daemonUpdates] in updates.peerSessionChanged($0, stale: $1) })
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
         AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
-        // An acpmux peer that connects later in the launch gets the app's build too.
-        AgentTurnStateFeed.peerSessionChanged = { _ = AcpmuxPeerReconnects.shared.note(peer: $0, stale: $1) }
         AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)

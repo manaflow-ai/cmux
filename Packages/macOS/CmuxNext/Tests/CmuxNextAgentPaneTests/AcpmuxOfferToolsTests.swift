@@ -54,7 +54,7 @@ struct AcpmuxOfferToolsTests {
     /// read from `store`, at each daemon start.
     static func host(_ environment: AcpmuxEnvironment, _ store: TunableStore,
                      setting: Bool = SessionSettings.promptSuggestionsDefault) -> AcpmuxHost {
-        AcpmuxHost(resolve: { environment },
+        AcpmuxHost(daemons: AcpmuxLocalDaemons(), resolve: { environment },
                    offersSessionTools: { setting || AgentPaneTunables.suggestedTasks.value(in: store) })
     }
 

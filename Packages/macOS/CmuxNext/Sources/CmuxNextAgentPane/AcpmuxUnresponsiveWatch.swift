@@ -22,10 +22,9 @@ import os
 /// the exit wait is on the process before its SIGTERM, so it never follows the pid to a successor. The
 /// `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off: read at each missed status
 /// call (off ends the streak) and again right before the restart is claimed. Answers count with
-/// the toggle off too, so a streak never spans an answer.
+/// the toggle off too, so a streak never spans an answer. The app has one
+/// (``AcpmuxLocalDaemons/unresponsive``), so its counts span every host of the launch.
 nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
-    static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
-
     /// One process: its pid, its start time (`proc_bsdinfo`) and its audit token (`TASK_AUDIT_TOKEN`).
     /// A pid the kernel gives to another process later has another start time and another pid
     /// version in its token (`val.7`), the one field besides the pid (`val.5`) the kernel checks

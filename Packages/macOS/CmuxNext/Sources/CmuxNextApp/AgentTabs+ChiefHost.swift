@@ -58,6 +58,7 @@ struct ChiefHomeAcpmux {
     /// - Parameters:
     ///   - local: this Mac's pane host; a Chief on the app's own acpmux
     ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
+    ///   - daemons: the app's local acpmux daemons, given to every pane host made here.
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - startHost: asks for the Chief brain host when a tab finds nothing on the Chief home's
@@ -65,10 +66,9 @@ struct ChiefHomeAcpmux {
     ///     whether one runs or is starting. A restored Chief chat connects after a relaunch
     ///     without Home being shown (#25570).
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
-    ///     on the app's acpmux: the daemon its subagents ran on before the move.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
-         startHost: @escaping @Sendable () async -> Bool,
-         ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
+    ///     on the app's acpmux: the daemon its subagents ran on before the move; nil: an ``AcpmuxHost``.
+    init(home: ChiefHome, local: any AgentPaneHostProviding, daemons: AcpmuxLocalDaemons, ensureHost: @escaping @Sendable () async -> Void,
+         startHost: @escaping @Sendable () async -> Bool, ownHost: (@Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding)? = nil) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
@@ -80,7 +80,7 @@ struct ChiefHomeAcpmux {
         // starting that daemon again when it ended, never to the app's daemon, which lacks the
         // chat and would say "This chat isn't available" (Lawrence 2026-10-21).
         if home.usesAppAcpmux {
-            let own = ownHost(environment)
+            let own: any AgentPaneHostProviding = ownHost?(environment) ?? AcpmuxHost(daemons: daemons, environment: environment)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
                 AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
@@ -97,7 +97,7 @@ struct ChiefHomeAcpmux {
             let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)
             healReplaced = { @Sendable () async -> Bool in await heal.heal() }
         }
-        let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost)
+        let chief = AcpmuxHost(daemons: daemons, environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost)
         paneHost = chief
         localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
     }

@@ -319,7 +319,7 @@ struct AcpmuxUnresponsiveRestartTests {
 
     private func host(_ fixture: Fixture, clock: ManualClock, toggle: @escaping @Sendable () -> Bool) -> AcpmuxHost {
         let watch = AcpmuxUnresponsiveWatch(clock: clock, confirm: .milliseconds(300), termGrace: .seconds(2))
-        return AcpmuxHost(environment: fixture.environment, unresponsive: watch, restartsUnresponsive: toggle)
+        return AcpmuxHost(daemons: AcpmuxLocalDaemons(unresponsive: watch), environment: fixture.environment, restartsUnresponsive: toggle)
     }
 
     /// The toggle's reads, and what it answers.

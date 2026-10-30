@@ -38,7 +38,8 @@ public actor ChiefHomeDirectory {
     /// holds that home: its Chief host owns the daemon, which a tab only attaches to (cx-ebm.54), so
     /// this app never starts another live build's acpmux. A home no brain holds (NIGHTLY's old
     /// per-build home, a tagged build that quit) has no owner: its daemon starts again for the tab,
-    /// as NIGHTLY's own acpmux does after its move to the app's.
+    /// as NIGHTLY's own acpmux does after its move to the app's. The app's makes an ``AcpmuxHost``
+    /// with its one ``AcpmuxLocalDaemons``.
     private let ownHost: @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding
     /// A Chief home found on disk and the Chief home whose acpmux runs its sessions.
     nonisolated struct Found: Sendable, Equatable {
@@ -52,9 +53,7 @@ public actor ChiefHomeDirectory {
 
     public init(parents: [URL], work: BackgroundWork, rescanInterval: Duration = .seconds(10),
                 environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?,
-                ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding = {
-                    AcpmuxHost(environment: $0, startsDaemons: $1)
-                }) {
+                ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding) {
         self.parents = parents
         self.work = work
         self.rescanInterval = rescanInterval
