@@ -120,7 +120,7 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 /// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
 /// chat (`MOVED_AWAY`, `LOG_UNREADABLE`).
 pub(super) fn names_a_move(mark: &str) -> bool {
-    true
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE
 }
 
 #[cfg(test)]
@@ -334,7 +334,8 @@ impl Hub {
     /// The move the session is in, or an error naming the one it is in (or that it is in none).
     fn moving_as(session: &Session, transfer_id: &str) -> Result<(), RpcError> {
         match session.moving() {
-            Some(id) if id == transfer_id => Ok(()),
+            // A mark that only freezes the chat is no move a caller may end.
+            Some(id) if id == transfer_id && names_a_move(&id) => Ok(()),
             other => Err(transfer_error("unknown", "the chat is not in this move")
                 .with_data(json!({"transferId": other}))),
         }
