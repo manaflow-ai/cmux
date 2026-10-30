@@ -67,7 +67,9 @@ extension UpdaterService {
     }
 
     /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
-    /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits.
+    /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits. A pulled
+    /// build whose installer this app does not hold (Sparkle's silent cycle still resuming) cannot
+    /// be cancelled: the quit proceeds and says so.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
@@ -75,9 +77,12 @@ extension UpdaterService {
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
         if action == .proceed, stagedPulledHeld {
-            log.append("quit: the staged build was pulled, cancelling it instead of installing on quit")
-            action = .cancelPendingInstall
-            _ = cancelStaged()
+            if cancelStaged() {
+                log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
+                action = .cancelPendingInstall
+            } else {
+                log.append("quit: the staged build was pulled, but no installer was held to cancel; Sparkle installs it on quit")
+            }
         } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
             _ = cancelStaged()

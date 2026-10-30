@@ -40,7 +40,7 @@ extension UpdaterService {
 
     /// A staged build known pulled waits in Update Ready (an installer this app cannot cancel, or
     /// one about to be dropped): no card or footer pill offers it, and a quit cancels it instead
-    /// of installing it.
+    /// of installing it when this app holds its installer.
     var stagedPulledHeld: Bool {
         guard case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty else { return false }
         return isKnownPulled(staged)
