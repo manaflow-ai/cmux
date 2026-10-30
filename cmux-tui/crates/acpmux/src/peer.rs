@@ -902,7 +902,16 @@ impl Peer {
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
             let restarting = matches!(&outcome, Ok(LinkEnd::Restarting));
-            if let Some(notice) = self.finish_link(outcome, &mut backoff) {
+            let notice = self.finish_link(outcome, &mut backoff);
+            // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
+            // Scheduled before the notice goes out: the hub saves `next_retry_at` to the peer
+            // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
+            let delay = (!restarting).then(|| {
+                self.with_link(|l| {
+                    l.schedule_retry(&mut backoff, crate::store::now_ms(), crate::peer_link::jitter())
+                })
+            });
+            if let Some(notice) = notice {
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
             self.fail_link_requests(&mut out_rx).await;
@@ -911,13 +920,9 @@ impl Peer {
             }
             // One immediate attempt for this Close 1012. If that attempt fails, it follows
             // the unchanged real-failure backoff; restarting is not a persistent retry mode.
-            if restarting {
+            let Some(delay) = delay else {
                 continue;
-            }
-            // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
-            let delay = self.with_link(|l| {
-                l.schedule_retry(&mut backoff, crate::store::now_ms(), crate::peer_link::jitter())
-            });
+            };
             match self.wait_backoff(delay).await {
                 BackoffWait::Done => {}
                 // The network that failed before the sleep may take a moment to come back: the

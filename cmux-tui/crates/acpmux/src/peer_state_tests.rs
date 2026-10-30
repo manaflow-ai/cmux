@@ -279,6 +279,10 @@ async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
     let running = tokio::spawn(peer.clone().run());
     let (_, _, first) = notices.recv().await.unwrap();
     assert!(matches!(first, PeerNotice::Disconnected(_)));
+    // The hub saves the peer cache while handling this notice, so the parked deadline must
+    // already be set: otherwise a daemon update mid-wait probes again at once.
+    let parked_until = peer.link().next_retry_at.expect("deadline set before the notice");
+    assert!(parked_until > crate::store::now_ms(), "the saved deadline is already past");
     let early = tokio::time::timeout(Duration::from_secs(120), notices.recv()).await;
     let refusal = tokio::time::timeout(
         Duration::from_millis(1),
