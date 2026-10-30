@@ -432,6 +432,7 @@ button.cv-subagent > :last-child {
   container-name: running-tray;
   --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
   --acpmux-tray-status-width: 96px;
+  --acpmux-tray-chevron-width: 20px;
   --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
   padding: 0;
@@ -607,7 +608,7 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     position: relative;
     display: grid;
-    grid-template-columns: var(--acpmux-tray-time-width) minmax(0, 1fr) var(--acpmux-tray-stop-width);
+    grid-template-columns: minmax(0, 1fr) var(--acpmux-tray-time-width) var(--acpmux-tray-chevron-width) var(--acpmux-tray-stop-width);
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
     column-gap: 4px;
     row-gap: 0;
@@ -634,15 +635,21 @@ button.cv-subagent > :last-child {
   }
   .acpmux-running-tray__time,
   .acpmux-running-tray .acpmux-agent-line__time {
-    grid-column: 1;
+    grid-column: 2;
     grid-row: 2;
   }
   .acpmux-running-tray__status,
   .acpmux-running-tray .acpmux-agent-line__status {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 2;
     min-width: 0;
     gap: 4px;
+  }
+  .acpmux-running-tray .acpmux-agent-line__chevron {
+    grid-column: 3;
+    grid-row: 2;
+    margin-left: 0;
+    justify-self: end;
   }
   .acpmux-running-tray__stop-slot {
     grid-column: 3;

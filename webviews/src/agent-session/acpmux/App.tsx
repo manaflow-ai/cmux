@@ -6922,7 +6922,16 @@ function AcpmuxPane() {
   const compatibilitySnapshot = snapshot.subagentStructureVersion === undefined;
   const progressStore =
     producerProgress ?? (snapshot.subagentProgress !== undefined ? bridgeProgress : undefined);
-  const structureVersion = snapshot.subagentStructureVersion ?? shownSessionId;
+  const producerGeneration = useRef<{ source?: AgentProgressStore; value: number }>({ value: 0 });
+  if (producerGeneration.current.source !== producerProgress) {
+    producerGeneration.current = {
+      source: producerProgress,
+      value: producerGeneration.current.value + 1,
+    };
+  }
+  const structureVersion = producerProgress
+    ? `${producerGeneration.current.value}:${snapshot.subagentStructureVersion ?? 0}`
+    : snapshot.subagentStructureVersion ?? shownSessionId;
   // Compatibility snapshots do not carry a structure version, so use their fresh row list to
   // reflect structural changes. Direct snapshots stay keyed by the producer's structure version.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- direct usage updates use keyed subscriptions

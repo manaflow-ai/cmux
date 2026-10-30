@@ -197,6 +197,33 @@ test("compatibility snapshots without a progress delta refresh the row from its 
   } finally { await act(async () => root.unmount()); }
 });
 
+test("a rebuilt producer source refreshes rows even when its structure counter restarts", async () => {
+  configureSubagentTray(true);
+  (dom.window as unknown as { webkit: unknown }).webkit = {
+    messageHandlers: { agentSession: { postMessage(message: { method?: string }) {
+      if (message.method === "ready") return Promise.resolve({ ok: true,
+        value: { protocolVersion: 1, transport: "preview", machineName: "Mac" } });
+      return Promise.resolve({ ok: true, value: null });
+    } } },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const direct = (name: string, tokens: number) => {
+    const store = new AgentProgressStore([{ ...agents[0]!, name, tokens }]);
+    const next = fixtures.chat([fixtures.user("Review the module", 2), fixtures.row("subagents", 1, {
+      subagents: [{ ...agents[0]!, name, tokens }],
+    })], { isWorking: true, subagentStructureVersion: store.structureVersion });
+    markAgentProgressSource(next.rows, store);
+    return next;
+  };
+  try {
+    await act(async () => root.render(<AcpmuxApp />));
+    await act(async () => receive(direct("First producer", 42_000)));
+    expect(dom.window.document.querySelector(".acpmux-agent-line__button")?.textContent).toContain("First producer");
+    await act(async () => receive(direct("Rebuilt producer", 84_000)));
+    expect(dom.window.document.querySelector(".acpmux-agent-line__button")?.textContent).toContain("Rebuilt producer");
+  } finally { await act(async () => root.unmount()); }
+});
+
 test("progress source notifies only the changed agent and cleans subscriptions", () => {
   const store = new AgentProgressStore(agents);
   let a = 0, b = 0;
