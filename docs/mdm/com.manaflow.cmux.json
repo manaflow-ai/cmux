@@ -1786,6 +1786,12 @@
       "title" : "Live Preview in Chat",
       "type" : "boolean"
     },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
     "deviceHub.url" : {
       "default" : "",
       "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
