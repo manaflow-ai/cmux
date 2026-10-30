@@ -58,6 +58,22 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-shared") == "w-person")
     }
 
+    /// An ephemeral workspace on a machine nobody opened here opens no incognito window, and is
+    /// not the person opening that machine: its other workspaces stay out too.
+    @Test func anUnopenedMachinesEphemeralWorkspaceOpensNoWindow() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-agent", workspaces: ["ws-ephemeral", "ws-image-default"])
+        try #require(session.daemon.store.workspace(id: "ws-ephemeral")).applyState(ephemeral: true)
+
+        services.windows.reconcileMembership()
+
+        #expect(services.windows.registry.value.owner(of: "ws-ephemeral") == nil)
+        #expect(services.windows.registry.value.owner(of: "ws-image-default") == nil)
+        #expect(services.windows.registry.value.windows.isEmpty && services.windows.registry.value.incognito.isEmpty,
+                "an agent's ephemeral workspace opened an incognito window")
+    }
+
     /// `cmux cloud new-machine` from a lane-pool tool or an agent, without focus: the machine's
     /// first workspace is not filed into a window; the person's own create still shows it.
     @Test func aMachineAnAgentMadeIsNotFiledButThePersonsIs() throws {
