@@ -173,9 +173,11 @@ public final class PaneToolbarView: NSView {
     }
 
     /// Native tools remain reachable from the overflow menu when a narrow pane cannot fit every
-    /// supplied button. The same invoker path keeps the page event identical to a direct press.
+    /// supplied button: only those whose button is hidden, so a tool that shows is not listed twice.
+    /// The same invoker path keeps the page event identical to a direct press.
     public func nativeOverflowItems() -> [NSMenuItem] {
-        nativeItems.map { tool in
+        layoutSubtreeIfNeeded()
+        return zip(nativeItems, nativeButtons).compactMap { tool, button in button.isHidden ? tool : nil }.map { tool in
             let row = NSMenuItem(title: tool.label, action: nil, keyEquivalent: "")
             row.isEnabled = tool.enabled
             row.state = tool.toggled ? .on : .off

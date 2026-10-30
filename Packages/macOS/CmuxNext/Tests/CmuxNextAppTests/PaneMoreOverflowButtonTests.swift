@@ -42,6 +42,23 @@ import Testing
         #expect(invoked == ["review"])
     }
 
+    /// "…" lists only the native tools whose buttons do not fit: a tool that shows is not listed twice.
+    @Test func overflowListsOnlyNativeToolsThatDoNotFit() {
+        let tools = ["review", "share"].map { PaneTabRowTool(id: $0, symbol: "checkmark", label: $0) }
+        let wide = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
+        wide.show(more: true, lit: false, nativeItems: tools)
+        wide.layoutSubtreeIfNeeded()
+        #expect(wide.nativeButtons.allSatisfy { !$0.isHidden })
+        #expect(wide.nativeOverflowItems().isEmpty, "visible native tools are duplicated under …")
+
+        let narrow = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
+        narrow.show(more: true, lit: false, nativeItems: tools)
+        narrow.layoutSubtreeIfNeeded()
+        let hidden = zip(tools, narrow.nativeButtons).filter { $0.1.isHidden }.map(\.0.label)
+        #expect(!hidden.isEmpty)
+        #expect(narrow.nativeOverflowItems().map(\.title) == hidden)
+    }
+
     @Test func aLitMenuDrawsInTheAccent() {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
         view.show(more: true, lit: true)

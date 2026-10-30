@@ -208,8 +208,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
     }
 
-    /// The selected agent page's model, for native controls owned by the page.
-    var displayedAgentPaneView: AgentPaneView? { visibleContent as? AgentPaneView }
+    /// The selected agent page, for native controls owned by the page: the incoming one while a
+    /// paint hold still shows the outgoing view, so the toolbar never shows the outgoing tab's tools.
+    var displayedAgentPaneView: AgentPaneView? { hostsContent ? content as? AgentPaneView : nil }
     var agentPaneModel: AgentPaneModel? { displayedAgentPaneView?.model }
 
     var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
