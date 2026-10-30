@@ -7,9 +7,12 @@
 //
 // Followed to the latest row, the opened body grows down from the clicked line, so the view no
 // longer shows the latest row and stops following it (Jump to latest shows); a body that still
-// leaves the latest row in view keeps following. Closing at the transcript's end is the one place the
-// line can move: with nothing below to fill the view, the browser clamps the offset and the rows
-// above come down by what closed, as they do in every scroller.
+// leaves the latest row in view keeps following. Closing at the transcript's end holds the line too
+// (Leo, ask-a736047107: "WHEN I EXPAND THEM IT JUMPS ME DOWN AND WHEN I COLLAPSE IT JUMPS ME UP"):
+// the click keeps the content at least as tall as the view's end (`foldRoomFor`), so what closed
+// leaves room under the rows instead of the browser clamping the offset and bringing every row down
+// by it. That room follows the view's end as the reader scrolls up and goes once the rows grow back
+// into it (`trimmedFoldRoom`); a send and Jump to latest drop it (App.tsx).
 import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place.
@@ -47,4 +50,20 @@ export function keepFold(anchor: FoldAnchor, scroller: HTMLElement, now = perfor
   const moved = anchor.toggle.getBoundingClientRect().top - anchor.top;
   if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
   return true;
+}
+
+/// The content end a click on a disclosure keeps: the view's end now (offset plus height), whole
+/// pixels up, or the end already kept when that is further down.
+export function foldRoomFor(scrollTop: number, clientHeight: number, kept = 0): number {
+  return Math.max(kept, Math.ceil(scrollTop + clientHeight));
+}
+
+/// The kept end after a scroll or a placement pass: as it is while a fold holds its line; else no
+/// further down than the view's end (`viewEnd`, the reader scrolled up), and 0 once the rows' own end
+/// (`rowsEnd`) reaches it, when nothing of it is room any more.
+export function trimmedFoldRoom(kept: number, viewEnd: number, rowsEnd: number, holding: boolean): number {
+  if (kept <= 0) return 0;
+  if (holding) return kept;
+  const next = Math.min(kept, Math.ceil(viewEnd));
+  return next <= rowsEnd + 0.5 ? 0 : next;
 }

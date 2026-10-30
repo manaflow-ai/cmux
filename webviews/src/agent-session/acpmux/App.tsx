@@ -274,7 +274,15 @@ import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/Mes
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
-import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
+import {
+  ANCHORED_COLLAPSE_EVENT,
+  foldRoomFor,
+  foldToggleAt,
+  holdFold,
+  keepFold,
+  trimmedFoldRoom,
+  type FoldAnchor,
+} from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
@@ -2854,6 +2862,37 @@ export function VirtualTranscript({
   /// The disclosure line the reader just clicked, held where they clicked it while its fold plays
   /// (conversation/foldAnchor.ts).
   const foldAnchor = useRef<FoldAnchor | undefined>(undefined);
+  /// The content end a clicked disclosure keeps (foldAnchor.ts `foldRoomFor`): 0, or the view's end
+  /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
+  /// the rows instead of letting the browser clamp the offset, which brought every row down by what
+  /// closed (Leo, ask-a736047107: "WHEN I COLLAPSE IT JUMPS ME UP"). The room shrinks with the view's
+  /// end as the reader scrolls up, and goes once the rows reach it again (`trimFoldRoom`), on a send
+  /// and on Jump to latest; a fold that left the rows past it gives it up at the next pass.
+  const [foldRoom, setFoldRoom] = useState(0);
+  const foldRoomRef = useRef(0);
+  foldRoomRef.current = foldRoom;
+  /// The content's end without that room, as of the last render.
+  const rowsEndRef = useRef(0);
+  /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
+  /// it (no fold in flight, the rows reach the view's end). O(1): a read of the offset and a compare.
+  /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
+  /// before the caller reads the layout (Jump to latest's target).
+  const dropFoldRoom = useCallback((now = false) => {
+    if (!foldRoomRef.current) return;
+    foldRoomRef.current = 0;
+    if (now) flushSync(() => setFoldRoom(0));
+    else setFoldRoom(0);
+  }, []);
+  // Another chat starts with none (its first render already leaves it out, `keptEnd`).
+  useLayoutEffect(() => dropFoldRoom(), [sessionId, dropFoldRoom]);
+  const trimFoldRoom = useCallback((node: HTMLElement) => {
+    const kept = foldRoomRef.current;
+    if (!kept) return;
+    const next = trimmedFoldRoom(kept, node.scrollTop + node.clientHeight, rowsEndRef.current, !!foldAnchor.current);
+    if (next === kept) return;
+    foldRoomRef.current = next;
+    setFoldRoom(next);
+  }, []);
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
@@ -3048,10 +3087,16 @@ export function VirtualTranscript({
       : grown;
   const room = sessionSwitched || following ? dockSpace - lifted : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
+  // The content's end without the room a collapse left (`foldRoom`), which it is released against.
+  const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
+  rowsEndRef.current = rowsEnd;
   // The held room less the lift, as the rows' end is: what the reader sees stays where it was drawn.
+  // A collapse near the end keeps the content as tall as the view's end (`foldRoom`), so the offset
+  // never clamps and the line the reader clicked stays on its pixel.
+  const keptEnd = sessionSwitched ? 0 : foldRoom;
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight - lifted, rowsHeight) }),
-    [measured, rowsHeight, floorHeight, lifted],
+    () => ({ ...measured.layout, totalHeight: Math.max(rowsEnd, keptEnd) }),
+    [measured, rowsEnd, keptEnd],
   );
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
@@ -3435,6 +3480,8 @@ export function VirtualTranscript({
         setSeeking(false);
       }
     }
+    // The room a collapse kept follows the view's end, and goes once the rows reach it.
+    if (node) trimFoldRoom(node);
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
@@ -3795,6 +3842,7 @@ export function VirtualTranscript({
     revealing.current = undefined;
     revealWindow.current = 0;
     foldAnchor.current = undefined;
+    dropFoldRoom();
     stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockSpaceRef.current;
@@ -3830,6 +3878,7 @@ export function VirtualTranscript({
     checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
+    trimFoldRoom(node);
     // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
     // there (a first step inside the deadband read as layout work), and not stopped (a longer one
     // read as the reader's scroll up).
@@ -3908,6 +3957,7 @@ export function VirtualTranscript({
     // The room the stack grew while scrolled up comes first, out of view, so following again moves
     // nothing and the glide runs to the end above the card instead of snapping there.
     takeRoom();
+    dropFoldRoom(true);
     follow(true);
     if (focused) focusComposer?.();
     // cmux's animations off (ui.animations) or the system's Reduce Motion: it lands in one frame, and
@@ -4015,11 +4065,20 @@ export function VirtualTranscript({
       const moved = line.getBoundingClientRect().top - before;
       if (node && Math.abs(moved) >= 0.5) node.scrollTop += moved;
     };
+    // What closes keeps the content as tall as the view's end, so the offset never clamps.
+    const keepFoldRoom = () => {
+      if (!node) return;
+      const end = foldRoomFor(node.scrollTop, node.clientHeight, foldRoomRef.current);
+      if (end === foldRoomRef.current) return;
+      foldRoomRef.current = end;
+      setFoldRoom(end);
+    };
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
       settleFold(toggle);
       foldAnchor.current = holdFold(toggle);
+      keepFoldRoom();
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard
     // or a header that is no disclosure button, as well as the click above.
@@ -4030,6 +4089,7 @@ export function VirtualTranscript({
       event.preventDefault();
       settleFold(header);
       foldAnchor.current = holdFold(header);
+      keepFoldRoom();
     };
     // The reader scrolling lets go of it.
     const release = (event: Event) => {
