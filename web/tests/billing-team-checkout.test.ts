@@ -22,12 +22,13 @@ const getUser = mock(async (options?: unknown) => {
   if (typeof options === "string") return currentUser?.id === options ? currentUser : null;
   return currentUser;
 });
-const newSession = async (_params: unknown, _options?: unknown): Promise<Record<string, unknown>> =>
-  ({ id: "cs_team", url: "https://checkout.stripe.com/c/team" });
-const openSession = async (id: string): Promise<Record<string, unknown>> =>
-  ({ id, url: "https://checkout.stripe.com/c/team", status: "open" });
-const createSession = mock(newSession);
-const retrieveSession = mock(openSession);
+// Queued Stripe answers, used before the defaults; reset before every test.
+let queuedSessions: Array<Record<string, unknown>> = [];
+let queuedRetrievals: Array<Record<string, unknown>> = [];
+const createSession = mock(async (_params: unknown, _options?: unknown): Promise<Record<string, unknown>> =>
+  queuedSessions.shift() ?? { id: "cs_team", url: "https://checkout.stripe.com/c/team" });
+const retrieveSession = mock(async (id: string): Promise<Record<string, unknown>> =>
+  queuedRetrievals.shift() ?? { id, url: "https://checkout.stripe.com/c/team", status: "open" });
 const createCustomer = mock(async (_params: unknown, _options?: unknown) => ({ id: "cus_new_team" }));
 const deleteCustomer = mock(async (_id: string) => ({ id: _id, deleted: true }));
 const createPortal = mock(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/team" }));
@@ -242,10 +243,10 @@ describe("team checkout idempotency", () => {
   beforeEach(() => {
     dbRows = emptyBillingDbRows();
     currentUser = fixtureStackUser({ id: USER_ID, teams: [teamB, teamC], adminTeamIds: ["team-b", "team-c"] });
-    createSession.mockReset();
-    createSession.mockImplementation(newSession);
-    retrieveSession.mockReset();
-    retrieveSession.mockImplementation(openSession);
+    queuedSessions = [];
+    queuedRetrievals = [];
+    createSession.mockClear();
+    retrieveSession.mockClear();
     createCustomer.mockClear();
     deleteCustomer.mockClear();
   });
@@ -276,7 +277,7 @@ describe("team checkout idempotency", () => {
   }
 
   test("a replayed Checkout Session that is still open is reused", async () => {
-    createSession.mockImplementationOnce(async () => replayedSession("cs_team", "https://checkout.stripe.com/c/team"));
+    queuedSessions = [replayedSession("cs_team", "https://checkout.stripe.com/c/team")];
 
     const response = await checkoutGet("plan=team&teamId=team-b");
 
@@ -287,9 +288,11 @@ describe("team checkout idempotency", () => {
 
   for (const status of ["complete", "expired"]) {
     test(`a replayed Checkout Session that is ${status} is replaced by a new one`, async () => {
-      createSession.mockImplementationOnce(async () => replayedSession("cs_stale", "https://checkout.stripe.com/c/stale"));
-      retrieveSession.mockImplementationOnce(async (id: string) => ({ id, url: null, status }));
-      createSession.mockImplementationOnce(async () => ({ id: "cs_fresh", url: "https://checkout.stripe.com/c/fresh" }));
+      queuedSessions = [
+        replayedSession("cs_stale", "https://checkout.stripe.com/c/stale"),
+        { id: "cs_fresh", url: "https://checkout.stripe.com/c/fresh" },
+      ];
+      queuedRetrievals = [{ id: "cs_stale", url: null, status }];
 
       const response = await checkoutGet("plan=team&teamId=team-b");
 
