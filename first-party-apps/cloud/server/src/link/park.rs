@@ -6,7 +6,7 @@
 //! link line of the same change. Only the loop thread runs, parks and
 //! re-runs ops; nothing here waits.
 
-use super::ops::{LINK_UNAVAILABLE, link_failure};
+use super::ops::{LINK_UNAVAILABLE, link_failure_for};
 use crate::api::{CloudError, ControlPlane, Request};
 use crate::ops::Server;
 use serde_json::Value;
@@ -113,7 +113,9 @@ impl<C: ControlPlane> Server<C> {
                         settled.push((op.id, answer));
                     }
                 }
-                Some(Err(failure)) => settled.push((op.id, Err(link_failure(failure)))),
+                Some(Err(failure)) => {
+                    settled.push((op.id, Err(link_failure_for(&op.machine, failure))));
+                }
             }
         }
         settled

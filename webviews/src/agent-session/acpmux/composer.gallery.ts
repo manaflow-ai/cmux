@@ -96,6 +96,19 @@ async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
 }
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+const historyPageB = user("B: update the retry helper", 6);
+const historyPageC = user("C: add the 429 test", 3);
+const historyPageRows = [
+  historyPageB,
+  assistant("Updated the helper.", 5),
+  historyPageC,
+  assistant("Added the test.", 2),
+];
+const historyPageOlderRows = [
+  user("A: inspect the backoff path", 9),
+  assistant("Inspected the path.", 8),
+  ...historyPageRows,
+];
 // Three prompts waiting for the running turn.
 const waiting = [
   { id: "q1", prompt: "Then add a test for the 429 path" },
@@ -858,6 +871,39 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-pasted" });
       },
     },
+    // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
+    // the paste", "if you paste that and then paste again, then you don't have to click it. It just
+    // does it." The same block pasted again opens its chip, as a click does (pastedChips.ts).
+    "text-pasted-again": {
+      note: "The same 40-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        ).join("\n");
+        const paste = () => {
+          const data = new view.DataTransfer();
+          data.setData("text/plain", log);
+          const event = new view.Event("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", { value: data });
+          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+        };
+        paste();
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        paste();
+        // Either way the second paste went: its text in the prompt with no chip, or a second chip.
+        await ctx.waitFor(() => {
+          const chips = ctx.document.querySelectorAll(".acpmux-attachment-pasted").length;
+          const prompt = ctx.document.querySelector(".acpmux-md")?.textContent ?? "";
+          return chips > 1 || (chips === 0 && prompt.includes("step 40: compiling"));
+        });
+        if (ctx.document.querySelector(".acpmux-attachment-pasted"))
+          throw new Error("the same long paste again must open its chip, never add a second");
+      },
+    },
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
@@ -1420,6 +1466,29 @@ export default agentPaneEntry({
         await ctx.type("draft");
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "draft");
+      },
+    },
+    "history-recall-older-page": {
+      note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
+      snapshot: chat(historyPageRows),
+      play: async (ctx) => {
+        const prompt = () =>
+          ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ?? "";
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "C: add the 429 test");
+        // Model the transcript page arriving after the user has started browsing. Row ids for B and
+        // C are kept from the mounted snapshot; only the older A turn is prepended.
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+          }
+        ).cmuxAcpmuxBridge;
+        if (!bridge) throw new Error("gallery pane bridge is unavailable");
+        bridge.receive(chat(historyPageOlderRows));
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "B: update the retry helper");
       },
     },
     "queued-steering": {
@@ -2049,6 +2118,26 @@ export default agentPaneEntry({
         );
       },
     },
+    "slash-menu-cmux-descriptions": {
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        if (
+          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
+          "Start a new chat with this transcript as its first prompt"
+        )
+          throw new Error("/import description does not explain the transcript's first prompt");
+        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+          throw new Error("/fork description does not describe its new chat");
+      },
+    },
     "reasoning-claude": {
       note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its effort levels (inline in the current row, or the Effort submenu) are the ones Opus 5.5 offers (Low, Medium, High, Max), with no Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
@@ -2432,6 +2521,16 @@ export default agentPaneEntry({
     disconnected: {
       note: "The daemon connection dropped.",
       snapshot: chat(finished, { connection: "disconnected" }),
+    },
+    // Leo 2026-10-29: "i literally can't stop you i clicked the stop button and it didnt do anything".
+    "working-stop-reconnecting": {
+      note: "Play: Stop while the pane reconnects to acpmux mid-turn (an acpmux restart): the app refuses the cancel, and the composer says Stopping… until the Stop goes out on the reconnect (stopThroughReconnect.ts).",
+      snapshot: chat(working, { isWorking: true, connection: "disconnected" }),
+      native: { "chat.cancel": { nativeError: { code: "native.not_connected" } } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-stopping]"));
+      },
     },
   },
 });
