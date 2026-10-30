@@ -101,7 +101,7 @@ export default componentEntry<Props>({
           many,
           anchorTop,
           anchorMiddle,
-          placement = "left",
+          placement,
           stress,
           inlineEffort = false,
           routeLayout,
@@ -110,6 +110,7 @@ export default componentEntry<Props>({
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [isFast, setFast] = useState(fast);
           const [selection, setSelection] = useState("");
+          const [stars, setStars] = useState<ReadonlySet<string>>(() => new Set(["claude/Opus 5.5"]));
           const available = many
             ? [
                 ...families,
@@ -150,7 +151,7 @@ export default componentEntry<Props>({
                       ? { effort: { ...extras.effort, onPick: (value: string) => setSelection(`effort:${value}`) } }
                       : {}),
                     inlineEffort,
-                    harnessPlacement: placement,
+                    ...(placement ? { harnessPlacement: placement } : {}),
                     routeLayout,
                     search: {
                       find: (query) =>
@@ -185,6 +186,15 @@ export default componentEntry<Props>({
                         setSelection(JSON.stringify({ family: model.family, model: model.id, effort: model.effort })),
                       onLaunch: (harness) => setSelection(harness),
                       onAddHarness: () => undefined,
+                      stars: {
+                        has: (model) => stars.has(model.id),
+                        toggle: (model) =>
+                          setStars((current) => {
+                            const next = new Set(current);
+                            if (!next.delete(model.id)) next.add(model.id);
+                            return next;
+                          }),
+                      },
                     },
                   }}
                   onMore={() => undefined}

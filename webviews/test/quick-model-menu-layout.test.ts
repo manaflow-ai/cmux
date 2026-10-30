@@ -254,6 +254,35 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("the target picker: themed symbols on top, a star and ⌘N on each row, Legacy models", async () => {
+    // Leo 2026-10-30: "we're going to go with the harness symbols at the top. like this, but symbols
+    // at the top, and themed, and combined with the effort side dropdown inside it".
+    const page = await open("claude");
+    try {
+      // Themed: the symbols draw in the text colour (no brand fill), the selected one lit.
+      const fills = await page
+        .locator(".acpmux-quick-rail-tab .agent-mark")
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("fill")));
+      expect(fills.length).toBeGreaterThan(0);
+      expect(fills.every((fill) => fill === "currentColor")).toBe(true);
+      const colors = await page.locator(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)").evaluateAll((nodes) =>
+        nodes.map((node) => ({ on: node.getAttribute("aria-pressed") === "true", color: getComputedStyle(node).color })),
+      );
+      const lit = colors.find((tab) => tab.on)!;
+      expect(colors.filter((tab) => !tab.on).every((tab) => tab.color !== lit.color)).toBe(true);
+      // ⌘N on the rows, and a star on the starred one.
+      const keys = await page.locator(".acpmux-quick-list .ui-menu-shortcut").allInnerTexts();
+      expect(keys.length).toBeGreaterThan(0);
+      expect(keys.every((key) => /^⌘[1-9]$/.test(key.trim()))).toBe(true);
+      expect(await page.locator(".acpmux-quick-star[aria-pressed=true]").count()).toBe(1);
+      // A harness's other models sit under Legacy models with their count.
+      expect(await page.getByText("Legacy models").count()).toBe(1);
+      expect(await page.getByText(/^5 models$/).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("many harnesses wrap into whole symbols, never one cut at the strip's edge", async () => {
     // Leo 2026-10-28: "don't have bullshit end halfway on a fucking icon when there's lots of harnesses".
     for (const width of [320, 640]) {
@@ -264,7 +293,8 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
           .locator(".acpmux-quick-rail-tab")
           .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
         expect(tabs.length).toBeGreaterThan(8);
-        const visible = tabs.filter((tab) => tab.y < rail.y + rail.height && tab.y + tab.height > rail.y);
+        // A tab the strip shows any of (more than a pixel) must be whole.
+        const visible = tabs.filter((tab) => tab.y < rail.y + rail.height - 1 && tab.y + tab.height > rail.y + 1);
         for (const tab of visible) {
           expect(tab.x).toBeGreaterThanOrEqual(rail.x - 0.5);
           expect(tab.x + tab.width).toBeLessThanOrEqual(rail.x + rail.width + 0.5);

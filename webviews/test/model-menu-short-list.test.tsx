@@ -267,7 +267,8 @@ for (const [title, harness, family] of [
       await mount({ harness, family });
       await open();
       const rows = modelRows();
-      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓");
+      // The symbols row's menu names its keys ⌘1 to ⌘9 (a bare digit picks the same row).
+      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓");
       expect(keysShown).toEqual(
         rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
       );

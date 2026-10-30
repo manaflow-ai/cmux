@@ -76,6 +76,9 @@ type MarkProps = {
   reserve?: boolean;
   /** Drawn instead when the agent has no mark and no harness icon (a generic agent glyph). */
   fallback?: React.ReactNode;
+  /** Themed: the mark in the surrounding text colour (`currentColor`), with no brand colour or tile,
+      so a row of marks takes the theme's colours and its selected one can be lit. */
+  tint?: boolean;
 };
 
 /// A harness's own icon wins over the mark its id suggests when its profile sets one ("claude-sr2"
@@ -177,11 +180,11 @@ function HarnessIcon({
   );
 }
 
-function BrandMark({ agent, size = 16, label, onDark, reserve, fallback }: MarkProps) {
+function BrandMark({ agent, size = 16, label, onDark, reserve, fallback, tint }: MarkProps) {
   const key = agentBrand(agent);
   const [scheme, style] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const dark = onDark ?? scheme === "dark";
-  const brand = style === "brand";
+  const brand = style === "brand" && !tint;
   // useId's punctuation would need escaping inside url(#…).
   const gradientId = `agent-mark${useId().replace(/[^\w-]/g, "")}`;
   const full: AgentBrandSpec | undefined = key ? AGENT_BRANDS[key] : undefined;
@@ -203,7 +206,7 @@ function BrandMark({ agent, size = 16, label, onDark, reserve, fallback }: MarkP
       />
     ) : null;
   const tile = brand ? spec.tile : undefined;
-  const fill = brand ? tone(spec.tone, dark) : dark ? "#fff" : "#000";
+  const fill = tint ? "currentColor" : brand ? tone(spec.tone, dark) : dark ? "#fff" : "#000";
   const drawPath = (path: AgentBrandSpec["paths"][number], index: number, paint?: string) => {
     const own = brand && path.tone ? tone(path.tone, dark) : undefined;
     const opacity = brand ? undefined : path.monoOpacity;

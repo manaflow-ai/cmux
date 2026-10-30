@@ -341,7 +341,12 @@ test("a number key picks that model in place", async () => {
   await open();
   const models = modelRows(menu()!);
   // The running model's row shows its check in place of its number.
-  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["✓", "2", "3", "4"]);
+  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓")).toEqual([
+    "✓",
+    "2",
+    "3",
+    "4",
+  ]);
   const third = models[2]!;
   const name = third.querySelector(".acpmux-menu-label")!.textContent!;
   await act(async () => {

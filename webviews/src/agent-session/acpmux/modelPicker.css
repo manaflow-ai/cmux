@@ -460,15 +460,30 @@
   gap: var(--acpmux-symbols-gap);
   border-inline-end: 0;
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  padding: 6px;
-  max-height: calc(3 * var(--ui-row-height) + 2 * var(--acpmux-symbols-gap) + 12px);
+  /* The bottom inset is one gap, so a fourth row starts exactly where three rows end. */
+  padding: 6px 6px var(--acpmux-symbols-gap);
+  max-height: calc(6px + 3 * var(--ui-row-height) + 3 * var(--acpmux-symbols-gap));
   overflow-x: hidden;
   overflow-y: auto;
   scroll-snap-type: y mandatory;
   scroll-padding-block: 6px;
   scrollbar-width: none;
 }
-.acpmux-quick-placement-symbols .acpmux-quick-rail-tab { scroll-snap-align: start; }
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab { position: relative; scroll-snap-align: start; }
+/* Themed: each harness's symbol in the theme's text colours (AgentMark `tint`), muted at rest; the
+   selected harness lit in the text colour on the wash, with the accent bar under it. */
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab { color: var(--agent-muted); }
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab:hover,
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab[aria-pressed="true"] { color: var(--agent-text); }
+.acpmux-quick-placement-symbols .acpmux-quick-rail-tab[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 25%;
+  inset-block-end: -3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--agent-accent, var(--agent-text));
+}
 .acpmux-quick-placement-symbols .acpmux-quick-rail-tab {
   justify-content: center;
   min-width: var(--ui-row-height);
@@ -688,3 +703,25 @@
   display: inline-flex;
   gap: var(--ds-space-1);
 }
+
+/* A model row's star at its trailing edge: shown on a starred row, else while the row is pointed at. */
+.acpmux-quick-star {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-inline-end: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--agent-muted);
+  visibility: hidden;
+}
+.acpmux-quick-star[aria-pressed="true"],
+.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-star { visibility: visible; }
+.acpmux-quick-star:hover { background: var(--acpmux-menu-hover); color: var(--agent-text); }
+/* Legacy models and its count on one row, the count quiet after the name. */
+.acpmux-quick-legacy { display: flex; align-items: baseline; gap: var(--ds-space-2); min-width: 0; }
+.acpmux-quick-legacy .acpmux-quick-value { margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-caption); }
