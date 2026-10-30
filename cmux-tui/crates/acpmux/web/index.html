@@ -708,7 +708,9 @@
     const fromDraft = draft;
     let sessionId = selected, accepted = false;
     const uploads = [];
-    const accept = () => {
+    // finished: called from the final session/prompt response, after the turn ran. The turn's own
+    // status events are then authoritative, so acceptance must not mark it running or queued again.
+    const accept = (finished) => {
       if (accepted) return;
       accepted = true; sendingPrompt = false; promptAccepts.delete(promptId);
       // A session switch or a new edit during the upload belongs to the person.
@@ -718,7 +720,7 @@
         renderAttachments(); autosize();
       }
       const t = state.transcripts.get(sessionId) || newTranscript(); state.transcripts.set(sessionId, t);
-      const busy = t.status === 'running' || t.status === 'waiting';
+      const busy = !finished && (t.status === 'running' || t.status === 'waiting');
       // user_message or queued may already have arrived: give that row the previews instead of adding a second.
       const known = t.items.findIndex(item => item.type === 'user' && item.promptId === promptId);
       if (known >= 0) {
@@ -728,7 +730,7 @@
         t.items.push({ type: 'user', text, images, promptId, steer, local: true, queued: busy && !steer, at: Date.now() });
         touch(t, t.items.length - 1);
       }
-      if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
+      if (!steer && !busy && !finished) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
       scheduleRender(true);
     };
     try {
@@ -745,9 +747,9 @@
         }
       }
       const blocks = await promptBlocks(sessionId, text, images, uploads);
-      promptAccepts.set(promptId, accept);
+      promptAccepts.set(promptId, () => accept(false));
       await call('session/prompt', { sessionId, prompt: blocks, _meta: { acpmux: { steer, promptId } } });
-      accept(); // Older servers may only send the final response.
+      accept(true); // Older servers, or a dropped acceptance notice, leave only the final response.
     } catch (error) {
       if (!accepted) {
         await cancelPromptUploads(sessionId, uploads);
