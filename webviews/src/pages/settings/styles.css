@@ -855,6 +855,11 @@ mark {
   margin-top: 8px;
 }
 
+.clear-browsing-data-error {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
 .host-toggle {
   width: 100%;
   padding: 0;
@@ -916,6 +921,32 @@ mark {
 
 .host-field > .field {
   width: 240px;
+}
+
+/* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
+.host-field[data-clear-browsing-data] {
+  flex-wrap: wrap;
+}
+
+.host-field[data-clear-browsing-data] > .row-help {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > .field {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.host-field[data-clear-browsing-data] > .host-actions {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .host-swatches {
