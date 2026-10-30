@@ -30,6 +30,8 @@ export type PickerRowCase = {
   subtitle?: string;
   /** Containers that make a section (rows in different ones are in different sections). */
   section?: string;
+  /** Rows that open a section under a heading of their own (drawn by the row, e.g. a ::before). */
+  sectionStart?: string;
   /**
    * "fail" holds the picker to the rule. "warn" (an audit that still has breaks) prints what it
    * measured and passes, until the PR that fixes it flips it.
@@ -55,7 +57,8 @@ export type PickerBoundary = { after: number; gap: number; separator: boolean };
 export type PickerGeometry = { rows: PickerRow[]; boundaries: PickerBoundary[] };
 
 /** Reads the open picker's rows. */
-export async function measurePickerRows(page: Page, item: PickerRowCase): Promise<PickerGeometry> {
+export async function measurePickerRows(page: Page, { open: _open, ...selectors }: PickerRowCase): Promise<PickerGeometry> {
+  // Only plain values cross into the page; `open` runs on this side.
   return page.evaluate((item) => {
     const menu = document.querySelector<HTMLElement>(item.menu);
     if (!menu) throw new Error(`no menu ${item.menu}`);
@@ -102,7 +105,8 @@ export async function measurePickerRows(page: Page, item: PickerRowCase): Promis
       const previous = rows[index - 1];
       if (previous) {
         const container = (element: Element) => (item.section ? element.closest(item.section) : null);
-        if (container(previous) !== container(row) || between(previous, row).length > 0) section += 1;
+        const headed = item.sectionStart ? row.matches(item.sectionStart) : false;
+        if (headed || container(previous) !== container(row) || between(previous, row).length > 0) section += 1;
       }
       const box = row.getBoundingClientRect();
       const icon = row.querySelector(item.icon);
@@ -131,13 +135,14 @@ export async function measurePickerRows(page: Page, item: PickerRowCase): Promis
       const container = (element: Element) => (item.section ? element.closest(item.section) : null);
       const inBetween = between(a, b);
       const separator =
+        (item.sectionStart ? b.matches(item.sectionStart) : false) ||
         inBetween.some((element) => element.getBoundingClientRect().height <= 2 || ruled(element, "top") || ruled(element, "bottom")) ||
         ruled(container(a), "bottom") ||
         ruled(container(b), "top");
       boundaries.push({ after: index - 1, gap: measured[index]!.top - measured[index - 1]!.bottom, separator });
     }
     return { rows: measured, boundaries };
-  }, item);
+  }, selectors);
 }
 
 /** What breaks the rule, as sentences; empty when the picker keeps it. */
