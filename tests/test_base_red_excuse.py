@@ -98,6 +98,49 @@ class InProgressJobLogGitHub(FakeGitHub):
         raise AssertionError(args)
 
 
+class LargeJobListGitHub(excuse.GitHub):
+    """The real client and pager over FakeGitHub's data, through `gh api` calls only.
+
+    GitHub answers a run's job listing with HTTP 502 when a page holds more than 30 jobs' steps:
+    seen on 2026-10-30 for the 34-job web run 41098664586, where per_page=100 and 50 failed every
+    time and per_page=30 answered, so no red in that run could be judged.
+    """
+
+    def __init__(self):
+        self.data = FakeGitHub()
+        self.calls: list[str] = []
+
+    def run(self, args):
+        assert args[0] == "api", args
+        route = args[-1]
+        self.calls.append(route)
+        path, _, query = route.partition("?")
+        params = dict(part.split("=", 1) for part in query.split("&") if part)
+        if path.endswith("/jobs"):
+            per_page, page = int(params["per_page"]), int(params["page"])
+            if per_page > 30:
+                raise excuse.Refused("GitHub evidence request failed: gh: Server Error (HTTP 502)")
+            jobs = self.data.json(f"{path}?filter=latest&per_page=100", paginate=True)[0]["jobs"]
+            return json.dumps({"total_count": len(jobs), "jobs": jobs[(page - 1) * per_page:page * per_page]})
+        if path.endswith("/logs"):
+            return self.data.logs[int(path.rsplit("/", 2)[-2])]
+        return json.dumps(self.data.json(route))
+
+
+class JobListPages(unittest.TestCase):
+    def test_a_run_with_many_jobs_is_still_judged(self):
+        github = LargeJobListGitHub()
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+
+    def test_job_lists_are_read_in_pages_of_30(self):
+        github = LargeJobListGitHub()
+        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        job_reads = [route for route in github.calls if "/jobs?" in route]
+        self.assertTrue(job_reads)
+        self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
+
+
 class JobLogEndpoint(unittest.TestCase):
     def test_finished_red_job_is_classified_while_its_run_is_in_progress(self):
         github = InProgressJobLogGitHub()
