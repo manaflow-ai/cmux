@@ -55,10 +55,14 @@ async function mount(accepts: boolean, chat?: () => string | undefined) {
   const calls: [string, unknown][] = [];
   const attached: { audio: DictationRecording; textThen: string }[] = [];
   const omitted: string[] = [];
-  const elsewhere: { audio: DictationRecording; session: string }[] = [];
+  let elsewhere = 0;
+  let submitted = 0;
   let text = "";
   const field: DictationField = {
     focus() {},
+    submit() {
+      submitted += 1;
+    },
     focused: () => true,
     text: () => ({ value: text, selectionStart: text.length, selectionEnd: text.length }),
     writeText(value: string) {
@@ -77,11 +81,12 @@ async function mount(accepts: boolean, chat?: () => string | undefined) {
   }
   const audio: DictationAudio = {
     accepts,
+    chat,
+    elsewhere: () => {
+      elsewhere += 1;
+    },
     attach: (a) => attached.push({ audio: a, textThen: text }),
     omitted: (reason) => omitted.push(reason),
-    ...(chat
-      ? { chat, elsewhere: (a: DictationRecording, session: string) => elsewhere.push({ audio: a, session }) }
-      : {}),
   };
   const container = document.createElement("div");
   host.append(container);
@@ -89,9 +94,10 @@ async function mount(accepts: boolean, chat?: () => string | undefined) {
   await act(async () => root!.render(<Pane audio={audio} />));
   return {
     calls,
+    elsewhere: () => elsewhere,
+    submitted: () => submitted,
     attached,
     omitted,
-    elsewhere,
     text: () => text,
     rerender: (next: boolean) => act(async () => root!.render(<Pane audio={{ ...audio, accepts: next }} />)),
   };
@@ -112,68 +118,6 @@ test("a harness that takes audio gets the recording before the words, and the ho
   expect(pane.calls.at(-1)).toEqual(["dictation.audio", { enabled: false }]);
   act(() => root?.unmount());
   root = undefined;
-});
-
-// Review of #27012 (P2): the pane moved from chat A to a local chat B (its harness takes audio)
-// while A's recording closed. The last update attached A's file to B's composer, and auto-send could
-// send A's recording to B. The update now names the recording's chat, and the pane attaches it only
-// there; one made in another chat is handed to `elsewhere` (App.tsx keeps an inline one with that
-// chat's draft and says it was not attached here).
-test("a recording made in another chat is not attached to the one the pane shows now", async () => {
-  const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
-  let showing = "chat-b";
-  const pane = await mount(true, () => showing);
-  const fromA = {
-    mimeType: "audio/wav",
-    path: "/tmp/cmux-dictation/a/Recording.wav",
-    byteCount: 9_600_044,
-    session: "chat-a",
-  };
-  await act(async () => {
-    deliverDictation({ state: "listening", text: "for a", level: 0.4, cancelled: false });
-    deliverDictation({ state: "idle", text: "for a", level: 0, cancelled: false, audio: fromA });
-  });
-  expect(pane.attached).toEqual([]);
-  expect(pane.elsewhere).toEqual([{ audio: fromA, session: "chat-a" }]);
-  // One made in the chat the pane shows is attached; so is one from a host that names no chat.
-  showing = "chat-a";
-  await act(async () => {
-    deliverDictation({ state: "listening", text: "again", level: 0.4, cancelled: false });
-    deliverDictation({ state: "idle", text: "again", level: 0, cancelled: false, audio: fromA });
-    deliverDictation({ state: "listening", text: "old host", level: 0.4, cancelled: false });
-    deliverDictation({ state: "idle", text: "old host", level: 0, cancelled: false, audio: clip });
-  });
-  expect(pane.attached.map((entry) => entry.audio)).toEqual([fromA, clip]);
-  expect(pane.elsewhere).toHaveLength(1);
-  act(() => root?.unmount());
-  root = undefined;
-});
-
-test("a short recording made in another chat waits in that chat's draft; a long one is not kept there", async () => {
-  const { keepRecordingWithChat } = await import("../src/agent-session/acpmux/composer/keptAttachments");
-  const drafts = new Map<string, unknown[]>([["chat-a", [{ id: "typed", kind: "text", name: "notes.txt" }]]]);
-  const kept = {
-    read: async (session: string) => (drafts.get(session) ?? []) as never[],
-    write: async (session: string, chips: unknown[]) => {
-      drafts.set(session, chips);
-      return null;
-    },
-  };
-  expect(await keepRecordingWithChat({ ...clip, session: "chat-a" }, "Voice recording", "chat-a", kept)).toBe(true);
-  expect(drafts.get("chat-a")).toMatchObject([{ id: "typed" }, { kind: "audio", data: clip.data }]);
-  expect(drafts.has("chat-b")).toBe(false);
-  const long = {
-    mimeType: "audio/wav",
-    path: "/tmp/cmux-dictation/a/Recording.wav",
-    byteCount: 9_600_044,
-    session: "chat-a",
-  };
-  expect(await keepRecordingWithChat(long, "Voice recording", "chat-a", kept)).toBe(false);
-  expect(drafts.get("chat-a")).toHaveLength(2);
-  const { translate } = await import("../src/agent-session/acpmux/i18n");
-  expect(translate(recordingLeftOutNotice("otherChat"), {}, "en")).toBe(
-    "This voice recording was made in another chat, so it wasn't attached here.",
-  );
 });
 
 test("a cancelled session attaches nothing", async () => {
@@ -302,6 +246,43 @@ test("a long recording goes to a local chat as its saved file, of any size", () 
   expect(recordingLeftOutNotice("elsewhere")).toBe("dictation.recordingElsewhere");
   // One that fits a prompt still goes as an audio block, local or not.
   expect(recordingAttachment(clip, "Voice recording", false)).toMatchObject({ kind: "audio", data: clip.data });
+});
+
+// A slow writer lets the pane navigate before its last recording update arrives.
+test("a recording that finishes in another chat never attaches, splices or auto-sends there", async () => {
+  const { deliverDictation, configureDictation } = await import("../src/agent-session/acpmux/dictation");
+  configureDictation({ dictation: { autoSend: true } });
+  for (const [origin, writeFails] of [
+    ["chat-a", false],
+    ["", false],
+    ["chat-a", true],
+    ["", true],
+  ] as const) {
+    let shown: string = origin;
+    const pane = await mount(true, () => shown || undefined);
+    await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
+    shown = "chat-b";
+    await act(async () =>
+      deliverDictation({
+        state: "idle",
+        text: "private words",
+        level: 0,
+        cancelled: false,
+        session: origin,
+        audio: writeFails
+          ? undefined
+          : { mimeType: "audio/wav", path: "/private/chat-a/Recording.wav", byteCount: 9_600_080 },
+        audioOmitted: writeFails ? "writeFailed" : undefined,
+      }),
+    );
+    expect(pane.attached).toEqual([]);
+    expect(pane.text()).toBe("");
+    expect(pane.submitted()).toBe(0);
+    expect(pane.elsewhere()).toBe(1);
+    await act(async () => root?.unmount());
+    root = undefined;
+  }
+  configureDictation(undefined);
 });
 
 // A chat on another computer: the host sends the WAV it wrote, from its own disk, to the chat's

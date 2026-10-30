@@ -3,6 +3,8 @@
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
 
+use cmux_json::JsonSet as _;
+
 mod auxiliary;
 mod browser_engine;
 mod close_value;
@@ -188,7 +190,7 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
     let mut response = serde_json::to_value(ResponseEnvelope::failure(id, error))
         .expect("resource failure envelopes are serializable");
     if let Some(numeric_id) = numeric_id {
-        response["id"] = numeric_id;
+        response.set("id", numeric_id);
     }
     response
 }

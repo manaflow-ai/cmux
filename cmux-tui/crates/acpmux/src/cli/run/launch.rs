@@ -5,9 +5,10 @@
 //! the same command again gives the same session and worktree: a named
 //! session that already runs is reused (its first prompt is not sent again).
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
 
 use crate::cli::command::NewArgs;
@@ -76,6 +77,9 @@ impl Launch {
             }
         };
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
+        if let Some(group) = &args.group {
+            validate_group(group)?;
+        }
         if args.reuse && name.is_none() {
             bail!("--reuse needs --name: the session to reuse is found by it");
         }
@@ -150,6 +154,23 @@ pub(crate) fn session_name(name: &str) -> Result<String> {
     Ok(out)
 }
 
+/// A group is a person's label, not a cmux object id. Rejecting ids before
+/// `session/new` keeps a bad launcher from creating persistent sidebar junk.
+pub(crate) fn validate_group(group: &str) -> Result<()> {
+    let label = group.trim();
+    let lower = label.to_ascii_lowercase();
+    let id_prefix = ["grp_", "ws_", "tab_", "pane_", "win_", "workspace_group:"]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    let uuid = uuid::Uuid::parse_str(label).is_ok();
+    if label.is_empty() || id_prefix || uuid {
+        bail!(
+            "--group must be a non-empty human label, not a cmux id; use e.g. `--group \"GUI push\"`, or omit --group"
+        );
+    }
+    Ok(())
+}
+
 /// `REPO[@BASE]`: the last `@` splits off the base (a ref or commit),
 /// unless the whole of it is a folder.
 fn split_worktree(spec: &str) -> (&str, Option<&str>) {
@@ -181,6 +202,16 @@ const MAX_PROMPT_FILE: u64 = 1 << 20;
 
 /// The prompt file's text, read at call time; a missing or empty file fails.
 fn read_prompt_file(path: &Path) -> Result<String> {
+    read_prompt_file_with(path, std::io::stdin().lock())
+}
+
+/// Read a prompt file, using `stdin` when `path` names the already-open fd 0.
+/// Keeping the reader injectable lets tests cover the fd-0 paths without replacing the process stdin.
+fn read_prompt_file_with<R: Read>(path: &Path, stdin: R) -> Result<String> {
+    if is_stdin_path(path) {
+        return read_prompt_reader(path, stdin);
+    }
+
     let abs =
         if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
     let len = std::fs::metadata(&abs)
@@ -189,10 +220,31 @@ fn read_prompt_file(path: &Path) -> Result<String> {
     if len > MAX_PROMPT_FILE {
         bail!("--prompt-file {} is {len} bytes, more than 1 MiB", abs.display());
     }
-    let text = std::fs::read_to_string(&abs)
+    let file = std::fs::File::open(&abs)
         .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", abs.display()))?;
+    read_prompt_reader(&abs, file)
+}
+
+fn is_stdin_path(path: &Path) -> bool {
+    matches!(
+        path.to_str(),
+        Some("-") | Some("/dev/stdin") | Some("/proc/self/fd/0") | Some("/dev/fd/0")
+    )
+}
+
+fn read_prompt_reader<R: Read>(path: &Path, reader: R) -> Result<String> {
+    let mut bytes = Vec::with_capacity((MAX_PROMPT_FILE + 1) as usize);
+    reader
+        .take(MAX_PROMPT_FILE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", path.display()))?;
+    if bytes.len() as u64 > MAX_PROMPT_FILE {
+        bail!("--prompt-file {} is more than 1 MiB", path.display());
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", path.display()))?;
     if text.trim().is_empty() {
-        bail!("--prompt-file {} is empty", abs.display());
+        bail!("--prompt-file {} is empty", path.display());
     }
     Ok(text)
 }
@@ -216,7 +268,10 @@ pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>
         Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
-            let none = m.contains("no session") || m.contains("not found") || m.contains("matches");
+            let none = m.contains("no session")
+                || m.contains("no local session")
+                || m.contains("not found")
+                || m.contains("matches");
             if none { Ok(None) } else { Err(e) }
         }
     }
@@ -286,35 +341,85 @@ fn workspace_key(id: &str) -> String {
 /// app's `agent open` action (`cmux agent open`), optionally named `title`.
 /// Unnamed launches omit the title so a peer's generated session name cannot
 /// accidentally match another session's workspace in the same group.
-/// A remote create returns the ID mirrored by the local daemon. Open that
-/// ID here, without `--host`: the workspace belongs to this Mac and its
+/// A remote create's ID stays qualified with its owning peer. Open that
+/// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
-pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
+pub(super) fn show_in_group(
+    id: &str,
+    session_name: &str,
+    title: Option<&str>,
+    group: &str,
+    daemon_cli_path: Option<&std::path::Path>,
+) -> Result<()> {
     let key = workspace_key(id);
     let mut args = vec!["agent", "open", id];
     if let Some(title) = title {
         args.extend(["--name", title]);
     }
     args.extend(["--key", &key, "--group", group]);
-    let retry = std::iter::once("cmux")
+    // Prefer the app's bundled CLI when the daemon was started by the app.
+    // A plain shell can otherwise resolve an older standalone `cmux` first.
+    let cli =
+        select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
+    let path_cli = PathBuf::from("cmux");
+    let (cli, result) = run_with_fallback(&cli, &args, &path_cli);
+    let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = std::process::Command::new("cmux").args(args).output().with_context(|| {
-        format!(
-            "the session was created, but --group could not run cmux; put the running Mac app's \
-             bundled CLI on PATH, then retry on that Mac: {retry}"
+    let out = result.map_err(|error| {
+        anyhow::anyhow!(
+            "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
+             bundled CLI on PATH, then retry on that Mac: {command}"
         )
     })?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: {retry}: {}",
+            "session {session_name} was created, but the cmux app did not show it ({}): {}; retry only the open: {command}",
+            out.status,
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
     Ok(())
+}
+
+fn run_with_fallback(
+    primary: &Path,
+    args: &[&str],
+    fallback: &Path,
+) -> (PathBuf, std::io::Result<std::process::Output>) {
+    let result = std::process::Command::new(primary).args(args).output();
+    if primary != fallback && !result.as_ref().is_ok_and(|output| output.status.success()) {
+        let fallback_result = std::process::Command::new(fallback).args(args).output();
+        return (fallback.to_path_buf(), fallback_result);
+    }
+    (primary.to_path_buf(), result)
+}
+
+fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
+    for path in [daemon_cli_path.map(Path::to_path_buf), env_cli_path.map(PathBuf::from)]
+        .into_iter()
+        .flatten()
+    {
+        if is_executable_file(&path) {
+            return path;
+        }
+    }
+    PathBuf::from("cmux")
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 #[cfg(test)]
@@ -327,14 +432,45 @@ mod tests {
             #[command(flatten)]
             args: NewArgs,
         }
-        let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let brief = dir.join("brief.md");
+        // A brief of its own per call: tests run in parallel, and a shared
+        // file one test rewrites (truncate, then write) reads empty in another.
+        let dir = tempfile::tempdir().unwrap();
+        let brief = dir.path().join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         let mut argv = vec!["new".to_owned()];
         argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
         let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
         Launch::prepare(&new.args).unwrap()
+    }
+
+    #[test]
+    fn stale_bundled_cli_falls_back_to_path_name() {
+        let stale = std::env::temp_dir().join(format!("acpmux-stale-cli-{}", std::process::id()));
+        assert_eq!(select_cli(Some(&stale), None), Path::new("cmux"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failing_bundled_cli_retries_the_path_cli() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-cli-fallback-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let bundled = root.join("bundled");
+        let path_cli = root.join("path-cmux");
+        std::fs::write(&bundled, "#!/bin/sh\nexit 7\n").unwrap();
+        std::fs::write(&path_cli, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for path in [&bundled, &path_cli] {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        }
+        let args = ["agent", "open", "session-id"];
+        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli);
+        assert_eq!(chosen, path_cli);
+        assert!(output.unwrap().status.success());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -356,6 +492,23 @@ mod tests {
         // One worktree, one session: the name is the worktree's.
         assert_eq!(session_name("Lane_A").unwrap(), session_name("lane-a").unwrap());
         assert!(session_name("//").is_err());
+    }
+
+    #[test]
+    fn a_group_is_a_human_label_and_never_an_object_id() {
+        for group in [
+            "",
+            "   ",
+            "grp_012345",
+            "ws_012345",
+            "workspace_group:42",
+            "550e8400-e29b-41d4-a716-446655440000",
+        ] {
+            let error = validate_group(group).unwrap_err().to_string();
+            assert!(error.contains("human label"), "{group:?}: {error}");
+            assert!(error.contains("omit --group"), "{group:?}: {error}");
+        }
+        assert!(validate_group("GUI push").is_ok());
     }
 
     #[test]
@@ -456,6 +609,22 @@ mod tests {
     }
 
     #[test]
+    fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
+        let error = show_in_group(
+            "session-id",
+            "lane-name",
+            None,
+            "remote-audit",
+            Some(Path::new("/definitely/missing/cmux")),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("session lane-name was created"), "{error}");
+        assert!(error.contains("cmux agent open session-id"), "{error}");
+        assert!(error.contains("--group remote-audit"), "{error}");
+    }
+
+    #[test]
     fn an_empty_or_missing_prompt_file_fails() {
         let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -466,6 +635,20 @@ mod tests {
         let brief = dir.join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         assert_eq!(read_prompt_file(&brief).unwrap(), "do it\n");
+        let oversized = dir.join("oversized.md");
+        std::fs::write(&oversized, vec![b'x'; (MAX_PROMPT_FILE + 1) as usize]).unwrap();
+        assert!(read_prompt_file(&oversized).unwrap_err().to_string().contains("more than 1 MiB"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stdin_prompt_paths_read_from_the_already_open_stdin() {
+        for path in ["-", "/dev/stdin", "/proc/self/fd/0", "/dev/fd/0"] {
+            assert_eq!(
+                read_prompt_file_with(Path::new(path), std::io::Cursor::new("do it\n")).unwrap(),
+                "do it\n",
+                "{path}"
+            );
+        }
     }
 }

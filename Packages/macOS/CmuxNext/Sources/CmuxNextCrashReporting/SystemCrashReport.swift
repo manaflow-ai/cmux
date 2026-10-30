@@ -10,6 +10,20 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         public var imageIndex: Int
         public var imageOffset: UInt64
         public var symbol: String?
+        /// The offset into ``symbol`` macOS gave (`symbolLocation`), nil without a symbol.
+        public var symbolLocation: UInt64?
+
+        /// - Parameters:
+        ///   - imageIndex: The frame's image in ``SystemCrashReport/images``.
+        ///   - imageOffset: Its offset from the image header.
+        ///   - symbol: The name macOS gave, nil for a stripped image.
+        ///   - symbolLocation: The offset into `symbol`.
+        public init(imageIndex: Int, imageOffset: UInt64, symbol: String?, symbolLocation: UInt64? = nil) {
+            self.imageIndex = imageIndex
+            self.imageOffset = imageOffset
+            self.symbol = symbol
+            self.symbolLocation = symbolLocation
+        }
     }
 
     public struct Image: Sendable, Equatable {
@@ -25,9 +39,24 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     /// `procPath` as macOS wrote it (the user name already replaced with `USER`).
     public var processPath: String
     public var incident: String?
+    /// The crashed build's version as the header gives it (`app_version build_version`), nil when absent.
+    public var version: String?
     public var exceptionType: String
     public var signal: String?
     public var termination: String?
+    /// The exception codes as macOS wrote them (`0x…, 0x…`).
+    public var exceptionCodes: String?
+    /// The exception's subtype: for a bad access, the kind and the faulting
+    /// address (`KERN_INVALID_ADDRESS at 0x000000000000001e`).
+    public var exceptionSubtype: String?
+    /// The index of the crashed thread.
+    public var faultingThread: Int = 0
+    /// The crashed thread's dispatch queue or name, when it had one.
+    public var faultingQueue: String?
+    /// When the process started.
+    public var launched: Date?
+    /// When macOS captured the crash.
+    public var captured: Date?
     /// Innermost frame first, as in the report.
     public var frames: [Frame]
     /// The throw stack of an Objective-C exception, innermost first.
@@ -68,10 +97,18 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         processName = body["procName"] as? String ?? header["name"] as? String ?? "unknown"
         processPath = body["procPath"] as? String ?? ""
         incident = body["incident"] as? String ?? header["incident_id"] as? String
+        let versionParts = [header["app_version"] as? String, header["build_version"] as? String].compactMap { $0 }
+        version = versionParts.isEmpty ? nil : versionParts.joined(separator: " ")
         let exception = body["exception"] as? [String: Any] ?? [:]
         exceptionType = exception["type"] as? String ?? "EXC_CRASH"
         signal = exception["signal"] as? String
         termination = (body["termination"] as? [String: Any])?["indicator"] as? String
+        exceptionCodes = exception["codes"] as? String
+        exceptionSubtype = exception["subtype"] as? String
+        self.faultingThread = faulting
+        faultingQueue = threads[faulting]["queue"] as? String ?? threads[faulting]["name"] as? String
+        launched = (body["procLaunch"] as? String).flatMap(Self.date)
+        captured = (body["captureTime"] as? String).flatMap(Self.date)
         frames = Self.frames(threads[faulting]["frames"])
         exceptionFrames = Self.frames(body["lastExceptionBacktrace"])
         images = (body["usedImages"] as? [[String: Any]] ?? []).map { image in
@@ -87,8 +124,28 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     private static func frames(_ value: Any?) -> [Frame] {
         (value as? [[String: Any]] ?? []).compactMap { frame in
             guard let index = frame["imageIndex"] as? Int, let offset = frame["imageOffset"] as? NSNumber else { return nil }
-            return Frame(imageIndex: index, imageOffset: offset.uint64Value, symbol: frame["symbol"] as? String)
+            return Frame(imageIndex: index, imageOffset: offset.uint64Value, symbol: frame["symbol"] as? String,
+                         symbolLocation: (frame["symbolLocation"] as? NSNumber)?.uint64Value)
         }
+    }
+
+    /// The process's life from launch to the crash capture, nil when the report lacks either time.
+    public var uptime: TimeInterval? {
+        guard let launched, let captured else { return nil }
+        return captured.timeIntervalSince(launched)
+    }
+
+    /// A report time (`2026-10-27 21:03:37.6504 -0700`); the fraction has 2 to 6 digits.
+    static func date(_ text: String) -> Date? {
+        let parts = text.split(separator: " ")
+        guard parts.count == 3 else { return nil }
+        let clock = parts[1].split(separator: ".", maxSplits: 1)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
+        guard let whole = formatter.date(from: "\(parts[0]) \(clock[0]) \(parts[2])") else { return nil }
+        guard clock.count == 2, let fraction = Double("0." + clock[1]) else { return whole }
+        return whole.addingTimeInterval(fraction)
     }
 
     /// Whether the crashed process is a binary inside `bundlePath` other

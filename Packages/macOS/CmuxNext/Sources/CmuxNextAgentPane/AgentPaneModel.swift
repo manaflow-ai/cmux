@@ -13,6 +13,8 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The page commands the native palette may run in this chat now (`pane.commandAvailability`).
+    public internal(set) var pageCommands: Set<String> = []
     /// The page drew its first frame after the handshake (`pane.painted`), the
     /// first that shows what it is. Until then its pane keeps what it showed.
     public internal(set) var hasPainted = false
@@ -74,6 +76,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
+    /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
+    @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
@@ -103,10 +107,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
-    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> URL?)?
+    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
     /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
     /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
-    @ObservationIgnored var onDictationRecordingUnsent: ((_ file: URL, _ session: String) -> Void)?
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ recording: AgentPaneIssuedRecording, _ session: String) -> Void)?
+    /// The long recordings uploading now, and the ones whose chip's × stopped them.
+    @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
@@ -209,6 +215,9 @@ public final class AgentPaneModel {
     /// and what the person typed in the card's field, if the button sends it.
     @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
     @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
+    /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
+    @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
+    @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
@@ -232,9 +241,9 @@ public final class AgentPaneModel {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
         self.transport = transport
-        self.sessionId = sessionId
-        self.seed = seed
+        (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
+        sandboxRuns.restore(seed?.sandboxResult)
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
@@ -287,9 +296,9 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .agentAvatar, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
+             .tabRowTools, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -307,6 +316,9 @@ public final class AgentPaneModel {
         case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
+            return AgentPaneReply.success()
+        case .commandAvailability(let commands):
+            pageCommands = Set(commands)
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
@@ -383,6 +395,8 @@ public final class AgentPaneModel {
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
             return AgentPaneReply.success()
+        case .chiefFace(let chief):
+            return AgentPaneReply.success(await onChiefFace?(chief) ?? [:])
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
@@ -443,6 +457,29 @@ public final class AgentPaneModel {
             // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
+        case .btwInline(let question, let sessionId):
+            // Handshake-attached panes keep the daemon path in `acpmuxSocket`; direct
+            // transport tests and pre-handshake calls retain the connection path.
+            guard !remoteChat, self.sessionId == sessionId,
+                  let socketPath = transport.acpmuxSocket ?? transport.socketPath else {
+                return Self.unsupported("chat.btw.inline")
+            }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",
+                    params: ["sessionId": sessionId, "question": question, "inline": true, "_meta": ["acpmux": ["via": "app"]]], deadline: .seconds(120), detailed: true)
+                guard let text = result["text"] as? String, !text.isEmpty else {
+                    return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
+                }
+                return AgentPaneReply.success(["text": text])
+            } catch let refusal as AcpmuxRPCError where refusal.name == "trust.pending" || refusal.name == "trust.untrusted" {
+                let reason = refusal.name ?? "trust.pending"
+                var details: [String: Any] = ["reason": reason]
+                if let cwd = refusal.cwd { details["cwd"] = cwd }
+                return AgentPaneReply.failure(code: reason, message: refusal.message, details: details, retryable: true, origin: "session_host")
+            } catch {
+                return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
+            }
         case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
@@ -454,6 +491,7 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
+        case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))
@@ -475,6 +513,7 @@ public final class AgentPaneModel {
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
+        case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
             guard let stager = onUploadStage?(), let sessionId else { return Self.unsupported("chat.upload.stage") }
@@ -487,6 +526,7 @@ public final class AgentPaneModel {
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
     func adoptSession(_ id: String) {
         guard id != sessionId else { return }
+        if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
         newTab = nil
         onSessionChange?(id)

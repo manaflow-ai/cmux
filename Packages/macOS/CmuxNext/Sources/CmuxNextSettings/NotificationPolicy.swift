@@ -98,12 +98,14 @@ public nonisolated struct NotificationPolicy: Sendable {
             decision.attention = false
             return decision
         }
+        let quiet = prefs.quietHours?.contains(minuteOfDay: arrival.minuteOfDay) ?? false
         if mode == .focus && arrival.paneIsViewed {
             decision.acknowledge = true
             decision.attention = false
+            // Read on sight, but `sounds.when = always` means always: the viewed pane still sounds.
+            if prefs.sounds.when == .always { chooseSound(for: arrival, quiet: quiet, into: &decision) }
             return decision
         }
-        let quiet = prefs.quietHours?.contains(minuteOfDay: arrival.minuteOfDay) ?? false
         if arrival.workspaceMuted { decision.attention = false }
         if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
             switch prefs.desktop {
@@ -114,17 +116,22 @@ public nonisolated struct NotificationPolicy: Sendable {
             }
         }
         decision.desktop = decision.alerts && arrival.bannerAllowed
-        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
-        decision.soundEvent = event
-        if !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
-           let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) {
-            decision.sound = choice.name
-            decision.soundVolume = choice.volume
-            decision.soundLevel = choice.level
-        }
+        chooseSound(for: arrival, quiet: quiet, into: &decision)
         if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
         // A poster asking for no banner (`notify --desktop false`) gets no bounce either.
         if decision.desktop, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
         return decision
+    }
+
+    /// The arrival's sound event, and its sound when `notifications.sounds.when` plays it and
+    /// neither a muted workspace nor quiet hours silence it.
+    private func chooseSound(for arrival: Arrival, quiet: Bool, into decision: inout Decision) {
+        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
+        decision.soundEvent = event
+        guard !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
+              let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) else { return }
+        decision.sound = choice.name
+        decision.soundVolume = choice.volume
+        decision.soundLevel = choice.level
     }
 }

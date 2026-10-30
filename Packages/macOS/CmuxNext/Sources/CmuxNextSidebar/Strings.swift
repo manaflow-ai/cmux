@@ -14,6 +14,10 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).
+    static var newWorkspaceOptions: String {
+        String(localized: "sidebar.newWorkspace.options", defaultValue: "New Workspace Options", bundle: .module)
+    }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
@@ -25,6 +29,12 @@ enum Strings {
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
+    static func sectionEmptyHint(shortcut: String?) -> String {
+        guard let shortcut else {
+            return String(localized: "sidebar.section.empty.hint.unbound", defaultValue: "New workspace: +", bundle: .module)
+        }
+        return String(format: String(localized: "sidebar.section.empty.hint", defaultValue: "New workspace: + or %@", bundle: .module), shortcut)
+    }
     /// An open empty group's row (`EmptyGroupRowView`).
     static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
@@ -70,7 +80,8 @@ enum Strings {
         case .failed: statusFailed
         case .paused: statusPaused
         case .pausedIdle: statusPausedIdle
-        case .connected, .connecting, .offline, .updateAvailable, .installing: nil
+        case .connecting: statusConnecting
+        case .connected, .offline, .updateAvailable, .installing: nil
         }
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
@@ -115,6 +126,8 @@ enum Strings {
         }
     }
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
+    /// A listed tab row's hover close.
+    static var closeTab: String { String(localized: "sidebar.a11y.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var pinWorkspace: String { String(localized: "sidebar.a11y.pinWorkspace", defaultValue: "Pin workspace", bundle: .module) }
     static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.

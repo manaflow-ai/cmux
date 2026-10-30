@@ -51,9 +51,11 @@ let intake: Intake;
 /// What each send carried: the paths (or names) of its chips.
 let sent: string[][] = [];
 let send: () => void = () => {};
-/// The chat the composer shows, and the chips a chat it left was handed (`elsewhere`).
-let showing = "chat-a";
-let keptFor: [string, string[]][] = [];
+/// The chat the composer shows, and whether a switch now carries its prompt (a harness switch).
+let chat = "chat-a";
+let carry = false;
+/// The chips the intake handed to another chat than the one shown.
+let handedOff: [string, string[]][] = [];
 
 /// A composer's intake and its send hold, as Composer.tsx wires them; a send reads the chips after
 /// the render that has them (a ref), as the composer's does.
@@ -61,12 +63,11 @@ function Probe() {
   intake = useAttachmentIntake({
     allowImages: true,
     pasteTarget: () => undefined,
-    scope: showing,
-    // A switch carries the prompt (a harness switch's new session), as Composer.tsx's can.
-    carries: () => true,
-    elsewhere: (chat, chips) => keptFor.push([chat, chips.map((chip) => chip.path ?? chip.name)]),
+    scope: chat,
+    carries: () => carry,
+    elsewhere: (session, chips) => handedOff.push([session, chips.map((chip) => chip.path ?? chip.name)]),
   });
-  const hold = useSendWhenAttached(intake.loading, showing, intake.unsettled);
+  const hold = useSendWhenAttached(intake.loading, chat, intake.unsettled);
   const staged = useRef<readonly ComposerAttachment[]>([]);
   staged.current = intake.attachments;
   const go = () => {
@@ -101,8 +102,9 @@ function upload() {
 
 async function fresh() {
   sent = [];
-  showing = "chat-a";
-  keptFor = [];
+  chat = "chat-a";
+  carry = false;
+  handedOff = [];
   await act(async () => root.render(<Probe />));
   await act(async () => intake.setAttachments([]));
 }
@@ -130,11 +132,14 @@ test("a send made while a long recording uploads waits for it and carries the re
 test("the pending recording's x lets the waiting send go without it", async () => {
   await fresh();
   const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
   await act(async () => send());
   expect(sent).toEqual([]);
   await act(async () => intake.cancel(intake.pending[0]!.id));
   expect(sent).toEqual([[]]);
+  // The × stops the host's upload too (dictation.recording.cancel), once.
+  expect(stopped).toBe(1);
   // The upload's late answer stages nothing.
   await act(async () => host.answer({ path: remote }));
   expect(intake.attachments).toEqual([]);
@@ -177,20 +182,21 @@ test("the failed recording's x lets the waiting send go with the text alone", as
   expect(intake.pending).toEqual([]);
 });
 
-// Review of #26966: a carried switch (a harness switch's new session takes the prompt) moved a
-// pending host upload to the new chat, though the host had started it for the old one. Its answer,
-// a path on the old chat's machine, then landed in the new chat, whose agent cannot open it. A chip
-// the host makes keeps its chat: its answer goes to that chat's kept chips, never the new chat.
-test("a carried switch does not move a pending recording's upload to the new chat", async () => {
+// Review of #26953 at 06aa3fc4: a switch that carries the prompt (a harness switch) moved the
+// pending recording to the new chat with it, so its copy on chat A's machine was staged in chat B.
+// The host's chip stays with the chat it was made for, and lands in that chat's kept chips.
+test("a switch that carries the prompt leaves the uploading recording with its own chat", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
-  showing = "chat-b";
+  chat = "chat-b";
+  carry = true;
   await act(async () => root.render(<Probe />));
-  await act(async () => host.answer({ path: remote }));
-  expect(intake.attachments).toEqual([]);
+  // Chat B neither shows it nor waits for it: a send there goes at once, without it.
   expect(intake.pending).toEqual([]);
-  expect(keptFor).toEqual([["chat-a", [remote]]]);
   await act(async () => send());
   expect(sent).toEqual([[]]);
+  await act(async () => host.answer({ path: remote }));
+  expect(intake.attachments).toEqual([]);
+  expect(handedOff).toEqual([["chat-a", [remote]]]);
 });

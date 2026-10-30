@@ -20,11 +20,17 @@ package final class ChildProcess: Sendable {
     private let executable: URL
     private let arguments: [String]
     private let environment: [String: String]
+    private let input: Data?
 
-    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// - Parameter input: Written to the child's stdin, which then closes: how a secret (the
+    ///   WireGuard config, the hub's client token) reaches it without argv, the environment or
+    ///   a file. Nil gives the child no stdin.
+    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
+                 input: Data? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
+        self.input = input
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -33,29 +39,31 @@ package final class ChildProcess: Sendable {
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        let stdin = input.map { _ in Pipe() }
+        process.standardInput = stdin ?? FileHandle.nullDevice
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
         let splitter = LineSplitter()
         let continuation = continuation
         stdout.fileHandleForReading.readabilityHandler = { handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            switch handle.readReady() {
+            case .bytes(let data): for line in splitter.append(data) { continuation.yield(line) }
+            case .retry: return
+            case .end:
                 handle.readabilityHandler = nil
                 continuation.finish()
-                return
             }
-            for line in splitter.append(data) { continuation.yield(line) }
         }
         stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
-            self?.state.withLock { state in
-                state.stderrTail.append(data)
-                if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }
+            switch handle.readReady() {
+            case .bytes(let data):
+                self?.state.withLock { state in
+                    state.stderrTail.append(data)
+                    if state.stderrTail.count > 4096 { state.stderrTail.removeFirst(state.stderrTail.count - 4096) }
+                }
+            case .retry: return
+            case .end: handle.readabilityHandler = nil
             }
         }
         process.terminationHandler = { [weak self] finished in
@@ -66,6 +74,14 @@ package final class ChildProcess: Sendable {
                 return state.exitWaiters
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
+        }
+        if let stdin, let input {
+            // Written before the child starts: the read end is still ours, so no SIGPIPE, and
+            // a secret within the pipe's 16 KB buffer never blocks. The child reads it, then EOF.
+            guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
+            let writer = stdin.fileHandleForWriting
+            defer { try? writer.close() }
+            try writer.write(contentsOf: input)
         }
         state.withLock { $0.process = process }
         try process.run()

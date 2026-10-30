@@ -16,8 +16,9 @@
 //   - inside the chips (model, permission mode, Interrupt), the text sits the same distance
 //     from the chip's leading and trailing edges, and an icon or chevron the same distance from the
 //     text, in every chip of the same row;
-//   - in the box, + and the last disc sit the same distance from the box's sides, and the last disc
-//     as far from the box's bottom as from its side.
+//   - in the box, + and the last control sit the same distance from the box's sides: the + glyph's
+//     center and the last control's center 22 px in (composer-alignment-centers.test.ts, 2026-10-27).
+//     How far they sit off the box's bottom follows the prompt's last line, so that test owns it.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, a running Claude chat
 // with text typed so Interrupt shows beside the mic and Send) in Chromium at four pane widths.
@@ -296,20 +297,21 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           if (!names(rows.inner).includes(name)) problems.push(`${name} is not in the box's row`);
         for (const name of ["model", "mode"])
           if (!names(rows.foot).includes(name)) problems.push(`${name} is not in the quiet row`);
-        // Claude desktop's, measured (Leo 2026-10-20): the + glyph 16 px in from the box's left
-        // edge, the last control's 28 px box (the mic; Stop sits left of it) 8 px in from its right
-        // edge, as far as it sits off the bottom (below).
+        // The box's columns (composer-alignment-centers.test.ts, Leo's report 2026-10-27, which
+        // replaced Claude desktop's 16 px + glyph inset of 2026-10-20): the + button and the last
+        // control (the mic; Stop sits left of it) are 28 px boxes 8 px in from the box's sides, so
+        // the + glyph's center and the last control's center both sit 22 px in. Their distance off
+        // the bottom centers them on the prompt's last line, which follows the chat's font size
+        // (#26523), so it no longer equals the side inset.
         const { inner } = rows;
+        const first = inner.controls[0];
         const last = inner.controls.at(-1);
-        const lead = inner.controls[0] ? drawn(inner.controls[0]).left - inner.bar.left : 0;
-        const trail = last ? inner.bar.right - last.box.right : 0;
-        if (Math.abs(lead - 16) > 1) problems.push(`the + glyph sits ${lead.toFixed(1)} px in, not 16 px`);
-        const below =
-          last?.box.bottom !== undefined && inner.bar.bottom !== undefined ? inner.bar.bottom - last.box.bottom : 0;
-        if (last && Math.abs(below - trail) > 1)
-          problems.push(
-            `${last.name} sits ${below.toFixed(1)} px off the box's bottom and ${trail.toFixed(1)} px off its side`,
-          );
+        const leadCenter = first ? (drawn(first).left + drawn(first).right) / 2 - inner.bar.left : 0;
+        const trailCenter = last ? inner.bar.right - (last.box.left + last.box.right) / 2 : 0;
+        if (first && Math.abs(leadCenter - 22) > 1)
+          problems.push(`the + glyph's center sits ${leadCenter.toFixed(1)} px in, not 22 px`);
+        if (last && Math.abs(trailCenter - 22) > 1)
+          problems.push(`${last.name}'s center sits ${trailCenter.toFixed(1)} px in from the right, not 22 px`);
         expect(problems).toEqual([]);
       });
 });

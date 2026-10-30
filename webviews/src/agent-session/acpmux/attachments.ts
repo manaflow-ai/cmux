@@ -5,7 +5,7 @@ import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
-import { pastedTextBlocks } from "./pastedText";
+import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
@@ -415,6 +415,7 @@ export function promptText(text: string, attachments: ComposerAttachment[], opti
     .filter((attachment) => attachment.kind === "link" && attachment.mimeType)
     .map(
       (attachment) =>
+        // l10n-allow: text for the agent, sent in the prompt, not UI.
         `Attached file: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Read the linked file with your tools.`,
     );
   return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
@@ -655,9 +656,8 @@ export async function remoteRecordingAttachment(
 /// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
 /// not save it (`writeFailed`: a full disk, a folder it cannot write).
 export function recordingLeftOutNotice(
-  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed" | "otherChat",
+  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed",
 ): StringKey {
-  if (reason === "otherChat") return "dictation.recordingOtherChat";
   if (reason === "elsewhere") return "dictation.recordingElsewhere";
   if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
@@ -724,6 +724,9 @@ export function htmlImageFiles(html: string): File[] {
 /// The markdown `data:` images of pasted text (a prompt copied from a bubble that went out with
 /// them), as files the composer attaches; `text` is what the field gets in their place.
 export function textImageFiles(plain: string): { text: string; files: File[] } {
+  // Text past what a prompt carries goes as a file whole (pastedChips.ts): no image is lifted out
+  // of it, and scanning 100 MB for one held the paste's task 24 ms (about 70 ms on the CI runner).
+  if (plain.length > PASTE_FILE_CHARS) return { text: plain, files: [] };
   const lifted = liftInlineImages(plain);
   if (!lifted.attachments.length) return { text: plain, files: [] };
   // An image written into a prompt was meant: no size floor.

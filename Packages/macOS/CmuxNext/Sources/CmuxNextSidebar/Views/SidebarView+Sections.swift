@@ -44,6 +44,8 @@ extension SidebarViewComponents {
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
+        // A Shift range runs from the tiles pinned above the list into its rows (#27701).
+        list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
         // The footer row's items (the profile control) do not drag; its space
         // dots reorder by their own drag, dropped on the footer band
         // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
@@ -64,6 +66,9 @@ extension SidebarViewComponents {
         region.onActivateWithModifiers = { [weak self, weak region] id, flags in
             // The profile control opens its menu over itself.
             if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
+            // A pinned workspace's tile selects as its row does: Shift the drawn range, Cmd toggles (#27701).
+            if let workspace = region?.itemView(id)?.info.workspace,
+               self?.list.modifierSelect(workspace, flags: flags.intersection(.deviceIndependentFlagsMask)) == true { return }
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -91,7 +96,9 @@ extension SidebarViewComponents {
         let look = SidebarSectionTunables.currentLook
         // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
         let footerBase = SidebarRegionMetrics.standard
-        let metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        // The bands' rows end where the list's do, `rowEdgeGap` from the sidebar's edge (Leo 2026-10-27); the footer keeps its own.
+        var metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
@@ -107,7 +114,8 @@ extension SidebarViewComponents {
             let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
-            // A block's rows end where the list's other rows do, short of the inset (`rowTrailingTrim`).
+            // A block's rows end where the list's other rows do, `rowEdgeGap` from the edge (`rowTrailingTrim`): a
+            // row's pill is inset `horizontalInset` in its frame, as the region metrics' inset is.
             var listMetrics = metrics
             listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
@@ -146,10 +154,12 @@ extension SidebarViewComponents {
 
     /// Draws the one selection on the top item it names, in every band and list block: the old and new
     /// item repaint, nothing lays out (a workspace switch to a workspace with a tile, I6).
+    /// The multi-selection draws on the pinned workspaces' tiles the same way (#27701).
     func showActiveTopItem() {
         let active: LayoutItemID? = if case let .topItem(id)? = model.selectedItem { id } else { nil }
-        for region in [aboveRegion, belowRegion, footerRegion] { region.activeItem = active }
+        for region in [aboveRegion, belowRegion, footerRegion] { (region.activeItem, region.selectedWorkspaces) = (active, model.selection) }
         list.activeTopItem = active
+        list.selectedWorkspaces = model.selection
     }
 
     /// App sections no band shows any more release their content; one that
