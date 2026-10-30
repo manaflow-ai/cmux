@@ -366,6 +366,9 @@ export interface SessionState {
   focusTerminal(): void;
   /** Questions the agent waits on, oldest first. */
   questions: PendingQuestion[];
+  /** Changes when a sent answer may not have landed (a reconnect, or the
+   * server refused it), so a waiting question's card takes input again. */
+  questionAttempt: number;
   /** Answers a question by id (one answer per item id); `null` declines it.
    * Returns false when the WebSocket is not ready. */
   answerQuestion(questionId: string, answers: Record<string, string> | null): boolean;
@@ -473,6 +476,7 @@ export function useSession(): SessionState {
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [routing, setRouting] = useState<RouteStatus | null>(null);
   const [questions, setQuestions] = useState<PendingQuestion[]>([]);
+  const [questionAttempt, setQuestionAttempt] = useState(0);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
@@ -665,6 +669,7 @@ export function useSession(): SessionState {
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
             setReady(true);
             setConnectionEpoch((n) => n + 1);
+            setQuestionAttempt((n) => n + 1);
             break;
           }
           case "session-created": {
@@ -763,6 +768,9 @@ export function useSession(): SessionState {
             if (msg.sessionId === sessionIdRef.current) {
               setSession((s) => (s ? { ...s, queuedMessages: Array.isArray(msg.messages) ? msg.messages : [] } : s));
             }
+            break;
+          case "answer-refused":
+            if (msg.sessionId === sessionIdRef.current) setQuestionAttempt((n) => n + 1);
             break;
           case "session-attention":
             if (msg.sessionId === sessionIdRef.current) {
@@ -1130,6 +1138,7 @@ export function useSession(): SessionState {
     stop,
     focusTerminal,
     questions,
+    questionAttempt,
     answerQuestion,
     setOption,
     fork,

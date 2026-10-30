@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { codexAdapter, codexSessionForTest } from "../adapters/codex";
 import { parseQuestionAnswers } from "../server";
 import { applyQuestionEvent, pendingQuestions, type AgentEvent } from "../src/session";
-import { questionAnswers } from "../src/components/QuestionCard";
+import { questionAnswers, questionCardKey } from "../src/components/QuestionCard";
 
 const threadId = "thread-parity";
 
@@ -152,6 +152,12 @@ test("the card sends one answer per item, typed text only where the item allows 
   expect(questionAnswers(items, { db: "Postgres" }, { name: "billing" })).toEqual({ db: "Postgres", name: "billing" });
   expect(questionAnswers(items, { db: "\u0000other" }, { db: "MySQL", name: "billing" })).toEqual({ db: "MySQL", name: "billing" });
   expect(questionAnswers(items, { db: "\u0000other" }, { db: "  ", name: "billing" })).toBeNull();
+});
+
+test("a reconnect or a refused answer gives a still-waiting question a fresh card", () => {
+  const question = { questionId: "codex-item-1", items: [] };
+  expect(questionCardKey(question, 1)).not.toBe(questionCardKey(question, 2));
+  expect(questionCardKey(question, 2)).toBe(questionCardKey({ ...question }, 2));
 });
 
 test("the answer op accepts a decline or string answers only", () => {

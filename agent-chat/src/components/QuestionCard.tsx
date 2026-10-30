@@ -24,6 +24,13 @@ export function questionAnswers(
   return answers;
 }
 
+/** The card's React key: a new attempt (a reconnect, or a refused answer)
+ * remounts it, so a question still waiting takes input again after an
+ * answer that may never have reached the server. */
+export function questionCardKey(question: PendingQuestion, attempt: number): string {
+  return `${question.questionId}:${attempt}`;
+}
+
 export function QuestionCard({ question, onAnswer }: {
   question: PendingQuestion;
   onAnswer(questionId: string, answers: Record<string, string> | null): boolean;

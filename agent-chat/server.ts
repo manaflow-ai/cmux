@@ -2552,6 +2552,8 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
       } catch (err) {
         // The adapter's own message names the question; it carries no input.
         sess.emit({ kind: "error", message: `Couldn't answer: ${err instanceof Error ? err.message : String(err)}` });
+        // The card waits on the outcome; let it be answered again.
+        ws.send(JSON.stringify({ kind: "answer-refused", sessionId: sess.id, questionId }));
       }
       break;
     }
