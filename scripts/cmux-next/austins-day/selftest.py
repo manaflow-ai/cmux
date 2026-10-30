@@ -570,6 +570,69 @@ class ProcessKinds(unittest.TestCase):
         self.assertEqual(out["process_kinds"]["cli"], {"cmux workspace list": 2, "cmux __hook-append": 1})
 
 
+class FirstAnswer(unittest.TestCase):
+    def test_the_first_answer_is_session_new_plus_the_prompts_first_chunk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            run_["series"]["waves"] = [{"answers": [], "chats": [
+                [{"method": "session/new", "ms": 2000.0, "error": None},
+                 {"method": "session/prompt", "ms": 2900.0, "first_chunk_ms": 300.0, "error": None}],
+                [{"method": "session/new", "ms": 4000.0, "error": None},
+                 {"method": "session/prompt", "ms": 4900.0, "first_chunk_ms": 700.0, "error": None}],
+                # A chat whose agent never started: no answer, not in the distribution.
+                [{"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}]]}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            m = summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]
+        self.assertEqual(m["acpmux_answered_chats"], 2)
+        self.assertEqual(m["acpmux_first_answer_ms"]["p50"], 2300.0)
+        self.assertEqual(m["acpmux_first_answer_ms"]["max"], 4700.0)
+
+    def test_the_driver_times_the_first_answer_chunk(self):
+        """The driver's own acpmux_call against a tiny ACP server that streams one chunk, then answers."""
+        import socket as socket_module
+        import threading as threading_module
+        source = open(os.path.join(HERE, "driver.py")).read()
+        start = source.index("def acpmux_call(")
+        end = source.index("def one_chat(")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.sock")
+            server = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+            server.bind(path)
+            server.listen(1)
+
+            def serve():
+                conn, _ = server.accept()
+                buf = b""
+                while True:
+                    data = conn.recv(65536)
+                    if not data:
+                        return
+                    buf += data
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        req = json.loads(line)
+                        if req["method"] == "session/prompt":
+                            update = {"jsonrpc": "2.0", "method": "session/update",
+                                      "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"text": "t"}}}}
+                            conn.sendall((json.dumps(update) + "\n").encode())
+                            time.sleep(0.2)
+                        conn.sendall((json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": {}}) + "\n").encode())
+            thread = threading_module.Thread(target=serve, daemon=True)
+            thread.start()
+            namespace = {"socket": socket_module, "time": time, "json": json, "ACPMUX_HOME": tmp,
+                         "acpmux_socket_of": lambda home: path}
+            exec(compile(source[start:end], "driver.py", "exec"), namespace)
+            answers = namespace["acpmux_call"]([("session/prompt", {"sessionId": "s"})], timeout=10)
+            server.close()
+        prompt = answers[-1]
+        self.assertEqual(prompt["method"], "session/prompt")
+        self.assertIsNotNone(prompt["first_chunk_ms"])
+        self.assertLess(prompt["first_chunk_ms"], prompt["ms"])
+
+
 class LockDetail(unittest.TestCase):
     def test_the_lock_detail_after_the_load_is_kept_by_lock_and_order(self):
         with tempfile.TemporaryDirectory() as tmp:

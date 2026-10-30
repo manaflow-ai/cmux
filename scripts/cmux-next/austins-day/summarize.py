@@ -158,6 +158,23 @@ def stall_sites(stalls):
     return sorted(sites.values(), key=lambda s: -s["total_ms"])
 
 
+def first_answers(waves):
+    """Per chat that got an answer: session/new ms + the prompt's first agent_message_chunk ms."""
+    out = []
+    for w in waves:
+        chats = w.get("chats")
+        if not isinstance(chats, list):
+            continue
+        for chat in chats:
+            if not isinstance(chat, list):
+                continue
+            new = next((a for a in chat if a.get("method") == "session/new" and not a.get("error")), None)
+            prompt = next((a for a in chat if a.get("method") == "session/prompt"), None)
+            if new and prompt and isinstance(prompt.get("first_chunk_ms"), (int, float)):
+                out.append(new["ms"] + prompt["first_chunk_ms"])
+    return out
+
+
 def lock_held_share(first, last, window_s):
     """Share of the window the registry lock was held: the change of count x mean hold between two server-stats
     reads, over the window. The daemon's mean is a whole number of microseconds (rounded down), so the result
@@ -273,6 +290,10 @@ def run_metrics(run):
         "workspace_close_not_done": sum(1 for c in closes if c.get("app_gone_ms") is None or c.get("daemon_gone_ms") is None),
         "workspace_close_attempts": len(series["closes"]),
         "acpmux_new_ms": dist(a["ms"] for a in answers if a["method"] == "session/new"),
+        # Time to first answer per chat (#28442): from the chat's session/new to its prompt's first answer
+        # text, for chats whose prompt got one (session/new time + the prompt's first-chunk time).
+        "acpmux_first_answer_ms": dist(first_answers(series["waves"])),
+        "acpmux_answered_chats": len(first_answers(series["waves"])),
         "acpmux_prompt_ms": dist(a["ms"] for a in answers if a["method"] == "session/prompt"),
         "acpmux_errors": counts(a["error"][:80] for a in answers if a.get("error")),
         # pa-b10's measure: each chat of a Chief wave is one attempt (its session/new, or the connection
@@ -661,6 +682,11 @@ REQUESTED = [
     ("registry lock held share", ("registry_lock_held_share",)),
     ("registry lock wait p99 us", ("daemon_lock_wait_us", "p99")),
     ("app request p99 ms", ("app_requests", "p99")),
+    # #28442 (pa-b10): the 90 s agent_start hangs and the time to first answer per chat.
+    ("acpmux agent_start 90 s time-outs", ("acpmux_agent_start_timeouts",)),
+    ("acpmux first answer median ms", ("acpmux_first_answer_ms", "p50")),
+    ("acpmux first answer p95 ms", ("acpmux_first_answer_ms", "p95")),
+    ("acpmux answered chats", ("acpmux_answered_chats",)),
 ] + [(f"{lock} lock {suffix} {what}", ("lock_sites", f"{lock}:{suffix}", key))
      for lock in ("registry",) for suffix in NAMED_LOCK_SITES
      for what, key in (("hold p99 us", "hold_p99_us"), ("hold total us", "hold_total_us"))]

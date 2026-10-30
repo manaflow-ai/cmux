@@ -530,6 +530,7 @@ def acpmux_call(calls, timeout=60):
             begin = time.monotonic()
             conn.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
             message = None
+            first_chunk_ms = None
             while message is None:
                 while b"\n" in buf and message is None:
                     line, buf = buf.split(b"\n", 1)
@@ -539,12 +540,17 @@ def acpmux_call(calls, timeout=60):
                         continue
                     if parsed.get("id") == rid and ("result" in parsed or "error" in parsed):
                         message = parsed
+                    elif (first_chunk_ms is None and parsed.get("method") == "session/update"
+                          and ((parsed.get("params") or {}).get("update") or {}).get("sessionUpdate") == "agent_message_chunk"):
+                        # The agent's first answer text for this request (#28442: time to first answer).
+                        first_chunk_ms = round((time.monotonic() - begin) * 1000, 2)
                 if message is None:
                     chunk = conn.recv(1 << 20)
                     if not chunk:
                         raise OSError("closed")
                     buf += chunk
             answers.append({"method": method, "ms": round((time.monotonic() - begin) * 1000, 2),
+                            "first_chunk_ms": first_chunk_ms,
                             "error": (message.get("error") or {}).get("message") if message.get("error") else None,
                             "result": message.get("result")})
         conn.close()
