@@ -53,6 +53,20 @@ export function dedupeMessages(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[]
   return out ?? rows;
 }
 
+/// Rows Find searches for waiting messages. The transcript draws the same messages through
+/// `pendingMessagesRow`, which deduplicates them, so Find must search that same set or it can
+/// select a duplicate row id that is not present in the rendered group.
+export function searchablePendingRows(
+  sourceRows: readonly AcpmuxRow[],
+  queuedRows: readonly AcpmuxRow[],
+): readonly AcpmuxRow[] {
+  const all = queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows;
+  const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
+  if (waiting.length < 2) return all;
+  const kept = new Set(dedupeMessages(waiting));
+  return all.filter((row) => (row.kind !== QUEUED_MESSAGE && !isWaitingMessage(row)) || kept.has(row));
+}
+
 /// The key a message's sender is grouped under.
 export const senderKey = (row: AcpmuxRow) =>
   row.incoming?.kind === "message" ? (row.incoming.message.sessionId ?? row.incoming.message.name) : row.id;

@@ -51,7 +51,7 @@ import {
   PENDING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
-import { pendingMessagesRow } from "./conversation/pendingMessages";
+import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
@@ -5586,10 +5586,7 @@ function AcpmuxPane() {
   }, [childRows, snapshot.queue]);
   // Find searches the queued messages too: each is its own row, drawn in the group of waiting
   // messages (its `joined` names them, chatFind.ts findRowIndex).
-  const findRows = useMemo(
-    () => (queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows),
-    [sourceRows, queuedRows],
-  );
+  const findRows = useMemo(() => searchablePendingRows(sourceRows, queuedRows), [sourceRows, queuedRows]);
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
   const transcriptRows = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);

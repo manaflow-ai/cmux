@@ -4,7 +4,13 @@
 // are never folded into one.
 import { expect, test } from "bun:test";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
-import { bySender, dedupeMessages, PENDING_MESSAGES_ROW_ID, pendingMessagesRow } from "./pendingMessages";
+import {
+  bySender,
+  dedupeMessages,
+  PENDING_MESSAGES_ROW_ID,
+  pendingMessagesRow,
+  searchablePendingRows,
+} from "./pendingMessages";
 
 let at = 0;
 const queued = (promptId: string, name: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -70,6 +76,15 @@ test("every waiting message is in one group, and a later one joins it under the 
   ]);
   // Nothing waits: no group.
   expect(pendingMessagesRow([], [])).toBeUndefined();
+});
+
+test("Find searches the same deduplicated waiting rows that the group draws", () => {
+  const duplicate = queued("q1", "lane", "same delivery");
+  const retry = { ...duplicate, id: "retry", queuedMessage: { promptId: "q2" } };
+  const other = queued("q3", "lane", "different");
+  const rows = searchablePendingRows([duplicate, retry], [other]);
+  expect(rows).toEqual([duplicate, other]);
+  expect(pendingMessagesRow([duplicate, retry], [other])?.pendingMessages?.rows).toEqual([duplicate, other]);
 });
 
 // Review at 1fbcdcc8: Find never saw a queued message's text, so a search could not reach one in
