@@ -121,6 +121,15 @@ pub fn background<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+/// The posix_spawn QoS clamp setter, when this macOS has it: the one mechanism that lowers a
+/// process and everything it starts (agent hosts here, background harnesses in `cpu_class.rs`).
+#[cfg(target_os = "macos")]
+pub(crate) fn clamp_setter() -> Option<imp::ClampFn> {
+    imp::clamp_fn()
+}
+#[cfg(target_os = "macos")]
+pub(crate) use imp::POSIX_SPAWN_SETEXEC;
+
 /// The argv and environment an in-place re-exec runs with: this process's
 /// own, plus [`CLAMPED_ENV`], so the new image does not do it again.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -141,7 +150,8 @@ mod imp {
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_THREAD: libc::c_int = 3;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
-    const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
+    /// `POSIX_SPAWN_SETEXEC`: posix_spawn replaces the calling process, as execve does.
+    pub(crate) const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
     /// `POSIX_SPAWN_PROC_CLAMP_UTILITY` (spawn_private.h): the clamp takes its own small
     /// numbers, not a `qos_class_t` (0x11 is accepted and does nothing; a fleet-mini probe).
     const POSIX_SPAWN_PROC_CLAMP_UTILITY: u64 = 1;
@@ -155,7 +165,8 @@ mod imp {
     }
 
     /// `int posix_spawnattr_set_qos_clamp_np(posix_spawnattr_t *, uint64_t)`.
-    type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
+    pub(crate) type ClampFn =
+        unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
 
     pub(super) fn disk_utility() {
         // SAFETY: plain syscall wrapper with constant arguments.
@@ -166,7 +177,7 @@ mod imp {
 
     /// The clamp setter, looked up at run time: it is not in the public SDK
     /// headers, so a macOS without it starts unclamped instead of failing to load.
-    fn clamp_fn() -> Option<ClampFn> {
+    pub(super) fn clamp_fn() -> Option<ClampFn> {
         // SAFETY: dlsym with a NUL-terminated name; the symbol, when present,
         // has this signature (spawn_private.h).
         let sym = unsafe {
