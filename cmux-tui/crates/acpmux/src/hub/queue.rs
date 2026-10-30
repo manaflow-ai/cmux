@@ -370,8 +370,15 @@ impl Hub {
         prompt_id: &str,
     ) -> Answer {
         let (control, trust_gate) = (run.control, run.trust_gate);
+        let digest = super::digest::inbox_digest::is_digest(run.provenance.as_ref());
+        // The person's Send now (`queue_edit.rs`) marks it in `steer_now.step` until it steers.
+        let persons = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .step
+            .contains(prompt_id);
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
-        let digest = super::digest::inbox_digest::is_digest(provenance.as_ref());
         let opts = PromptOptions {
             prompt_id,
             control,
@@ -384,9 +391,9 @@ impl Hub {
             class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
-            // Send now is the person's; a digest is agents' messages, which a turn past its cap
-            // does not take (`turn_cap.rs`): it waits for the next turn.
-            send_now: !digest,
+            // Send now is the person's; a digest the drain marked to steer is agents' messages,
+            // which a turn past its cap does not take (`turn_cap.rs`): it waits for the next turn.
+            send_now: !digest || persons,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
