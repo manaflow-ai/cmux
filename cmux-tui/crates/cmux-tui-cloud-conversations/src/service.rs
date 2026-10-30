@@ -18,6 +18,7 @@ use super::contract::{
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
+use cmux_json::JsonSet as _;
 
 /// One HTTP reply: the status and the JSON body (`Null` when not JSON).
 #[derive(Debug, Clone, PartialEq)]
@@ -266,13 +267,13 @@ impl SocketState {
     fn reply(&self, target: &Target) -> Value {
         let mut reply = json!({"state": self.state});
         if let Some(reason) = self.reason {
-            reply["reason"] = json!(reason);
+            reply.set("reason", json!(reason));
         }
         if let Some(account) = &self.account {
-            reply["account"] = json!(account);
+            reply.set("account", json!(account));
         }
         if let Target::Conversation(id) = target {
-            reply["conversation"] = json!(id);
+            reply.set("conversation", json!(id));
         }
         reply
     }
@@ -459,7 +460,7 @@ impl CloudConversations {
         }
         let mut params = json!({"limit": limit});
         if include_archived {
-            params["include_archived"] = json!(true);
+            params.set("include_archived", json!(true));
         }
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;
@@ -520,13 +521,13 @@ impl CloudConversations {
         }
         let mut params = json!({"conversation": conversation, "root": root});
         if let Some(after_seq) = after_seq {
-            params["after_seq"] = json!(after_seq);
+            params.set("after_seq", json!(after_seq));
         }
         if let Some(limit) = limit {
             if !(1..=MAX_PAGE).contains(&limit) {
                 return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
             }
-            params["limit"] = json!(limit);
+            params.set("limit", json!(limit));
         }
         let (value, _) =
             read_value(self.post("/v1/read", &read_body("conversation.thread", params))?)?;
@@ -559,7 +560,7 @@ impl CloudConversations {
                     "conversation {conversation:?} is not a conversation id"
                 )));
             }
-            params["conversation"] = json!(conversation);
+            params.set("conversation", json!(conversation));
         }
         let body = read_body("participant.avatar.get", params);
         let (value, _) = read_value(self.post("/v1/read", &body)?)?;
