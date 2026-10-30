@@ -113,6 +113,18 @@ async fn harness_from_copies_the_predecessors_harness() {
 }
 
 #[tokio::test]
+async fn report_to_names_a_predecessor_only_of_its_own_name_family() {
+    let (_hub, mut c) = setup_profiles().await;
+    // The coordinator runs a named profile; a helper it starts on the default is no successor.
+    start(&mut c, json!({"name": "coord", "harness": "fake-sr2"})).await.unwrap();
+    let s = start(&mut c, json!({"name": "helper", "reportTo": "coord"})).await.unwrap();
+    assert!(s["_meta"]["acpmux"].get("successor").is_none(), "{s}");
+    // A relaunch that reports to its own former self's family is one.
+    let err = start(&mut c, json!({"name": "coord-2", "reportTo": "coord"})).await.unwrap_err();
+    assert!(err.contains("(by --report-to) ran fake-sr2"), "{err}");
+}
+
+#[tokio::test]
 async fn a_session_that_names_no_predecessor_starts_without_a_warning() {
     let (_hub, mut c) = setup_profiles().await;
     start(&mut c, json!({"name": "dep-fleet", "harness": "fake-sr2", "tags": {"area": "fleet"}}))

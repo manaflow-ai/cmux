@@ -545,6 +545,13 @@ pub(crate) async fn ensure(
         None => (None, None),
     };
     crate::session_name::validate(name).map_err(AppError::usage)?;
+    if let (Some(h), Some(from)) = (&host, &harness_from) {
+        return Err(AppError::usage(format!(
+            "--harness-from copies a session on this machine only: run \
+             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --host {h}"
+        ))
+        .into());
+    }
     let tags = parse_tags(&tags)?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {

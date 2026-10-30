@@ -86,6 +86,17 @@ pub struct HarnessCopy {
 /// The newest session found so far, by its last change.
 type Newest = Option<(u64, Arc<Session>)>;
 
+/// The candidates of one pass over the session index, one per way of naming a predecessor.
+#[derive(Default)]
+struct Found {
+    succeeds: Option<Arc<Session>>,
+    report_to: Option<Arc<Session>>,
+    parent: Option<Arc<Session>>,
+    family: Newest,
+    role: Newest,
+    area: Newest,
+}
+
 /// What a session runs on, as compared between a successor and its predecessor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Shape {
@@ -138,10 +149,22 @@ fn shape(m: &SessionMeta, cfg: &Config) -> Shape {
         [profile_env, preset_env, Some(&defaults.env)].into_iter().flatten().collect();
     Shape {
         profile: m.harness.clone(),
-        launcher: m.harness_argv.first().cloned(),
+        // What it ran last (a launcher reload or a fallback since may have changed it).
+        launcher: argv.first().cloned(),
         model: current_model(m),
         effort: current_effort(m).or_else(|| current_option(m, "reasoning_effort")),
         autocompact: autocompact(argv, &envs),
+    }
+}
+
+/// What `--harness-from` copies of `m`: its profile, preset, model and effort as it runs now.
+fn harness_copy(m: &SessionMeta) -> HarnessCopy {
+    HarnessCopy {
+        harness: Some(m.harness.clone()),
+        preset: m.preset.clone(),
+        model: current_model(m),
+        // Claude's Ultracode is an effort here (`claude_stdio` takes `effort=ultracode`).
+        effort: current_effort(m).or_else(|| current_option(m, "reasoning_effort")),
     }
 }
 
@@ -212,13 +235,7 @@ impl Hub {
                 .resolve(&from)
                 .map_err(|_| RpcError::not_found(format!("--harness-from: no session {from:?}")))?;
             let predecessor = p.meta();
-            let copy = HarnessCopy {
-                harness: Some(predecessor.harness.clone()),
-                preset: predecessor.preset.clone(),
-                model: current_model(&predecessor),
-                effort: current_option(&predecessor, "effort")
-                    .or_else(|| current_option(&predecessor, "reasoning_effort")),
-            };
+            let copy = harness_copy(&predecessor);
             return Ok(Some(Successor { predecessor, via: Via::HarnessFrom, copy: Some(copy) }));
         }
         let name = asked("name");
@@ -234,7 +251,8 @@ impl Hub {
         Ok(Some(Successor { predecessor, via, copy: None }))
     }
 
-    /// The predecessor by tag, report-to, starter, name or area, in that order.
+    /// The predecessor by tag, report-to, starter, name or area, in that order, from one pass
+    /// over the session index. `succeeds=` and `--report-to` name a session by its id or name.
     fn predecessor(
         &self,
         meta: Option<&Value>,
@@ -242,64 +260,69 @@ impl Hub {
         lineage: Option<&Lineage>,
         asked: &dyn Fn(&str) -> Option<String>,
     ) -> Option<(SessionMeta, Via)> {
-        let named = |key: &str| self.resolve(key).ok().map(|s| s.meta());
-        if let Some(p) = tag(meta, SUCCEEDS_TAG).and_then(named) {
-            return Some((p, Via::Succeeds));
-        }
+        let succeeds = tag(meta, SUCCEEDS_TAG);
+        let report_to = asked(REPORT_TO_FIELD);
+        let parent = lineage.map(|l| l.parent.as_str());
         let family = name.map(name_family);
-        let same_family = |m: &SessionMeta| family.is_some_and(|f| name_family(&m.name) == f);
-        let report_to = asked(REPORT_TO_FIELD).and_then(|r| named(&r));
-        let starter = lineage.and_then(|l| self.session_meta_by_id(&l.parent));
-        if let Some(p) = report_to.clone().filter(same_family) {
-            return Some((p, Via::ReportTo));
-        }
-        if let Some(p) = starter.clone().filter(same_family) {
-            return Some((p, Via::Parent));
-        }
-        // A session's starter, or the one it reports to, stays at its own work: never the
-        // predecessor by name or area.
-        let starters: Vec<String> =
-            [report_to, starter].into_iter().flatten().map(|m| m.id).collect();
         let by_name = name.filter(|n| name_family(n) != *n).map(name_family);
         let (area, role) = (tag(meta, "area"), tag(meta, "role"));
-        if by_name.is_none() && area.is_none() {
+        let any = [succeeds, report_to.as_deref(), parent, by_name, area];
+        if any.iter().all(Option::is_none) {
             return None;
         }
-        // One pass over the index: the newest session of the name family, else of the area.
         let since = now_ms().saturating_sub(RECENT_MS);
-        let (mut by_family, mut by_area, mut by_role): (Newest, Newest, Newest) =
-            (None, None, None);
+        let mut found = Found::default();
         let newer = |best: &Newest, at: u64| best.as_ref().is_none_or(|(b, _)| at > *b);
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let m = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if Some(m.name.as_str()) == name || starters.contains(&s.id) {
+            let is = |key: Option<&str>| key.is_some_and(|k| s.id == k || m.name == k);
+            if is(succeeds) {
+                found.succeeds = Some(s.clone());
+            }
+            let same_family = family.is_some_and(|f| name_family(&m.name) == f);
+            // A session's starter, or the one it reports to, stays at its own work: its
+            // predecessor only when of its name family, never by name or area.
+            let report = is(report_to.as_deref());
+            let starter = parent == Some(s.id.as_str());
+            if report && same_family {
+                found.report_to = Some(s.clone());
+            }
+            if starter && same_family {
+                found.parent = Some(s.clone());
+            }
+            if report || starter || Some(m.name.as_str()) == name {
                 continue;
             }
-            if by_name.is_some_and(|f| name_family(&m.name) == f) && newer(&by_family, m.updated_at)
+            if by_name.is_some_and(|f| name_family(&m.name) == f)
+                && newer(&found.family, m.updated_at)
             {
-                by_family = Some((m.updated_at, s.clone()));
+                found.family = Some((m.updated_at, s.clone()));
             }
             let live = m.status != SessionStatus::Closed || m.updated_at >= since;
             let has = |k: &str, v: Option<&str>| {
                 v.is_some_and(|v| m.tags.get(k).is_some_and(|t| t.value == v))
             };
             if live && has("area", area) {
-                if newer(&by_area, m.updated_at) {
-                    by_area = Some((m.updated_at, s.clone()));
+                if newer(&found.area, m.updated_at) {
+                    found.area = Some((m.updated_at, s.clone()));
                 }
-                if has("role", role) && newer(&by_role, m.updated_at) {
-                    by_role = Some((m.updated_at, s.clone()));
+                if has("role", role) && newer(&found.role, m.updated_at) {
+                    found.role = Some((m.updated_at, s.clone()));
                 }
             }
         }
-        if let Some((_, s)) = by_family {
-            return Some((s.meta(), Via::NameFamily));
-        }
         let area = area.unwrap_or_default().to_owned();
-        if let Some((_, s)) = by_role {
-            return Some((s.meta(), Via::AreaRole(area, role.unwrap_or_default().to_owned())));
-        }
-        by_area.map(|(_, s)| (s.meta(), Via::Area(area)))
+        let role = role.unwrap_or_default().to_owned();
+        [
+            (found.succeeds, Via::Succeeds),
+            (found.report_to, Via::ReportTo),
+            (found.parent, Via::Parent),
+            (found.family.map(|(_, s)| s), Via::NameFamily),
+            (found.role.map(|(_, s)| s), Via::AreaRole(area.clone(), role)),
+            (found.area.map(|(_, s)| s), Via::Area(area)),
+        ]
+        .into_iter()
+        .find_map(|(s, via)| s.map(|s| (s.meta(), via)))
     }
 
     /// Refuses a start on the bare default harness when the predecessor ran a named profile
@@ -339,15 +362,13 @@ impl Hub {
     }
 
     /// The warning for `session` started as `successor`'s successor: None when it runs on what
-    /// its predecessor ran, or copied it with `--harness-from`.
+    /// its predecessor ran. With `--harness-from`, what the copy could not keep (a launcher or
+    /// cap its profile no longer has).
     pub async fn successor_warning(
         &self,
         successor: &Successor,
         session: &Session,
     ) -> Option<Value> {
-        if successor.via == Via::HarnessFrom {
-            return None;
-        }
         let now = session.meta();
         let cfg = self.config.read().await;
         let diff = differences(&shape(&successor.predecessor, &cfg), &shape(&now, &cfg));
@@ -355,8 +376,12 @@ impl Hub {
             return None;
         }
         let p = &successor.predecessor.name;
+        let keep = match successor.via {
+            Via::HarnessFrom => format!("{p}'s profile has changed since it started"),
+            _ => format!("--harness-from {p} keeps the original"),
+        };
         let warning = format!(
-            "{} runs unlike its predecessor {p} (by {}): {}; --harness-from {p} keeps the original",
+            "{} runs unlike its predecessor {p} (by {}): {}; {keep}",
             now.name,
             successor.via.describe(),
             diff.join(", "),
@@ -396,6 +421,32 @@ mod tests {
             Some("SR2_AUTO_COMPACT_TOKENS=400000".into())
         );
         assert_eq!(autocompact(&argv(&["claude"]), &[]), None);
+    }
+
+    fn meta(options: Value) -> SessionMeta {
+        serde_json::from_value(json!({
+            "schema": META_SCHEMA, "id": "p", "name": "p", "harness": "claude-sr2", "cwd": "/tmp",
+            "status": "idle", "createdAt": 1, "updatedAt": 1, "configOptions": options,
+            "harnessArgv": ["claude"], "spawnArgv": ["sr2", "claude", "--autocompact", "400000"],
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn harness_from_copies_ultracode_and_codex_reasoning_effort() {
+        let opt = |id: &str, v: &str| json!({"id": id, "currentValue": v});
+        let claude = meta(json!([opt("effort", "xhigh"), opt("ultracode", "on")]));
+        assert_eq!(harness_copy(&claude).effort.as_deref(), Some("ultracode"));
+        assert_eq!(harness_copy(&claude).harness.as_deref(), Some("claude-sr2"));
+        let codex = meta(json!([opt("reasoning_effort", "high")]));
+        assert_eq!(harness_copy(&codex).effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn the_launcher_and_cap_are_what_it_last_started_with() {
+        let s = shape(&meta(json!([])), &Config::default());
+        assert_eq!(s.launcher.as_deref(), Some("sr2"));
+        assert_eq!(s.autocompact.as_deref(), Some("400000"));
     }
 
     #[test]
