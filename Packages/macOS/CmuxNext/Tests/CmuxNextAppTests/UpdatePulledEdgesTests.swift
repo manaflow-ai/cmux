@@ -27,11 +27,9 @@ import Testing
     /// The appcast answers at once with newer build 500, and the pulled list takes past the click's
     /// deadline: the click still gives way to 500 instead of installing stale staged build 300.
     @Test func aSlowPulledListDoesNotLoseANewerBuild() async throws {
-        // Build 7 (some old pulled build) shows the launch read of the list is done.
-        let (h, installs) = Click.make(newer: true, pulled: ["7"])
+        let (h, installs) = Click.make(newer: true)
         let list = HeldList()
         defer { list.open() }
-        try #require(await eventually { h.updater.pulledWatch.isPulled("7") })
         h.updater.pulledWatch.fetch = { _ in await list.fetch() }
         h.updater.installClicked()
         try #require(await eventually { h.feed.fetches == 1 && h.updater.lastProbe != nil }, "the click never read the feed")
@@ -43,11 +41,11 @@ import Testing
         #expect(h.sparkle.cancels == 1, "staged build 300 did not give way to 500")
     }
 
-    /// No installer this app can cancel (Sparkle's own silent driver): a pulled staged build is
-    /// still never installed by the click; the update sheet opens instead.
+    /// No installer this app can cancel (Sparkle's own silent driver), and the pulled list not read
+    /// yet: the click reads it first, and a pulled staged build is still never installed; the update
+    /// sheet opens instead.
     @Test func aPulledBuildWithNoCancellableInstallerIsNotInstalled() async throws {
         let (h, installs) = Click.make(newer: false, pulled: ["300"])
-        try #require(await eventually { h.updater.pulledWatch.isPulled("300") })
         var sheets = 0
         h.updater.presentUpdateUI = { sheets += 1 }
         h.updater.stagedRefresh.cancellable = { false }
@@ -61,7 +59,8 @@ import Testing
     /// "Update Available" and never downloads.
     @Test func aPulledFoundBuildIsNotOffered() async throws {
         let (h, installs) = Click.make(newer: false, downloadsAsk: true, pulled: ["500"])
-        try #require(await eventually { h.updater.pulledWatch.isPulled("500") })
+        await h.updater.pulledWatch.refresh().value
+        try #require(h.updater.pulledWatch.isPulled("500"))
         var dismissed = 0
         h.updater.availableBuild = { "500" }
         h.updater.dismissAvailable = { dismissed += 1 }
@@ -71,5 +70,22 @@ import Testing
         h.updater.debugIndicatorPhase = .available(version: "5.0.0")
         #expect(dismissed == 1, "pulled build 500 is offered")
         #expect(installs.downloads == 0, "pulled build 500 downloaded")
+    }
+
+    /// A carried fetch for the newest build (here a pulled running build's) that finds a known-pulled
+    /// build ends when that prompt ends: "Getting the Newest Build…" never stays up.
+    @Test func aPulledFoundBuildEndsTheNewestFetch() async throws {
+        let (h, installs) = Click.make(newer: false, downloadsAsk: true, pulled: ["500"])
+        await h.updater.pulledWatch.refresh().value
+        h.updater.availableBuild = { "500" }
+        h.sparkle.staged = nil
+        h.updater.newestFetch = .runningPulled
+        h.updater.debugIndicatorPhase = .hidden
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        h.updater.debugIndicatorPhase = .hidden
+        #expect(installs.downloads == 0, "pulled build 500 downloaded")
+        #expect(h.updater.newestFetch == nil, "the fetch for the newest build never ended")
+        #expect(h.updater.newestCard == nil)
     }
 }
