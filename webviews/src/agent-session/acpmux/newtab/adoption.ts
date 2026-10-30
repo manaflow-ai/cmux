@@ -79,7 +79,8 @@ export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void): number {
   return generation;
 }
 
-/// Takes each places event's open tabs and workspaces into the shown page's bar, in place: no
+/// Takes each places event's open tabs and workspaces (and the palette's actions, when it has them)
+/// into the shown page's bar, in place: no
 /// remount, so what is typed and the caret stay (Leo 2026-10-11: rows for workspaces gone since
 /// stayed listed).
 export function useNewTabPlaces(
@@ -93,7 +94,13 @@ export function useNewTabPlaces(
         (host) =>
           host && {
             ...host,
-            omnibar: { ...(host.omnibar ?? places), tabs: places.tabs, workspaces: places.workspaces },
+            omnibar: {
+              ...(host.omnibar ?? places),
+              tabs: places.tabs,
+              workspaces: places.workspaces,
+              // The palette's actions come after the page shows (AgentPaneView.refreshNewTabActions).
+              ...(places.actions?.length ? { actions: places.actions } : {}),
+            },
           },
       );
     };

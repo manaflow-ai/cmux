@@ -438,7 +438,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
         let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
         return .daemonRefused(holder: holder, socketPath: environment.socketPath,
-                              reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
+                              reason: "\(AgentPaneHostError.foreignHomeReason)\(status.home ?? ""), not \(environment.home.path)",
                               executable: environment.executable.path)
     }
 
