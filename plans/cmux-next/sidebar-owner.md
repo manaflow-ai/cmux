@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
+  pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
+  tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
+  tile keeps its active fill. Nothing else about the tiles changes. Regression: `SidebarShiftClickPinnedTests`.
+
 - 2026-10-29: the tab tuck and additive geometry springs hold their starting values until their
   explicit begin times. Display-rate frames at nightly source `316bd521` showed an initial flash;
   opacity-only backwards fill exposed the destination frame, so geometry needs the same fill.
@@ -562,3 +567,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+
+## First group fold reads a prepared lookup (2026-10-29)
+
+- [cd5b10ac221](https://github.com/manaflow-ai/cmux/commit/cd5b10ac2217376385a9c6ae34e5ff70ff966cfa) (PR [#24580](https://github.com/manaflow-ai/cmux/pull/24580)), Leo: "we know them beforehand, we can cache it, we can store those, like, saved operations." No visual change: `SidebarModel` builds its group lookup when sections arrive, so the first fold no longer scans every group before the row animation starts. Rows, layout and fold motion are unchanged. The commit carries no `Sidebar-Look:` trailer; reviewed and logged here. Test: `SidebarGroupToggleScalingTests.firstFoldDoesNotScanOtherGroups`.

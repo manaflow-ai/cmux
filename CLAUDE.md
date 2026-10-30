@@ -65,6 +65,8 @@ commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
 `scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
 `CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
 `web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
+A host that must not run heavy checks (a shared agent host) sets `CMUX_LOCAL_HEAVY_CHECKS=0`:
+the type-aware lint and type check (`vp lint`, `vp check`) are left to CI there; the rest still run.
 
 ## cmux-next checks before every push
 
