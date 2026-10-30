@@ -63,6 +63,11 @@ public final class OnboardingModel {
         case .importData where importer.canStart:
             importer.start()
             return
+        // Computer Use: Return is the window's one primary action: the next
+        // row's Allow, Restart for a helper that did not answer, or Done.
+        case .computerUse where !computerUse.allGranted:
+            if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
+            return
         default:
             finish(completed: true)
         }

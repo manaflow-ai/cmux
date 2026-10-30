@@ -55,9 +55,18 @@ export function railPlacement(gutter: number): { hidden: boolean; left: number }
     left: Math.max(0, gutter - ROW_WIDTH - RAIL_TEXT_GAP),
   };
 }
-/// Rows past this many, or past 70% of the window's height, scroll inside the rail.
-export const RAIL_MAX_ROWS = 64;
-export const RAIL_MAX_SHARE = 0.7;
+/// Height choices for the compact rail. The initial height keeps a short thread from looking like a
+/// transcript slice; the share and row cap let a long thread grow toward the pane's full height before
+/// its own list scrolls. The gallery compares these arms; the selected default is the middle ground.
+export type RailHeightConfig = { initial: number; maxRows: number; maxShare: number };
+export const RAIL_HEIGHTS = {
+  "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
+  "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
+  "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
+  "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
+} as const satisfies Record<string, RailHeightConfig>;
+export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "initial-320-max-92";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -99,11 +108,12 @@ export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * pr
 
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
-/// (the bottom stack's top) while more lies below, 56 px while Jump to latest shows (18 px without).
+/// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
+/// while Jump to latest shows: that control keeps its own glass and does not widen the transcript mask.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
 export const TRANSCRIPT_FADE_TOP = 18;
-export const TRANSCRIPT_FADE_BOTTOM = 56;
+export const TRANSCRIPT_FADE_BOTTOM = 18;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
 /// above `viewportHeight` (a composer grown while the view follows the latest row).
@@ -127,14 +137,16 @@ export function railHeight(
   viewportHeight = windowHeight,
   foot = viewportHeight,
   band = 1,
+  config: RailHeightConfig = RAIL_HEIGHTS[DEFAULT_RAIL_HEIGHT],
 ): number {
+  if (count <= 0) return 0;
   const room = railRoom(viewportHeight, foot);
   const height = Math.min(
-    count * ROW_PITCH,
-    RAIL_MAX_ROWS * ROW_PITCH,
-    Math.floor(windowHeight * RAIL_MAX_SHARE),
+    Math.max(count * ROW_PITCH, config.initial),
+    config.maxRows * ROW_PITCH,
+    Math.floor(windowHeight * config.maxShare),
     // A transcript not measured yet (0) does not cap it.
-    viewportHeight > 0 ? Math.floor(room.bottom - room.top) : Infinity,
+    viewportHeight > 0 ? Math.max(0, Math.floor(room.bottom - room.top)) : Infinity,
   );
   const need = Math.min(count, Math.max(1, band)) * ROW_PITCH;
   const view = viewportHeight > 0 ? Math.floor(Math.min(viewportHeight, foot)) : Infinity;

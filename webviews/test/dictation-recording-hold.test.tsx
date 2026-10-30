@@ -10,11 +10,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useRef } from "react";
 import type { Root } from "react-dom/client";
-import {
-  type ComposerAttachment,
-  remoteRecordingAttachment,
-  stopRemoteRecording,
-} from "../src/agent-session/acpmux/attachments";
+import { type ComposerAttachment, remoteRecordingAttachment } from "../src/agent-session/acpmux/attachments";
 import { useAttachmentIntake, useSendWhenAttached } from "../src/agent-session/acpmux/composer/attachmentIntake";
 
 const scope = globalThis as Record<string, unknown>;
@@ -55,9 +51,11 @@ let intake: Intake;
 /// What each send carried: the paths (or names) of its chips.
 let sent: string[][] = [];
 let send: () => void = () => {};
-/// The chat the composer shows, and the chips a chat it left was handed (`elsewhere`).
-let showing = "chat-a";
-let keptFor: [string, string[]][] = [];
+/// The chat the composer shows, and whether a switch now carries its prompt (a harness switch).
+let chat = "chat-a";
+let carry = false;
+/// The chips the intake handed to another chat than the one shown.
+let handedOff: [string, string[]][] = [];
 
 /// A composer's intake and its send hold, as Composer.tsx wires them; a send reads the chips after
 /// the render that has them (a ref), as the composer's does.
@@ -65,12 +63,11 @@ function Probe() {
   intake = useAttachmentIntake({
     allowImages: true,
     pasteTarget: () => undefined,
-    scope: showing,
-    // A switch carries the prompt (a harness switch's new session), as Composer.tsx's can.
-    carries: () => true,
-    elsewhere: (chat, chips) => keptFor.push([chat, chips.map((chip) => chip.path ?? chip.name)]),
+    scope: chat,
+    carries: () => carry,
+    elsewhere: (session, chips) => handedOff.push([session, chips.map((chip) => chip.path ?? chip.name)]),
   });
-  const hold = useSendWhenAttached(intake.loading, showing, intake.unsettled);
+  const hold = useSendWhenAttached(intake.loading, chat, intake.unsettled);
   const staged = useRef<readonly ComposerAttachment[]>([]);
   staged.current = intake.attachments;
   const go = () => {
@@ -83,15 +80,13 @@ function Probe() {
   return null;
 }
 
-/// The host's `dictation.recording.upload`, answered when the test says; its
-/// `dictation.recording.cancel` answers at once.
+/// The host's `dictation.recording.upload`, answered when the test says.
 function upload() {
   let answer: (value: unknown) => void = () => {};
   let refuse: (error: Error) => void = () => {};
   const asked: string[] = [];
   const call = (method: string, params: Record<string, unknown>) => {
     asked.push(`${method} ${String(params.path)}`);
-    if (method === "dictation.recording.cancel") return Promise.resolve(null);
     return new Promise<unknown>((resolve, reject) => {
       answer = resolve;
       refuse = reject;
@@ -102,14 +97,14 @@ function upload() {
     answer: (value: unknown) => answer(value),
     refuse: (error: Error) => refuse(error),
     make: () => remoteRecordingAttachment(long, "Recording", call),
-    stop: () => stopRemoteRecording(long, call),
   };
 }
 
 async function fresh() {
   sent = [];
-  showing = "chat-a";
-  keptFor = [];
+  chat = "chat-a";
+  carry = false;
+  handedOff = [];
   await act(async () => root.render(<Probe />));
   await act(async () => intake.setAttachments([]));
 }
@@ -137,102 +132,78 @@ test("a send made while a long recording uploads waits for it and carries the re
 test("the pending recording's x lets the waiting send go without it", async () => {
   await fresh();
   const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
   await act(async () => send());
   expect(sent).toEqual([]);
   await act(async () => intake.cancel(intake.pending[0]!.id));
   expect(sent).toEqual([[]]);
+  // The × stops the host's upload too (dictation.recording.cancel), once.
+  expect(stopped).toBe(1);
   // The upload's late answer stages nothing.
   await act(async () => host.answer({ path: remote }));
   expect(intake.attachments).toEqual([]);
   expect(intake.pending).toEqual([]);
 });
 
-test("a failed upload keeps the waiting send blocked with the failed chip; Retry's answer lets it go with the audio", async () => {
+test("a failed upload leaves the chip with its note and Retry; the waiting send goes without it", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
-  // The stager refuses the recording (Cloud's `upload_refused` at begin, a peer's `too_large`).
-  await act(async () => host.refuse(Object.assign(new Error("refused"), { code: "upload_refused" })));
-  // The send does not go without its audio: it waits, and the chip says why, with Retry.
-  expect(sent).toEqual([]);
+  await act(async () => host.refuse(Object.assign(new Error("no route"), { code: "upload_failed" })));
+  expect(sent).toEqual([[]]);
   expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
-  // A send pressed again while the chip shows its failure waits too.
-  await act(async () => send());
-  expect(sent).toEqual([]);
-  // Retry asks the host again; its answer becomes the chip, and the waiting send goes with it, once.
+  // Retry asks the host again; its answer becomes the saved chip, for the next prompt.
   await act(async () => intake.retry(intake.pending[0]!.id));
   expect(host.asked).toHaveLength(2);
   expect(intake.pending[0]?.failed).toBeUndefined();
-  expect(sent).toEqual([]);
   await act(async () => host.answer({ path: remote }));
   expect(intake.pending).toEqual([]);
-  expect(sent).toEqual([[remote]]);
-});
-
-test("the failed recording's x lets the waiting send go with the text alone", async () => {
-  await fresh();
-  const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  expect(intake.attachments).toMatchObject([{ kind: "link", saved: true, path: remote }]);
   await act(async () => send());
-  await act(async () => host.answer(null));
-  expect(sent).toEqual([]);
-  expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
-  await act(async () => intake.cancel(intake.pending[0]!.id));
-  expect(sent).toEqual([[]]);
-  expect(intake.pending).toEqual([]);
+  expect(sent).toEqual([[], [remote]]);
 });
 
-// Review of #26966: a carried switch (a harness switch's new session takes the prompt) moved a
-// pending host upload to the new chat, though the host had started it for the old one. Its answer,
-// a path on the old chat's machine, then landed in the new chat, whose agent cannot open it. A chip
-// the host makes keeps its chat: its answer goes to that chat's kept chips, never the new chat.
-test("a carried switch does not move a pending recording's upload to the new chat", async () => {
+// Review of #26953 at 06aa3fc4: a switch that carries the prompt (a harness switch) moved the
+// pending recording to the new chat with it, so its copy on chat A's machine was staged in chat B.
+// The host's chip stays with the chat it was made for, and lands in that chat's kept chips.
+test("a switch that carries the prompt leaves the uploading recording with its own chat", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
-  showing = "chat-b";
+  chat = "chat-b";
+  carry = true;
   await act(async () => root.render(<Probe />));
-  await act(async () => host.answer({ path: remote }));
-  expect(intake.attachments).toEqual([]);
+  // Chat B neither shows it nor waits for it: a send there goes at once, without it.
   expect(intake.pending).toEqual([]);
-  expect(keptFor).toEqual([["chat-a", [remote]]]);
   await act(async () => send());
   expect(sent).toEqual([[]]);
-});
-
-// The pending chip's × while the host is still streaming the recording stops that upload: the page
-// asks the host to cancel it (`dictation.recording.cancel` with the same path), so a large file
-// does not keep going to the chat's machine for nothing, and the host's cancelled answer stages
-// nothing.
-test("the pending recording's x stops the host's upload and nothing is attached", async () => {
-  await fresh();
-  const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, host.stop));
-  await act(async () => intake.cancel(intake.pending[0]!.id));
-  expect(host.asked).toEqual([`dictation.recording.upload ${long.path}`, `dictation.recording.cancel ${long.path}`]);
-  await act(async () => host.refuse(Object.assign(new Error("stopped"), { code: "cancelled" })));
-  expect(intake.attachments).toEqual([]);
-  expect(intake.pending).toEqual([]);
-});
-
-test("a recording whose upload already answered is not cancelled by a later x or Retry", async () => {
-  await fresh();
-  const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, host.stop));
-  await act(async () => host.refuse(Object.assign(new Error("no route"), { code: "upload_failed" })));
-  // Retry runs a fresh upload; the failed one has nothing left to stop.
-  await act(async () => intake.retry(intake.pending[0]!.id));
   await act(async () => host.answer({ path: remote }));
-  expect(host.asked).toEqual([`dictation.recording.upload ${long.path}`, `dictation.recording.upload ${long.path}`]);
-  expect(intake.attachments).toMatchObject([{ path: remote }]);
+  expect(intake.attachments).toEqual([]);
+  expect(handedOff).toEqual([["chat-a", [remote]]]);
 });
 
-test("a composer that goes away while the recording uploads stops the upload", async () => {
+// A composer that goes away while the host still streams the recording has nowhere to put its
+// chip, so the upload stops (`dictation.recording.cancel`). One whose upload already answered is
+// not cancelled.
+test("a composer that goes away while the recording uploads stops the upload, once", async () => {
   await fresh();
   const host = upload();
-  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, host.stop));
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
   await act(async () => root.render(null));
-  expect(host.asked).toEqual([`dictation.recording.upload ${long.path}`, `dictation.recording.cancel ${long.path}`]);
+  expect(stopped).toBe(1);
+  await act(async () => host.answer({ path: remote }));
+  expect(stopped).toBe(1);
+});
+
+test("a composer that goes away after the upload answered asks no cancel", async () => {
+  await fresh();
+  const host = upload();
+  let stopped = 0;
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED, () => stopped++));
+  await act(async () => host.answer({ path: remote }));
+  await act(async () => root.render(null));
+  expect(stopped).toBe(0);
 });

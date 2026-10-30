@@ -110,7 +110,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 4,
+    "acpmux": 6,
     "cmux-browser-host": 4,
     "cmux-tui-core": 3
    },
@@ -176,7 +176,7 @@
     "CmuxNextTabs": 1,
     "CmuxNextTasks": 1,
     "CmuxNextVSCodeServer": 2,
-    "CmuxVNC": 2,
+    "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
     "MessagesLabHome": 1

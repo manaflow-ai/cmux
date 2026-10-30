@@ -91,12 +91,10 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
 /// is dictation alone.
 export type DictationAudio = {
   accepts: boolean;
+  chat?(): string | undefined;
+  elsewhere?(): void;
   attach(audio: DictationRecording): void;
   omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
-  /// The chat the pane shows now (undefined: none, the New Tab page).
-  chat?(): string | undefined;
-  /// A recording made in chat `session`, which the pane no longer shows: it is not attached here.
-  elsewhere?(audio: DictationRecording, session: string): void;
 };
 
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
@@ -152,14 +150,17 @@ export function useDictation(
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      // The final recording and transcript belong to the chat where recording began.
+      // Never splice or auto-send either into a chat the pane navigated to while closing.
+      if (update.session !== undefined && shownChat.current && update.session !== (shownChat.current() ?? "")) {
+        anchor.current = null;
+        owner = null;
+        if (update.state === "idle" && !update.cancelled) audioElsewhere.current?.();
+        return;
+      }
       // The recording joins the composer before the words do, so an auto-send takes both.
       if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
-        // A recording made in a chat the pane has left (it closed after the switch) is that chat's:
-        // never attached here, where an auto-send would send it to the wrong chat.
-        const madeIn = update.audio?.session;
-        if (update.audio && madeIn !== undefined && shownChat.current && madeIn !== shownChat.current())
-          audioElsewhere.current?.(update.audio, madeIn);
-        else if (update.audio) attachAudio.current?.(update.audio);
+        if (update.audio) attachAudio.current?.(update.audio);
         else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
       }
       // A session the shortcut started writes where the user will type, as undoable edits.

@@ -91,10 +91,21 @@ public struct WindowTitlebar {
     /// `gutter`, except under a minimal titlebar, where the top row's tab
     /// pills center on the traffic lights' line (never more than `gutter`;
     /// `PaneChromeMetrics.cardTop`).
-    public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat) -> CGFloat {
+    ///
+    /// - Parameter clearsTrafficLights: The lights sit over the card and no
+    ///   top-row strip makes room for them (tab bars at the bottom, no
+    ///   sidebar under the lights): the card starts `gutter` below their row
+    ///   (the lights and the toolbar band's buttons on their line).
+    public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat, clearsTrafficLights: Bool = false) -> CGFloat {
+        guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
+        let local = root.convert(lights, from: nil)
+        if clearsTrafficLights {
+            let row = max(local.height, TitlebarBandButton.side)
+            return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
+        }
         // Floating panes keep the one even gap at the top too.
-        guard minimal, !Metrics.floatingPanes, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
-        let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
+        guard !Metrics.floatingPanes else { return gutter }
+        let centerFromTop = root.bounds.maxY - local.midY
         return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
     }
 

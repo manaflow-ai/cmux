@@ -10535,6 +10535,58 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "恢复侧边栏渐隐"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "恢復側邊欄漸隱"}}
       }
+    },
+    "action.sidebar.controlsOnHover.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار عناصر تحكم الشريط الجانبي عند التمرير فقط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži kontrole bočne trake samo pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis kun sidepanelets knapper ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Seitenleisten-Steuerelemente nur beim Überfahren zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Sidebar Controls Only on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar los controles de la barra lateral solo al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher les commandes de la barre latérale uniquement au survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra i controlli della barra laterale solo al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのコントロールをポインタを置いたときだけ表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការគ្រប់គ្រងរបារចំហៀងតែពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버할 때만 사이드바 컨트롤 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis sidepanelkontroller bare ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj elementy paska bocznego tylko po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar os controles da barra lateral só ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать элементы боковой панели только при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงตัวควบคุมแถบด้านข้างเฉพาะเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu denetimlerini yalnızca üzerine gelince göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати елементи бічної панелі лише при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ hiện điều khiển thanh bên khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅在悬停时显示侧边栏控件"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅在懸停時顯示側邊欄控制項"}}
+      }
+    },
+    "action.sidebar.controlsOnHover.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار عناصر تحكم الشريط الجانبي دائمًا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uvijek prikaži kontrole bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis altid sidepanelets knapper"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Seitenleisten-Steuerelemente immer zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Always Show Sidebar Controls"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar siempre los controles de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Toujours afficher les commandes de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra sempre i controlli della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのコントロールを常に表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការគ្រប់គ្រងរបារចំហៀងជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 컨트롤 항상 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis alltid sidepanelkontroller"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zawsze pokazuj elementy paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sempre mostrar os controles da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Всегда показывать элементы боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงตัวควบคุมแถบด้านข้างเสมอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu denetimlerini her zaman göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Завжди показувати елементи бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Luôn hiện điều khiển thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "始终显示侧边栏控件"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "一律顯示側邊欄控制項"}}
+      }
     }
   },
   "version": "1.0"

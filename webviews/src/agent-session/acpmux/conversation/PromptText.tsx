@@ -17,8 +17,14 @@ import {
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { foldMotion, foldMs } from "./fold";
+import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
+import { Markdown } from "./Markdown";
+import { SoftBroken } from "./softBreaks";
+
+// Ordinary text keeps its literal whitespace and cheap span. Anything that can contain Markdown
+// uses the shared transcript parser, including a list, code or link with no quote in the prompt.
+const PROMPT_MARKDOWN = /[`*_~[\]$<>|#\\]|https?:\/\/|(^|\n)[ \t]*(?:[-+]|\d+[.)])[ \t]/;
 
 export function PromptText({
   rowId,
@@ -102,11 +108,16 @@ export function PromptText({
     resized.current = undefined;
     const bubble = body.current?.parentElement;
     const text = body.current;
-    const ms = foldMs(bubble ?? null);
-    if (from === undefined || !bubble || !text || ms <= 0) return;
+    // A mount has no previous height to animate. Avoid resolving motion styles until a toggle
+    // actually requested a fold; those computed-style reads otherwise flush the cold send layout.
+    if (from === undefined || !bubble || !text) return;
+    const ms = foldMs(bubble);
+    if (ms <= 0) return;
     const to = bubble.getBoundingClientRect().height;
     if (Math.abs(to - from) < 1) return;
     const timing = { duration: ms, easing: foldMotion.easing(bubble) };
+    // The rows below are placed before paint while the bubble resizes, as under a fold.
+    markHeightFold(bubble, ms);
     if (collapsed) {
       // The clamped text is a box again: it starts as tall as the whole text was drawn.
       const clamped = text.getBoundingClientRect().height;
@@ -152,9 +163,15 @@ export function PromptText({
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
         {parts.map((part, index) =>
           part.kind === "text" ? (
-            <span key={index} className="cv-user__typed">
-              {show(part.text)}
-            </span>
+            PROMPT_MARKDOWN.test(part.text) ? (
+              <Markdown key={index} className="cv-user__markdown" thumbnails={false}>
+                {show(part.text)}
+              </Markdown>
+            ) : (
+              <span key={index} className="cv-user__typed">
+                <SoftBroken text={show(part.text)} />
+              </span>
+            )
           ) : (
             <PasteChip
               key={index}

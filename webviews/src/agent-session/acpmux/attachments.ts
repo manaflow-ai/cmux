@@ -5,7 +5,7 @@ import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
-import { pastedTextBlocks } from "./pastedText";
+import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
@@ -415,6 +415,7 @@ export function promptText(text: string, attachments: ComposerAttachment[], opti
     .filter((attachment) => attachment.kind === "link" && attachment.mimeType)
     .map(
       (attachment) =>
+        // l10n-allow: text for the agent, sent in the prompt, not UI.
         `Attached file: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Read the linked file with your tools.`,
     );
   return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
@@ -632,9 +633,8 @@ export function recordingAttachment(
 /// the WAV it wrote, from its own disk, to that chat's machine (`dictation.recording.upload`, which
 /// takes only a recording the host itself gave this page), and the chip links the copy there, so
 /// the chat's agent opens it. The page never reads the bytes. Undefined when the host could not send
-/// it (an older host, an upload that failed or a stager that refused it): the composer's pending
-/// chip for it (Composer.tsx `attachLater`) then fails with Retry, and a prompt sent meanwhile keeps
-/// waiting for it until Retry makes it or its × takes the recording out.
+/// it (an older host, an upload that failed): the composer's pending chip for it (Composer.tsx
+/// `attachLater`) then fails with Retry, and a prompt sent meanwhile gets the transcript.
 export async function remoteRecordingAttachment(
   audio: DictationRecording,
   name: string,
@@ -650,26 +650,13 @@ export async function remoteRecordingAttachment(
   }
 }
 
-/// Stops the host's upload of a long recording whose pending chip went (its ×, or the composer went
-/// away) before the upload answered (`dictation.recording.cancel`, the same path): the host stops at
-/// its next chunk and drops what it staged on the chat's machine. The upload's answer, `cancelled`,
-/// is ignored (the chip is gone). A refusal (it already finished, an older host) changes nothing.
-export function stopRemoteRecording(
-  audio: DictationRecording,
-  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): void {
-  if (!audio.path) return;
-  call("dictation.recording.cancel", { path: audio.path }).catch(() => {});
-}
-
 /// The notice for a recording that goes no further than its transcript: the host left it out
 /// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
 /// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
 /// not save it (`writeFailed`: a full disk, a folder it cannot write).
 export function recordingLeftOutNotice(
-  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed" | "otherChat",
+  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed",
 ): StringKey {
-  if (reason === "otherChat") return "dictation.recordingOtherChat";
   if (reason === "elsewhere") return "dictation.recordingElsewhere";
   if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
@@ -736,6 +723,9 @@ export function htmlImageFiles(html: string): File[] {
 /// The markdown `data:` images of pasted text (a prompt copied from a bubble that went out with
 /// them), as files the composer attaches; `text` is what the field gets in their place.
 export function textImageFiles(plain: string): { text: string; files: File[] } {
+  // Text past what a prompt carries goes as a file whole (pastedChips.ts): no image is lifted out
+  // of it, and scanning 100 MB for one held the paste's task 24 ms (about 70 ms on the CI runner).
+  if (plain.length > PASTE_FILE_CHARS) return { text: plain, files: [] };
   const lifted = liftInlineImages(plain);
   if (!lifted.attachments.length) return { text: plain, files: [] };
   // An image written into a prompt was meant: no size floor.

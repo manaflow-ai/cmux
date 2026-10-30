@@ -133,10 +133,9 @@ export type PendingAttachment = {
   /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
   /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
   uploading?: boolean;
-  /// A chip the host makes (attachLater, a long dictation recording): a send waits for it even
-  /// once it failed, until its Retry makes it or its × takes it out, so a prompt never goes
-  /// without the recording it was sent with.
-  holdsSend?: boolean;
+  /// Made by the host for its chat (attachLater, a file on that chat's machine): it stays with that
+  /// chat, never carried to another with the prompt.
+  bound?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -157,7 +156,7 @@ export function chipRemoved(state: {
 }
 
 /// `file`: a promise while its bytes are still being made (MadeFile). `make`: a chip the host makes
-/// (attachLater), with the note its failure shows and what stops it.
+/// (attachLater), with the note its failure shows.
 type PendingSource =
   | { file: File | Promise<File>; uploads: boolean }
   | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string; stop?: () => void };
@@ -193,11 +192,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const live = useRef({ options, t });
   live.current = { options, t };
-  /// Each batch still being read, with the chat it belongs to (`scope`).
-  const batches = useRef(new Set<{ scope?: string; hostMade?: boolean }>());
+  /// Each batch still being read, with the chat it belongs to (`scope`). A `bound` one (attachLater:
+  /// a file on that chat's machine) stays with its chat when a switch carries the prompt.
+  const batches = useRef(new Set<{ scope?: string; bound?: boolean }>());
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it.
+  const making = useRef(new Map<string, () => void>());
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -215,10 +217,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const from = lastScope.current;
     lastScope.current = scope;
     if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
-    // A chip the host makes (attachLater, `holdsSend`) keeps its chat: the host started it for that
-    // chat, and its answer (a path on that chat's machine) goes to that chat's kept chips.
-    for (const batch of batches.current) if (batch.scope === from && !batch.hostMade) batch.scope = scope;
-    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.holdsSend ? { ...chip, scope } : chip)));
+    for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
+    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
@@ -338,33 +338,24 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
-  /// The pending host-made chips whose `make` has not answered yet, each with what stops it (attachLater).
-  const stops = useRef(new Map<string, () => void>());
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
   /// task (dictation's auto-send) waits for it, as for a file still being read. `make` answers the
   /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
-  /// again. A send keeps waiting through a failure (`holdsSend`): it goes with the chip once Retry
-  /// makes it, or without it once its × drops it (and whatever `make` answers later). Its × while
-  /// `make` still runs calls `stop` (the host's upload stops), as does the composer going away.
+  /// again. Its × runs `stop` (the host stops sending) and drops whatever `make` answers later, as
+  /// does the composer going away while `make` still runs.
   const [attachLater] = useState(
     () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
-      const batch = { scope: live.current.options.scope, hostMade: true };
-      const chip: PendingAttachment = {
-        id: crypto.randomUUID(),
-        name,
-        image: false,
-        scope: batch.scope,
-        holdsSend: true,
-      };
+      const batch = { scope: live.current.options.scope, bound: true };
+      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
       sources.current.set(chip.id, { make, name, failure, stop });
-      if (stop) stops.current.set(chip.id, stop);
+      if (stop) making.current.set(chip.id, stop);
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
       void make()
         .catch(() => undefined)
         .then((attachment) => {
-          stops.current.delete(chip.id);
+          making.current.delete(chip.id);
           batches.current.delete(batch);
           if (!sources.current.has(chip.id)) return;
           if (!attachment) {
@@ -386,25 +377,26 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   // The composer goes away: a host-made chip still being made has nowhere to land, so it stops.
   useEffect(
     () => () => {
-      for (const stop of stops.current.values()) stop();
-      stops.current.clear();
+      for (const stop of making.current.values()) stop();
+      making.current.clear();
     },
     [],
   );
-  /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a host-made one
-  /// still being made stops (attachLater's `stop`).
+  /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a chip the host
+  /// is making (attachLater) is stopped there too.
   const [cancel] = useState(() => (id: string) => {
+    const source = sources.current.get(id);
+    if (source && "make" in source) source.stop?.();
+    making.current.delete(id);
     sources.current.delete(id);
-    const stop = stops.current.get(id);
-    stops.current.delete(id);
-    stop?.();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was).
   const [retry] = useState(() => (id: string) => {
     const source = sources.current.get(id);
     if (source && "make" in source) {
-      cancel(id);
+      sources.current.delete(id);
+      setPending((chips) => chips.filter((chip) => chip.id !== id));
       attachLater(source.name, source.make, source.failure, source.stop);
       return;
     }
@@ -448,11 +440,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips still loading that a send waits for: a failed one waits for its Retry or x, and one
-  /// streaming to the session's machine stays for the next prompt, neither holds the send. A chip
-  /// the host makes (`holdsSend`) holds it even once failed, until its Retry or x.
-  const loading = shown.filter((chip) => chip.holdsSend || (!chip.failed && !chip.uploading)).length;
+  /// streaming to the session's machine stays for the next prompt, neither holds the send.
+  const loading = shown.filter((chip) => !chip.failed && !chip.uploading).length;
   /// The chips not yet a chip or a failure, uploads included (useSendWhenAttached's `unsettled`).
-  const unsettled = shown.filter((chip) => chip.holdsSend || !chip.failed).length;
+  const unsettled = shown.filter((chip) => !chip.failed).length;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
   /// waits for them a few seconds at most (composer/videoAttachments.ts).
   const videoReading = useVideoInfo(
@@ -495,7 +486,7 @@ export function useSendWhenAttached(
   pending: number,
   scope?: string,
   unsettled: number = pending,
-): (send: () => void) => boolean {
+): ((send: () => void) => boolean) & { cancel(): void } {
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -508,11 +499,20 @@ export function useSendWhenAttached(
     held.current = undefined;
     send();
   }, [unsettled]);
-  const [hold] = useState(() => (send: () => void) => {
-    if (count.current === 0 && !held.current) return false;
-    held.current = send;
-    return true;
-  });
+  const [hold] = useState(() =>
+    Object.assign(
+      (send: () => void) => {
+        if (count.current === 0 && !held.current) return false;
+        held.current = send;
+        return true;
+      },
+      {
+        cancel: () => {
+          held.current = undefined;
+        },
+      },
+    ),
+  );
   return hold;
 }
 

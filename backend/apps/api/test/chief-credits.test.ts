@@ -126,7 +126,7 @@ describe("prepaid Cloud Chief credits", { timeout: 60_000 }, () => {
     // The team's next payment page uses the customer its first payment made (one customer per team).
     expect(stripe.made[1]).toMatchObject({ customer: "cus_T1fake" })
     expect(stripe.made[1]!.customer_creation).toBeUndefined()
-    expect((await call(e, "POST", "/v1/credits/topup", { token: t, body: JSON.stringify({ usd: 7 }) })).status).toBe(400)
+    expect((await call(e, "POST", "/v1/credits/topup", { token: t, body: JSON.stringify({ usd: 4 }) })).status).toBe(400)
     const event2 = JSON.stringify({ type: "checkout.session.completed", livemode: false, data: { object: stripe.sessions.get("cs_test_2abc") } })
     expect((await call(e, "POST", "/v1/hooks/stripe/credits", { body: event2, headers: { "stripe-signature": await signed(event2) } })).json).toEqual({ received: true, granted: true })
     // A session whose paid total differs from its price (a discount) grants nothing.
