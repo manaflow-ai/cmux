@@ -24,6 +24,16 @@ import Testing
         @objc func pasteAndMatchStyle(_ sender: Any?) { runs.append("matchStyle") }
     }
 
+    /// A page view with nothing to paste into: it validates Chrome's selector off, as
+    /// `RenderWidgetHostViewCocoa` does where Chrome disables Paste and Match Style.
+    @MainActor private final class ReadOnlyChromiumPageProbe: NSView, NSUserInterfaceValidations {
+        override var acceptsFirstResponder: Bool { true }
+        @objc func pasteAndMatchStyle(_ sender: Any?) {}
+        func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action != Selector(("pasteAndMatchStyle:"))
+        }
+    }
+
     private func editMenu() throws -> NSMenu {
         _ = NSApplication.shared
         let bar = MainMenu.make(registry: ActionRegistry.standard(), blocking: .forProcess())
@@ -77,6 +87,26 @@ import Testing
         #expect(page.runs == ["matchStyle", "matchStyle"])
         // A responder that answers AppKit's selector keeps it: the route never moves its paste.
         #expect(router.pasteTarget(for: #selector(NSTextView.pasteAsPlainText(_:)), found: Probe(), in: window) == nil)
+    }
+
+    /// The item follows the page view's own validation of Chrome's selector: disabled
+    /// where Chrome disables Paste and Match Style.
+    @Test func pasteAndMatchStyleIsDisabledWhereTheChromiumPageDisablesIt() throws {
+        let menu = try editMenu()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let page = ReadOnlyChromiumPageProbe()
+        window.contentView = page
+        #expect(window.makeFirstResponder(page))
+        let plain = try #require(item(in: menu, key: "v", modifiers: [.command, .shift]))
+        let registry = ActionRegistry.standard()
+        let router = KeyRouter(registry: registry) // the router holds its registry unowned
+        defer { withExtendedLifetime(registry) {} }
+        let action = try #require(plain.action)
+        let target = try #require(router.pasteTarget(for: action, found: nil, in: window))
+        #expect((target as? any NSMenuItemValidation)?.validateMenuItem(plain) == false)
     }
 
     @Test func pasteAndMatchStyleSitsRightBelowPaste() throws {

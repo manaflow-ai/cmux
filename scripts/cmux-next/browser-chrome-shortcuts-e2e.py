@@ -9,8 +9,9 @@ act on the page:
     no-cache`, a plain Cmd-R reload `max-age=0`).
 
 For each engine (`openBrowser.chromium`, `openBrowser.webkit`) the script opens a local page and
-checks, without taking the person's focus: the router delivers Cmd-V, Cmd-Shift-V and
-Cmd-Opt-Shift-V to the page and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
+checks, with no real key presses unless `--keys` is given: the router delivers Cmd-V, Cmd-Shift-V and
+Cmd-Opt-Shift-V to the page, offers Cmd-B, Cmd-I and Shift-Cmd-E to a Chromium page first
+(cmux first in WebKit), and resolves Cmd-Shift-R to Hard Reload (`debug.key` dry_run); Hard
 Reload (`browserHardReload`, what the chord runs) reloads with `Cache-Control: no-cache`, read
 from the script's own server, and Reload Page does not. With `--keys` (the app active, its page
 window key) it also copies a rich-text source with Cmd-C, pastes it into a contenteditable with
@@ -146,7 +147,7 @@ def target_html():
     return evaluate("document.getElementById('dst').innerHTML") or ""
 
 
-def reload_request(run, label):
+def reload_request(run):
     """The request the next reload sends, after `run` starts it (None: no reload in 10 s)."""
     wait(lambda: evaluate("document.readyState === 'complete'"), 20, 0.5)
     count = len(REQUESTS)
@@ -183,12 +184,21 @@ def check_engine(engine, base_url):
         routed = f"{reply.get('decision')}"
         row(f"{engine}: {label} routes", want, routed, want in routed)
 
+    # Rich-text editing chords (Bold, Italic, Center): a Chromium page gets them first and the cmux
+    # action bound to the chord runs only if the page leaves the key unhandled. A WebKit tab reports
+    # no unhandled keys, so cmux keeps running them first there.
+    want = "offerToPage" if engine == "chromium" else "run("
+    for label, key, modifiers in [("Cmd-B", "b", ["cmd"]), ("Cmd-I", "i", ["cmd"]), ("Shift-Cmd-E", "E", ["cmd", "shift"])]:
+        reply = rpc("debug.key", {"key": key, "modifiers": modifiers, "dry_run": True}) or {}
+        routed = f"{reply.get('decision')}"
+        row(f"{engine}: {label} routes", want, routed, routed.startswith(want))
+
     # Hard Reload as the chord runs it (the same action, without OS key focus): a request past the cache.
-    request, sent = reload_request(lambda: rpc("action.run", {"action": "browserHardReload", "args": {}, "focus": True}), "hard")
+    request, sent = reload_request(lambda: rpc("action.run", {"action": "browserHardReload", "args": {}, "focus": True}))
     row(f"{engine}: Hard Reload (browserHardReload) bypasses the cache", "a request with Cache-Control: no-cache",
         f"request={request} ran={sent}", bypassed(request))
     # Reload Page still reloads (Chromium revalidates with max-age=0; WebKit's own reload headers vary).
-    request, sent = reload_request(lambda: rpc("action.run", {"action": "browserReload", "args": {}, "focus": True}), "plain")
+    request, sent = reload_request(lambda: rpc("action.run", {"action": "browserReload", "args": {}, "focus": True}))
     row(f"{engine}: Reload (browserReload) reloads", "a reload request", f"request={request} ran={sent}", bool(request))
 
     if opts.keys:
@@ -211,7 +221,7 @@ def check_keys(engine, keys):
             f"bold27619 in the field, bold={want_bold}",
             f"focused={focused} html={html[:120]!r} sent={sent} copy={copied}",
             bool(focused) and "bold27619" in html and bold == want_bold)
-    request, sent = reload_request(lambda: keys.press("R", ["cmd", "shift"]), "hard key")
+    request, sent = reload_request(lambda: keys.press("R", ["cmd", "shift"]))
     row(f"{engine}: Cmd-Shift-R hard reloads", "a request with Cache-Control: no-cache", f"request={request} sent={sent}",
         bypassed(request))
 

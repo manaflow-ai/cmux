@@ -11,7 +11,8 @@ import CmuxNextFocus
 extension KeyRouter {
     /// Navigation actions a page may own too: Find and its neighbors. Every other navigation
     /// and system action (new tab, close, Cmd-1 to Cmd-9, splits, focus moves) acts on the
-    /// window and runs before the page, as Chrome's reserved keys do.
+    /// window and runs before the page, as Chrome's reserved keys do, unless it is typed with
+    /// one of ``BrowserChordTable/pageEditingChords`` (see ``offersToPage(_:event:focus:facts:)``).
     nonisolated static let pageOwnableActions: Set<ActionID> = ["find", "findNext", "findPrevious", "useSelectionForFind"]
 
     /// Whether `candidate` waits for the page in `focus` instead of running first: a content

@@ -26,8 +26,8 @@ public struct ChromiumPasteAndMatchStyleRoute {
 }
 
 /// Sends Chrome's `pasteAndMatchStyle:` to the page view for AppKit's
-/// `pasteAsPlainText:`. Chromium enables it for any page view of a main
-/// frame, so the menu item is enabled while the view is there.
+/// `pasteAsPlainText:`. The menu item takes the page view's own validation of
+/// Chrome's selector, so it is disabled where Chrome disables it.
 @MainActor
 final class ChromiumPasteAndMatchStyleForwarder: NSObject, NSMenuItemValidation {
     private weak var responder: NSResponder?
@@ -41,6 +41,9 @@ final class ChromiumPasteAndMatchStyleForwarder: NSObject, NSMenuItemValidation 
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
-        (responder as? NSView)?.window != nil
+        guard let responder, (responder as? NSView)?.window != nil else { return false }
+        guard let validator = responder as? any NSUserInterfaceValidations else { return true }
+        let probe = NSMenuItem(title: item.title, action: ChromiumPasteAndMatchStyleRoute.chromiumAction, keyEquivalent: "")
+        return validator.validateUserInterfaceItem(probe)
     }
 }
