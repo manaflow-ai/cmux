@@ -77,6 +77,7 @@ public final class CloudMachineChanges {
     /// reconciliation uses ``pendingStatus(for:)`` to retain it over stale list records.
     public func run(_ change: CloudMachine.Status, machineID: String,
                     of holder: () -> (any CloudMachineHolder)?,
+                    onRollback: @escaping @MainActor () -> Void = {},
                     _ call: () async throws -> Void) async throws {
         mutations[machineID] = Mutation(status: change, baselineFailure: holder()?.machine.lastChangeFailure,
                                         requestReturned: false)
@@ -93,6 +94,7 @@ public final class CloudMachineChanges {
                 if let shown = holder(), shown.machine.pendingChange == change {
                     shown.machine.pendingChange = nil
                 }
+                onRollback()
             }
             throw error
         }

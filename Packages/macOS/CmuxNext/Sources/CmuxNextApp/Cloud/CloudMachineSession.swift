@@ -47,6 +47,9 @@ final class CloudMachineSession {
     /// The app-link connect hop in flight: a pause or a disconnect cancels
     /// it instead of waiting up to `CloudAppLinks.connectTimeout`.
     @ObservationIgnored private var connectHop: Task<Void, Never>?
+    /// A transition overtook a connect after its carrier answered. If that transition
+    /// rolls back, reconnect the interrupted live session unless another change replaced it.
+    @ObservationIgnored private var reconnectAfterFailedMutation = false
     @ObservationIgnored private var disconnected = false
     /// Whether this session was removed permanently because its machine disappeared.
     /// A delete transition must leave this false until a list confirms removal.
@@ -222,6 +225,7 @@ final class CloudMachineSession {
         if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
             // The transition overtook this connect after the carrier answered. End the
             // ticket/transport so the carrier cannot remain attached without a daemon.
+            if machine.shownStatus.isChanging { reconnectAfterFailedMutation = true }
             await appLink.end(reason: "connect cancelled")
             appTicket = nil
             daemon.shutdownConnection()
@@ -247,6 +251,16 @@ final class CloudMachineSession {
                 throw error
             }
         })
+    }
+
+    /// Called after the current pause/delete mutation failed and its optimistic status was
+    /// rolled back. A newer mutation never calls this callback, so the interrupted connect is
+    /// safe to restore only when the raw record is still live and no change is now pending.
+    func mutationFailed(_ change: CloudMachine.Status) {
+        guard reconnectAfterFailedMutation else { return }
+        reconnectAfterFailedMutation = false
+        guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else { return }
+        connect()
     }
 
     /// The current connect's link ended: drop its connection and show why.

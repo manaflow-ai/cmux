@@ -48,6 +48,44 @@ struct CloudMachineChangeStateTests {
         func close(_ key: CloudLinkKey) async {}
     }
 
+    private actor ResumeLinkResolver: CloudLinkResolver {
+        private(set) var attempts = 0
+        private var opened: CheckedContinuation<Void, Never>?
+        private var released = false
+        private var secondAttempt: CheckedContinuation<Void, Never>?
+
+        func waitForOpen() async {
+            if attempts > 0 { return }
+            await withCheckedContinuation { opened = $0 }
+        }
+
+        func release() {
+            released = true
+            opened?.resume()
+            opened = nil
+        }
+
+        func waitForAttempts(_ count: Int) async {
+            if attempts >= count { return }
+            await withCheckedContinuation { secondAttempt = $0 }
+        }
+
+        func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
+            attempts += 1
+            if attempts == 1 {
+                opened?.resume()
+                opened = nil
+                if !released { await withCheckedContinuation { continuation in opened = continuation } }
+            } else if let continuation = secondAttempt {
+                secondAttempt = nil
+                continuation.resume()
+            }
+            return CloudLinkSocket(key: key, path: "/tmp/cloud-change-test.sock", generation: 1)
+        }
+
+        func close(_ key: CloudLinkKey) async {}
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func runningRetriesAnAppLinkThatFailedWhileStarting() async throws {
         let services = MachineIconTests.services()
@@ -92,6 +130,30 @@ struct CloudMachineChangeStateTests {
         #expect(fields["status"] == .string("deleting"))
         #expect(fields["pending"] == .bool(true))
         #expect(fields["machine_id"] == .string("vm-delete"))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedPauseReconnectsAConnectionInterruptedByTheMutation() async {
+        let services = MachineIconTests.services()
+        let resolver = ResumeLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "mutation-reconnect", status: .running),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "mutation-reconnect"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        defer { session.disconnect() }
+
+        session.connect()
+        await resolver.waitForOpen()
+        for await phase in ObservationStream({ session.linkPhase }) where phase == .starting { break }
+        session.machine.pendingChange = .pausing
+        await resolver.release()
+        for await phase in ObservationStream({ session.linkPhase }) where phase == .idle { break }
+
+        // CloudMachineChanges rolls back the failed pause and invokes this callback only while
+        // it still owns the mutation; a newer mutation must not reconnect this session.
+        session.machine.pendingChange = nil
+        session.mutationFailed(.pausing)
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
     }
 
     @Test func anAcceptedMutationSurvivesAStaleListUntilItsTerminalRecord() async throws {
