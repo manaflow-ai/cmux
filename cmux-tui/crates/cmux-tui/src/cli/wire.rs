@@ -113,7 +113,12 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Err(exit_code) => return exit_code,
         }
     }
-    if let Err(failure) = super::tab_capabilities::negotiate(&mut reader) {
+    // Raw operation requests intentionally keep their private wire contract:
+    // the first frame is the caller's request, so they cannot opt into the
+    // public conversation-tab projection.
+    if matches!(&plan.operation, WireOperation::Typed(_))
+        && let Err(failure) = super::tab_capabilities::negotiate(&mut reader)
+    {
         let reason = match &failure {
             super::resolve::Failure::Transport(message) => retry::Failure::from_read_error(message),
             super::resolve::Failure::Refused => retry::Failure::Dropped,

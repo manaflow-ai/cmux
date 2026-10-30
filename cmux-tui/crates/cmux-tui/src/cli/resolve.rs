@@ -56,10 +56,16 @@ impl Failure {
             }
             Self::Resource(error) => print_operation_error(&error, output),
             Self::Local { error, exit } => print_local_error(&error, output, exit),
-            Self::Transport(message) => {
-                eprintln!("{message}");
-                3
-            }
+            Self::Transport(message) => print_local_error(
+                &json!({
+                    "code": "transport.failed",
+                    "message": message,
+                    "details": {},
+                    "retryable": true,
+                }),
+                output,
+                3,
+            ),
             Self::Refused => {
                 eprintln!("cmux: session is busy");
                 3
@@ -321,6 +327,10 @@ pub(super) fn session_events(
     let mut events = BufReader::new(stream);
     let remaining = deadline.checked_duration_since(Instant::now())?;
     events.get_mut().set_read_timeout(Some(remaining)).ok()?;
+    // This connection also needs the public tab projection before reading
+    // session events. A refusal or an older daemon simply makes events
+    // unavailable; the caller still has its bounded direct lookup fallback.
+    super::tab_capabilities::negotiate(&mut events).ok()?;
     let id = random_request_id().ok()?;
     let mut params = route.clone();
     params.entry("session").or_insert_with(|| Value::String("current".into()));
