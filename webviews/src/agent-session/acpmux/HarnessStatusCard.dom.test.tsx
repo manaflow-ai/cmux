@@ -321,7 +321,10 @@ test("a usage limit window the card does not know shows its raw id", async () =>
 const MALFORMED_LIMITS: [string, unknown][] = [
   ["windows that are not a list", { windows: "weekly" }],
   ["no windows", { windows: [] }],
-  ["windows without an id or a number", { windows: [{ usedPercent: 5 }, { id: "weekly", usedPercent: "lots" }, { id: "session" }] }],
+  [
+    "windows without an id or a number",
+    { windows: [{ usedPercent: 5 }, { id: "weekly", usedPercent: "lots" }, { id: "session" }] },
+  ],
   ["a window whose percent is not finite", { windows: [{ id: "session", usedPercent: Number.NaN }] }],
 ];
 
