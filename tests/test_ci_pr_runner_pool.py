@@ -3136,6 +3136,12 @@ class IOSRouting(unittest.TestCase):
         self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0))
         self.assertEqual(ios_pool.sim_jobs("screenshots", ""), 1)
 
+    def test_the_kit_lane_uses_one_owned_mac_and_one_simulator(self):
+        route, calls = ios_route(sim_fleet(), lane="kit")
+        self.assertTrue(route.persistent)
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        self.assertEqual(calls, 1)
+
     def test_a_queue_error_or_no_snapshot_keeps_the_default(self):
         def broken():
             raise RuntimeError("GET /actions/artifacts failed (500)")
@@ -3291,6 +3297,12 @@ class IOSRouting(unittest.TestCase):
                          ios_pool.Hold(0, 0, frozenset({"mini-a"})))
         hosted = dict(waiting, labels=["blacksmith-6vcpu-macos-26"])
         self.assertEqual(ios_pool.hold(capture, [picker, hosted], MINI, placed, NOW), ios_pool.Hold())
+
+    def test_a_kit_run_needs_one_machine_and_one_simulator(self):
+        kit = {"id": 1, "display_title": "cmux-next-ios kit tests",
+               "path": ".github/workflows/cmux-next-ios-kit.yml",
+               "created_at": pool.iso(NOW - dt.timedelta(minutes=1))}
+        self.assertEqual((ios_pool.charged_jobs(kit), ios_pool.charged_sim_jobs(kit)), (1, 1))
 
     def test_live_placements_reads_markers_again_after_a_picker_finishes(self):
         title = "iOS tests · main · simulator · full suite · both · iOS default · on auto"

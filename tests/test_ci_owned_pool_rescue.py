@@ -1698,7 +1698,8 @@ class IOSDispatch(unittest.TestCase):
     """test-ios.yml and ios-screenshots.yml dispatches are watched like an E2E run."""
 
     def test_ios_dispatches_are_targets(self):
-        for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml"):
+        for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml",
+                     ".github/workflows/cmux-next-ios-kit.yml"):
             target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
             self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path),
                              (0, True, "runner", path))
@@ -1709,6 +1710,8 @@ class IOSDispatch(unittest.TestCase):
         self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         self.assertIsInstance(rescue.target_from_event(
             event(path=".github/workflows/ios-screenshots.yml"), "manaflow-ai/cmux"), str)
+        target = rescue.target_from_event(event(path=".github/workflows/cmux-next-ios-kit.yml"), "manaflow-ai/cmux")
+        self.assertEqual((target.pr_number > 0, target.e2e, target.picker_job), (True, True, "runner"))
         # The Iroh release gate's runner job places its Tailscale job the same way.
         path = ".github/workflows/iroh-release-gate.yml"
         target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")

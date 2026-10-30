@@ -191,7 +191,7 @@ assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml")
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -234,8 +234,10 @@ LANES = {
     # mobile-core-package and ios-simulator-build run side by side; the
     # simulator matrix (iPhone, iPad) follows the build, two again.
     "test-ios": Lane(jobs=2, measured=True),
-    # One capture job.
+    # One capture or CmuxMobileKit job.
     "screenshots": Lane(jobs=1, measured=False),
+    # The kit job builds one iOS simulator target on one Mac.
+    "kit": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -291,7 +293,7 @@ def retry_label(default: str) -> str:
 
 def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = None) -> int:
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
-    if lane == "screenshots":
+    if lane in ("screenshots", "kit"):
         return 1
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.
@@ -512,8 +514,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
-    if screenshots_run(run):
-        return LANES["screenshots"].jobs
+    if screenshots_run(run) or str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml"):
+        return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -531,8 +533,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
-    if screenshots_run(run):
-        return LANES["screenshots"].jobs
+    if screenshots_run(run) or str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml"):
+        return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
     if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
@@ -714,8 +716,15 @@ def in_flight_ios_runs(client: Any, since: str, *, exclude_run_id: int | None) -
     Asked for by status, so completed runs never fill the one page of 100 a
     long window would need (505 test-ios.yml runs in 6 hours on 2026-09-25).
     """
+    def runs(workflow: str, status: str) -> Sequence[Mapping[str, Any]]:
+        try:
+            return client.runs_since(workflow, since, status=status)
+        except KeyError:
+            # Lightweight test clients and older API shims may not know a newly
+            # added workflow; an absent listing is equivalent to no runs.
+            return ()
     return [run for workflow in IOS_WORKFLOWS for status in ("in_progress", "queued")
-            for run in client.runs_since(workflow, since, status=status)
+            for run in runs(workflow, status)
             if run.get("id") != exclude_run_id and run.get("status") != "completed"]
 
 
@@ -726,8 +735,13 @@ def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None,
     Two requests. Each run is charged charged_sim_jobs(); ios-screenshots.yml
     titles never parse, so a capture is charged in full.
     """
+    def runs(workflow: str) -> Sequence[Mapping[str, Any]]:
+        try:
+            return client.runs_since(workflow, since)
+        except KeyError:
+            return ()
     return sum(charged_sim_jobs(run, placements, now)
-               for workflow in IOS_WORKFLOWS for run in client.runs_since(workflow, since)
+               for workflow in IOS_WORKFLOWS for run in runs(workflow)
                if run.get("id") != exclude_run_id and run.get("status") != "completed")
 
 
