@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextControl
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextPages
@@ -17,18 +19,57 @@ struct CloudPaneTests {
     /// new tab. The tab is created through the same internal-page path used by the Window menu.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
     func openCloudAsPaneSelectsTheCloudTab() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, connection in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cloud-pane-select")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let window = try #require(services.windows.active)
-            let pane = try #require(window.focusedPane)
-            let terminal = try #require(pane.stripModel.selectedID?.rawValue)
+            let key = WorkspaceKey.generate()
+            _ = try await WorkspaceCreation.create(key, name: "cloud-pane-select", on: connection,
+                                                   repair: services.emptyWorkspaces) { workspace in
+                try await connection.createTerminal(in: workspace, cwd: "/tmp/cloud-pane-select")
+            }
+            let workspace = try #require(services.daemon.store.workspaces.first { $0.key == key })
+            services.windows.show(workspaceID: workspace.id, in: window.state)
+            try await PasswordManagerRouteTests.until({
+                window.state.workspaceID == workspace.id && window.focusedPane?.pane.tabs.first?.kind == .pty
+            }, report: { "workspace \(window.state.workspaceID ?? "none")" })
+
+            // Match the dry run's supported CLI path: create/focus a terminal workspace, then
+            // run `agent new-chat` before the palette action. This leaves the terminal in the
+            // pane the Cloud page must be placed beside.
+            let chatRun = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat",
+                                     arguments: ["cwd": .string("/tmp/cloud-pane-select")],
+                                     origin: ActionOrigin.cli.rawValue))
+            _ = try await AgentChatActionFixture.finish(chatRun)
+            @MainActor func chatPane() -> PaneController? {
+                window.workspaceContent?.panes.values.first { controller in
+                    controller.pane.tabs.contains { $0.agentSession != nil }
+                }
+            }
+            try await PasswordManagerRouteTests.until({ chatPane() != nil }, report: { WindowStateReport.describe(services) })
+            let chat = try #require(chatPane())
+            if let content = window.workspaceContent { PaneHandlers.focus(chat.layoutPaneID, in: content) }
+            try await PasswordManagerRouteTests.until({ window.focusedPane === chat }, report: {
+                "focused \(window.focusedPane?.paneKey ?? "none"), chat \(chat.paneKey)"
+            })
+
             #expect(services.registry.perform("palette.openCloudPane", invocation: ActionInvocation(origin: .user)))
 
-            try await PasswordManagerRouteTests.until({
-                pane.pane.tabs.contains { $0.page == InternalPageID.cloud.rawValue }
-            }, report: { WindowStateReport.describe(services, page: .cloud) })
-            let cloud = try #require(pane.pane.tabs.first { $0.page == InternalPageID.cloud.rawValue })
-            #expect(pane.stripModel.selectedID?.rawValue == cloud.id,
-                    "Cloud was added after \(terminal) but the terminal stayed selected")
+            @MainActor func cloudPane() -> PaneController? {
+                window.workspaceContent?.panes.values.first { controller in
+                    controller.pane.tabs.contains { tab in
+                        tab.page == InternalPageID.cloud.rawValue && !ProvisionalTab.isProvisional(tab.id)
+                    }
+                }
+            }
+            try await PasswordManagerRouteTests.until({ cloudPane() != nil }, report: {
+                WindowStateReport.describe(services, page: .cloud)
+            })
+            let destination = try #require(cloudPane())
+            let cloud = try #require(destination.pane.tabs.first { $0.page == InternalPageID.cloud.rawValue })
+            #expect(destination.stripModel.selectedID?.rawValue == cloud.id,
+                    "Cloud was added in pane \(destination.paneKey) but its other tab stayed selected")
         }
     }
 
