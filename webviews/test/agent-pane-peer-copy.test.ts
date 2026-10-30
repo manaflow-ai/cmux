@@ -920,7 +920,8 @@ test("an attach reply of the session before a recreation is dropped and the sess
   const shown = text(tab.last());
   expect(shown).toContain("new 3.");
   expect(shown).not.toContain("old ");
-  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+  // The attaches the open asks of the chat as listed (not one asked with the list, `beforeList`).
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach" && !m.beforeList).length).toBe(2);
 });
 
 test("a select's attach that a reconnect took over leaves the copy on screen when it fails", async () => {
@@ -983,7 +984,8 @@ test("an attach reply that comes after the session moved to another machine is r
   const shown = text(tab.last());
   expect(shown).toContain("vm 3.");
   expect(shown).not.toContain("old ");
-  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(2);
+  // The attaches the open asks of the chat as listed (not one asked with the list, `beforeList`).
+  expect(daemon.asked.filter((m) => m.method === "_acpmux/attach" && !m.beforeList).length).toBe(2);
 });
 
 test("a session recreated and back at once takes the old copy off screen before it is read", async () => {

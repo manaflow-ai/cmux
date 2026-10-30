@@ -3235,6 +3235,8 @@ export class AcpmuxDirectClient {
       sent: this.sendAttach(sessionId, generation, true),
       live: [],
     };
+    // A dropped one is never awaited: its refusal (a peer chat's machine down) is not unhandled.
+    early.sent.attaching.catch(() => undefined);
     this.earlyAttach = early;
     return early;
   }
