@@ -19,6 +19,8 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_features.rs"]
+mod features;
 #[path = "peer_health.rs"]
 mod health;
 
@@ -170,6 +172,8 @@ pub struct Peer {
     upload_resume: AtomicBool,
     /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
     session_auth: AtomicBool,
+    /// The peer lists `sessionResume` (`server/requests/session_open.rs`).
+    session_resume: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -250,6 +254,7 @@ impl Peer {
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
             session_auth: AtomicBool::new(false),
+            session_resume: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -616,25 +621,6 @@ impl Peer {
         });
     }
 
-    pub fn supports_trust_gate(&self) -> bool {
-        self.trust_gate.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
-    pub fn supports_file_put(&self) -> bool {
-        self.file_put.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
-    pub fn supports_file_put_chunks(&self) -> bool {
-        self.file_put_chunks.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it serves the media reader.
-    pub fn supports_media_read(&self) -> bool {
-        self.media_read.load(Ordering::SeqCst)
-    }
-
     /// Which connection to the peer this is: it changes when a connection ends or the peer stops.
     pub fn link_epoch(&self) -> u64 {
         self.link_epoch.load(Ordering::SeqCst)
@@ -644,32 +630,6 @@ impl Peer {
     pub(crate) fn link_ended(&self) {
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
         self.github_revoked.notify_waiters();
-    }
-
-    /// Whether the peer said at its last handshake that it serves subagent transcripts.
-    pub fn supports_subagent_transcript(&self) -> bool {
-        self.subagent_transcript.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it saves a message's attachments.
-    pub fn supports_send_attach(&self) -> bool {
-        self.send_attach.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
-    pub fn supports_prompt_uploads(&self) -> bool {
-        self.prompt_uploads.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it answers upload status and checks a
-    /// finish's `sha256` (`hub/file_uploads.rs`).
-    pub fn supports_upload_resume(&self) -> bool {
-        self.upload_resume.load(Ordering::SeqCst)
-    }
-
-    /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
-    pub fn supports_session_auth(&self) -> bool {
-        self.session_auth.load(Ordering::SeqCst)
     }
 
     /// The WebSocket is open and the handshake has not finished.
@@ -1126,6 +1086,7 @@ impl Peer {
             me.upload_resume.store(resume, Ordering::SeqCst);
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
+            me.session_resume.store(lists(crate::server::SESSION_RESUME_FEATURE), Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.link_request_on(
                 method::MUX_WATCH,

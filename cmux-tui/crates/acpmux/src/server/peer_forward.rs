@@ -218,6 +218,16 @@ async fn forward_inner(
         {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m));
         }
+        // A peer on an older build replays the chat for `session/resume`, as for a load, and
+        // the replay would reach this client: the resume `initialize` advertises would not hold.
+        if m == method::SESSION_RESUME && !peer.supports_session_resume() {
+            let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+            return Err(RpcError::method_not_found(&format!(
+                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux host update {}`)",
+                peer.name, peer.name
+            ))
+            .with_data(json!({"reason": "sessionResume.unsupported", "peer": peer.name})));
+        }
         // So does a subagent's transcript (`hub/subagent_transcript.rs`).
         if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)

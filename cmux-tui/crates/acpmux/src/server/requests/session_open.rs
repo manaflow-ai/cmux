@@ -8,6 +8,10 @@
 
 use super::*;
 
+/// Listed in `initialize`'s `_meta.acpmux.features`: this build's `session/resume` replays no
+/// history. A peer link forwards a resume only to a peer that lists it (`peer_forward.rs`).
+pub const FEATURE: &str = "sessionResume";
+
 /// `session/load`: replay the history as ACP updates, then answer.
 pub(super) fn load(
     hub: &Hub,
