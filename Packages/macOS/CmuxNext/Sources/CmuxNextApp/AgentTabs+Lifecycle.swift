@@ -43,9 +43,15 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: refusal)
         }
         // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
-        // that machine's own chat, filed under its store, which checks it against its own list.
+        // that machine's own chat, filed under its store, which checks it against its own list. Its
+        // lineage is read under that store's `registry:<id>` (the wire notes it there too); with no
+        // store id yet the tab could not be filed under it either, so the open is refused below.
+        let remoteHost = !daemon.isLocal ? Self.registryHost(of: daemon) : nil
         let remoteChild = !daemon.isLocal && host == nil && adopt == nil
-            && session.map { RemoteAgentSessionLinks.shared.parents[$0] != nil } == true
+            && session.map { id in
+                guard let remoteHost else { return false }
+                return RemoteAgentSessionLinks.shared.parent(of: id, host: remoteHost) != nil
+            } == true
         // A session never leaves its machine (cx-k21v): a pane of another machine never gets a
         // chat of this Mac (its session, an outside chat it resumes, a past chat of this Mac's list;
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
