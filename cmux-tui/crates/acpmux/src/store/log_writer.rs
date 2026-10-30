@@ -11,8 +11,9 @@
 //! one write, sessions in turn, and never syncs: a log it closes (evicted, full, or its session
 //! closed) stays on the dirty list, and `flush` (shutdown) syncs every log written since the
 //! last flush, closed ones too, so a flush still leaves everything durable. A read of a session's
-//! log (`settle`) first waits for the lines that session had queued when the read began, written
-//! next, so readers see every append made before the read; a flush waits for every line queued
+//! log (`settle`) first waits for the lines that session had queued when the read began (written
+//! in the next batch of waited-for sessions; see Order below), so readers see every append made
+//! before the read; a flush waits for every line queued
 //! before it. Neither waits for a queue to be empty: a chat that streams queues its next token
 //! while the one before it is written, so its queue never is, and a read that waited for that
 //! got no reply while the chat streamed (fleet job 88f5f7da34f5480fc9817e95). `progress` tells
@@ -79,9 +80,13 @@ struct Queued {
 struct State {
     queued: HashMap<String, Queued>,
     /// Sessions with queued lines, in the order they first queued: each is written in turn (the
-    /// background turn). A session may be listed twice, or after its lines were written in a
-    /// batch: the writer skips an entry with nothing queued.
+    /// background turn). A session is listed at most once ([`State::listed`]); an entry whose
+    /// lines a batch wrote stays in its place, and the writer skips it if nothing is queued then.
     order: VecDeque<String>,
+    /// The sessions `order` lists. A session written in a batch and queued again keeps its one
+    /// entry: the list never grows past the sessions it names, so a chat that only streams waits
+    /// for at most one turn of each other chat (review of 69d858ce9764, finding 1).
+    listed: HashSet<String>,
     /// Sessions a request or a read waits for, in the order the first waiter of each came, not in
     /// the batch being written: the next batch.
     waiting: VecDeque<String>,
@@ -120,7 +125,7 @@ impl State {
 
     /// Queues `line` for session `id`, record `seq`: it takes the next ticket.
     fn queue(&mut self, id: &str, line: &[u8], seq: u64) {
-        if !self.queued.contains_key(id) {
+        if self.listed.insert(id.to_owned()) {
             self.order.push_back(id.to_owned());
         }
         self.tickets += 1;
@@ -149,6 +154,7 @@ impl State {
             }
             self.background_turn = false;
             while let Some(id) = self.order.pop_front() {
+                self.listed.remove(&id);
                 if self.queued.contains_key(&id) {
                     return Some(id);
                 }
@@ -163,6 +169,7 @@ impl State {
     fn drop_queued(&mut self, id: &str) {
         self.queued.remove(id);
         self.order.retain(|o| o != id);
+        self.listed.remove(id);
         self.waiting.retain(|o| o != id);
         self.batch.retain(|o| o != id);
         self.close_after.remove(id);
@@ -306,9 +313,9 @@ impl LogWriter {
     }
 
     /// Waits until every line queued for session `id` before this call is written: before its
-    /// log is read. Its queued lines are written next (a reader waits for them), so the wait is
-    /// at most the write in progress and one write of this session; lines it queues meanwhile
-    /// never hold it.
+    /// log is read. Its queued lines go in the next batch of waited-for sessions (a reader waits
+    /// for them), so the wait is at most the write in progress, the rest of the current batch, one
+    /// background write and its own batch; lines it queues meanwhile never hold it.
     pub(super) fn settle(&self, id: &str) {
         let mut state = lock(&self.shared.state);
         let Some(ticket) = state.pending(id) else { return };
@@ -478,6 +485,7 @@ fn run(shared: &Shared, delay: Option<std::time::Duration>) {
             // Nothing after a failed write is written: the log never has a hole.
             state.queued.remove(&id);
             state.order.retain(|o| *o != id);
+            state.listed.remove(&id);
         }
         if !state.queued.contains_key(&id) && state.close_after.remove(&id) {
             lock(&shared.files).open.remove(&id);
