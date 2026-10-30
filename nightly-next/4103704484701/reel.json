@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4103704484701",
+  "notes": "notes/4103704484701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28105,
+      "title": "acpmux: a peer handshake survives a watch list too large to send; a peer link's watch lists only own sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28014,
+      "title": "New Tab (classic): the permission mode's shield centers on the field row's glyph",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27827,
+      "title": "ci(signing): trust glaeda runner hook 8b5820df, 38c7ea11",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27315,
+      "title": "fix(ios): protect Chief's header with public conversation presentation hooks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27038,
+      "title": "acpmux: persist session message events",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
