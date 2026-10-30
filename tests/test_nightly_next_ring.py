@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+import yaml
 from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -393,6 +395,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${NIGHTLY_APPCAST}", step)
         self.assertIn("--replace-sha256", step)
         self.assertIn('verdicts/${KEY##*/}', text)
+
+    def test_a_failed_old_feed_promotion_fails_the_verdict_run(self):
+        # The NEXT feed's promotion runs first and is kept when the old feed's
+        # write fails; that failure turns the run red instead of passing
+        # quietly with the two feeds on different rings.
+        steps = yaml.safe_load(VERDICT_YML.read_text())["jobs"]["write"]["steps"]
+        names = [s.get("name") for s in steps]
+        main = names.index("Move builds whose canary passed to Nightly")
+        legacy = names.index("Move the old feed's builds whose canary passed to Nightly")
+        self.assertLess(main, legacy)
+        self.assertNotIn("continue-on-error", steps[legacy])
+        self.assertNotIn("never fails the verdict", VERDICT_YML.read_text())
 
     def test_a_verdict_promotes_on_the_live_feed_with_if_match(self):
         text = VERDICT_YML.read_text()
