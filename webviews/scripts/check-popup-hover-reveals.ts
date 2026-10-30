@@ -33,6 +33,7 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "command status",
   ],
   ["agent-session/acpmux/conversation/conversation.css|.cv-message:hover .cv-sent-actions", "copy affordance"],
+  ["agent-session/acpmux/conversation/conversation.css|.cv-sent:hover .cv-sent-actions", "copy affordance"],
   [
     "agent-session/acpmux/conversation/conversation.css|.cv-tool-output__box:hover .cv-tool-output__actions",
     "copy affordance",

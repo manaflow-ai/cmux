@@ -202,11 +202,11 @@ test("without a host the page draws its menu", async () => {
   await rightClick(target);
   expect(target.getAttribute("data-popup-open")).toBe("");
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();
-  act(() =>
+  await act(async () => {
     document
       .querySelector<HTMLElement>(".ui-context-menu-backdrop")
-      ?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true })),
-  );
+      ?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+  });
   expect(target.hasAttribute("data-popup-open")).toBe(false);
 });
 
