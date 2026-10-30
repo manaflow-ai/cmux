@@ -344,10 +344,12 @@ impl Hub {
         }
         // Read before the queue's lock. A turn that ends before the steer reaches it leaves the
         // digest next among the agent messages (`steer_turn`'s fallback, `queue.rs` `enqueue`).
-        // A turn past its cap takes no agent's message, so no digest of them (`turn_cap.rs`).
+        // A turn past its cap takes no agent's message, so no digest of them (`turn_cap.rs`),
+        // and neither does a review box's turn (`inbox.rs`).
         let steer = session.steering.load(Ordering::SeqCst)
             && session.turn().is_some()
-            && !super::super::turn_cap::past_cap(session);
+            && !super::super::turn_cap::past_cap(session)
+            && !super::super::inbox::review_box(session);
         let digest_id = format!("inbox-digest-{}", uuid::Uuid::now_v7());
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
