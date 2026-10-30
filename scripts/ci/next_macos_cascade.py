@@ -209,6 +209,9 @@ class Placement:
     why: str
     # The labels a feed's compile counts as full (fresh_stalled()); release-compile's re-run route reads them.
     fresh_stall: tuple[str, ...] = ()
+    # Jobs for which every owned and Blacksmith macOS target is full/dead;
+    # cmux-next sends these to the thin build-fleet gateway.
+    fleet_jobs: tuple[str, ...] = ()
 
 
 def vcpus(label: str) -> int:
@@ -220,6 +223,42 @@ def vcpus(label: str) -> int:
 def pool_label(label: str) -> bool:
     """A Blacksmith macOS label: it draws on the organization's one macOS pool."""
     return label.startswith("blacksmith-") and "-macos-" in label and vcpus(label) > 0
+
+
+def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
+                       *, live: int = 0, queued: int = 0,
+                       now: dt.datetime | None = None, queued_wait_s: float | None = None) -> bool:
+    """One adapter for owned listener health and bs_health.label_outages.
+
+    The dashboard exports outages as [{pool, queued, running, oldest_wait_s,
+    last_start_s}]. At-capacity backlog is full, independently of outages.
+    """
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if label.startswith("glaeda-"):
+        return owned_label_full(snapshot, label, now, queued_wait_s=queued_wait_s)
+    if not pool_label(label):
+        return False
+    snapshot = snapshot if isinstance(snapshot, Mapping) else {}
+    health = snapshot.get("bs_health") or {}
+    outages = health.get("label_outages", []) if isinstance(health, Mapping) else []
+    for outage in outages if isinstance(outages, list) else []:
+        if not isinstance(outage, Mapping) or outage.get("pool") != label:
+            continue
+        try:
+            last = outage.get("last_start_s")
+            if (int(outage.get("queued", 0)) > 0 and float(outage.get("oldest_wait_s", 0)) > 1800
+                    and (last is None or float(last) > 1800)):
+                return True
+        except (TypeError, ValueError):
+            continue
+    pools = snapshot.get("pools") or {}
+    entry = pools.get(label) if isinstance(pools, Mapping) else None
+    entry = entry if isinstance(entry, Mapping) else {}
+    try:
+        cap = int(entry.get("cap", entry.get("capacity", CAPACITY.get(label, 0))))
+        return cap > 0 and queued > 0 and live >= cap
+    except (TypeError, ValueError):
+        return False
 
 
 def in_flight(groups: Sequence[Mapping[str, Any]], runners_of: Callable[[int], Sequence[Mapping[str, Any]]],
@@ -291,6 +330,7 @@ class Seen:
     # the evaluation here lets callers swap the artifact reader in one place.
     owned_full: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     owned_full_known: Mapping[str, bool] = dataclasses.field(default_factory=dict)
+    snapshot: Mapping[str, Any] | None = dataclasses.field(default=None, compare=False)
 
 
 def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.datetime,
@@ -386,7 +426,7 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
             entry = pools[label]
             known[label] = isinstance(entry, Mapping) and "listening" in entry and "as_of" in entry
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
-                owned_queued=owned_queued, owned_full=full, owned_full_known=known)
+                owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -638,6 +678,10 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                         already=len(placed[SMALL]), dead_end=blocked) if saturated else ())
     if spilled:
         placed = {**placed, SMALL: (*placed[SMALL], *spilled)}
+    # If every route is full/dead, reserve the tier for the thin cmux-ci gateway.
+    fleet_jobs = tuple(unplaced) if env.get("FLEET_CLIENT_JOBS") and not owned and seen is not None and all(
+        label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0))
+        for label in (*LABELS, (env.get("SIDE_LABEL") or "").strip()) if label) else ()
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
@@ -681,7 +725,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                            else "; an idle mini takes the re-run, so overflow stays on the owned label"
                                            if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"),
-                     fresh_stall)
+                     fresh_stall=fresh_stall, fleet_jobs=fleet_jobs)
 
 
 def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
@@ -774,6 +818,7 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
             handle.write(f"blacksmith_12_jobs={delimited(placement.jobs.get(LARGE, ()))}\n"
                          f"blacksmith_6_jobs={delimited(placement.jobs.get(SMALL, ()))}\n"
                          f"fresh_stalled={delimited(placement.fresh_stall)}\n"
+                         f"fleet_jobs={delimited(placement.fleet_jobs)}\n"
                          f"retry_runner={placement.retry_runner}\n"
                          f"free_retry_runner={placement.retry_runner}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")

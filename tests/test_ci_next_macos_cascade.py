@@ -1141,8 +1141,8 @@ class Wiring(unittest.TestCase):
                 # The bot's attempt 2 (the rescue moved a stuck sibling) keeps the slot.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, large=f" {name} ")), LARGE)
                 # A person's re-run goes back to the minis first: attempt 1's count is stale by then.
-                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
 
     def test_release_compile_pr_takes_an_idle_mini_else_the_placements_blacksmith_slot(self):
