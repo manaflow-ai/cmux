@@ -15,7 +15,6 @@ use super::OUTBOUND_CONTROL_BYTE_RESERVE;
 use super::OUTBOUND_CONTROL_RESERVE;
 use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
-use super::render_service::OutboundHolder;
 use crate::diagnostics::ConnectionLane;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
@@ -704,46 +703,6 @@ impl SinkControl {
             Self::Unix(stream) => stream.shutdown(Shutdown::Both),
             Self::WebSocket(stream) => stream.shutdown(Shutdown::Both),
         }
-    }
-}
-
-/// A local connection as its socket's [`OutboundByteBudget`] sees it: the
-/// bytes its queue holds while its client takes no more, and how it ends.
-pub(super) struct StalledEviction {
-    outbound: Arc<BoundedOutbound>,
-    socket: Box<dyn transport::Stream>,
-}
-
-impl StalledEviction {
-    /// Watches this connection in `render_service`'s budgets while the
-    /// returned holder lives (the connection keeps it to its end).
-    pub(super) fn register(
-        outbound: Arc<BoundedOutbound>,
-        socket: Box<dyn transport::Stream>,
-        render_service: &super::RenderService,
-    ) -> Arc<dyn OutboundHolder> {
-        let holder: Arc<dyn OutboundHolder> = Arc::new(Self { outbound, socket });
-        render_service.outbound_budget.register(&holder);
-        render_service.control_budget.register(&holder);
-        holder
-    }
-}
-
-impl OutboundHolder for StalledEviction {
-    fn stalled_bytes(&self) -> Option<usize> {
-        if !self.socket.send_buffer_full() {
-            return None;
-        }
-        let state = self.outbound.state.lock().recover_poison();
-        let bytes = state.regular_bytes + state.control_bytes;
-        (bytes > 0).then_some(bytes)
-    }
-
-    /// Drops every queued reply (their bytes go back to the budget) and shuts
-    /// the socket, so the writer waiting on it and the reader end too.
-    fn evict(&self) {
-        self.outbound.abort();
-        let _ = self.socket.shutdown(Shutdown::Both);
     }
 }
 

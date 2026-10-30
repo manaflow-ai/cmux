@@ -356,6 +356,9 @@ fn handle_websocket_connection_with_permit(
     let Ok(dead_peer_shutdown) = writer_stream.try_clone_raw() else { return };
     let Ok(control) = writer_stream.try_clone_raw() else { return };
     let outbound = Arc::new(BoundedOutbound::default());
+    // The connection's own share of the listener's reply budget, as on the
+    // local socket (`OutboundByteBudget`).
+    let render_service = render_service.for_connection();
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::WebSocket(control)) },
         render_service,

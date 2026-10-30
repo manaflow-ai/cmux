@@ -25,7 +25,6 @@ use std::io::Write;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::Weak;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
@@ -98,61 +97,56 @@ impl RenderGraphicBase64Cache {
     }
 }
 
-/// A connection whose queued replies hold bytes of an [`OutboundByteBudget`].
-pub(super) trait OutboundHolder: Send + Sync {
-    /// The bytes it holds while its client takes no more (the socket's send
-    /// buffer is full: the kernel's word that the client does not read);
-    /// `None` while the client reads or it holds nothing.
-    fn stalled_bytes(&self) -> Option<usize>;
-    /// Ends the connection and frees what it holds.
-    fn evict(&self);
-}
-
-/// Bytes of queued replies shared by the connections of one socket.
+/// Bytes of queued replies: a socket's pool, or one connection's share of it.
 ///
-/// With no write deadline (#27698), a client that stops reading holds its
-/// queued replies' bytes until it reads or hangs up. When a reply can't fit,
-/// the budget ends the connection that holds the most bytes while its client
-/// takes no more ([`OutboundHolder::stalled_bytes`]) and tries again once, so
-/// one stalled client never starves the others. A client that reads is never
-/// ended this way, and no timer decides who is stalled.
+/// With no write deadline (#27698), a client that stops reading keeps its
+/// queued replies' bytes until it reads or hangs up, and those bytes come from
+/// its socket's pool. So each connection draws from a share
+/// ([`RenderService::for_connection`]): its first bytes get in whenever the
+/// pool has room, and more only while it then holds no more than the pool
+/// still has free. A client that stops reading stops at about half of what is
+/// left, and every newcomer's first reply still fits, so no client starves
+/// another. Only bytes decide it: no stall signal, no timer, no eviction (the
+/// same rule as the connection admission's fair share, `ConnectionBudget`).
+/// A share counts every byte its connection holds, a reply being written
+/// included, until it is dropped.
 pub(super) struct OutboundByteBudget {
     pub(super) retained_bytes: AtomicUsize,
     pub(super) max_bytes: usize,
-    holders: Mutex<Vec<Weak<dyn OutboundHolder>>>,
     /// The socket's pool a connection's share draws from; `None` for a pool.
     pool: Option<Arc<OutboundByteBudget>>,
 }
 
 impl OutboundByteBudget {
     pub(super) fn new(max_bytes: usize) -> Self {
-        Self {
-            retained_bytes: AtomicUsize::new(0),
-            max_bytes,
-            holders: Mutex::default(),
-            pool: None,
-        }
+        Self { retained_bytes: AtomicUsize::new(0), max_bytes, pool: None }
     }
 
-    /// One connection's share of `pool` (red seam: no share rule yet).
+    /// One connection's share of `pool`.
     pub(super) fn share_of(pool: &Arc<Self>) -> Self {
         Self {
             retained_bytes: AtomicUsize::new(0),
             max_bytes: pool.max_bytes,
-            holders: Mutex::default(),
             pool: Some(pool.clone()),
         }
     }
 
     pub(super) fn try_retain(&self, bytes: usize) -> bool {
-        if let Some(pool) = &self.pool {
-            if !pool.try_retain(bytes) {
-                return false;
-            }
-            self.retained_bytes.fetch_add(bytes, Ordering::AcqRel);
-            return true;
+        let Some(pool) = &self.pool else { return self.claim(bytes) };
+        // Counted first, so the connection's concurrent claims see each other.
+        let mine = self.retained_bytes.fetch_add(bytes, Ordering::AcqRel);
+        let admitted = pool
+            .retained_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |retained| {
+                let next = retained.checked_add(bytes).filter(|next| *next <= pool.max_bytes)?;
+                let free_after = pool.max_bytes - next;
+                (mine == 0 || mine + bytes <= free_after).then_some(next)
+            })
+            .is_ok();
+        if !admitted {
+            self.retained_bytes.fetch_sub(bytes, Ordering::AcqRel);
         }
-        self.claim(bytes) || (self.evict_biggest_stalled() && self.claim(bytes))
+        admitted
     }
 
     fn claim(&self, bytes: usize) -> bool {
@@ -161,29 +155,6 @@ impl OutboundByteBudget {
                 retained.checked_add(bytes).filter(|next| *next <= self.max_bytes)
             })
             .is_ok()
-    }
-
-    /// Watches `holder` for [`Self::try_retain`]'s eviction while it lives.
-    pub(super) fn register(&self, holder: &Arc<dyn OutboundHolder>) {
-        let mut holders = self.holders.lock().recover_poison();
-        holders.retain(|holder| holder.strong_count() > 0);
-        holders.push(Arc::downgrade(holder));
-    }
-
-    /// Ends the stalled holder with the most bytes; false when none is.
-    fn evict_biggest_stalled(&self) -> bool {
-        let holders: Vec<Arc<dyn OutboundHolder>> = {
-            let mut holders = self.holders.lock().recover_poison();
-            holders.retain(|holder| holder.strong_count() > 0);
-            holders.iter().filter_map(Weak::upgrade).collect()
-        };
-        let victim = holders
-            .iter()
-            .filter_map(|holder| holder.stalled_bytes().map(|bytes| (bytes, holder)))
-            .max_by_key(|(bytes, _)| *bytes);
-        let Some((_, victim)) = victim else { return false };
-        victim.evict();
-        true
     }
 
     pub(super) fn release(&self, bytes: usize) {

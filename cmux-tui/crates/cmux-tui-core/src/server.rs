@@ -2628,7 +2628,7 @@ use connection_scheduler::{
 
 mod bounded_outbound;
 use bounded_outbound::{
-    BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl, StalledEviction,
+    BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
     SynchronizedTcpStream, claim_connection, claim_watched_connection, write_line_outbound_item,
 };
 #[cfg(test)]
