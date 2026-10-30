@@ -496,18 +496,30 @@ describe("Codex hook trust in the shared team CODEX_HOME", () => {
     writeFileSync(m.auth, script.replace(publish, `    open(${JSON.stringify(paused)}, "w").close(); open(${JSON.stringify(resume)}).read()\n${publish}`));
 
     const second = bakeTrust(m, "sha256:second");
-    const publishing = launch(m, "codex");
-    // Opening the FIFO returns only once the publish holds its other end.
-    expect((await runChild("cat", [paused], { timeout: 10_000 })).error).toBeUndefined();
-    expect(readFileSync(target, "utf8")).toBe(old);
-    expect(await teamTrust(target)).toEqual(first);
-    // The new config is already complete beside it; only the rename is left.
-    const pending = readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."));
-    expect(pending).toHaveLength(1);
-    expect(await teamTrust(path.join(codexTeam(m), pending[0]))).toEqual(second);
-
-    await runChildOk("sh", ["-c", ': > "$1"', "sh", resume], { timeout: 10_000 });
-    await publishing;
+    // The launcher runs with the shell's result checked only after release,
+    // so a failed assertion below cannot leave a rejected promise behind.
+    const publishing = runChild("/bin/bash", ["-c", `. ${m.config}; ${m.launchers.codex} --resume x`], { env: bootEnv(m), timeout: 20_000 });
+    try {
+      // Opening the FIFO returns only once the publish holds its other end.
+      expect((await runChild("cat", [paused], { timeout: 10_000 })).error).toBeUndefined();
+      expect(readFileSync(target, "utf8")).toBe(old);
+      expect(await teamTrust(target)).toEqual(first);
+      // The new config is already complete beside it; only the rename is left.
+      const pending = readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."));
+      expect(pending).toHaveLength(1);
+      expect(await teamTrust(path.join(codexTeam(m), pending[0]))).toEqual(second);
+    } finally {
+      // Always release a paused publisher and wait for it, so it never
+      // outlives the test or writes into a root afterEach removes. The
+      // write-open waits for the publisher's read-open (no lost wake-up); if
+      // the publisher never gets there, both runChild timeouts kill their
+      // process groups well inside the test's 30 s.
+      await runChild("sh", ["-c", ': > "$1"', "sh", resume], { timeout: 10_000 });
+      await publishing;
+    }
+    const published = await publishing;
+    expect(published.stderr).toBe("");
+    expect(published.status).toBe(0);
     expect(await teamTrust(target)).toEqual(second);
     expect(readdirSync(codexTeam(m)).filter((name) => name.startsWith(".config.toml."))).toEqual([]);
   });
@@ -546,14 +558,18 @@ describe("Codex hook trust in the shared team CODEX_HOME", () => {
     );
   });
 
-  test("a bad entry never wipes the trust an earlier publish gave it", async () => {
+  test("a hook whose approval the default home revoked is no longer trusted in the team home", async () => {
+    // Codex keeps a hook's state entry but drops its trusted_hash when the
+    // user revokes approval; the team home must follow, not keep the old hash.
     const m = teamMachine();
     const trusted = bakeTrust(m, "sha256:baked");
     await launch(m, "codex");
-    const [missing] = Object.keys(trusted);
-    breakEntry(m, trusted, missing, "enabled = true");
-    expect(await launchLogged(m)).toContain(`skipping Codex hook trust entry ${JSON.stringify(missing)}`);
     expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(trusted);
+    const [revoked] = Object.keys(trusted);
+    breakEntry(m, trusted, revoked, "enabled = true");
+    expect(await launchLogged(m)).toContain(`skipping Codex hook trust entry ${JSON.stringify(revoked)}`);
+    const { [revoked]: _revoked, ...stillTrusted } = trusted;
+    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(stillTrusted);
   });
 });
 
