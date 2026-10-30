@@ -23,9 +23,9 @@ extension SidebarRowFeed {
 @MainActor
 enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
-    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`). The toggles, the lanes
-    /// and the read marks are read inside the row's mapping, so flipping a toggle, a lane change or
-    /// a mark maps that row again; with every toggle off no lane is read.
+    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`), and always its lanes'
+    /// usage warnings (the row's warning badge). The toggles, the lanes and the read marks are read
+    /// inside the row's mapping, so flipping a toggle, a lane change or a mark maps that row again.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
                          turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared) -> SidebarMapping.RowSource {
         { workspace, machine, make in
