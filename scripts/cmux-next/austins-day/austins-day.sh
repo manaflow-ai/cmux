@@ -69,9 +69,9 @@ print(jobs[0]["id"], jobs[0]["ref"])' "$1"
 }
 
 preferred_host=
-# run_arm ARM JOB COMMIT ROUND DIR
+# run_arm ARM JOB COMMIT ROUND DIR POSITION (1: the round's first run, 2: its second)
 run_arm() {
-  local arm=$1 job=$2 commit=$3 round=$4 dir=$5
+  local arm=$1 job=$2 commit=$3 round=$4 dir=$5 position=${6:-1}
   mkdir -p "$dir"
   local acquired lease_pid lease="" host="" slot="" run=""
   acquired=$(date +%s)
@@ -100,8 +100,8 @@ run_arm() {
   slot=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<<"$info")
   preferred_host=${preferred_host:-$host}
   echo "[$arm round $round] lease $lease host $host slot $slot (job $job, $commit)"
-  printf '{"arm": "%s", "sha": "%s", "job": "%s", "round": %s, "host": "%s", "lease": "%s", "harness": "%s"}\n' \
-    "$arm" "$commit" "$job" "$round" "$host" "$lease" "$harness_sha" >"$dir/arm.json"
+  printf '{"arm": "%s", "sha": "%s", "job": "%s", "round": %s, "position": %s, "host": "%s", "lease": "%s", "harness": "%s"}\n' \
+    "$arm" "$commit" "$job" "$round" "$position" "$host" "$lease" "$harness_sha" >"$dir/arm.json"
   ssh -o BatchMode=yes "$host" "uptime; sysctl -n vm.swapusage kern.memorystatus_level hw.memsize" >"$dir/host-before.txt" 2>&1 || true
   local stage=$stage_root/$job
   run=/Users/Shared/cmux-capture/austins-day/runs/$arm-$round-$(date +%H%M%S)
@@ -164,11 +164,16 @@ else
   read -r base_job base_commit < <(resolve "$base")
   read -r head_job head_commit < <(resolve "$head")
   for round in $(seq 1 "$runs"); do
+    # ABBA: odd rounds run the base first, even rounds the head first, so a warm-up or drift effect of the
+    # run position cancels out of the arm difference (and summarize.py estimates it apart).
     # A run that got no lease or no app is tried once more (a round needs both arms to count).
-    for arm in base head; do
+    order="base head"; [ $((round % 2)) = 1 ] || order="head base"
+    position=0
+    for arm in $order; do
+      position=$((position + 1))
       if [ $arm = base ]; then j=$base_job c=$base_commit; else j=$head_job c=$head_commit; fi
-      if run_arm $arm "$j" "$c" "$round" "$out/$arm-$round" || { rm -rf "$out/$arm-$round"; echo "$arm round $round: retry" >&2;
-         run_arm $arm "$j" "$c" "$round" "$out/$arm-$round"; }; then
+      if run_arm $arm "$j" "$c" "$round" "$out/$arm-$round" $position || { rm -rf "$out/$arm-$round"; echo "$arm round $round: retry" >&2;
+         run_arm $arm "$j" "$c" "$round" "$out/$arm-$round" $position; }; then
         dirs+=("$out/$arm-$round")
       else
         echo "$arm round $round failed" >&2

@@ -86,10 +86,14 @@ to explore, and say so next to any number you cite.
   the 2 s action deadline or never finished; CLI and hook latency and hook CPU, the base refused
   connections. Else that metric says "invalid: base did not reproduce". A metric the build cannot report
   (the app probe in an older build) says "not measured".
-- **Noise.** For each metric the summary gives a paired percentile bootstrap 95 % confidence interval of
-  mean(head - base) over the rounds (one base and one head run on one host per round; 10,000 resamples,
-  fixed seed). It says `better` or `worse` only when the whole interval is on one side of 0, otherwise
-  `no difference`. Every metric is lower-is-better.
+- **Noise.** For each metric the summary gives a paired t-interval: the 95 % confidence interval of
+  mean(head - base) over the rounds (one base and one head run on one host per round), t with n - 1
+  degrees of freedom. It says `better` or `worse` only when the whole interval is on one side of 0,
+  otherwise `no difference`. Every metric is lower-is-better. (A percentile bootstrap was used before
+  2026-10-30; over 5 pairs it is far too narrow, and the A/A showed it.)
+- **Run order.** Rounds alternate which arm runs first (ABBA: base first in odd rounds, head first in
+  even rounds). Each metric also gets a position estimate, second run minus first run; a metric whose
+  position interval excludes 0 is flagged "POSITION EFFECT" (a warm-up or drift effect).
 
 ## A/A self-test
 
@@ -152,5 +156,5 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
 ## Check the harness
 
 `python3 scripts/cmux-next/austins-day/selftest.py` checks the parts that need no Mac (the fake
-Claude's hooks, the pack fixture, the summary math, the validity rules, the bootstrap verdicts, the
+Claude's hooks, the pack fixture, the summary math, the validity rules, the t-interval verdicts, the
 hog's deadline) in seconds, on any host with git. Run it yourself after a harness change; it is not wired into CI.

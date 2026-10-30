@@ -13,9 +13,10 @@ invalid. Cumulative daemon counters (refused, accepted) are compared as a rate p
 own server-stats window and as a share of connects, because the last answered server-stats comes at a
 different time in each run.
 
-An A/B (base and head arms) gives a verdict per metric: a paired percentile bootstrap 95 % confidence
-interval of mean(head - base) over the rounds (each round is one base and one head run on one host),
-10,000 resamples with a fixed seed. Every metric is lower-is-better: `better` when the whole interval is
+An A/B (base and head arms) gives a verdict per metric: a paired t-interval, the 95 % confidence interval
+of mean(head - base) over the rounds (each round is one base and one head run on one host), t with n - 1
+degrees of freedom. Rounds alternate which arm runs first (ABBA), and each metric also gets a position
+estimate (second run - first run), so a warm-up or drift effect shows apart from the arm difference. Every metric is lower-is-better: `better` when the whole interval is
 below 0, `worse` when it is above 0, else `no difference`. No verdict at all ("invalid: ...") when:
 - any base run showed none of Austin's failures ("invalid: base did not reproduce"): the scenario did not
   load that base the way Austin's day did, so a difference proves nothing (cmux-ad 2026-10-30);
@@ -337,7 +338,6 @@ def pick(metrics, path):
 
 
 HARNESS_DIR = "scripts/cmux-next/austins-day"
-BOOTSTRAP_RESAMPLES = 10000
 CONFIDENCE = 0.95
 
 
@@ -374,18 +374,33 @@ def measured_commits(base_sha, head_sha, repo=REPO):
     return done.stdout.splitlines() if done.returncode == 0 else None
 
 
-def paired_bootstrap(pairs, seed=27698):
-    """Percentile bootstrap 95 % CI of mean(head - base) over the rounds' paired differences; (mean, low, high).
-    Deterministic (fixed seed), so the same runs always give the same verdict."""
+# Two-sided 95 % Student t quantiles, t(0.975, df) for df = 1 .. 30 (beyond: 1.96).
+T975 = (12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201, 2.179, 2.160, 2.145, 2.131,
+        2.120, 2.110, 2.101, 2.093, 2.086, 2.080, 2.074, 2.069, 2.064, 2.060, 2.056, 2.052, 2.048, 2.045, 2.042)
+
+
+def paired_t_interval(pairs):
+    """Paired t-interval: 95 % CI of mean(head - base) over the rounds' differences, t with n - 1 degrees of
+    freedom; (mean, low, high). A percentile bootstrap over 5 or fewer pairs is far too narrow (the A/A of
+    2026-10-30 failed 10 of 28 metrics with it on identical arms); the t-interval is the small-sample method."""
     diffs = [h - b for b, h in pairs]
     if len(diffs) < 2:
         return (diffs[0] if diffs else None), None, None
-    rng = random.Random(seed)
-    means = sorted(sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(BOOTSTRAP_RESAMPLES))
-    tail = (1 - CONFIDENCE) / 2
-    low = means[int(tail * BOOTSTRAP_RESAMPLES)]
-    high = means[min(BOOTSTRAP_RESAMPLES - 1, int((1 - tail) * BOOTSTRAP_RESAMPLES))]
-    return sum(diffs) / len(diffs), low, high
+    mean = statistics.mean(diffs)
+    half = (T975[len(diffs) - 2] if len(diffs) - 1 <= len(T975) else 1.96) * statistics.stdev(diffs) / math.sqrt(len(diffs))
+    return mean, mean - half, mean + half
+
+
+def position_effect(rounds, path):
+    """Mean of (second run - first run) over the rounds, whichever arm ran first (ABBA order): a non-zero
+    value is a warm-up or drift effect of the run position, which ABBA cancels from the arm difference."""
+    diffs = []
+    for v in rounds:
+        b, h = pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)
+        if not isinstance(b, (int, float)) or not isinstance(h, (int, float)):
+            continue
+        diffs.append((h - b) if v["base"].get("position", 1) == 1 else (b - h))
+    return paired_t_interval([(0, d) for d in diffs])
 
 
 def verdict(low, high):
@@ -451,16 +466,19 @@ def compare(runs):
             by_round.setdefault(r.get("round"), {})[r["arm"]] = r
     rounds = [v for _, v in sorted(by_round.items(), key=lambda kv: str(kv[0]))
               if "base" in v and "head" in v and v["base"].get("host") == v["head"].get("host")]
-    out = {"method": f"paired percentile bootstrap, {int(CONFIDENCE * 100)} % CI of mean(head - base) over rounds, "
-                     f"{BOOTSTRAP_RESAMPLES} resamples, seed 27698; lower is better for every metric",
+    out = {"method": f"paired t-interval, {int(CONFIDENCE * 100)} % CI of mean(head - base) over rounds, t with n - 1 df; "
+                     "lower is better for every metric; position = mean(second run - first run) over rounds",
            "rounds": len(rounds), "metrics": {}}
     for label, path in KEY:
         pairs = [(pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)) for v in rounds]
         pairs = [(b, h) for b, h in pairs if isinstance(b, (int, float)) and isinstance(h, (int, float))]
-        mean, low, high = paired_bootstrap(pairs)
+        mean, low, high = paired_t_interval(pairs)
+        _, pos_low, pos_high = position_effect(rounds, path)
         failed = METRIC_FAILURE.get(label)
         quiet = [r for r in rounds if failed and not failed(r["base"]["metrics"])]
         out["metrics"][label] = {"pairs": len(pairs), "mean_diff": mean, "ci_low": low, "ci_high": high,
+                                 "position_ci": [pos_low, pos_high],
+                                 "position_effect": None if pos_low is None else not pos_low <= 0 <= pos_high,
                                  "verdict": ("not measured" if not pairs else
                                              "invalid: base did not reproduce" if quiet else verdict(low, high))}
     return out
@@ -579,7 +597,7 @@ def main():
     comparison = summary.get("comparison")
     header = " " * width + "  " + "  ".join(f"{n:>12}" for n in names)
     if comparison:
-        header += f"  {'head-base [95% CI]':>34}  verdict"
+        header += f"  {'head-base [95% CI]':>34}  verdict  (position: 2nd-1st [95% CI])"
     lines.append(header)
     for label, _ in KEY:
         line = f"{label:<{width}}  " + "  ".join(f"{str(summary['arms'][n]['median'][label]):>12}" for n in names)
@@ -587,6 +605,8 @@ def main():
             c = comparison["metrics"][label]
             fmt = lambda v: "?" if v is None else f"{v:.4g}"
             line += f"  {fmt(c['mean_diff']) + ' [' + fmt(c['ci_low']) + ', ' + fmt(c['ci_high']) + ']':>34}  {c['verdict']}"
+            if c.get("position_effect"):
+                line += f"  (POSITION EFFECT [{fmt(c['position_ci'][0])}, {fmt(c['position_ci'][1])}])"
         lines.append(line)
     if comparison:
         lines.append(f"({comparison['method']}; {comparison['rounds']} rounds)")
