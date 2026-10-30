@@ -72,4 +72,12 @@ import Testing
         #expect(Self.listed(source) == ["conv_austin", "conv_joker"])
         #expect(Self.listed(Self.source(defaults, Box())) == ["conv_austin", "conv_joker"])
     }
+
+    /// A team member with no name (the Worker's "Member") gets no empty row in the list.
+    @Test func namelessTeammateHasNoRow() {
+        let contacts = [HomeContact(id: ParticipantID("user_x"), name: "Member", source: .team),
+                        HomeContact(id: ParticipantID("user_y"), name: "Tina", source: .team)]
+        let model = HomeSidebarModel(rows: [], pins: HomePins(), me: Self.me.id, contacts: contacts)
+        #expect(model.teammates.map(\.name) == ["Tina"])
+    }
 }
