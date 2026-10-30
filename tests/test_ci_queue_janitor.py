@@ -686,6 +686,14 @@ class OwnedMarkerRunTests(unittest.TestCase):
             with self.subTest(why=why):
                 self.assertFalse(janitor.may_hold_owned_pool(run, []))
 
+    def test_kit_markers_cover_same_repo_pr_push_and_dispatch(self):
+        for kind in ("pull_request", "push", "workflow_dispatch"):
+            with self.subTest(event=kind):
+                run = self.run_of(event=kind, path=".github/workflows/cmux-next-ios-kit.yml")
+                self.assertTrue(janitor.may_hold_owned_pool(run, []))
+                self.assertFalse(janitor.may_hold_owned_pool(
+                    {**run, "head_repository": {"id": 2}}, []))
+
     def test_a_first_attempt_still_in_the_queue_has_no_marker_to_list(self):
         queued = [{"status": "queued", "name": "changes", "labels": [LINUX]},
                   {"status": "waiting", "name": "deploy", "labels": [LINUX]}]
