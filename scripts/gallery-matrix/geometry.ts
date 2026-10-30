@@ -82,7 +82,8 @@ export type AcceptedFinding = { maxDeltaPx: number; reason: string };
 export type GeometryConfig = {
   schemaVersion: typeof GEOMETRY_SCHEMA_VERSION;
   revision: { sha: string; source: string };
-  required: Array<{ caseId: string; engine: string; theme: string }>;
+  /** `source` overrides `revision.source` for captures of another gallery entry. */
+  required: Array<{ caseId: string; engine: string; theme: string; source?: string }>;
   rules: GeometryRule[];
   /** Existing debt is explicit and bounded. New findings always fail. */
   acceptedFindings?: Record<string, AcceptedFinding>;
@@ -162,7 +163,7 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
   const revision = item.revision as Record<string, unknown> | undefined;
   if (!revision || typeof revision.sha !== "string" || typeof revision.source !== "string") throw new Error(`${file}: revision is required`);
   const required = item.required as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(required) || !required.length || required.some((entry) => !entry || !["caseId", "engine", "theme"].every((key) => typeof entry[key] === "string" && entry[key]))) throw new Error(`${file}: required capture tuples are required`);
+  if (!Array.isArray(required) || !required.length || required.some((entry) => !entry || !["caseId", "engine", "theme"].every((key) => typeof entry[key] === "string" && entry[key]) || (entry.source !== undefined && (typeof entry.source !== "string" || !entry.source)))) throw new Error(`${file}: required capture tuples are required`);
   if (!Array.isArray(item.rules) || item.rules.length === 0) throw new Error(`${file}: at least one rule is required`);
   const rules = item.rules as GeometryRule[];
   const ids = new Set<string>();
@@ -374,11 +375,14 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
   const errors: string[] = [];
   if (!artifacts.length) errors.push("no geometry artifacts were supplied");
   const seen = new Set<string>();
+  const expectedSource = (capture: GeometryCapture) => config.required.find((tuple) => captureKey(tuple) === captureKey(capture))?.source ?? config.revision.source;
   for (const { file, artifact } of artifacts) {
     if (artifact.revision.sha !== config.revision.sha) errors.push(`${file}: capture revision ${artifact.revision.sha} does not match config revision ${config.revision.sha}`);
-    if (artifact.revision.source !== config.revision.source) errors.push(`${file}: capture source ${JSON.stringify(artifact.revision.source)} does not match config source ${JSON.stringify(config.revision.source)}`);
-    const firstRevision = artifacts[0]?.artifact.revision;
-    if (artifact.revision.sha !== firstRevision?.sha || artifact.revision.source !== firstRevision?.source) errors.push(`${file}: mixed capture revisions`);
+    const source = expectedSource(artifact.capture);
+    if (artifact.revision.source !== source) errors.push(`${file}: capture source ${JSON.stringify(artifact.revision.source)} does not match config source ${JSON.stringify(source)}`);
+    const first = artifacts[0]?.artifact;
+    // Captures of different gallery entries carry different sources; only the same entry must agree.
+    if (artifact.revision.sha !== first?.revision.sha || (expectedSource(first.capture) === source && artifact.revision.source !== first.revision.source)) errors.push(`${file}: mixed capture revisions`);
     const key = captureKey(artifact.capture);
     if (seen.has(key)) errors.push(`${file}: duplicate capture ${key}`);
     seen.add(key);

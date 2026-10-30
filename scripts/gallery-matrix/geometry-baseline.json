@@ -18,42 +18,50 @@
     {
       "caseId": "session-status-claude-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-claude-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-codex-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-codex-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-opencode-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-opencode-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-header-light",
       "engine": "chromium",
-      "theme": "light"
+      "theme": "light",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     },
     {
       "caseId": "session-status-header-dark",
       "engine": "chromium",
-      "theme": "dark"
+      "theme": "dark",
+      "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
     }
   ],
   "rules": [

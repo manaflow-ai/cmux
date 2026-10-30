@@ -135,6 +135,12 @@ test("audit baseline pairs both appearances and every required group has a selec
   }
 });
 
+test("every required capture expects the gallery source its case renders", () => {
+  const config = parseConfig(baseline);
+  const cases = parseManifest(baseline.cases);
+  for (const tuple of config.required) expect({ caseId: tuple.caseId, source: tuple.source ?? config.revision.source }).toEqual({ caseId: tuple.caseId, source: cases.find((value) => value.id === tuple.caseId)?.params?.source });
+});
+
 test("measured two-pixel debt is bounded and missing Context/Connectors cannot hide it", async () => {
   const config = parseConfig(baseline);
   config.required = config.required.filter((tuple) => tuple.caseId.startsWith("session-info-"));
