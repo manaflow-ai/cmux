@@ -609,6 +609,8 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 }
 
 #if os(iOS)
+import UIKit
+
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
         let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
@@ -731,20 +733,19 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
     }
 
     @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
-        let png = renderer.pngData { context in
-            UIColor.blue.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-        }
-        let image = try #require(UIImage(data: png))
-        let tiff = try #require(image.tiffRepresentation)
+        // A complete 1x1, 24-bit BMP (red pixel, padded four-byte row).
+        let bmp = try #require(Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AA=="))
+        try #require(UIImage(data: bmp) != nil)
+        #expect(AgentAttachment(kind: .image, name: "source", data: bmp).imageMIMEType == nil)
         let attachment = try #require(ChiefComposer.attachments([
-            ConversationComposeImage(data: tiff, width: 2, height: 2, mimeType: "image/tiff")
+            ConversationComposeImage(data: bmp, width: 1, height: 1, mimeType: "image/jpeg")
         ]).first)
         #expect(attachment.kind == .image)
         #expect(attachment.name.hasSuffix(".jpg"))
         #expect(attachment.imageMIMEType == "image/jpeg")
-        #expect(attachment.data != tiff)
+        #expect(attachment.data != bmp)
+        let jpeg = try #require(attachment.data)
+        #expect(UIImage(data: jpeg) != nil)
     }
 
     @Test func undecodableImageIsSentAsAFile() throws {
