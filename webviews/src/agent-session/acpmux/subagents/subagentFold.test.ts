@@ -781,6 +781,63 @@ test("a known child sender in a root-wrapped update remains the grandchild paren
   ]);
 });
 
+test("an authoritative root sender reparents an existing child to the top level", () => {
+  const fold = new SubagentFold();
+  fold.setRoot("root-native");
+  const replay = (acpmux: Record<string, unknown>, senderThreadId: string) => {
+    seq += 1;
+    const update = {
+      sessionUpdate: "subagent_spawned",
+      _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } },
+    };
+    const msg = { method: "session/update", params: { update, _meta: { acpmux } } };
+    return fold.reduce({ seq, at: seq * 1000, msg }, update);
+  };
+  replay({ subagents: [{ id: "parent", parent: null }] }, "root-native");
+  replay({ subagents: [{ id: "child", parent: "parent" }] }, "parent");
+  const startedAt = fold.all().find(({ id }) => id === "child")!.startedAt;
+  fold.takeRows();
+  fold.closeBatch();
+  replay({ subagents: [{ id: "later", parent: null }] }, "root-native");
+  replay({ subagents: [{ id: "child", parent: null }] }, "root-native");
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["parent", null],
+    ["child", null],
+    ["later", null],
+  ]);
+  expect(fold.views().parent?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
+  const rows = fold.takeRows();
+  expect(rows.find((row) => row.subagents?.some(({ id }) => id === "child"))?.at).toBe(startedAt);
+  expect(rows.find((row) => row.subagents?.some(({ id }) => id === "later"))?.subagents?.map(({ id }) => id)).toEqual([
+    "later",
+  ]);
+});
+
+test("an authoritative child sender moves an existing worker and refuses an ancestor cycle", () => {
+  const fold = new SubagentFold();
+  fold.setRoot("root-native");
+  feed(fold, { sessionUpdate: "subagent_spawned" }, {
+    subagents: [{ id: "a", parent: null }, { id: "b", parent: "a" }, { id: "c", parent: null }],
+  });
+  const update = {
+    sessionUpdate: "subagent_spawned",
+    _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "c" } } },
+  };
+  feed(fold, update, { subagents: [{ id: "b", parent: "a" }] });
+  expect(fold.all().find(({ id }) => id === "b")?.parent).toBe("c");
+  expect(fold.views().a?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
+  expect(fold.views().c?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["b"]);
+  feed(fold, update, { subagents: [{ id: "c", parent: null }] });
+  const cycle = {
+    ...update,
+    _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "b" } } },
+  };
+  feed(fold, cycle, { subagents: [{ id: "c", parent: "b" }] });
+  expect(fold.all().find(({ id }) => id === "c")?.parent).toBeNull();
+  expect(fold.all().find(({ id }) => id === "b")?.parent).toBe("c");
+});
+
 test("late root seeding removes a phantom and promotes its children", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: "child" }] });
