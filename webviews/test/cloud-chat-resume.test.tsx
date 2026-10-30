@@ -327,11 +327,82 @@ test.serial(
       expect(wake).not.toBeNull();
       await act(async () => wake!.click());
       await act(async () => {
-        await jest.advanceTimersByTimeAsync(60_000);
+        await (
+          jest as unknown as { advanceTimersByTimeAsync(milliseconds: number): Promise<void> }
+        ).advanceTimersByTimeAsync(60_000);
       });
       const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
       expect(state).toContain('"resuming":false');
       expect(state).toContain('"error":');
+    } finally {
+      await act(async () => root.render(null));
+      jest.useRealTimers();
+    }
+  },
+  10_000,
+);
+
+test.serial(
+  "switching chats cancels the old recovery deadline",
+  async () => {
+    jest.useFakeTimers();
+    const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+    Object.assign(dom.window, {
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: ({ method }: { method: string }) =>
+              method === "cloudMachine.attach"
+                ? { ok: true, value: {} }
+                : {
+                    ok: true,
+                    value: {
+                      signedIn: true,
+                      loaded: true,
+                      complete: true,
+                      account: ["user", null],
+                      machines: [{ id: "vm-demo", name: "Demo machine", stage: "connecting" }],
+                    },
+                  },
+          },
+        },
+      },
+    });
+    function Recovery({ machine }: { machine: string }) {
+      const recovery = useCloudChatRecovery({
+        cloud: { id: machine, account: ["user", null] },
+        session: `chat-${machine}`,
+        active: true,
+        recheck: machine === "old" ? () => new Promise<void>(() => {}) : async () => {},
+      });
+      return (
+        <div>
+          <button data-action="switch-deadline-wake" onClick={recovery.resume}>
+            Resume
+          </button>
+          <span data-action="switch-deadline-state">
+            {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
+          </span>
+        </div>
+      );
+    }
+    try {
+      flushSync(() => root.render(<Recovery machine="old" />));
+      await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="switch-deadline-wake"]')!.click());
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      flushSync(() => root.render(<Recovery machine="new" />));
+      await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="switch-deadline-wake"]')!.click());
+      await act(async () => {
+        await (
+          jest as unknown as { advanceTimersByTimeAsync(milliseconds: number): Promise<void> }
+        ).advanceTimersByTimeAsync(60_000);
+      });
+      const state = mount.querySelector('[data-action="switch-deadline-state"]')?.textContent ?? "";
+      expect(state).toContain('"resuming":true');
+      expect(state).not.toContain("resumeFailed");
     } finally {
       await act(async () => root.render(null));
       jest.useRealTimers();

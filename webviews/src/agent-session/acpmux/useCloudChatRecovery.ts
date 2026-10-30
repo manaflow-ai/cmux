@@ -44,6 +44,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     const deadline = Date.now() + 60_000;
     if (!resuming) setState(undefined);
     // A failed or superseded inventory read says nothing about the accepted wake.
@@ -58,7 +59,6 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
       }
     };
     const recheckBeforeDeadline = async (): Promise<"done" | "deadline"> => {
-      let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
       try {
         return await Promise.race([
           recheck().then(() => "done" as const),
@@ -67,7 +67,10 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
           }),
         ]);
       } finally {
-        if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+        if (deadlineTimer !== undefined) {
+          clearTimeout(deadlineTimer);
+          deadlineTimer = undefined;
+        }
       }
     };
     const read = async () => {
@@ -78,7 +81,9 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
         if (next !== undefined || !resuming) setState(next);
         if (resuming && next !== "deleted" && next !== undefined) {
-          if ((await recheckBeforeDeadline()) === "deadline") {
+          const result = await recheckBeforeDeadline();
+          if (disposed) return;
+          if (result === "deadline") {
             setResuming(false);
             setError(true);
             return;
@@ -104,6 +109,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     return () => {
       disposed = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
     };
   }, [identity, session, active, resuming, recheck, readRevision]);
 
