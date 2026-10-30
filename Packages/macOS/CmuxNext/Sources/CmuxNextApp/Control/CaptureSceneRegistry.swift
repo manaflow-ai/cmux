@@ -257,42 +257,48 @@ extension CaptureSceneRegistry {
     static let cloudAgentMachinesScene = "cloud-agent-machines"
     static let agentMachineIDs = ["capture-vm-lane-1", "capture-vm-test-2"]
 
-    /// Adds the machines to the settled showcase window, waits until the sidebar draws every
-    /// machine workspace a window took (none, once agents' machines stay out), snapshots the
-    /// window, then takes the machines away again. A workspace a window took whose row never
-    /// draws fails the scene: the picture would not show what the membership says.
+    /// Adds the machines to the settled showcase window and takes its still with the sidebar at its
+    /// bottom, where a machine's leaked rows list (Leo's capture: "at the bottom of the sidebar"):
+    /// the window takes its screen's height, the sidebar renders and scrolls to its end. Every
+    /// workspace a window took must draw a row inside the window, else the scene fails with what
+    /// it saw: a still that missed them would prove nothing. Then the machines go away again.
     func renderAgentCloudMachines(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                   windowID: String) async -> CmuxNextSettings.JSONValue {
+        guard let controller = services.windows.controller(for: windowID), let window = controller.window else {
+            return .object(["error": .string("no window"), "scene": .string(definition.name)])
+        }
         for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
+        if let screen = window.screen {
+            let visible = screen.visibleFrame
+            window.setFrame(NSRect(x: window.frame.minX, y: visible.minY, width: window.frame.width, height: visible.height), display: true)
+        }
         let added = addAgentCloudMachines()
-        // Every machine's header draws (a header stays without rows), and every workspace a window took
-        // draws its row: anything else is a fixture that never reached the sidebar.
+        let sidebar = controller.sidebar.container.sidebarView
         let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
+            sidebar.renderNow()
+            sidebar.layoutSubtreeIfNeeded()
+            Self.scrollToEnd(sidebar)
             let rows = agentMachineRows(windowID: windowID)
-            return rows.headers.count == Self.agentMachineIDs.count && Set(rows.filed).isSubset(of: rows.drawn)
+            return Set(rows.filed).isSubset(of: rows.visible)
         }
         let rows = agentMachineRows(windowID: windowID)
-        let summary = "headers \(rows.headers.count)/\(Self.agentMachineIDs.count), in a window \(rows.filed.count), drawn \(rows.drawn.count)"
+        let summary = "in a window \(rows.filed.count), drawn in view \(rows.visible.count) of \(Self.agentMachineIDs.count)"
         let report: CmuxNextSettings.JSONValue = .object([
-            "machines": added, "headers": .array(rows.headers.map { .string($0) }),
-            "in_a_window": .array(rows.filed.map { .string($0) }), "drawn": .array(rows.drawn.map { .string($0) }),
-            "summary": .string(summary),
+            "machines": added, "in_a_window": .array(rows.filed.map { .string($0) }),
+            "drawn_in_view": .array(rows.visible.map { .string($0) }), "summary": .string(summary),
         ])
         guard shown else {
-            for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
-            services.windows.reconcileMembership()
-            return .object(["error": .string("the Cloud machines never reached the sidebar (\(summary))"),
+            removeAgentCloudMachines()
+            return .object(["error": .string("a machine workspace a window took never drew in view (\(summary))"),
                             "scene": .string(definition.name), "scene_action": report])
         }
-        // One more frame for the rows' layout.
         frames.start()
         let settled = await frames.settled(until: { true }, start: ContinuousClock.now, window: 300, deadline: 3_000)
         let frameStats = frames.stop()
         var snapshotParams = params
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
-        for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
-        services.windows.reconcileMembership()
+        removeAgentCloudMachines()
         guard case .object(var result) = snapshot else { return snapshot }
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
@@ -302,14 +308,38 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// The machines whose header `windowID`'s sidebar draws, their workspaces a window took, and those it draws.
-    func agentMachineRows(windowID: String) -> (headers: [String], filed: [String], drawn: [String]) {
+    func removeAgentCloudMachines() {
+        for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
+        services.windows.reconcileMembership()
+    }
+
+    /// Scrolls `sidebar`'s list to its end.
+    static func scrollToEnd(_ sidebar: NSView) {
+        guard let scroll = firstScrollView(in: sidebar), let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let end = document.isFlipped ? max(0, document.bounds.height - clip.bounds.height) : 0
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: end))
+        scroll.reflectScrolledClipView(clip)
+    }
+
+    static func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap(firstScrollView(in:)).first
+    }
+
+    /// The machines' workspaces a window took, and those whose row `windowID`'s sidebar draws inside the window.
+    func agentMachineRows(windowID: String) -> (filed: [String], visible: [String]) {
         let workspaces = Self.agentMachineIDs.map { "ws-\($0)" }
-        let sections = services.windows.controller(for: windowID)?.sidebar.model.sections ?? []
-        let rows = Set(sections.flatMap(\.workspaces).map(\.id.rawValue))
-        let machines = Set(sections.compactMap(\.machine?.id.rawValue))
-        return (Self.agentMachineIDs.filter(machines.contains), workspaces.filter { services.windows.registry.value.owner(of: $0) != nil },
-                workspaces.filter(rows.contains))
+        guard let controller = services.windows.controller(for: windowID) else { return ([], []) }
+        let sidebar = controller.sidebar.container.sidebarView
+        // The list's visible part, in the rows' top-left window points.
+        let height = controller.window?.contentView?.bounds.height ?? 0
+        let clip = Self.firstScrollView(in: sidebar).map { $0.convert($0.bounds, to: nil) } ?? .zero
+        let view = CGRect(x: clip.minX, y: height - clip.maxY, width: clip.width, height: clip.height)
+        let drawn = sidebar.debugRows().rows
+            .filter { $0.inList && $0.windowFrame.height > 0 && view.contains(CGPoint(x: $0.windowFrame.midX, y: $0.windowFrame.midY)) }.map(\.key)
+        return (workspaces.filter { services.windows.registry.value.owner(of: $0) != nil },
+                workspaces.filter { id in drawn.contains { $0.contains(id) } })
     }
 
     func addAgentCloudMachines() -> CmuxNextSettings.JSONValue {
