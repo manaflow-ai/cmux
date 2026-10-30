@@ -81,8 +81,15 @@ pub(super) async fn handle(
                 )?
             }
         };
-        let draft =
-            hub.set_composer_draft(&s, text, generation).map_err(RpcError::invalid_params)?;
+        let draft = hub.set_composer_draft(&s, text, generation).map_err(|message| {
+            let stale = message.starts_with("stale composer draft generation ");
+            let error = RpcError::invalid_params(message);
+            if stale {
+                error.with_data(json!({"code": "draft.stale_generation"}))
+            } else {
+                error
+            }
+        })?;
         return Ok(json!({"sessionId": s.id, "draft": draft, "generation": generation}));
     }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).

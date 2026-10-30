@@ -458,8 +458,9 @@ export function NewTabPage({
   useEffect(
     () => () => {
       const draft = leaving.current;
-      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
-        draft.onLeaveDraft?.(draft.text, draft.attachments);
+      // An empty handoff is a clear, including after a carried draft was deleted before retry.
+      // The untouched location is a suggestion, not a draft to restore.
+      draft.onLeaveDraft?.(draft.typed ? draft.text : "", draft.attachments);
     },
     [],
   );

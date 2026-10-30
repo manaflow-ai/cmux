@@ -139,7 +139,33 @@ export const draftWriteLimits = { timeoutMs: 5_000, lateHoldMs: 30_000 };
 // web-swap hold above is bounded.
 let unansweredWrite: { action: DraftAction; since: number } | undefined;
 
-function writeTimedOut(action: DraftAction, sessionId: string, sequence: number, sent: Promise<unknown>): void {
+type DraftWrite = { sessionId: string; text: string; generation: number; sequence: number };
+
+function staleDraftWrite(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  if ("code" in error && error.code === "draft.stale_generation") return true;
+  // Compatibility with the first generation-aware daemon, before its structured error code.
+  return "message" in error && typeof error.message === "string" &&
+    /^stale composer draft generation [0-9]+; current generation is [0-9]+/.test(error.message);
+}
+
+function discardStaleDraftWrite(write: DraftWrite): void {
+  const pending = pendingDraftWrites.get(write.sessionId);
+  // Later edits in the rejected generation are stale too; a send/clear's newer generation stays.
+  if (pending && pending.generation <= write.generation) pendingDraftWrites.delete(write.sessionId);
+  // Reconcile once, without holding the drain or web swap on another network round trip.
+  // Never let this read replace a newer local edit or adopt text from a different generation.
+  const sequence = draftWriteSequence;
+  void answeredInTime(readDurableDraftState(write.sessionId)).then((value) => {
+    const state = value as Awaited<ReturnType<typeof readDurableDraftState>>;
+    if (!state || draftWriteSequence !== sequence || hasPendingDraftWrite(write.sessionId)) return;
+    if (state.generation !== readPersistedDraftGeneration(write.sessionId)) return;
+    cachePersistedDraft(write.sessionId, state.draft ?? "", state.generation);
+  }).catch(() => undefined);
+}
+
+function writeTimedOut(action: DraftAction, write: DraftWrite, sent: Promise<unknown>): void {
+  const { sessionId, sequence } = write;
   const late = { action, since: Date.now() };
   unansweredWrite = late;
   const answered = () => {
@@ -151,7 +177,10 @@ function writeTimedOut(action: DraftAction, sessionId: string, sequence: number,
     // It landed: its own retry, still queued, would only land over a later edit.
     if (pendingDraftWrites.get(sessionId)?.sequence === sequence) pendingDraftWrites.delete(sessionId);
     answered();
-  }, answered);
+  }, (error) => {
+    if (staleDraftWrite(error)) discardStaleDraftWrite(write);
+    answered();
+  });
 }
 
 /** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
@@ -230,7 +259,11 @@ async function flushDraftWrites(): Promise<void> {
         // A write that never answers would keep this drain, and the web-swap hold, forever.
         await answeredInTime(sent);
       } catch (error) {
-        if (error === WRITE_TIMED_OUT && sent) writeTimedOut(action, sessionId, write.sequence, sent);
+        if (staleDraftWrite(error)) {
+          discardStaleDraftWrite(write);
+          continue;
+        }
+        if (error === WRITE_TIMED_OUT && sent) writeTimedOut(action, write, sent);
         // A disconnect can invalidate the action while it is in flight, or it never answers. Keep
         // the newest value for the next try, while preserving a later keystroke already in the queue.
         const current = pendingDraftWrites.get(sessionId);

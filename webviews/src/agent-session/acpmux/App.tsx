@@ -11023,6 +11023,7 @@ function AcpmuxPane() {
                   takeDraft={takeNewTabDraft}
                   onLeaveDraft={(text, attachments) => {
                     if (keepNewTabDraft(text, attachments)) return;
+                    if (!text.trim() && !attachments.length) return;
                     // A Sandboxed send from the page already took its prompt (or held it back).
                     const handed = newTabSandboxSent.current;
                     newTabSandboxSent.current = false;
