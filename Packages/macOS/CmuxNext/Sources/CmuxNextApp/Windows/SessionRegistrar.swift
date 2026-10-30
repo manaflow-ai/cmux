@@ -65,7 +65,12 @@ final class SessionRegistrar {
                 recorded[session] = snapshot
                 let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
                                                 transport: snapshot.transport, capabilities: snapshot.capabilities)
-                home.send("put-session") { _ = try await $0.putSession(request) }
+                // A refused or failed put is logged by `send` and forgotten here, so the next sync
+                // (any registry, daemon or machine change) sends it again instead of leaving the
+                // machine out of the registry for the rest of the launch (P-AUSTIN B7a).
+                home.send("put-session", onFailure: { [weak self] _ in
+                    if self?.recorded[session] == snapshot { self?.recorded[session] = nil }
+                }) { _ = try await $0.putSession(request) }
             }
             let record = home.store.personal.session(session)
             if daemon !== home, record?.migrated == false, !importing.contains(session) {

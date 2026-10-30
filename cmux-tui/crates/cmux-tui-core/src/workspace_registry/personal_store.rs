@@ -31,15 +31,24 @@ pub(crate) use blobs::require_icon_asset;
 pub const DEFAULT_PROFILE_ID: &str = "default";
 const MIGRATED_META_KEY: &str = "personal_migrated_v1";
 const REVISION_META_KEY: &str = "personal_revision";
-/// Longest accepted JSON value in a personal row (a session's transport or
-/// capabilities, a browser profile's source or proxy), in bytes. It is the
-/// transport's own message bound, so a row holds whatever one request can
-/// carry: a session's capability list grows with each daemon feature (5,765
-/// bytes on 2026-10-29), and a fixed smaller cap refused `put-session`, which
-/// left machines out of the registry and the next launch unable to restore
-/// them (P-AUSTIN B7a). Only a caller inside the daemon can pass a larger
-/// value; it is refused with an error, never cut.
-pub const MAX_PERSONAL_JSON_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
+/// Longest accepted transport, browser profile source or proxy JSON, in
+/// bytes. Each is a small object of short fields (a route, a profile folder),
+/// and the longest field is a path, at most 4096 bytes (`PATH_MAX`).
+pub const MAX_PERSONAL_JSON_BYTES: usize = 4096;
+/// Longest capability token in a session record, in bytes. Every capability
+/// a daemon advertises matches `[a-z][a-z0-9._-]{0,63}` (the app's
+/// `MachineCatalogRecord` rule).
+pub const MAX_CAPABILITY_TOKEN_BYTES: usize = 64;
+/// Largest capability list of a session record, in bytes of JSON. The list
+/// grows with each daemon feature (5,765 bytes on 2026-10-29), and a fixed
+/// 4,096-byte cap refused `put-session`, so connected machines were not
+/// recorded and the next launch did not restore them (P-AUSTIN B7a). The
+/// bound comes from where the record goes: its `personal.session.put`
+/// journal fact must fit the journal's event payload budget, and every other
+/// field of the record is a few KiB at most (session id, names, transport,
+/// icon), so half of the budget is the list's.
+pub const MAX_SESSION_CAPABILITIES_BYTES: usize =
+    super::journal_extensions::MAX_EVENT_PAYLOAD_BYTES / 2;
 /// Longest accepted theme spec, in characters.
 pub const MAX_THEME_CHARS: usize = 256;
 
@@ -399,6 +408,40 @@ pub fn validate_personal_json(
     anyhow::ensure!(
         text.len() <= MAX_PERSONAL_JSON_BYTES,
         "bad request: {label} exceeds {MAX_PERSONAL_JSON_BYTES} bytes"
+    );
+    Ok(text)
+}
+
+/// A session's capability list: unique tokens of `[a-z][a-z0-9._-]`, each at
+/// most [`MAX_CAPABILITY_TOKEN_BYTES`], at most
+/// [`MAX_SESSION_CAPABILITIES_BYTES`] as JSON. Returns the stored text.
+pub fn validate_session_capabilities(value: &Value) -> anyhow::Result<String> {
+    let tokens = value
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("bad request: capabilities must be an array of strings"))?;
+    let mut seen = std::collections::HashSet::with_capacity(tokens.len());
+    for token in tokens {
+        let token = token.as_str().ok_or_else(|| {
+            anyhow::anyhow!("bad request: capabilities must be an array of strings")
+        })?;
+        let bytes = token.as_bytes();
+        anyhow::ensure!(
+            (1..=MAX_CAPABILITY_TOKEN_BYTES).contains(&bytes.len())
+                && bytes[0].is_ascii_lowercase()
+                && bytes.iter().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'.' | b'_' | b'-')
+                }),
+            "bad request: capability {token:?} must be 1-{MAX_CAPABILITY_TOKEN_BYTES} of [a-z0-9._-], starting with a letter"
+        );
+        anyhow::ensure!(seen.insert(token), "bad request: capability {token} is listed twice");
+    }
+    let text = serde_json::to_string(value)?;
+    anyhow::ensure!(
+        text.len() <= MAX_SESSION_CAPABILITIES_BYTES,
+        "bad request: capabilities is {} bytes, over {MAX_SESSION_CAPABILITIES_BYTES}",
+        text.len()
     );
     Ok(text)
 }

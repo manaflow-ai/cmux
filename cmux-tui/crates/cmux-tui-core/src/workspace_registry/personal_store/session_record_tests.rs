@@ -32,11 +32,21 @@ fn capabilities_of_at_least(bytes: usize) -> Value {
     json!(names)
 }
 
+/// Removes the test's registry folder also when an assertion fails.
+struct RemoveOnDrop(PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn a_session_with_its_whole_capability_list_of_5765_bytes_restores_after_reopen() {
     let capabilities = capabilities_of_at_least(REPORTED_CAPABILITY_BYTES);
     assert!(serde_json::to_string(&capabilities).unwrap().len() >= REPORTED_CAPABILITY_BYTES);
     let root = temp_root("capabilities");
+    let _cleanup = RemoveOnDrop(root.clone());
     {
         let mut registry = WorkspaceRegistry::open(&root, "session-record").unwrap();
         let (record, created) = registry
@@ -60,6 +70,66 @@ fn a_session_with_its_whole_capability_list_of_5765_bytes_restores_after_reopen(
         .expect("the recorded session is in the registry after a reopen");
     assert_eq!(restored.capabilities.as_ref(), Some(&capabilities));
     assert_eq!(restored.transport, json!({"kind":"ssh","host":"build-box"}));
-    drop(registry);
-    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Unique tokens `cap-<n>-v1`, as many as fit in `bytes` of JSON (or one
+/// more when `over`).
+fn token_list(bytes: usize, over: bool) -> Value {
+    let mut names: Vec<String> = Vec::new();
+    let mut index = 0;
+    loop {
+        names.push(format!("cap-{index:08}-v1"));
+        let length = serde_json::to_string(&names).unwrap().len();
+        if length > bytes {
+            if !over {
+                names.pop();
+            }
+            return json!(names);
+        }
+        index += 1;
+    }
+}
+
+#[test]
+fn a_session_capability_list_is_bounded_by_the_journal_event_budget() {
+    let mut registry = WorkspaceRegistry::in_memory("session-record-bound").unwrap();
+    let transport = json!({"kind":"ssh","host":"build-box"});
+    let largest = token_list(super::MAX_SESSION_CAPABILITIES_BYTES, false);
+    let (record, _) = registry
+        .put_session("remote-1", None, None, &transport, Some(&largest), None)
+        .expect("a list at the bound is recorded");
+    assert_eq!(record.capabilities.as_ref(), Some(&largest));
+    let error = registry
+        .put_session(
+            "remote-2",
+            None,
+            None,
+            &transport,
+            Some(&token_list(super::MAX_SESSION_CAPABILITIES_BYTES, true)),
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("bad request: capabilities is"), "{error}");
+}
+
+#[test]
+fn a_session_capability_list_holds_only_unique_capability_tokens() {
+    let mut registry = WorkspaceRegistry::in_memory("session-record-tokens").unwrap();
+    let transport = json!({"kind":"ssh","host":"build-box"});
+    for (capabilities, refusal) in [
+        (json!({"profiles-v1": true}), "must be an array of strings"),
+        (json!(["profiles-v1", 1]), "must be an array of strings"),
+        (json!(["Profiles-v1"]), "must be 1-64"),
+        (json!(["profiles v1"]), "must be 1-64"),
+        (json!([""]), "must be 1-64"),
+        (json!(["a".repeat(65)]), "must be 1-64"),
+        (json!(["profiles-v1", "profiles-v1"]), "listed twice"),
+    ] {
+        let error = registry
+            .put_session("remote-1", None, None, &transport, Some(&capabilities), None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(refusal), "{capabilities}: {error}");
+    }
 }

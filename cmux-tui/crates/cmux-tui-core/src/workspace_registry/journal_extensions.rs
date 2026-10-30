@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 const MAX_PRODUCER_EVENTS: usize = 64;
 const MAX_PRODUCER_MANIFEST_BYTES: usize = 1024 * 1024;
-const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
