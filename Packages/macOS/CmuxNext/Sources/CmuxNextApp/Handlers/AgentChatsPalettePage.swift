@@ -83,7 +83,7 @@ struct AgentChatsPalettePage {
                 symbol: "bubble.left", brand: chat.brand ?? AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
                 keywords: [chat.harness] + (chat.cwd.map { [$0] } ?? []),
                 primary: PaletteCommand(id: "open", title: AgentChatsPaletteStrings.open, symbol: "return",
-                                        effect: .perform { in
+                                        effect: .perform {
                                             // The page closes with this command: its window too.
                                             windows.close(window)
                                             open(chat.id)
