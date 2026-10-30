@@ -260,13 +260,23 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
+        // Whether the peer's link, if this attempt used it, took nothing (`Delivery::never_sent`).
+        let mut link_unsent = true;
         let outcome = if delivery.relay_post.is_some() {
-            // The hub may hold it already: only the relay tries it again.
+            // The hub may hold it already: only the relay tries it again. With the relay off here
+            // it may still deliver it (the target's daemon reads it), so it is never sent twice.
             relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
-                Err(("the mesh relay holds it and cannot be reached".into(), Next::Retry))
+                let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
+                let why = format!(
+                    "the mesh relay is off here; the team hub may hold it (key {key}), so it is not sent again another way"
+                );
+                Err((why, Next::Retry))
             })
         } else {
-            match attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await {
+            let outcome =
+                attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await;
+            link_unsent = matches!(outcome, Err((_, Next::Unsent)));
+            match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
                     match relay_attempt(hub, &delivery).await {
@@ -295,7 +305,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             Err((error, next)) => {
                 let delay = delays.next().filter(|_| matches!(next, Next::Retry | Next::Unsent));
                 hub.outbox.update(id, |d| {
-                    d.never_sent &= next == Next::Unsent;
+                    d.never_sent &= link_unsent;
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
                         (_, Some(_)) => State::Queued,
