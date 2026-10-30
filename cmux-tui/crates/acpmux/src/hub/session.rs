@@ -180,7 +180,9 @@ pub struct Session {
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
     /// The agent process's stderr as a stream: it carries a string control that runs across
-    /// lines, so a payload never reaches `stderr_tail`. Kept across turns, as the process is.
+    /// lines, so a payload never reaches `stderr_tail`. Kept across turns, as the process is, and
+    /// started again when the process exits. Not persisted: after a daemon restart, a line that
+    /// continues a control opened before it reads as text.
     pub(super) stderr_stream: StdMutex<crate::stderr::StderrStream>,
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.

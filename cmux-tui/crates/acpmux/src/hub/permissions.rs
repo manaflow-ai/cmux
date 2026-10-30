@@ -231,6 +231,9 @@ impl Hub {
                     }
                     self.cancel_pending_permissions(&session);
                     self.revoke_permission_chat(&session);
+                    // The next agent's stderr is a new stream: a control this one left open does
+                    // not swallow it.
+                    *session.stderr_stream.lock().unwrap() = crate::stderr::StderrStream::default();
                     // A new agent holds no grant and no undeclared mode.
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);

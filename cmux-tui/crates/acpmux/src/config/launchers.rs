@@ -141,11 +141,12 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text =
         format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    // Warnings (a peer that could not be reached) are not failures.
-    let first = crate::stderr::clean_stderr_lines(&text)
+    // Each pipe is its own stream: a control one leaves open does not hide the other's lines.
+    let cleaned = [&out.stdout, &out.stderr]
         .into_iter()
-        .find(|l| !l.is_empty() && !l.starts_with("warning:"))
-        .unwrap_or_default();
+        .flat_map(|pipe| crate::stderr::clean_stderr_lines(&String::from_utf8_lossy(pipe)));
+    // Warnings (a peer that could not be reached) are not failures.
+    let first = cleaned.find(|l| !l.is_empty() && !l.starts_with("warning:")).unwrap_or_default();
     if !out.status.success()
         || first.starts_with("subrouter:")
         || text.to_lowercase().contains("unknown command")
