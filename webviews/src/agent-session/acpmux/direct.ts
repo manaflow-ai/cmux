@@ -1380,6 +1380,9 @@ export class AcpmuxDirectClient {
   private stopAfterSeq?: number;
   /// The daemon turn a Stop was sent to. A later result for another turn cannot settle this Stop.
   private stopTurnId?: string;
+  /// A turn opened after a Stop bound to a known turn, and it is not that turn (it names another, or
+  /// none): the Stop no longer covers what runs, though its own result still answers it.
+  private stopSuperseded = false;
   /// The daemon's current turn identity, when the live records name one.
   private runningTurnId?: string;
   /// The last seq seen when Stop was sent to the loaded chat: the snapshot says `stopping` until that
@@ -1732,6 +1735,7 @@ export class AcpmuxDirectClient {
         this.rejectPending();
         // Delivery is no longer observable on this connection. A reconnect must not inherit Stop.
         this.stopAfterSeq = undefined;
+        this.stopSuperseded = false;
         this.stopTurnId = undefined;
         this.stoppingEnded();
         this.emit("disconnected");
@@ -1939,6 +1943,7 @@ export class AcpmuxDirectClient {
     // The chats started from the chat before are no longer watched.
     this.offerChildren.reset(this.socket?.readyState === WebSocket.OPEN);
     this.stopAfterSeq = undefined;
+    this.stopSuperseded = false;
     this.stopTurnId = undefined;
     this.runningTurnId = undefined;
     this.stoppingEnded();
@@ -3885,8 +3890,17 @@ export class AcpmuxDirectClient {
   /// set `interrupting`), or this pane's Stop, pressed before the event. Else unknown.
   private stopAffectsRunningTurn(): boolean {
     return (
-      this.stopAfterSeq !== undefined && (this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId)
+      this.stopAfterSeq !== undefined &&
+      !this.stopSuperseded &&
+      (this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId)
     );
+  }
+
+  /// A turn opening after a Stop bound to a known turn: one that is not that turn ends the Stop's
+  /// hold on what runs (a legacy turn with no id included).
+  private stopSeesTurnOpen(event: EventRecord, turnId: string | undefined): void {
+    if (this.stopAfterSeq === undefined || this.stopTurnId === undefined || event.seq <= this.stopAfterSeq) return;
+    if (turnId !== this.stopTurnId) this.stopSuperseded = true;
   }
 
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
@@ -3909,6 +3923,7 @@ export class AcpmuxDirectClient {
     if (event.kind !== "turn_result" && !legacyEnd) return;
     if (this.stopTurnId !== undefined && turnId !== this.stopTurnId) return;
     this.stopAfterSeq = undefined;
+    this.stopSuperseded = false;
     this.stopTurnId = undefined;
   }
 
@@ -4260,6 +4275,7 @@ export class AcpmuxDirectClient {
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         if (msg.steer !== true) {
           this.runningTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+          this.stopSeesTurnOpen(event, this.runningTurnId);
           // The fence covers the turn the forced Stop's next prompt started. A later explicit prompt
           // starts a turn whose unscoped boundaries are its own again, so its compactions can end.
           if (this.compactionFenceSeq !== undefined && event.seq > this.compactionFenceSeq)
@@ -4406,6 +4422,7 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "turn_started") {
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
         this.stoppingOpens(event);
+        this.stopSeesTurnOpen(event, startedTurnId);
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
@@ -5795,6 +5812,7 @@ export class AcpmuxDirectClient {
     if (sessionId === this.selectedSessionId) {
       this.interrupting = undefined;
       this.stopAfterSeq = this.lastSeq;
+      this.stopSuperseded = false;
       this.stoppingAfterSeq = this.lastSeq;
       this.stoppedTurnOpener = this.turnOpen ? undefined : "pending";
       let opener: EventRecord | undefined;
@@ -7258,6 +7276,7 @@ export class AcpmuxDirectClient {
     clearTimeout(this.missingRecheck);
     this.missingRecheck = undefined;
     this.stopAfterSeq = undefined;
+    this.stopSuperseded = false;
     this.stoppingEnded();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
