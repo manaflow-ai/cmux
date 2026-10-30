@@ -193,6 +193,8 @@ export function ComposerQueue({
   // layout"). The row opens down inside the list, which scrolls; the list fits its rows again once
   // nothing in it is hovered.
   const held = useRef(false);
+  // The pointer that pressed a row's text, read by its click.
+  const pressedBy = useRef<string>(undefined);
   const toggle = (id: string, hovered: boolean) => {
     // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
     // leave it, and must never keep the list from fitting.
@@ -659,10 +661,12 @@ export function ComposerQueue({
           data-open={open.has(entry.id) ? "" : undefined}
           aria-expanded={open.has(entry.id)}
           onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
+          onPointerDown={(event) => (pressedBy.current = event.pointerType)}
           onClick={(event) => {
-            const view = event.currentTarget.ownerDocument.defaultView;
-            const hovers = view?.matchMedia?.("(hover: hover)").matches !== false;
-            toggle(entry.id, event.detail > 0 && hovers && event.currentTarget.matches(":hover"));
+            // A mouse or pen press is a hovering pointer; a key (no press) or a touch is none.
+            const by = pressedBy.current;
+            pressedBy.current = undefined;
+            toggle(entry.id, event.detail > 0 && (by === "mouse" || by === "pen"));
           }}
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
