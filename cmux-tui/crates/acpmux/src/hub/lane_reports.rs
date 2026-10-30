@@ -245,7 +245,7 @@ impl Report {
 
 /// Whether a turn's provenance is lane reports only: a report, or a turn of agent messages that
 /// took in nothing else.
-fn reports_only(provenance: Option<&Value>) -> bool {
+pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
     let Some(p) = provenance else { return false };
     match p.get("kind").and_then(Value::as_str) {
         Some(KIND) => true,
@@ -414,7 +414,13 @@ impl Hub {
     /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
-        if reports_only(provenance) {
+        self.lane_turn_on(session, reports_only(provenance));
+    }
+
+    /// `session`'s turn started (its turn count counts it); `reports`: on lane reports only (a
+    /// carried turn's steers, `carried_turn.rs`).
+    pub(super) fn lane_turn_on(&self, session: &Session, reports: bool) {
+        if reports {
             let turn = session.meta().turn_count;
             self.lane_turns().report_only.insert((session.id.clone(), turn));
         }
