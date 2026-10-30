@@ -522,21 +522,7 @@ async fn an_inbox_notice_refused_past_the_cap_leaves_its_message_waiting_and_sen
     let ids = vec!["m-1".to_owned()];
     {
         let mut inbox = f.session.inbox.lock().unwrap();
-        inbox.items.push(super::inbox::Item {
-            prompt_id: "m-1".into(),
-            notice: None,
-            answered: None,
-            thread: "from:lane-a".into(),
-            from: "lane-a".into(),
-            from_session: None,
-            class: crate::prompt_class::PromptClass::Result,
-            report: false,
-            at: now_ms(),
-            text: "from lane a".into(),
-            noticed: true,
-            read: false,
-            answer: None,
-        });
+        inbox.items.push(super::inbox::Item::carried("m-1", "lane-a", "from lane a"));
         inbox.in_flight = Some(("n-1".into(), ids.clone()));
     }
     f.age_turn(cap);

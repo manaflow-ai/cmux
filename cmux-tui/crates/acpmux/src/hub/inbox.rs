@@ -113,6 +113,28 @@ pub(super) struct Item {
     answer: Option<Waiter>,
 }
 
+#[cfg(test)]
+impl Item {
+    /// Message `prompt_id` from agent `from`, that a notice carries now.
+    pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
+        Self {
+            prompt_id: prompt_id.to_owned(),
+            notice: None,
+            answered: None,
+            thread: format!("from:{from}"),
+            from: from.to_owned(),
+            from_session: None,
+            class: PromptClass::Result,
+            report: false,
+            at: now_ms(),
+            text: text.to_owned(),
+            noticed: true,
+            read: false,
+            answer: None,
+        }
+    }
+}
+
 /// The waiting `session/prompt` of an inbox message.
 type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 
