@@ -149,18 +149,20 @@ extension KeyRouter {
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
                      workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
-                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+                     pageReportsUnhandledKeys: pageHasKeys(window, controller: controller))
     }
 
-    /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
-    /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
-    /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
-    /// key would reach no page, so cmux runs its action first as before.
-    private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
+    /// The focused browser tab's page has the keyboard in `window`, the key window, and reports a key
+    /// it leaves unhandled: a live Chromium tab whose page window is `window` (Chromium's unhandled-key
+    /// callback), or a WebKit tab whose web view is `window`'s first responder (WebKit sends the key
+    /// back to `NSApp.sendEvent`). Otherwise (the shell window is key for a Chromium page, the omnibar
+    /// has the keyboard) the key would reach no page, so cmux runs its action first as before.
+    private func pageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
         guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
-              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
-              let tab = entry.tab as? CEFTab else { return false }
-        return tab.isPageWindow(window)
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
+        if let tab = entry.tab as? CEFTab { return tab.isPageWindow(window) }
+        if let tab = entry.tab as? WebKitTab { return tab.pageHasKeyboard(in: window) }
+        return false
     }
 
     /// The page id of the focused internal page tab.

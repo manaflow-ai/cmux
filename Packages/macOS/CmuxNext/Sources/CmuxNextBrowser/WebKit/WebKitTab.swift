@@ -163,6 +163,13 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         }
     }
 
+    /// Whether this page has the keyboard in `window`, the key window: the web view (or a view in
+    /// it) is its first responder, so a key goes to the page, and WebKit sends a key the page left
+    /// unhandled back to `NSApp.sendEvent` (`WebViewImpl::doneWithKeyEvent`).
+    public func pageHasKeyboard(in window: NSWindow) -> Bool {
+        !isClosed && webView.window === window && (webView as? WebKitWebView)?.hasKeyboardFocus == true
+    }
+
     /// WebKit draws in-view and throttles hidden views itself.
     public func setContentVisible(_ visible: Bool) {}
 

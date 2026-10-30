@@ -180,7 +180,8 @@ final class KeyRouter: BrowserKeyRouting {
         guard event.type == .keyDown else { return false }
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
-        if decided.contains(event) { return false }
+        // A key it offered to a WebKit page and the page sent back unhandled runs the action held for it.
+        if decided.contains(event) { return runResentPageKey(event) }
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).

@@ -60,7 +60,8 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabs`): context key `sidebar.workspacesAsTabs`.
     var workspacesAsTabs = false
     /// The focused browser page reports the keys it did not handle (a Chromium tab, through
-    /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
+    /// `CefKeyboardHandler::OnKeyEvent`; a WebKit tab, by sending the key back to `NSApp.sendEvent`):
+    /// Find and content shortcuts go to it first
     /// (``KeyRouter/offersToPage(_:event:focus:facts:)``).
     var pageReportsUnhandledKeys = false
 }

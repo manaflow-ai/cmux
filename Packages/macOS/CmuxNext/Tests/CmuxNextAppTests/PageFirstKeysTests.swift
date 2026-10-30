@@ -134,8 +134,9 @@ import Testing
         }
     }
 
-    /// A WebKit page reports no unhandled keys, so cmux keeps running Find first there.
-    @Test func webKitPageKeepsCmuxFind() throws {
+    /// A page that reports no unhandled keys (the omnibar, or a Chromium page whose window is not
+    /// key) would never hand the key back, so cmux keeps running Find first there.
+    @Test func pageWithoutUnhandledReportsKeepsCmuxFind() throws {
         guard case .run(let candidate) = try Self.decision(Self.pageOwnedKeys[0], facts: KeyRouter.Facts()) else {
             Issue.record("Cmd-F did not run cmux Find in a page that reports no unhandled keys")
             return
