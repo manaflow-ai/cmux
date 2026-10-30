@@ -112,7 +112,13 @@ fn destructive_verbs_show_confirm_in_the_list_and_their_help() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         destructive,
-        BTreeSet::from(["api-key-revoke", "delete-snapshot", "file-remove", "firewall-delete", "kill-machine"])
+        BTreeSet::from([
+            "api-key-revoke",
+            "delete-snapshot",
+            "file-remove",
+            "firewall-delete",
+            "kill-machine"
+        ])
     );
     let text = overview(false);
     for name in &destructive {
