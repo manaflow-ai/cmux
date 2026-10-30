@@ -1210,7 +1210,7 @@ class CmuxNextWiring(unittest.TestCase):
                     self.assertEqual(evaluate(expression, self.context(runner=STD)),
                                      SIDE if name == "fast-tier" else on(name, STD))
                     self.assertEqual(evaluate(expression, self.context("2", runner=STD)),
-                                     SIDE if name == "fast-tier" else FALLBACK if name in GUI_JOBS else on(name, STD))
+                                     FALLBACK if name in GUI_JOBS or name == "fast-tier" else on(name, STD))
                     # The rescue's attempt 2 takes the free Blacksmith slot the placement found.
                     free = self.context("2", runner=STD, triggering_actor=bot)
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
