@@ -58,8 +58,8 @@ function ListRows({
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
+        {trailing?.(row)}
       </div>
-      {trailing?.(row)}
       {below?.(row)}
     </div>
   ));
@@ -143,7 +143,17 @@ export function MachinesSection({ title }: { title: string }) {
 function DevicesSection({ devices }: { devices: DevicesHostState }) {
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [setting, setSetting] = useState<string | null>(null);
+  // Rows with a Full access request in flight: each row holds its own, so a second row's request
+  // neither frees the first nor is freed by it.
+  const [setting, setSetting] = useState<ReadonlySet<string>>(() => new Set());
+  const markSetting = (id: string, pending: boolean) =>
+    setSetting((current) => {
+      if (current.has(id) === pending) return current;
+      const next = new Set(current);
+      if (pending) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -192,11 +202,11 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   <div className="row-control">
                     <Switch
                       checked={row.full_access}
-                      disabled={setting === row.id}
+                      disabled={setting.has(row.id)}
                       labelId={`device-full-access-${row.id}`}
                       onToggle={(on) => {
-                        setSetting(row.id);
-                        void store.setDeviceFullAccess(row.id, on).finally(() => setSetting(null));
+                        markSetting(row.id, true);
+                        void store.setDeviceFullAccess(row.id, on).finally(() => markSetting(row.id, false));
                       }}
                     />
                   </div>

@@ -13,6 +13,10 @@ extension AgentPaneModel {
     ]
     /// The arguments a connect action runs with.
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
+    /// The command palette pages any agent tab may open: the chats page (Show all, the + menu's
+    /// Search chats) and the History search page (the + menu's Search pages). They open the app's own
+    /// palette, as Cmd-K does, so they need no gesture credit.
+    static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
 
     /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
@@ -23,10 +27,14 @@ extension AgentPaneModel {
     /// sign-in and its continuation. An action the app did not run (turned off, or not for this tab)
     /// is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
-    func runAction(_ id: String) -> [String: Any] {
-        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id),
+    func runAction(_ id: String, session: String? = nil) -> [String: Any] {
+        guard id == "newTab.page" || Self.paletteActions.contains(id) || Self.connectActions.contains(id),
               let onRunAction else {
             return Self.unsupported("action.run")
+        }
+        // Bound to the chat whose menu offered it: a tab that shows another chat by now runs nothing.
+        if let session, header?.showsChat(session) != true {
+            return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
         }
         if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         if onRunAction(id, Self.connectArguments[id] ?? [:]) { return AgentPaneReply.success() }
