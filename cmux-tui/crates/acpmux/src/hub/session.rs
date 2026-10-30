@@ -24,6 +24,7 @@ pub(super) struct SteerNow {
 pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
+    pub(super) meta_save: StdMutex<()>,
     pub(super) child: Mutex<Option<Arc<ChildAgent>>>,
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.

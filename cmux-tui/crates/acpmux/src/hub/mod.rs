@@ -1071,6 +1071,7 @@ impl Hub {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
             meta: StdMutex::new(meta),
+            meta_save: StdMutex::new(()),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
@@ -1503,36 +1504,6 @@ impl Hub {
         self.append(session, "mux", "rules", json!({"rules": rules}));
     }
 
-    /// The largest composer draft the daemon will persist for one session.
-    pub const MAX_COMPOSER_DRAFT_CHARS: usize = 1_000_000;
-
-    /// Store the unsent composer text without adding it to the transcript.
-    /// Whitespace-only input clears the draft while preserving whitespace in a
-    /// non-empty draft exactly as typed.
-    pub fn set_composer_draft(
-        &self,
-        session: &Session,
-        text: &str,
-    ) -> Result<Option<String>, String> {
-        if text.chars().count() > Self::MAX_COMPOSER_DRAFT_CHARS {
-            return Err(format!(
-                "composer draft exceeds {} characters",
-                Self::MAX_COMPOSER_DRAFT_CHARS
-            ));
-        }
-        if session.moving().is_some() {
-            return Err(queue::moving_error().message);
-        }
-        let draft = (!text.trim().is_empty()).then(|| text.to_owned());
-        {
-            let mut meta = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            meta.composer_draft = draft.clone();
-            meta.updated_at = now_ms();
-        }
-        self.save_meta(session);
-        Ok(draft)
-    }
-
     /// Turn-by-turn summary from the event log.
     pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
         // Only the kinds a summary reads are parsed, one record at a time: the whole log
@@ -1655,19 +1626,26 @@ impl Hub {
     /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
     /// when the node is built, left about 450 of them in two hours (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
-        if session.purged.load(Ordering::SeqCst) {
-            return;
-        }
-        let meta = session.meta();
-        if let Err(e) = self.store.save(&meta) {
+        if let Err(e) = self.save_meta_result(session) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
+    }
+
+    /// Serialize snapshots with their saves: an earlier snapshot must not finish after a
+    /// newer draft's tombstone. The metadata lock itself is never held across disk I/O.
+    pub(super) fn save_meta_result(&self, session: &Session) -> anyhow::Result<()> {
+        let _save = session.meta_save.lock().unwrap_or_else(|e| e.into_inner());
+        if session.purged.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        self.store.save(&session.meta())?;
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
             && let Err(e) = self.store.delete(&session.id)
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
+        Ok(())
     }
 
     /// Lists the temporary folders of sessions this daemon no longer has

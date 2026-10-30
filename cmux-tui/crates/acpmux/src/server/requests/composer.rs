@@ -66,13 +66,24 @@ pub(super) async fn handle(
         return hub.composer_set(&s, surface, text, &conn.label());
     }
     if m == method::MUX_DRAFT_GET {
-        return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
+        let meta = s.meta();
+        return Ok(json!({"sessionId": s.id, "draft": meta.composer_draft,
+            "generation": meta.composer_draft_generation}));
     }
     let text =
         str_param(params, "text").ok_or_else(|| RpcError::invalid_params("text is required"))?;
     if m == method::MUX_DRAFT_SET {
-        let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
-        return Ok(json!({"sessionId": s.id, "draft": draft}));
+        let generation = match params.get("generation") {
+            None => 0, // Legacy writes never acquire the current generation implicitly.
+            Some(value) => {
+                value.as_u64().filter(|n| *n <= Hub::MAX_COMPOSER_DRAFT_GENERATION).ok_or_else(
+                    || RpcError::invalid_params("generation must be a nonnegative safe integer"),
+                )?
+            }
+        };
+        let draft =
+            hub.set_composer_draft(&s, text, generation).map_err(RpcError::invalid_params)?;
+        return Ok(json!({"sessionId": s.id, "draft": draft, "generation": generation}));
     }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
     let who = super::who(conn);
