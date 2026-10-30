@@ -8,7 +8,7 @@ use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
 use super::super::tests::captured_writer;
 use super::super::*;
 use crate::cloud_conversations::testing::{FakeBackend, wait_until};
-use crate::cloud_conversations::{CloudConversations, ServiceOptions};
+use crate::cloud_conversations::{CloudConversations, CloudError, ServiceOptions};
 
 const CONV: &str = "conv_0123456789ABCDEFGHJKMNPQRS";
 const ME: &str = "user_00000000000000000001";
@@ -1168,4 +1168,33 @@ fn inbox_list_all_stops_at_its_budget() {
     assert_eq!(listed_ids(&read), ["conv_a"]);
     assert_eq!(read["next_cursor"], "k1");
     assert_eq!(backend.posted().len(), 1);
+}
+
+/// A page the owner refuses mid-read (a rate limit) leaves the Cloud rows
+/// `unavailable`, never `signed_out`: the app keeps its last rows instead of
+/// showing the person signed out.
+#[test]
+fn a_refused_inbox_page_leaves_the_cloud_rows_unavailable() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    backend.reply(
+        "/v1/read",
+        429,
+        json!({"error":{"code":"rate_limited","message":"slow down","retryable":true}}),
+    );
+    let error = super::lease_user(&mux, client)
+        .unwrap()
+        .inbox_list_all(false, Duration::from_secs(60))
+        .map_err(anyhow::Error::from)
+        .unwrap_err();
+    assert_eq!(conversations::cloud_rows_failure(&error), "unavailable", "{error}");
+    for (signed_out, state) in [
+        (CloudError::SignedOut, "signed_out"),
+        (CloudError::SessionExpired, "signed_out"),
+        (CloudError::Unauthenticated, "signed_out"),
+        (CloudError::Unavailable("reset".into()), "unavailable"),
+    ] {
+        assert_eq!(conversations::cloud_rows_failure(&signed_out.into()), state);
+    }
 }

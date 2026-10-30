@@ -386,7 +386,6 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
 /// `unavailable` (the Cloud did not answer). A Cloud failure never hides the
 /// local rows. Every page of the inbox within a time budget (`inbox_list_all`).
 fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, &'static str) {
-    use crate::cloud_conversations::CloudError;
     // Only the person's own clients (the app, an authenticated page) get the
     // person's rows; any other connection never reads a lease.
     if !super::cloud_conversations::is_person(mux, client) {
@@ -401,11 +400,7 @@ fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, 
     });
     let value = match listed {
         Ok(value) => value,
-        Err(error) => {
-            let unanswered =
-                matches!(error.downcast_ref::<CloudError>(), Some(CloudError::Unavailable(_)));
-            return (Vec::new(), if unanswered { "unavailable" } else { "signed_out" });
-        }
+        Err(error) => return (Vec::new(), cloud_rows_failure(&error)),
     };
     let Some(entries) = value.get("entries").and_then(Value::as_array) else {
         return (Vec::new(), "unavailable");
@@ -422,6 +417,21 @@ fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, 
         })
         .collect();
     (rows, "included")
+}
+
+/// The Cloud rows' state after a failed inbox read: `signed_out` only when
+/// there is no usable lease (none, expired, the token refused, or no Cloud
+/// here); any other failure, a refusal of one page (a rate limit, an old
+/// cursor) included, is `unavailable`, so the app keeps its last rows.
+pub(super) fn cloud_rows_failure(error: &anyhow::Error) -> &'static str {
+    use crate::cloud_conversations::CloudError;
+    match error.downcast_ref::<CloudError>() {
+        Some(CloudError::SignedOut | CloudError::SessionExpired | CloudError::Unauthenticated) => {
+            "signed_out"
+        }
+        Some(_) => "unavailable",
+        None => "signed_out",
+    }
 }
 
 /// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of
