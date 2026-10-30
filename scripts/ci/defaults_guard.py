@@ -48,8 +48,11 @@ the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
 COLLABORATOR, a user, not a bot), not a self-review, the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
-a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
-approving review of the head from a call owner in
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt. The
+workflow's token cannot see a private org membership (GitHub reports such a
+member as CONTRIBUTOR to it), so a receipt's author who reads as untrusted is
+looked up once: write, maintain or admin access to the repository trusts them
+too. An approving review of the head from a call owner in
 .github/defaults-call-owners.json other than the author still passes too. The
 `needs a call` label alone never passes. The workflow (pull_request_target
 only) runs this script and reads the owners file from the base branch, so a
@@ -118,6 +121,9 @@ TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spr
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Repository roles that trust a receipt's author whose association reads as untrusted: a member who
+# keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
+WRITER_ROLES = ("admin", "maintain", "write")
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
 
@@ -627,19 +633,34 @@ class Approval:
         return bool(self.approvers) or self.shipped is not None
 
 
-def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
-    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
-    found = []
+def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object], object]]:
     items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
-    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
-    for item, at in items:
+    return items + [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+
+
+def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
+    """The receipt on the item's first line when it names the full head and is not a self-review."""
+    first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+    line = RECEIPT.match(first)
+    return line if head and line and "self" not in line.group(1).lower() and head in first else None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str,
+                    writers: Iterable[str] = ()) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. A user
+    whose association reads as untrusted is trusted when listed in `writers` (repository write
+    access, looked up by `repo_writers`)."""
+    writers = {w.lower() for w in writers}
+    found = []
+    for item, at in receipt_items(pull):
         author = item.get("author") or {}
-        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+        if author.get("__typename") != "User":
             continue
-        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
-        line = RECEIPT.match(first)
-        if head and line and "self" not in line.group(1).lower() and head in first:
+        if item.get("authorAssociation") not in TRUSTED and str(author.get("login") or "").lower() not in writers:
+            continue
+        line = receipt_line(item, head)
+        if line:
             verdict = "ship" if line.group(2).lower() == "ship" else "block"
             found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
     if not found:
@@ -654,7 +675,31 @@ def owners_for(text: str | None) -> list[str]:
     return [str(o) for o in json.loads(text).get(APP, [])]
 
 
-def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
+def repo_writers(repo: str, pull: Mapping[str, object], head: str) -> list[str]:
+    """The authors of receipts on the head whose association reads as untrusted but who have write,
+    maintain or admin access to the repository. GitHub hides a private org membership from the
+    workflow's token, so such a member reads as CONTRIBUTOR here (#26153). One lookup per author;
+    a lookup that fails (404: not a collaborator) trusts nobody."""
+    logins: dict[str, str] = {}
+    for item, _ in receipt_items(pull):
+        author = item.get("author") or {}
+        login = str(author.get("login") or "")
+        if (login and author.get("__typename") == "User" and item.get("authorAssociation") not in TRUSTED
+                and receipt_line(item, head)):
+            logins.setdefault(login.lower(), login)
+    writers = []
+    for login in logins.values():
+        result = subprocess.run(["gh", "api", f"repos/{repo}/collaborators/{login}/permission", "--jq", ".role_name"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip() in WRITER_ROLES:
+            writers.append(login)
+        elif result.returncode != 0 and "404" not in result.stderr:
+            print(f"::warning title=Defaults reviewer lookup failed::{command_text(login)}: "
+                  f"{command_text(result.stderr.strip()[:200])}")
+    return writers
+
+
+def approval(owners: list[str], pull: Mapping[str, object], writers: Iterable[str] = ()) -> Approval:
     """Who approved the head: each reviewer's latest decisive review counts."""
     author = str((pull.get("author") or {}).get("login") or "")
     head = str(pull.get("headRefOid") or "")
@@ -672,7 +717,7 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
-    receipt = receipt_verdict(pull, head)
+    receipt = receipt_verdict(pull, head, writers)
     if receipt:
         if receipt[0] == "ship":
             result.shipped = receipt[1]
@@ -853,7 +898,8 @@ def command_check(args: argparse.Namespace) -> int:
                 break
             time.sleep(5)
             pull = fetch_pull(args.repo, args.pr)
-    verdict = approval(owners, pull) if pull is not None else None
+    writers = repo_writers(args.repo, pull, head_sha) if pull is not None and args.repo else []
+    verdict = approval(owners, pull, writers) if pull is not None else None
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
