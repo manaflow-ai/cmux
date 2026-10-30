@@ -295,19 +295,21 @@ extension CaptureSceneRegistry {
         scrollToAgentMachines(windowID: windowID)
         frames.start()
         var settled: Double?
+        let pictured = { [self] in
+            Self.agentMachineIDs.allSatisfy { id in
+                let row = SidebarRowKey.workspace(WorkspaceID("ws-\(id)"))
+                return agentMachineRowShown(.section(.machine(MachineID(id))), windowID: windowID)
+                    && (expectsRows ? agentMachineRowShown(row, windowID: windowID)
+                        : agentMachineRow(row, windowID: windowID) == nil && services.windows.registry.value.owner(of: "ws-\(id)") == nil)
+            }
+        }
         if listed != nil {
-            settled = await frames.settled(until: { [self] in
-                Self.agentMachineIDs.allSatisfy { id in
-                    let row = SidebarRowKey.workspace(WorkspaceID("ws-\(id)"))
-                    return agentMachineRowShown(.section(.machine(MachineID(id))), windowID: windowID)
-                        && (expectsRows ? agentMachineRowShown(row, windowID: windowID)
-                            : agentMachineRow(row, windowID: windowID) == nil && services.windows.registry.value.owner(of: "ws-\(id)") == nil)
-                }
-            }, start: ContinuousClock.now, window: 300, deadline: 3_000)
+            settled = await frames.settled(until: pictured, start: ContinuousClock.now, window: 300, deadline: 3_000)
         }
         let frameStats = frames.stop()
         let report = agentMachinesReport(windowID: windowID)
-        guard settled != nil else {
+        // Checked again in the snapshot's own turn: the settle window must not have moved it.
+        guard settled != nil, pictured() else {
             let want = expectsRows ? "headers and rows" : "headers without rows"
             return .object(["error": .string("\(definition.name): \(want) \(listed == nil ? "never listed" : "never drew in view") [\(Self.summary(report))]"),
                             "scene": .string(definition.name), "scene_action": report, "frames": frameStats])
