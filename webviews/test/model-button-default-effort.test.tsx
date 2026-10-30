@@ -210,6 +210,10 @@ const effortRow = () =>
 async function openEffort() {
   await act(async () => modelButton().click());
   await settle();
+  const opened = menus()[0]!;
+  const current = opened.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
+  const controls = current?.closest(".acpmux-quick-model-effort")?.querySelector<HTMLElement>(".acpmux-quick-efforts");
+  if (controls) return controls;
   const row = effortRow();
   expect(row).toBeDefined();
   await act(async () => row!.click());
@@ -217,14 +221,26 @@ async function openEffort() {
   return menus().at(-1)!;
 }
 
-const checked = (popup: HTMLElement) =>
-  [...popup.querySelectorAll<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')].map(
+const checked = (popup: HTMLElement) => {
+  if (popup.matches(".acpmux-quick-efforts")) {
+    return [...popup.querySelectorAll<HTMLElement>('.acpmux-quick-effort-segment[aria-checked="true"]')].map((item) =>
+      (item.querySelector("[data-selected]")?.textContent ?? item.textContent ?? "").replace(/^✓/, "").trim(),
+    );
+  }
+  return [...popup.querySelectorAll<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')].map(
     (item) => item.querySelector(".acpmux-menu-label")?.textContent,
   );
+};
+const shownEffort = (popup: HTMLElement) =>
+  (
+    popup.querySelector<HTMLElement>('.acpmux-quick-effort-segment[aria-checked="true"] [data-selected]')
+      ?.textContent ?? ""
+  )
+    .replace(/^✓/, "")
+    .trim() || popup.querySelector<HTMLElement>(".acpmux-quick-value")?.textContent;
 
 // The profile's probed Opus 5.5 row names no default level; the catalog's Opus 5.5 does (Medium).
-// On base the button read "Opus 5.5" alone, the Effort row named nothing and its submenu checked
-// no level.
+// Inline effort controls use the catalogued level when the model is resolved.
 test("a profile chat on the agent's default effort names the model's own level on the button", async () => {
   await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default" });
   const face = modelButton().textContent ?? "";
@@ -233,10 +249,10 @@ test("a profile chat on the agent's default effort names the model's own level o
   expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
 });
 
-test("its Effort row names that level and the submenu checks it", async () => {
+test("its inline effort control names that level and checks it", async () => {
   await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default" });
   const levels = await openEffort();
-  expect(effortRow()?.querySelector(".acpmux-quick-value")?.textContent).toBe("Medium");
+  expect(shownEffort(levels)).toBe("Medium");
   expect(checked(levels)).toEqual(["Medium"]);
   // The check is the menus' own glyph, not a dot or a badge.
   const medium = levels.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')!;
@@ -277,7 +293,7 @@ test("a profile chat on the alias opus, which runs Opus 5.5, names Medium and ch
   });
   expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
   const levels = await openEffort();
-  expect(effortRow()?.querySelector(".acpmux-quick-value")?.textContent).toBe("Medium");
+  expect(shownEffort(levels)).toBe("Medium");
   expect(checked(levels)).toEqual(["Medium"]);
 });
 
@@ -306,7 +322,7 @@ test("an alias whose release is unknown still names no level, never a guess", as
 // Codex review of #24376 at 03c55364: another profile's alias is not this chat's. The catalogued
 // `claude` profile reports `opus` as Opus 5.5, so the join folds `opus` into a row whose level is
 // Medium. A claude-sr2 chat on `opus` that names no release, or one the catalog does not know, runs
-// a model nobody here has resolved: its button names no level and its Effort submenu checks none.
+// a model nobody here has resolved: its button names no level and its effort control checks none.
 for (const running of ["opus", "claude-opus-9-9"]) {
   test(`an alias another profile folded does not lend its level (model option ${running})`, async () => {
     await mount({
@@ -319,7 +335,7 @@ for (const running of ["opus", "claude-opus-9-9"]) {
     });
     expect(host.querySelector(".acpmux-model-detail")?.textContent).toBeUndefined();
     const levels = await openEffort();
-    expect(effortRow()?.querySelector(".acpmux-quick-value")?.textContent).toBeUndefined();
+    expect(shownEffort(levels)).toBeUndefined();
     expect(checked(levels)).toEqual([]);
   });
 }

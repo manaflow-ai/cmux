@@ -1,12 +1,13 @@
 //! One exit-code table and one error envelope for every command.
 //!
 //! Exit codes: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout, 4 no
-//! such session, 5 every permission in the turn was denied, 130
-//! interrupted. `code` is the small stable set orchestrators branch on;
-//! `detail` is free text for diagnostics, or the daemon's own `reason` for a
-//! refusal that carries one (then `data` holds the daemon's error data, such
+//! such session, 5 every permission in the turn was denied or the host
+//! refused a new session (`admission_refused`), 130 interrupted. `code`
+//! is the small stable set orchestrators branch on; `detail` is free text
+//! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
 
+use cmux_json::JsonSet as _;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +47,9 @@ pub struct AppError {
     pub retryable: bool,
     /// The daemon's error data, for a refusal with a `reason`.
     pub data: Option<serde_json::Value>,
+    /// The process's exit status when it is not `code`'s: a command another program ran for this
+    /// one (the send relay, `send_relay.rs`) exits with that program's status.
+    pub exit: Option<i32>,
 }
 
 impl AppError {
@@ -58,6 +62,7 @@ impl AppError {
             prompt_id: None,
             retryable: false,
             data: None,
+            exit: None,
         }
     }
     pub fn usage(message: impl Into<String>) -> Self {
@@ -85,15 +90,23 @@ impl AppError {
         self.retryable = true;
         self
     }
+    pub fn with_exit(mut self, status: i32) -> Self {
+        self.exit = Some(status);
+        self
+    }
+    /// The status the process exits with.
+    pub fn exit_status(&self) -> i32 {
+        self.exit.unwrap_or(self.code as i32)
+    }
     pub fn with_data(mut self, data: serde_json::Value) -> Self {
         self.data = Some(data);
         self
     }
     /// JSON envelope for stderr under --json.
     pub fn envelope(&self) -> serde_json::Value {
-        let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
+        let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.exit_status(), "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
         if let Some(data) = &self.data {
-            envelope["error"]["data"] = data.clone();
+            envelope.set_path(&["error", "data"], data.clone());
             for key in ["errorKind", "recovery"] {
                 if let Some(v) = data.get(key) {
                     envelope["error"][key] = v.clone();
@@ -138,8 +151,15 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     if let Some(data) = data
         && let Some(reason) = data["reason"].as_str()
     {
-        let code =
-            if daemon.is_some_and(|d| d.0.code == -32602) { Code::Usage } else { Code::Runtime };
+        // A host that refuses a new session exits 5, as lane-place does
+        // when no host qualifies (`hub/admission.rs`).
+        let code = if reason == crate::hub::admission::REASON {
+            Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == -32602) {
+            Code::Usage
+        } else {
+            Code::Runtime
+        };
         let mut app = AppError::new(code, reason, msg);
         app.retryable = data["retryable"] == true;
         app.data = Some(data.clone());
@@ -160,7 +180,7 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if lower.contains("connection closed") {
+    if e.is::<crate::client::TransportClosed>() {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
     }
     if lower.contains("no session matches")
@@ -201,7 +221,7 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
     } else {
         eprintln!("{}", app.text());
     }
-    std::process::exit(app.code as i32);
+    std::process::exit(app.exit_status());
 }
 
 #[cfg(test)]

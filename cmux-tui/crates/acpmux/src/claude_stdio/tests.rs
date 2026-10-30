@@ -27,6 +27,89 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
     }
 }
 
+/// Claude Code's stream-json bridge accepts a client `side_question` control
+/// request while its main turn is running. It answers with the callback's
+/// payload, without an ACP prompt or transcript event.
+#[tokio::test]
+async fn native_side_question_uses_claude_control_protocol() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
+    let req = Message::request(
+        19,
+        SIDE_QUESTION,
+        json!({
+            "question": "what does this function do?",
+            "history": [{"question": "earlier", "response": "already answered"}]
+        }),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    assert_eq!(
+        lines,
+        vec![json!({
+            "type": "control_request",
+            "request_id": "side-19",
+            "request": {
+                "subtype": "side_question",
+                "question": "what does this function do?",
+                "history": [{"question": "earlier", "response": "already answered"}]
+            }
+        })]
+    );
+
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "side-19",
+                "response": {"response": "It reads the file.", "synthetic": false}
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: Some(result), error: None }]
+            if *id == 19 && result["response"] == "It reads the file." && result["synthetic"] == false
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_missing_answer_callback() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
+    let req = Message::request(20, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
+    let msgs = t
+        .inbound(&json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "error",
+                "request_id": "side-20",
+                "error": "side_question is not supported in this context"
+            }
+        }))
+        .await;
+    assert!(matches!(
+        &msgs[..],
+        [Message::Response { id, result: None, error: Some(error) }]
+            if *id == 20 && error.message.contains("side_question is not supported")
+    ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_an_idle_chat_before_writing_control_request() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    let req = Message::request(21, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Reply(Message::Response { id, result: None, error: Some(error) }) =
+        t.outbound(&req).await
+    else {
+        panic!("idle side question must be refused before writing to Claude")
+    };
+    assert_eq!(id, Value::from(21));
+    assert_eq!(error.code, -32601);
+    assert!(error.message.contains(SIDE_QUESTION));
+}
+
 /// A steer Claude Code reads after the reply it is writing (cx-f51kv): the
 /// reply's text and the steer's answer are two API messages, and each chunk
 /// names its message, so the pane ends the reply where its message ends.
@@ -188,6 +271,229 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
         !msgs.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction_summary")))),
         "{msgs:?}"
     );
+}
+
+#[tokio::test]
+async fn a_subagent_result_does_not_clear_main_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&json!({
+        "type": "system",
+        "subtype": "status",
+        "status": "compacting"
+    }))
+    .await;
+    assert!(t.is_compacting());
+    t.inbound(&json!({
+        "type": "result",
+        "parent_tool_use_id": "tool-subagent",
+        "subtype": "success"
+    }))
+    .await;
+    assert!(t.is_compacting(), "a subagent result cleared the main compaction flag");
+}
+
+#[tokio::test]
+async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    assert!(t.is_compacting());
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    assert!(!t.is_compacting(), "new prompt inherited stale compaction state");
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual"}})).await;
+    t.inbound(&json!({"type": "user", "isSynthetic": true, "message": {"role": "user", "content": "old summary"}})).await;
+    let old = t.inbound(&json!({"type": "result", "subtype": "success", "num_turns": 0, "duration_api_ms": 0, "result": ""})).await;
+    assert!(old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(1))));
+    assert!(
+        !old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(2))),
+        "old compaction answered the new prompt: {old:?}"
+    );
+    t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
+    let new =
+        t.inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"})).await;
+    assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(result), .. } if id == &json!(2) && result["stopReason"] == "end_turn")), "{new:?}");
+}
+
+#[tokio::test]
+async fn a_failed_cancelled_compaction_cannot_answer_the_replacement_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":null,"compact_result":"failed","compact_error":"old compaction failed"})).await;
+    let old = t
+        .inbound(&json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}))
+        .await;
+    assert!(old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(1))));
+    assert!(
+        !old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(2))),
+        "failed old compaction answered replacement: {old:?}"
+    );
+    t.inbound(&json!({"type":"assistant","message":{"id":"replacement","content":[{"type":"text","text":"new answer"}]}})).await;
+    let new = t.inbound(&json!({"type":"result","subtype":"success","result":"new answer"})).await;
+    assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")), "{new:?}");
+}
+
+#[tokio::test]
+async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
+    let result =
+        t.inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"})).await;
+    assert!(
+        result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_fresh_compaction_answers_after_a_cancelled_compaction_emits_nothing() {
+    for text in ["/compact", "continue"] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        let prompt = |id, text| {
+            Message::request(
+                id,
+                method::SESSION_PROMPT,
+                json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+            )
+        };
+        t.outbound(&prompt(1, "/compact")).await;
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+        t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"})))
+            .await;
+        let Outbound::Lines(lines) = t.outbound(&prompt(2, text)).await else { panic!() };
+        let mut echo = lines[0].clone();
+        echo["isReplay"] = json!(true);
+        t.inbound(&echo).await;
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+        t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+        let result = t
+            .inbound(
+                &json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}),
+            )
+            .await;
+        assert!(result.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if id == &json!(2) && r["stopReason"] == "end_turn")), "fresh compaction stranded: {result:?}");
+        assert!(!t.cancelled_compaction.load(Ordering::SeqCst));
+        assert!(!t.cancelled_compaction_boundary.load(Ordering::SeqCst));
+    }
+}
+
+#[tokio::test]
+async fn a_cancelled_boundary_keeps_later_compaction_metadata_fenced() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    let stale = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
+    assert!(!stale.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{stale:?}");
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    let fresh = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":9}})).await;
+    assert!(!fresh.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{fresh:?}");
+}
+
+/// After a forced Stop, Claude's untagged boundary cannot identify which
+/// compaction ended, even if a fresh running status has already arrived.
+#[tokio::test]
+async fn a_late_boundary_cannot_complete_a_fresh_running_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
+    let running =
+        t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    assert!(running.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/state")) == Some(&json!("running")))));
+    t.context_used.store(123, Ordering::SeqCst);
+    // Neither the first nor a later untagged boundary is authoritative: the
+    // old compaction may emit no boundary at all, so counting does not help.
+    for _ in 0..2 {
+        let late = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
+        assert!(!late.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "ambiguous completion escaped: {late:?}");
+        let summary = t.inbound(&json!({"type":"user","isSynthetic":true,"message":{"role":"user","content":"old summary"}})).await;
+        assert!(!summary.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction_summary")))), "ambiguous summary escaped: {summary:?}");
+        assert!(t.is_compacting(), "ambiguous boundary cleared the fresh compaction");
+        assert_eq!(t.context_used.load(Ordering::SeqCst), 123);
+    }
+    t.inbound(&json!({"type":"result","subtype":"success","num_turns":0,"duration_api_ms":0}))
+        .await;
+    t.outbound(&prompt(3, "another prompt")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    let later = t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+    assert!(!later.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "settlement cleared the metadata fence: {later:?}");
+    // A source without cancellation still reports ordinary boundaries (the
+    // existing compact_ends_its_prompt_and_reports_the_compaction covers it).
+}
+
+#[tokio::test]
+async fn a_delayed_cancel_retains_its_compaction_snapshot() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    // The old boundary has already cleared the live flag while Stop waited
+    // for its writer. The captured hub state must still fence later metadata.
+    assert!(!t.is_compacting());
+    t.outbound(&Message::notification(
+        method::SESSION_CANCEL,
+        json!({"sessionId":"acp-1","_meta":{"acpmux":{"compactionCancelled":true}}}),
+    ))
+    .await;
+    let late = t.inbound(&json!({"type":"system","subtype":"compact_boundary"})).await;
+    assert!(!late.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{late:?}");
 }
 
 /// A `/compact` that fails: the compacting status, then a status clearing it

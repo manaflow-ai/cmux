@@ -11,17 +11,17 @@
 .cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:16px;height:20px;color:var(--agent-muted)}
 .cv-link-preview__icon .cv-chip__icon{width:14px;height:14px;margin:0}
 .cv-link-preview__titles{display:grid;min-width:0;flex:1;padding-block:max(0px,calc((20px - var(--text-control--line-height)) / 2))}
-.cv-link-preview__site{display:-webkit-box;min-width:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600}
-.cv-link-preview__open{display:inline-flex;align-items:center;gap:3px;flex:none;height:20px;padding:0 6px;border:0;border-radius:5px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer}
+.cv-link-preview__site{display:-webkit-box;min-width:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;letter-spacing:var(--text-control--letter-spacing)}
+.cv-link-preview__open{display:inline-flex;align-items:center;gap:3px;flex:none;height:20px;padding:0 6px;border:0;border-radius:5px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer;letter-spacing:var(--text-detail--letter-spacing)}
 .cv-link-preview__open:hover,.cv-link-preview .acpmux-open-in:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Plain glass keeps the tooltip's frosted glass (desktop.css --tooltip-*), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass{--glass-tint:var(--tooltip-tint,var(--surface-popup));--glass-backdrop:var(--tooltip-blur,blur(20px) saturate(1.4))}
-.acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-.acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
+.acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere;letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
 .acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__state{font-weight:600}
@@ -44,7 +44,7 @@
 /* Secondary pull request context: author, branches, review decision, labels and freshness. */
 .acpmux-pr-card__conflicts{color:var(--agent-status-failure)}
 .acpmux-pr-card__who{display:inline-flex;align-items:center;gap:6px;min-width:0}
-.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1}
+.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__monogram[data-tone="0"]{background:color-mix(in srgb,var(--agent-ansi-1,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="1"]{background:color-mix(in srgb,var(--agent-ansi-2,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="2"]{background:color-mix(in srgb,var(--agent-ansi-3,var(--agent-muted)) 26%,transparent)}
@@ -58,7 +58,7 @@
 .acpmux-pr-card__decision{font-weight:500}
 .acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
-.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__changes{min-width:0}
 .acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
@@ -66,8 +66,8 @@
 .acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
 .acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
 .acpmux-pr-card__separator{margin-inline:5px;color:var(--agent-border)}
-.acpmux-pr-card__kindPartial{flex-basis:100%;padding-top:2px;color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-pr-card__kindPartial{flex-basis:100%;padding-top:2px;color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__added{color:var(--agent-diff-add)}
 .acpmux-pr-card__removed{color:var(--agent-diff-del)}
-.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
-.acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}

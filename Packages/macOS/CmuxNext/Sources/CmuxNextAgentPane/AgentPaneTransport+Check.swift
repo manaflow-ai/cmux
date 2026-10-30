@@ -58,13 +58,21 @@ extension AgentPaneTransport {
         let pageID = facts.pageID
         guard facts.free else { return .decide(facts, box) }
         // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
+        // A start or open is counted before it goes, or refused while a Sandboxed send runs.
+        guard socket.sendingPageFrame(method: method) else {
+            return .refuse(.refuse(.methodRefused, method: method, requestID: pageID), spend: nil)
+        }
         var relayID: Int?
         if let pageID {
-            guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
+            guard let next = ids.begin(pageID: pageID, method: method ?? "") else {
+                socket.pageFrameNotSent(method: method)
+                return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil)
+            }
             relayID = next
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
         let error = sendNow(box, relayID: relayID, socket: socket)
+        if error != nil { socket.pageFrameNotSent(method: method) }
         if error != nil, let relayID { ids.cancel(relayID) }
         if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
         return .sent(error)

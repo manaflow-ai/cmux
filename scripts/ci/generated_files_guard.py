@@ -35,7 +35,10 @@ What is generated, in one place:
           by-design exception without a ruling link;
         - adds a baseline line for a file the base did not track;
         - edits an output of a generator that declares its inputs without changing any of
-          them (a hand edit the next regeneration would undo);
+          them (a hand edit the next regeneration would undo), unless the base's manifest gives
+          that generator a "check" and the check passes at --head: then the output is what the
+          generator writes from the inputs already there (a base that changed an input without
+          regenerating, say), and a later run undoes nothing;
         - leaves a tracked generated file at --head that neither a committed generator nor the
           baseline covers.
   generated_files_guard.py baseline --repo DIR
@@ -60,6 +63,11 @@ from pathlib import Path
 MANIFEST = "scripts/ci/generated-files.json"
 BASELINE = "scripts/ci/generated-files-baseline.txt"
 OUTPUTS = "scripts/cmux-next/generated_outputs.py"
+# What generated_outputs.py reads beside itself; load_exports writes it next to the module.
+SETTINGS_EXPORTS = "scripts/cmux-next/settings-exports.txt"
+
+# How long a generator's check may run before the guard treats it as failed.
+CHECK_TIMEOUT_SECONDS = 120
 
 HEADER_BYTES = 2048
 HEADER_LINES = 6
@@ -111,6 +119,9 @@ class Generator:
     outputs: list[str]
     inputs: list[str]
     status: str
+    # Arguments that make the generator (a .py script) exit 0 only when every output equals what it
+    # writes from the tree's inputs, such as ["--check"]. Empty: no check.
+    check: list[str] = field(default_factory=list)
 
     def owns(self, path: str) -> bool:
         return matches(path, self.outputs)
@@ -147,9 +158,15 @@ def parse_rules(manifest_text: str, baseline_text: str, exports) -> Rules:
         status = entry.get("status")
         if status not in ("committed", "build"):
             raise ValueError(f"{MANIFEST}: {entry.get('id')}: status must be committed or build, not {status!r}")
+        check = entry.get("check", [])
+        if not isinstance(check, list) or not all(isinstance(arg, str) for arg in check):
+            raise ValueError(f"{MANIFEST}: {entry.get('id')}: check must be a list of arguments to the generator")
+        if check and not entry["generator"].endswith(".py"):
+            raise ValueError(f"{MANIFEST}: {entry.get('id')}: check runs the generator with python3, "
+                             f"so the generator must be a .py script, not {entry['generator']}")
         generators.append(Generator(
             id=entry["id"], generator=entry["generator"], outputs=list(entry["outputs"]),
-            inputs=list(entry.get("inputs", ())), status=status))
+            inputs=list(entry.get("inputs", ())), status=status, check=list(check)))
     ids = [g.id for g in generators]
     if len(ids) != len(set(ids)):
         raise ValueError(f"{MANIFEST}: duplicate generator ids")
@@ -158,13 +175,19 @@ def parse_rules(manifest_text: str, baseline_text: str, exports) -> Rules:
                  list(exports))
 
 
-def load_exports(source: str | None):
-    """generated_outputs.OUTPUTS (from its source text) as (patterns, input regex) pairs; none without it."""
+def load_exports(source: str | None, settings_exports: str | None = None):
+    """generated_outputs.OUTPUTS (from its source text) as (patterns, input regex) pairs; none without it.
+
+    The module is run from a temporary directory, not the checkout, so every file it reads beside
+    itself has to be written there too, at the same revision as the source: generated_outputs.py
+    reads settings-exports.txt, the one list of the settings exports (#23915)."""
     if source is None:
         return []
     with tempfile.TemporaryDirectory() as tmp:
         module_path = Path(tmp) / "generated_outputs_for_guard.py"
         module_path.write_text(source, encoding="utf-8")
+        if settings_exports is not None:
+            (Path(tmp) / "settings-exports.txt").write_text(settings_exports, encoding="utf-8")
         spec = importlib.util.spec_from_file_location("generated_outputs_for_guard", module_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
@@ -190,7 +213,7 @@ def rules_at(repo: Path, rev: str, exports=None) -> Rules | None:
     if manifest is None:
         return None
     if exports is None:
-        exports = load_exports(show(repo, rev, OUTPUTS))
+        exports = load_exports(show(repo, rev, OUTPUTS), show(repo, rev, SETTINGS_EXPORTS))
     return parse_rules(manifest, show(repo, rev, BASELINE) or "", exports)
 
 
@@ -287,9 +310,38 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
     return errors
 
 
-def hand_edits(rules: Rules, changed: list[tuple[str, str]]) -> list[str]:
+def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -> str | None:
+    """None when `found`'s check passes in `repo`'s working tree (every output is what the generator
+    writes from the inputs there); otherwise why not. A check that cannot run counts as failed.
+    `verdicts` caches one run per generator."""
+    if not found.check:
+        return "it has no \"check\" in the base's manifest"
+    if found.id in verdicts:
+        return verdicts[found.id]
+    script = repo / found.generator
+    command = f"python3 -I {found.generator} {' '.join(found.check)}"
+    if script.is_symlink() or not script.is_file():
+        verdict = f"{found.generator} is missing"
+    else:
+        try:
+            result = subprocess.run([sys.executable, "-I", str(script), *found.check], cwd=repo,
+                                    capture_output=True, text=True, timeout=CHECK_TIMEOUT_SECONDS, check=False)
+            verdict = None if result.returncode == 0 else (
+                f"`{command}` exits {result.returncode}: {(result.stdout + result.stderr).strip()[:400]}")
+        except (OSError, subprocess.TimeoutExpired) as error:
+            verdict = f"`{command}` did not finish: {error}"
+    verdicts[found.id] = verdict
+    return verdict
+
+
+def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None = None) -> list[str]:
+    """Outputs `changed` edits without changing their generator or inputs. An output whose generator's
+    check (from `rules`, the base's) passes in `repo` is a regeneration from inputs already there, not a
+    hand edit: a base input that changed without a regeneration leaves the output stale, and only a pull
+    request that changes nothing but the output can bring it back in line."""
     paths = [path for _, path in changed]
     errors = []
+    verdicts: dict[str, str | None] = {}
     for status, path in changed:
         if status != "M":
             continue
@@ -299,10 +351,13 @@ def hand_edits(rules: Rules, changed: list[tuple[str, str]]) -> list[str]:
         sources = [found.generator, *found.inputs]
         if any(matches(other, sources) and not found.owns(other) for other in paths):
             continue
+        why = regenerated(repo, found, verdicts) if repo is not None else "no tree to check"
+        if why is None:
+            continue
         errors.append(
             f"{path}: written by {found.generator}, but this pull request changes none of its inputs "
-            f"({', '.join(sources)}). Edit the inputs and rerun the generator, or drop the change "
-            f"(git checkout origin/feat-cmux-next -- {path}).")
+            f"({', '.join(sources)}), and it is not a regeneration ({why}). Edit the inputs and rerun the "
+            f"generator, or drop the change (git checkout origin/feat-cmux-next -- {path}).")
     return errors
 
 
@@ -330,7 +385,7 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
                 "hook), the way the web bundles and the page strings are (ce0b9e76, #21946).")
     base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
     errors += rule_changes(base, head, base_tracked)
-    errors += hand_edits(base, changed)
+    errors += hand_edits(base, changed, repo)
     missing = [p for p in uncovered_generated(head, repo) if p not in head.baseline]
     # A file reported above is not reported twice. The rest are this change's when it touched the file
     # or uncovered one the base covered (a dropped baseline line, a narrowed generator); otherwise the
@@ -366,7 +421,9 @@ def main(argv: list[str]) -> int:
     if args.command == "baseline":
         manifest = (repo / MANIFEST).read_text(encoding="utf-8")
         outputs = repo / OUTPUTS
-        exports = load_exports(outputs.read_text(encoding="utf-8") if outputs.is_file() else None)
+        listed = repo / SETTINGS_EXPORTS
+        exports = load_exports(outputs.read_text(encoding="utf-8") if outputs.is_file() else None,
+                               listed.read_text(encoding="utf-8") if listed.is_file() else None)
         rules = parse_rules(manifest, "", exports)
         print("# Generated files git still tracks that no \"committed\" generator in generated-files.json covers.")
         print("# Shrink only: a cutover removes lines; nothing adds one (generated_files_guard.py).")

@@ -23,7 +23,7 @@
   background: var(--long-bg);
   color: var(--long-ink);
   color-scheme: light;
-  font: var(--long-text-body) / 1.4 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font: var(--long-text-body) / 1.4 var(--font-ui);
 }
 [data-long-command-gallery][data-mode="dark"] {
   --long-bg: #11151c;

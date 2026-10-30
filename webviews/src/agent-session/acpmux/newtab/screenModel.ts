@@ -199,14 +199,6 @@ export function pairingLinkRefused(text: string): boolean {
   return classifyNewTabInput(text).kind === "refused";
 }
 
-/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1), wrapping; from no
-/// selection Down takes the first row and Up the last.
-export function stepSelection(current: number, step: 1 | -1, count: number): number {
-  if (count === 0) return -1;
-  if (current < 0) return step === 1 ? 0 : count - 1;
-  return (current + step + count) % count;
-}
-
 function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
   // Tabs, workspaces and pages compete for the rows (no chat, folder or command). A tab or visit
   // still on a blank page is nowhere to go: it showed as "about:blank workspace-N".

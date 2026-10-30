@@ -299,22 +299,25 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       // [turns loaded, turns that arrive above them, the transcript's offset]:
       // - 30, then 30 more: the rail grows from 300 px to its 57-row cap and glides back to center;
       // - 20, then 10 more: a rail that grows and stays under its cap;
-      // - 60, then 30 more: a rail that already scrolls, with the band in its top third: its own
-      //   scroll takes the new rows and the band does not move at all.
+      // - 90, then 30 more: a rail that already scrolls (past the default rail's 92% cap,
+      //   46c2c649311e), with the band in its top third: its own scroll takes the new rows and the
+      //   band does not move at all.
       for (const [loaded, more, offset] of [
         [30, 30, 3000],
         [20, 10, 3000],
-        [60, 30, 300],
+        [90, 30, 300],
       ] as const) {
         const total = loaded + more;
         const page = await open(turns(total - loaded, total), offset, total);
         const before = await page.evaluate(() => {
           const lit = (window as any).__lit() as string;
           const first = Number(lit.split(",")[0]);
+          const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
           return {
             lit,
             first,
             y: document.querySelector<HTMLElement>(`[data-tick="${first}"]`)!.getBoundingClientRect().top,
+            scrolls: !!list && list.scrollHeight > list.clientHeight + 1,
           };
         });
         // The page's animations run 10 times slower, so the glide spans enough frames to be seen on
@@ -326,7 +329,10 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
           async ({ rows, key, total: count, sampleMs }) => {
             const probe = window as any;
             const seen: { y: number; lit: string; t: number }[] = [];
-            const ticks = () => document.querySelectorAll(".acpmux-minimap__tick").length;
+            // The rail draws only the ticks in its view (tickWindow.ts, 8c3dac1aad59), so a long one
+            // never draws all of them: each entry carries the count of the rail it was drawn for.
+            const ticks = () =>
+              Number(document.querySelector(".acpmux-minimap__entry")?.getAttribute("aria-setsize") ?? 0);
             probe.__showRows(rows);
             // From the first frame that draws the new rows.
             for (let wait = 0; wait < 30 && ticks() !== count; wait += 1) await window.cmuxPaintFrame();
@@ -366,7 +372,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         const steps = frames.map((frame) => Math.abs(yAt(frame.t + 1000 / 60) - frame.y));
         expect(Math.max(...steps)).toBeLessThanOrEqual(glideStep(Math.abs(frames.at(-1)!.y - frames[0]!.y)) + 1);
         // A rail that already scrolled holds the band still.
-        if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
+        expect(before.scrolls).toBe(loaded === 90);
+        if (before.scrolls) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
       }
     });

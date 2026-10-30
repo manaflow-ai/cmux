@@ -27,6 +27,24 @@ def check(condition: bool, message: str) -> None:
 
 
 text = (ROOT / ".github/workflows/nightly.yml").read_text()
+
+
+def expand_step_aliases(source: str) -> str:
+    """Inline `- *name` step aliases with their `- &name` anchor's step, so a job that reuses
+    an anchored step (publish-nightly's publication tooling checkout) is read as written out."""
+    anchors = {m.group(2): (m.group(1), m.group(3)) for m in
+               re.finditer(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", source, re.MULTILINE)}
+
+    def inline(m: re.Match) -> str:
+        indent, name = m.group(1), m.group(2)
+        if name not in anchors or anchors[name][0] != indent:
+            return m.group(0)
+        body = anchors[name][1]
+        return f"{indent}- " + body[len(indent) + 2:]
+    return re.sub(r"^( *)- \*([A-Za-z0-9_-]+)\n", inline, source, flags=re.MULTILINE)
+
+
+text = expand_step_aliases(text)
 # The job block: from its key to the next job key (two-space indent), no YAML module needed.
 match = re.search(r"^  resolve-nightly-cmux-tui-client:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", text, re.MULTILINE | re.DOTALL)
 job = match.group(1) if match else ""
@@ -45,7 +63,11 @@ for name in ("commit", "key", "source_commit"):
     check(bool(outputs) and re.search(rf"^      {name}:", outputs.group(1), re.MULTILINE) is not None,
           f"resolve-nightly-cmux-tui-client must output {name}")
 timeout = re.search(r"^    timeout-minutes: (\d+)", job, re.MULTILINE)
-check(bool(timeout) and int(timeout.group(1)) <= 20, "a resolver that never waits needs no 55-minute timeout")
+# It waits on nothing but GitHub's API budget: 60 of its minutes are the hour gh_budget_wait.sh may
+# wait for a rate-limit reset (tests/test_gh_budget_wait.py); its own work stays within 20.
+budget_wait = 60 if "scripts/ci/gh_budget_wait.sh --install" in job else 0
+check(bool(timeout) and int(timeout.group(1)) <= 20 + budget_wait,
+      "a resolver that never waits needs no 55-minute timeout")
 depth = re.search(r"fetch-depth: (\d+)", job)
 check(bool(depth) and (int(depth.group(1)) == 0 or int(depth.group(1)) > 50),
       "the checkout must hold the search window (fetch-depth > 50)")
@@ -81,6 +103,8 @@ exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilat
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
+# publish-nightly-next-github copies that same selected build to the GitHub release.
+PUBLISHED_SHA = "${{ needs.publish-nightly.outputs.build_sha }}"
 
 def tooling_checkout(body: str) -> "tuple[int, int] | None":
     """The publication-tooling checkout of a job: `ref: github.sha` into .publish-tooling whose
@@ -146,7 +170,8 @@ for name in shipping:
         continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
-    allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
+    allowed = ({BUILD_SHA, SELECTED_SHA} if name == "publish-nightly"
+               else {BUILD_SHA, PUBLISHED_SHA} if name == "publish-nightly-next-github" else {BUILD_SHA})
     # The publication tooling (not shipped source) comes from the workflow's own
     # commit, so a recovered older build runs this workflow's scripts. It is a
     # sparse checkout of scripts into .publish-tooling, never the build tree.

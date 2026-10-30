@@ -30,8 +30,10 @@
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_json::JsonSet as _;
 
 pub const TRANSFER_SCHEMA: &str = "acpmux.transfer.v1";
+pub const DURABLE_TRANSFER_SCHEMA: &str = "acpmux.transfer.v2";
 /// The largest page `transfer_read` answers, and `transfer_write` takes.
 pub(super) const MAX_PAGE: u64 = 4 << 20;
 
@@ -193,13 +195,25 @@ impl Hub {
         self.watch_transfer(session, &transfer_id);
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
-        Ok(json!({
-            "schema": TRANSFER_SCHEMA,
+        let schema = if session.meta().harness == "cmux-harness" {
+            DURABLE_TRANSFER_SCHEMA
+        } else {
+            TRANSFER_SCHEMA
+        };
+        let mut answer = json!({
+            "schema": schema,
             "transferId": transfer_id,
             "sessionId": session.id,
             "files": files,
             "session": self.session_summary(session),
-        }))
+        });
+        if let Some(manifest) = std::fs::read_to_string(dir.join(&session.id).join("manifest.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        {
+            answer.set("harness", manifest.get("harness").cloned().unwrap_or(Value::Null));
+        }
+        Ok(answer)
     }
 
     /// A page of one of a move's bundle files.
@@ -327,7 +341,7 @@ impl Hub {
         }
         let mut record = json!({"transferId": transfer_id});
         if let Some(reason) = reason {
-            record["reason"] = json!(reason);
+            record.set("reason", json!(reason));
         }
         self.end_move(session);
         self.append(session, "mux", "transfer_aborted", record);

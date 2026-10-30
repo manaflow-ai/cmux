@@ -8,6 +8,7 @@
 
 use super::launch::Launch;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::Arc;
 
 /// Flags a sub-session start takes no part of, and why.
@@ -34,21 +35,24 @@ fn start_params(args: &NewArgs, parent: &str, prompt: &str) -> Result<Value> {
     let mut p = json!({"parent": parent, "prompt": prompt});
     if let Some(spec) = &args.model {
         let (harness, model) = orchestrate::split_target(spec);
-        p["harness"] = json!(harness);
+        p.set("harness", json!(harness));
         if let Some(model) = model {
-            p["model"] = json!(model);
+            p.set("model", json!(model));
         }
     }
     if let Some(e) = &args.effort {
-        p["effort"] = json!(e);
+        p.set("effort", json!(e));
     }
     if let Some(n) = &args.name {
-        p["name"] = json!(n);
+        p.set("name", json!(n));
+    }
+    if args.force_admit {
+        p.set("_meta", json!({"acpmux": {"forceAdmit": true}}));
     }
     // No --cwd: the parent's folder, not this shell's.
     if let Some(cwd) = &args.cwd {
         let abs = if cwd.is_absolute() { cwd.clone() } else { std::env::current_dir()?.join(cwd) };
-        p["cwd"] = json!(abs);
+        p.set("cwd", json!(abs));
     }
     Ok(p)
 }
@@ -79,7 +83,7 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         if json_out {
             print_json(&started);
         } else {
-            println!("started {name} ({}) under {parent}", &id[..8.min(id.len())]);
+            println!("started {name} ({}) under {parent}", id.get(..8).unwrap_or(&id));
         }
         return Ok(());
     }
@@ -127,7 +131,7 @@ fn turn_end(last: &Value) -> (&'static str, Option<String>) {
 async fn wait_turn(client: &Arc<Client>, id: &str, timeout: Option<u64>) -> Result<Value> {
     let mut params = json!({"sessions": [id], "until": ["ready", "closed"]});
     if let Some(secs) = timeout {
-        params["timeoutMs"] = json!(secs.saturating_mul(1000));
+        params.set("timeoutMs", json!(secs.saturating_mul(1000)));
     }
     let v = client.request(method::MUX_WAIT, params).await?;
     if v["timedOut"].as_bool().unwrap_or(false) {
@@ -164,6 +168,16 @@ mod tests {
             json!({"parent": "lead", "prompt": "fix it", "harness": "codex", "model": "gpt-5.5",
                    "effort": "high", "name": "t"})
         );
+    }
+
+    #[test]
+    fn force_admit_reaches_the_child_start() {
+        let args = new_args(&["--parent", "lead", "--force-admit", "go"]);
+        assert_eq!(refused_flags(&args), None);
+        let p = start_params(&args, "lead", "go").unwrap();
+        assert_eq!(p["_meta"]["acpmux"]["forceAdmit"], true, "{p}");
+        let p = start_params(&new_args(&["--parent", "lead", "go"]), "lead", "go").unwrap();
+        assert!(p.get("_meta").is_none(), "{p}");
     }
 
     #[test]
