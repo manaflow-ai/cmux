@@ -202,4 +202,43 @@ mod tests {
         assert_eq!(imported.transfer_blocked(), None, "the copied move read as local");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A move whose `transfer_out` never reached the log does not begin: the cache would
+    /// still read the chat as local while its bundle is out.
+    #[tokio::test]
+    async fn a_begin_whose_move_is_not_logged_fails() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let store = CountingStore {
+            inner,
+            scans: Arc::new(AtomicU64::new(0)),
+            fail: Arc::new(AtomicBool::new(false)),
+            refuse: Some("transfer_out"),
+        };
+        let hub = Arc::new(Hub::new(config, Box::new(store)));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "begin-unlogged", "name": "begin",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let begun =
+            hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id})).await;
+        if let Ok(manifest) = &begun
+            && let Some(id) = manifest["transferId"].as_str()
+        {
+            let _ = std::fs::remove_dir_all(super::transfer_out::transfers_dir().join(id));
+        }
+        assert!(begun.is_err(), "a move began without its durable record: {begun:?}");
+        assert_eq!(session.transfer_blocked(), Some(false));
+        assert!(session.moving().is_none(), "the failed begin left the chat frozen");
+    }
 }
