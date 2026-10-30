@@ -61,6 +61,30 @@ public struct HangRecord: Sendable, Hashable {
     public var addresses: [UInt]
     /// Busy records: scope, process, CPU share, busiest wakeup owners.
     public var details: [String: JSONValue] = [:]
+    /// Stalls: the process's page faults while the stall ran, read on the watchdog thread after
+    /// it ended (``HangLog/attach(_:toStallOfBeat:)``); nil until then, or when it could not be read.
+    public var faults: StallFaults?
+    /// The main thread's heartbeat that stalled (links the watchdog thread's fault window to this
+    /// record); `.max` for records with no heartbeat.
+    var beat: UInt64 = .max
+
+    /// Why a stall took its wall time, by the debug hang assertion's rule: the main thread computed
+    /// (CPU time at least half the wall time, `code`: a cmux fix names the stack's top frame) or it
+    /// waited (`wait`: paging, a lock, an IPC reply, or the host did not schedule it; the stack
+    /// shows only where the wait caught it, 30 ms in, not a site to optimize).
+    public enum Cause: String, Sendable, Hashable {
+        case code, wait
+
+        init(cpu: Duration, wall: Duration) {
+            self = cpu * 2 >= wall ? .code : .wait
+        }
+    }
+
+    /// The cause of a stall (nil for busy and over-budget records).
+    public var cause: Cause? {
+        guard kind == .stall else { return nil }
+        return Cause(cpu: cpu, wall: duration)
+    }
 
     /// Symbolicated ``addresses``. Resolves symbols; call off the main thread.
     public var frames: [HangFrame] { StackSymbolicator().frames(for: addresses) }
@@ -73,6 +97,12 @@ public struct HangRecord: Sendable, Hashable {
             "duration_ms": .number(duration.fractionalMilliseconds),
             "cpu_ms": .number(cpu.fractionalMilliseconds),
         ]
+        if let cause { object["cause"] = .string(cause.rawValue) }
+        if let faults {
+            object["task_faults"] = .number(Double(faults.faults))
+            object["task_pageins"] = .number(Double(faults.pageins))
+            object["fault_window_ms"] = .number(faults.window.fractionalMilliseconds)
+        }
         let resolved = frames
         object["frames"] = .array(resolved.map { .string($0.description) })
         object["frame_details"] = .array(resolved.map(\.detailJSON))
@@ -80,6 +110,19 @@ public struct HangRecord: Sendable, Hashable {
         object.merge(details) { current, _ in current }
         return .object(object)
     }
+}
+
+/// The process's page faults over one stall (`task_events_info` deltas: the whole process, since
+/// Darwin counts faults per task, not per thread). Many faults or page-ins in a `wait` stall say the
+/// main thread waited for memory (swap or the compressor).
+public struct StallFaults: Sendable, Hashable {
+    /// Page faults (all kinds, zero-fill included).
+    public var faults: UInt64
+    /// Pages read in from disk or swap.
+    public var pageins: UInt64
+    /// The window the counts cover: from the watchdog thread's sample (30 ms into the stall at the
+    /// default threshold) to its first pass after the stall ended (at most one threshold later).
+    public var window: Duration
 }
 
 /// Bounded ring buffer of hang records (drop-oldest).
@@ -90,6 +133,11 @@ public final class HangLog: Sendable {
         public var maxDuration: Duration = .zero
         public var totalDuration: Duration = .zero
         public var busyCount = 0
+        /// Stalls by ``HangRecord/Cause`` (stalls only; ``count`` and ``totalDuration`` hold both).
+        public var codeCount = 0
+        public var codeDuration: Duration = .zero
+        public var waitCount = 0
+        public var waitDuration: Duration = .zero
     }
 
     private struct State {
@@ -107,10 +155,11 @@ public final class HangLog: Sendable {
 
     @discardableResult
     func append(startUptimeNanos: UInt64, duration: Duration, cpu: Duration = .zero, addresses: [UInt],
-                kind: HangRecord.Kind = .stall, details: [String: JSONValue] = [:]) -> HangRecord {
+                kind: HangRecord.Kind = .stall, details: [String: JSONValue] = [:], beat: UInt64 = .max) -> HangRecord {
         state.withLock { state in
-            let record = HangRecord(sequence: state.nextSequence, kind: kind, startUptimeNanos: startUptimeNanos, duration: duration,
+            var record = HangRecord(sequence: state.nextSequence, kind: kind, startUptimeNanos: startUptimeNanos, duration: duration,
                                     cpu: cpu, addresses: addresses, details: details)
+            record.beat = beat
             state.nextSequence += 1
             if state.records.count == capacity { state.records.removeFirst() }
             state.records.append(record)
@@ -119,6 +168,13 @@ public final class HangLog: Sendable {
                 state.summary.count += 1
                 state.summary.maxDuration = max(state.summary.maxDuration, duration)
                 state.summary.totalDuration += duration
+                if record.cause == .wait {
+                    state.summary.waitCount += 1
+                    state.summary.waitDuration += duration
+                } else {
+                    state.summary.codeCount += 1
+                    state.summary.codeDuration += duration
+                }
             case .busy:
                 state.summary.busyCount += 1
             case .overBudget:
@@ -127,6 +183,15 @@ public final class HangLog: Sendable {
                 state.summary.totalDuration += duration
             }
             return record
+        }
+    }
+
+    /// Gives the stall of heartbeat `beat` its fault counts (the watchdog thread, after the stall
+    /// ended). The stall is the newest record or close to it: the search stops at the first match.
+    func attach(_ faults: StallFaults, toStallOfBeat beat: UInt64) {
+        state.withLock { state in
+            guard let index = state.records.lastIndex(where: { $0.beat == beat && $0.kind == .stall }) else { return }
+            state.records.modify(checked: index) { $0.faults = faults }
         }
     }
 

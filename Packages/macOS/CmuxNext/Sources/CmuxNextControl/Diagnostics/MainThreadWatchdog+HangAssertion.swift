@@ -10,6 +10,8 @@ extension MainThreadWatchdog {
     static func hangFailsAssertion(elapsedNanos: UInt64, mainThreadCPUNanos: UInt64?, assertNanos: UInt64) -> Bool {
         guard elapsedNanos >= assertNanos else { return false }
         guard let mainThreadCPUNanos else { return true }
-        return mainThreadCPUNanos >= assertNanos / 2
+        // The stall reports' rule too (HangRecord.Cause): code at half the time or more, else a wait.
+        return HangRecord.Cause(cpu: .nanoseconds(Int64(clamping: mainThreadCPUNanos)),
+                                wall: .nanoseconds(Int64(clamping: assertNanos))) == .code
     }
 }

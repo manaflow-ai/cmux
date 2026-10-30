@@ -33,6 +33,11 @@ extension ControlRouter {
                     "busy_count": JSONValue(summary.busyCount),
                     "max_ms": .number(summary.maxDuration.fractionalMilliseconds),
                     "total_ms": .number(summary.totalDuration.fractionalMilliseconds),
+                    // Rule G: only `code` stalls (main-thread CPU at least half the wall time) are cmux reds.
+                    "code_count": JSONValue(summary.codeCount),
+                    "code_total_ms": .number(summary.codeDuration.fractionalMilliseconds),
+                    "wait_count": JSONValue(summary.waitCount),
+                    "wait_total_ms": .number(summary.waitDuration.fractionalMilliseconds),
                     "long_frames": JSONValue(longFrames.count),
                     "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
                     "frames_over_8_3ms": JSONValue(gaps.over120HzFrame),

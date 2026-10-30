@@ -340,7 +340,7 @@ public final class MainThreadWatchdog: Sendable {
             }
         }
         let record = log.append(startUptimeNanos: start, duration: .nanoseconds(Int64(clamping: nanos)),
-                                cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details)
+                                cpu: .nanoseconds(Int64(clamping: cpuNanos)), addresses: addresses, details: details, beat: beat)
         if configuration.logStalls {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
@@ -355,8 +355,10 @@ public final class MainThreadWatchdog: Sendable {
         var sampledBeat: UInt64 = .max
         var sampledTask: UInt64 = 0
         var hang = HangState(episodes: HangEpisodeTracker(hangNanos: hangNanos))
+        var faultWindow: FaultWindow?
         while running.load(ordering: .acquiring) {
             closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
+            closeFaultWindow(&faultWindow) // the stall ended: its record gets the faults (before parking)
             if mainAsleep.load(ordering: .acquiring) {
                 closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
                 // Parked until a main turn outlasts the sample delay (its alarm) or stop(). A wake
@@ -377,6 +379,8 @@ public final class MainThreadWatchdog: Sendable {
             // The heartbeat is old enough that the main thread may be stalling.
             if beat == beatSequence.load(ordering: .acquiring), !mainAsleep.load(ordering: .acquiring), beat != sampledBeat {
                 sampledBeat = beat
+                // A stall in progress: count the process's faults from here to its end (closeFaultWindow).
+                faultWindow = TaskEventCounters.read().map { FaultWindow(beat: beat, openedNanos: Self.now(), counters: $0) }
                 if let sampler {
                     let board = boardSink.withLock { $0 }
                     // Raw addresses only: symbolicating here can outlast a short stall.
@@ -412,6 +416,27 @@ public final class MainThreadWatchdog: Sendable {
         #if DEBUG
         watchdogWakes.add(1, ordering: .relaxed)
         #endif
+    }
+
+    /// The process's fault counters when the watchdog thread sampled a stall (watchdog thread only).
+    private struct FaultWindow {
+        var beat: UInt64
+        /// Real uptime (not the injected clock): the window's own length is measured.
+        var openedNanos: UInt64
+        var counters: TaskEventCounters
+    }
+
+    /// Once the stalled heartbeat moved on, gives its stall record the faults taken since the
+    /// window opened. The main thread appends the record before it moves the beat (``heartbeat(_:)``),
+    /// so the record exists here; a turn that ended under the threshold has none and gets nothing.
+    private func closeFaultWindow(_ window: inout FaultWindow?) {
+        guard let open = window, beatSequence.load(ordering: .acquiring) != open.beat else { return }
+        window = nil
+        guard let counters = TaskEventCounters.read() else { return }
+        let delta = counters.since(open.counters)
+        let elapsed = Self.now() &- open.openedNanos
+        log.attach(StallFaults(faults: delta.faults, pageins: delta.pageins, window: .nanoseconds(Int64(clamping: elapsed))),
+                   toStallOfBeat: open.beat)
     }
 
     /// The watchdog thread's hang bookkeeping.
