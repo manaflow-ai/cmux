@@ -246,7 +246,8 @@ public struct PendingPaneNotCreated: Error, CustomStringConvertible {
 public struct PaneNotReady: Error, CustomStringConvertible {
     public let command: String
     public let reference: String
-    /// The person saw this refusal already (`DaemonService.closeTicket` showed it), so no caller shows it again.
+    /// The person saw this refusal already (the connection showed it: `DaemonConnection.observePaneNotReady`), so no
+    /// caller shows it again.
     public var shown = false
     public init(command: String, reference: String) {
         self.command = command

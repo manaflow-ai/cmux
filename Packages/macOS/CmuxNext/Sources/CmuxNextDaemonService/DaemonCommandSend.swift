@@ -91,12 +91,11 @@ extension DaemonService {
             guard case .failed(let error) = await command.run(body) else { return nil }
             return await mainWork.apply(command.workClass, owner: "DaemonService.send") {
                 command.close(failure: error)
-                // A pane still opening (``PaneNotReady``) in a run nobody captures shows once here, as every funnel's
-                // `ended` does; the failure says so, so no reporter shows it again.
-                let refused = self.shownIfUncaptured(error, captured: command.ticket != nil)
+                // A pane still opening (``PaneNotReady``) was shown where the connection refused it, and the error says
+                // so (``PaneNotReady/shown``): no reporter shows it again.
                 let failure = command.connection == nil
                     ? ActionWorkFailure("\(label): \(self.notConnectedReason ?? DaemonError.notConnected.description)")
-                    : self.workFailure(label, refused)
+                    : self.workFailure(label, error)
                 onFailure?(failure)
                 return failure
             }

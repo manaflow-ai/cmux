@@ -20,26 +20,6 @@ extension DaemonService {
         return CommandTicket(scope: scope, ticket: ticket)
     }
 
-    /// A command ended with `error`. A command on a pane still opening was refused before it was sent (rule a); in a run
-    /// nobody captures (no action.run scope: a key, the menu, a click) the person sees why here, once, and the returned
-    /// error says so (``PaneNotReady/shown``), so no caller shows it again. A capturing caller answers the typed refusal.
-    /// Every funnel (send, request, perform, intend) ends a failed command here.
-    ///
-    /// - Returns: `error`, marked shown when it was shown here.
-    func ended(_ error: any Error, ticket: CommandTicket?, label: String) async -> any Error {
-        await closeTicket(ticket, label: label, error: error)
-        return shownIfUncaptured(error, captured: ticket != nil)
-    }
-
-    /// ``ended(_:ticket:label:)`` after the ticket closed: perf's off-main `send` (`startSend`) closes its ticket
-    /// itself (``DaemonCommandSend/close(failure:)``) and ends here.
-    func shownIfUncaptured(_ error: any Error, captured: Bool) -> any Error {
-        guard !captured, var notReady = error as? PaneNotReady else { return error }
-        onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
-        notReady.shown = true
-        return notReady
-    }
-
     /// Records the command's outcome and the event sequence that covers its
     /// echo, then closes the ticket. Runs on the main actor, so a task's next
     /// command opens its ticket before an idle check on the main actor.

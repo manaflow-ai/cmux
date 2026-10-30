@@ -445,6 +445,9 @@ public final class DaemonService {
 
     private func didConnect(_ connection: DaemonConnection, identity: DaemonIdentity) {
         Self.launchMark("daemon_connected")
+        // Every connection this service runs (the local one and a remote machine's) shows a request it refuses for a
+        // pane still opening, from any sender (`DaemonConnection.observePaneNotReady`).
+        connection.observePaneNotReady(paneNotReadyReporter)
         connection.heartbeat.follow(KeepaliveGate(mainWork.energy))
         if let connectionPresence { connection.heartbeat.follow(connectionPresence) }
         self.connection = connection
@@ -529,7 +532,7 @@ public final class DaemonService {
             return .unknown
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            _ = await ended(error, ticket: ticket, label: label)
+            await closeTicket(ticket, label: label, error: error)
             if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
             return .failed(code: nil)
         }
@@ -570,16 +573,31 @@ public final class DaemonService {
             return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            return workFailure(label, await ended(error, ticket: ticket, label: label))
+            await closeTicket(ticket, label: label, error: error)
+            return workFailure(label, error)
         }
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
-    /// Shows a command refused because its pane is still opening (``PaneNotReady``) when no caller captures the run
-    /// (`ended(_:ticket:label:)`); the app sets it (the refusal path: log + HUD). Gets the localized reason.
+    /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
+    /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
     @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
+
+    /// What each connection calls when it refuses a request that names a pane still opening, from any sender
+    /// (`DaemonConnection.observePaneNotReady`): the notice shows on the next frame (the drain batcher: work a person's
+    /// action caused), once.
+    var paneNotReadyReporter: @Sendable (PaneNotReady) -> Void {
+        let batcher = drainScheduler
+        weak let service = self
+        return { notReady in batcher.scheduleFrame { service?.showPaneNotReady(notReady) } }
+    }
+
+    private func showPaneNotReady(_ notReady: PaneNotReady) {
+        onPaneNotReady?(paneNotReadyText?() ?? notReady.reason)
+    }
+
     /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
     @ObservationIgnored public var paneNotReadyText: (() -> String)?
 
