@@ -116,6 +116,23 @@ class JobLogEndpoint(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    def test_raw_log_tabs_do_not_hide_a_new_error(self):
+        github = InProgressJobLogGitHub()
+        for job_id in (1, 2):
+            github.jobs[job_id]["name"] = SCHEME
+            github.logs[job_id] = log(SCHEME, TEST_STEP, "Source.swift:10:1: error: existing failure")
+        github.logs[1] += "\n" + log(SCHEME, TEST_STEP, "##[error]\tnew compile failure")
+        with self.assertRaisesRegex(excuse.Refused, "new compile failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_raw_log_tabs_do_not_hide_no_verdict_annotation(self):
+        text = f"2026-10-30T12:00:00.000Z ##[error]No build-fleet verdict for `\t{HEAD}`"
+        self.assertIsNotNone(excuse.no_verdict(text))
+
+    def test_raw_log_tabs_preserve_the_entire_error(self):
+        text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
+        self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
+
 
 class Excusing(unittest.TestCase):
     def setUp(self):

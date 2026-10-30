@@ -95,7 +95,7 @@ SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{
 # Fail closed: of compile-status's own lines, only "(fail)" is a real compile red; every other state (no result,
 # unavailable, mismatch, unreadable, pending, "last: ...", a pass it could not post) and a status it could not
 # post at all are no verdict.
-NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
+NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for \S+ \((?!fail\))|"
                         r"could not post the pending status|bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
 NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
@@ -116,7 +116,10 @@ def lines_of(log: str) -> list[str]:
     found = []
     for line in log.splitlines():
         parts = line.split("\t", 2)
-        found.append(STAMP.sub("", parts[-1]).strip())
+        # `gh run view --log` prefixes each line with job and step columns.
+        # The job-log API does not; preserve tabs in raw command output.
+        text = parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line
+        found.append(STAMP.sub("", text).strip())
     return found
 
 
