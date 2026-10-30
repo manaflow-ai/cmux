@@ -1248,6 +1248,35 @@ fn an_ended_share_reconciles_nothing() {
     assert_eq!(reconcile(&mux, &id), Vec::<Value>::new(), "an ended share sends no kick");
 }
 
+/// A room that refuses the host for good (401/403 at the upgrade, or close code 4003) leaves no
+/// share that looks usable: it is revoked here and its room `DELETE` runs.
+#[test]
+fn a_host_the_room_refuses_for_good_revokes_the_share() {
+    for refusal in ["403", "4003"] {
+        let room = FakeRoom::start(&[]);
+        let (_fake, _mux, surface, mut owner) = bridged(&format!("room-refused-{refusal}"), &room);
+        create(&mut owner, surface);
+        let (conn, _) = room.host();
+        assert_eq!(room.frame(conn)["t"], "guests");
+        if refusal == "403" {
+            *room.shared.refuse_host.lock().unwrap() = Some(403);
+            room.drop_host();
+            room.take("the refused upgrade", |s| matches!(s, Seen::Refused { status: 403 }));
+        } else {
+            room.send(json!({"close": 4003}));
+        }
+        let deadline = Instant::now() + WAIT;
+        while state(&mut owner)["state"] != "revoked" {
+            assert!(
+                Instant::now() < deadline,
+                "{refusal}: the share ends when its host is refused"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        room.request("DELETE");
+    }
+}
+
 #[test]
 fn the_host_socket_answers_a_ping() {
     let room = FakeRoom::start(&[]);

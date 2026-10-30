@@ -170,6 +170,14 @@ fn ended_by_room(mux: &Mux, share_id: &str) {
     shares(mux).settle(mux);
 }
 
+/// The room refused `share_id`'s host for good: the share is revoked here (no host will serve
+/// its guests), its guests' connections close, and its room `DELETE` runs.
+fn refused_by_room(mux: &Mux, share_id: &str) {
+    let directory = mux.session_state_directory();
+    shares(mux).refused_by_room(directory.as_deref(), share_id);
+    shares(mux).settle(mux);
+}
+
 /// What the bridge reads of one share.
 struct View {
     url: Option<String>,
@@ -693,7 +701,12 @@ async fn serve_host(
                 }
                 break;
             }
-            Err(Refused::ForGood) => break,
+            Err(Refused::ForGood) => {
+                if let Some(mux) = mux.upgrade() {
+                    refused_by_room(&mux, &share_id);
+                }
+                break;
+            }
             Err(Refused::Retry) => {}
             Ok(socket) => match session(&mux, &share_id, socket, &mut commands, &timing).await {
                 None => break,
@@ -795,6 +808,12 @@ async fn session(
                         && let Some(mux) = mux.upgrade()
                     {
                         ended_by_room(&mux, share_id);
+                    }
+                    // The room refused this host for good: no host will serve the share.
+                    if code == Some(4003)
+                        && let Some(mux) = mux.upgrade()
+                    {
+                        refused_by_room(&mux, share_id);
                     }
                     // 4000 replaced, 4001 ended, 4003 refused.
                     return (!matches!(code, Some(4000 | 4001 | 4003))).then_some(ready);
