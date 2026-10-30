@@ -1,4 +1,5 @@
 import CmuxNextDictation
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
 
@@ -173,6 +174,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
+    case tabRowToolsSet([PaneTabRowTool])
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.

@@ -520,6 +520,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard let key = stripModel.selectedID?.rawValue else { return true }
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
             || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
+            || services.newTabSpares.hasNativeAdoption(key)
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.
