@@ -60,10 +60,9 @@ final class CloudService {
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
     /// The plan's machine sizes a person's create offers, from the last machine list: its limits'
-    /// sizes and the rates the server gave listed machines of the same size.
-    var planSizes: [CloudWorkspaceSetupWizard.SizeOption] {
-        CloudWorkspaceSetupWizard.SizeOption.options(limits: machines.cloudLimits, machines: machines.cloud.map(\.machine))
-    }
+    /// sizes and the rates the server gave listed machines of the same size. Read from the list
+    /// itself, so a machine this Mac could not connect to still gives its size a rate.
+    private(set) var planSizes: [CloudWorkspaceSetupWizard.SizeOption] = []
     /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
     @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
@@ -430,6 +429,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
+            planSizes = CloudWorkspaceSetupWizard.SizeOption.options(limits: limits, machines: list)
             if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list)
@@ -529,6 +529,7 @@ final class CloudService {
         for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
+        planSizes = []
         hasLoadedMachines = false
         listLoadedAt = nil
     }

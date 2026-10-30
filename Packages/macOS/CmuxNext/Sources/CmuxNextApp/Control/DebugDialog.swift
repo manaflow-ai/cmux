@@ -13,7 +13,7 @@ import CmuxNextSettings
 /// same center path a click takes.
 /// - `{}` lists the open dialogs (id, title, lines, origin, scope, visible,
 ///   buttons, field values, frame in window coordinates).
-/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceSized" | "cloudWorkspaceSizeLine" | "cloudWorkspaceSizeFirst" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
+/// - `{open: "confirm" | "text" | "credentials" | "save" | "choice" | "sessionMove" | "sessionMoveEnd" | "cloudCreateBefore" | "cloudWorkspaceEmpty" | "cloudWorkspaceRepository" | "cloudWorkspaceTeam" | "cloudWorkspaceSized" | "cloudWorkspaceCompact" | "cloudWorkspaceActions" | "cloudCredentials" | "cloudSetupGitHub" (app: ready | not_connected | not_configured | unknown | device),
 ///   scope: "window" | "app", origin?}`
 ///   shows a fixture (screenshots, latency) and returns its id.
 /// - `{id?, set: {field: string | bool}}`, `{id?, key: "return" | "escape" | "tab" | "shift-tab" | "cmd-<c>"}`,
@@ -195,30 +195,6 @@ enum DebugDialog {
                 ],
                 buttons: [.cancel(), CmuxDialogButton(id: "create", title: "Create workspace", role: .default)],
                 identifier: "cmux.dialog.cloud.workspaceCompact"),
-            // Gallery-only size alternatives, never shipped: the size as a summary line with
-            // no choice, and the size choice first, above the starting point.
-            "cloudWorkspaceSizeLine": CmuxDialogSpec(
-                title: "New Cloud Workspace",
-                lines: ["Start a new project on an empty VM, or clone a GitHub repository into ~/work.",
-                        "Machine: 2 vCPU, 4 GB memory · $0.13/h"],
-                fields: [.choice(id: "source", label: "Start with",
-                                 options: [CmuxDialogOption(label: "Empty VM — start a new project", value: "empty"),
-                                           CmuxDialogOption(label: "From repository", value: "repository")], selected: "empty")],
-                buttons: [.cancel(), CmuxDialogButton(id: "create", title: "Create workspace", role: .default)],
-                identifier: "cmux.dialog.cloud.workspaceSizeLine"),
-            "cloudWorkspaceSizeFirst": CmuxDialogSpec(
-                title: "New Cloud Workspace",
-                lines: ["Start a new project on an empty VM, or clone a GitHub repository into ~/work."],
-                fields: [
-                    .choice(id: "size", label: "Machine size",
-                            options: [CmuxDialogOption(label: "2 vCPU, 4 GB memory", value: "4096"),
-                                      CmuxDialogOption(label: "4 vCPU, 8 GB memory · $0.26/h", value: "8192")], selected: "4096"),
-                    .choice(id: "source", label: "Start with",
-                            options: [CmuxDialogOption(label: "Empty VM — start a new project", value: "empty"),
-                                      CmuxDialogOption(label: "From repository", value: "repository")], selected: "empty"),
-                ],
-                buttons: [.cancel(), CmuxDialogButton(id: "create", title: "Create workspace", role: .default)],
-                identifier: "cmux.dialog.cloud.workspaceSizeFirst"),
             "cloudWorkspaceActions": CmuxDialogSpec(
                 title: "New Cloud Workspace",
                 lines: ["Choose a starting point. A repository is cloned into ~/work on the new VM."],
