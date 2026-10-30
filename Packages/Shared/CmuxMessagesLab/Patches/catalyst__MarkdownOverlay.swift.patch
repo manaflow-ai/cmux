@@ -1,0 +1,18 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MarkdownOverlay.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MarkdownOverlay.swift
+@@ -139,12 +139,13 @@
+         let gen = generation
+         let idx = r.index
+         let sc = scale
++        let box = PaletteScope.current // cmux: the cell's palette goes with the job
+         MarkdownOverlay.queue.async { [weak self, weak r] in
+-            let img = Fixture.withRenderScale(sc) {
++            let img = PaletteScope.with(box) { Fixture.withRenderScale(sc) {
+                 WideBitmap.make(size: size, scale: sc, opaque: false) { ctx in
+                     MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
+                 }
+-            }
++            } }
+             DispatchQueue.main.async {
+                 guard let self, let r, self.generation == gen else { return }
+                 CATransaction.begin(); CATransaction.setDisableActions(true)

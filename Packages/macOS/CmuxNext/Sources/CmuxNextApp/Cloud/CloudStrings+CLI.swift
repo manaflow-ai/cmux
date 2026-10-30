@@ -149,6 +149,41 @@ extension CloudStrings {
                               table: "Cloud", bundle: .module), reason)
     }
 
+    /// `cloud deliver-secrets` to an own machine (SSH or an acpmux peer) without `--names`.
+    static var secretNamesRequired: String {
+        String(localized: "cloud.cli.secretNamesRequired",
+               defaultValue: "Name the secrets this machine gets with --names NAME[,NAME…]. Its secrets file then holds exactly those.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud deliver-secrets --names` that is bare, empty or holds something that is not a secret name.
+    static func secretNamesInvalid(_ text: String) -> String {
+        String(format: String(localized: "cloud.cli.secretNamesInvalid",
+                              defaultValue: "--names %@ is not a comma-separated list of secret names (letters, digits and _).",
+                              table: "Cloud", bundle: .module), text)
+    }
+
+    /// `cloud deliver-secrets --names` on a Cloud machine, whose machine config declares its names.
+    static var secretNamesOnCloudMachine: String {
+        String(localized: "cloud.cli.secretNamesOnCloudMachine",
+               defaultValue: "A Cloud machine gets the secret names its .cmux/machine.toml declares. Leave out --names.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// `cloud deliver-secrets` to an acpmux peer this Mac reaches without ssh (a tailnet link).
+    static func secretsNoSSHRoute(_ machine: String) -> String {
+        String(format: String(localized: "cloud.cli.secretsNoSSHRoute",
+                              defaultValue: "This Mac reaches %@ without ssh, so its secrets can't be delivered. Add it with Add Machine, then try again.",
+                              table: "Cloud", bundle: .module), machine)
+    }
+
+    /// `cloud deliver-secrets --names` where none of the names has a value on this Mac.
+    static func secretsNoneStored(_ names: String) -> String {
+        String(format: String(localized: "cloud.cli.secretsNoneStored",
+                              defaultValue: "None of %@ has a value on this Mac, so nothing was delivered. Store each with cmux cloud secret set NAME.",
+                              table: "Cloud", bundle: .module), names)
+    }
+
     /// `--machine-config FILE` that cannot be read, is empty or is over 64 KB.
     static func machineConfigUnreadable(_ path: String) -> String {
         String(format: String(localized: "cloud.cli.machineConfigUnreadable",
@@ -193,5 +228,36 @@ extension CloudStrings {
     /// `cloud set-idle-pause` with a `minutes` value the server does not take.
     static func idlePauseMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.cli.idlePauseMustBeOneOf", defaultValue: "Minutes must be one of: %@.", table: "Cloud", bundle: .module), list)
+    }
+}
+
+/// The cmux Pro offer when a create is refused because the plan has no Cloud
+/// machine. Keys live in Resources/Cloud.xcstrings with every app locale.
+extension CloudStrings {
+    static var proRequiredTitle: String {
+        String(localized: "cloud.pro.required.title", defaultValue: "Cloud machines need cmux Pro", table: "Cloud", bundle: .module)
+    }
+
+    nonisolated static var proRequiredBody: String {
+        String(localized: "cloud.pro.required.body",
+               defaultValue: "Your plan doesn't include Cloud machines. Upgrade to cmux Pro to create them, for you and for Chief.",
+               table: "Cloud", bundle: .module)
+    }
+
+    static var proRequiredUpgrade: String {
+        String(localized: "cloud.pro.required.upgrade", defaultValue: "Upgrade to cmux Pro", table: "Cloud", bundle: .module)
+    }
+}
+
+/// Open Desktop (``CloudDesktop``). Keys live in Resources/Cloud.xcstrings with every app locale.
+extension CloudStrings {
+    /// The desktop workspace's name: the machine's title, then "Desktop".
+    static func desktopWorkspaceName(_ machine: String) -> String {
+        String(format: String(localized: "cloud.desktop.workspaceName", defaultValue: "%@ Desktop", table: "Cloud", bundle: .module), machine)
+    }
+
+    /// A machine made shell-only, or one with no address on its Cloud network yet.
+    static func desktopUnavailable(_ machine: String) -> String {
+        String(format: String(localized: "cloud.desktop.unavailable", defaultValue: "%@ has no desktop to open.", table: "Cloud", bundle: .module), machine)
     }
 }

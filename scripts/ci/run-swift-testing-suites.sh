@@ -97,6 +97,18 @@ if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
   fi
   shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
 fi
+# CMUX_SWIFT_TEST_SUITES=A,Target.B runs only the named suites (a bare suite name
+# matches it in any test target), so a fleet step can run one suite of a package
+# (cmux-ci run --env CMUX_SWIFT_TEST_SUITES=SidebarScrollCostTests). Every name
+# must be a suite the package lists: a typo fails, never a green run of nothing.
+only_suites=()
+if [ -n "${CMUX_SWIFT_TEST_SUITES:-}" ]; then
+  if ! [[ "$CMUX_SWIFT_TEST_SUITES" =~ ^[A-Za-z_][A-Za-z0-9_.]*(,[A-Za-z_][A-Za-z0-9_.]*)*$ ]]; then
+    echo "CMUX_SWIFT_TEST_SUITES must be comma-separated suite names, Suite or Target.Suite (got '$CMUX_SWIFT_TEST_SUITES')" >&2
+    exit 2
+  fi
+  IFS=, read -r -a only_suites <<< "$CMUX_SWIFT_TEST_SUITES"
+fi
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
@@ -271,6 +283,29 @@ fi
 # list each suite's result and exit with the first failure's status (first in
 # suite order, whatever order the suites finish in).
 phase suites
+if [ "${#only_suites[@]}" -gt 0 ]; then
+  # A filter is ^Target\.Suite/ (require_swift_test_execution.py --list-filters);
+  # its plain name is Target.Suite.
+  : > "$evidence_dir/named-filters.txt"
+  for name in "${only_suites[@]}"; do
+    matched=0
+    while IFS= read -r filter; do
+      plain="${filter#^}"
+      plain="${plain%/}"
+      plain="${plain//\\/}"
+      if [ "$plain" = "$name" ] || [ "${plain#*.}" = "$name" ]; then
+        grep -qxF -- "$filter" "$evidence_dir/named-filters.txt" || echo "$filter" >> "$evidence_dir/named-filters.txt"
+        matched=1
+      fi
+    done < "$evidence_dir/filters.txt"
+    if [ "$matched" -eq 0 ]; then
+      echo "CMUX_SWIFT_TEST_SUITES names $name, which is not a suite of $package_path" >&2
+      exit 2
+    fi
+  done
+  mv "$evidence_dir/named-filters.txt" "$evidence_dir/filters.txt"
+  echo "CMUX_SWIFT_TEST_SUITES: $(wc -l < "$evidence_dir/filters.txt" | tr -d ' ') suite(s)"
+fi
 suites=()
 position=0
 while IFS= read -r suite; do

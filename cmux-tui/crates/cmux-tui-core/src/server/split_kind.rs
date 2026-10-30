@@ -16,9 +16,17 @@ pub(super) struct NewPaneRightParams {
     cols: Option<u16>,
     #[serde(default)]
     rows: Option<u16>,
+    /// `column-left-v1`: `left` opens the column before `pane`'s column
+    /// (New Column Left); `right` or absent, after it.
+    #[serde(default)]
+    side: Option<String>,
     #[serde(flatten)]
     content: PaneContentParams,
 }
+
+/// `new-pane-right` takes `side: "left"`, which opens the new column before
+/// the pane's column instead of after it (New Column Left).
+pub(super) const COLUMN_LEFT_CAPABILITY: &str = "column-left-v1";
 
 /// `split`: a new pane after `pane` in its split tree.
 #[derive(Deserialize)]
@@ -142,7 +150,13 @@ pub(super) fn new_pane_right(
 ) -> anyhow::Result<Value> {
     let width = params.width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH);
     let size = optional_surface_size(params.cols, params.rows);
+    let before = match params.side.as_deref() {
+        None | Some("right") => false,
+        Some("left") => true,
+        Some(other) => anyhow::bail!("bad request: side {other:?} is not \"left\" or \"right\""),
+    };
     if let Some(url) = params.content.browser_url("new-pane-right")? {
+        anyhow::ensure!(!before, "bad request: side \"left\" opens a terminal column only");
         let surface = mux.split_browser_pane_as(
             &origin_gate::connection_actor(mux, client),
             params.pane,
@@ -155,10 +169,11 @@ pub(super) fn new_pane_right(
     }
     let keep = params.content.keep;
     let spawn = params.content.spawn(mux, client)?;
-    let created = mux.new_pane_right_with_options_as(
+    let created = mux.new_column_with_options_as(
         &origin_gate::connection_actor(mux, client),
         params.pane,
         width,
+        before,
         spawn,
         size,
     )?;

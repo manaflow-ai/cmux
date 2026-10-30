@@ -10,7 +10,7 @@
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
 // - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
-// - Picking a permission mode, or a level in the model menu's Effort ›, hands the keyboard back to
+// - Picking a permission mode, or a level (the running model's effort dropdown, else the Effort ›), hands the keyboard back to
 //   the prompt.
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
@@ -193,6 +193,38 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
 
   for (const [engine] of engines)
     for (const width of [760, 300])
+      test(`${engine}: Folder and Environment switch on the same press at ${width} px`, async () => {
+        const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
+        try {
+          await page.goto(stageURL("agent-pane.composer-context", "environment-picker", width));
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+            timeout: 120_000,
+          });
+          const folder = 'button[aria-haspopup][aria-label="Folder"]';
+          const environment = 'button[aria-haspopup][aria-label^="Environment:"]';
+          // The fixture starts with Environment open. Each pointer press must both close
+          // that popover and open its sibling, including at the narrow icon-only width.
+          for (const [from, to] of [
+            [environment, folder],
+            [folder, environment],
+          ] as const) {
+            await page.locator(`${from}[aria-expanded="true"]`).waitFor();
+            await pressAt(page, to);
+            await page.locator(`${to}[aria-expanded="true"]`).waitFor();
+            expect(await page.locator(from).getAttribute("aria-expanded")).toBe("false");
+            // Closing may fade. The new trigger must be open before that old surface leaves.
+            await page
+              .locator(from === environment ? ".acpmux-env-popover" : ".acpmux-folder-popover:not(.acpmux-env-popover)")
+              .waitFor({ state: "detached" });
+            expect(await page.locator('.ui-popup input[role="combobox"]:visible').count()).toBe(1);
+          }
+        } finally {
+          await page.close();
+        }
+      });
+
+  for (const [engine] of engines)
+    for (const width of [760, 300])
       for (const stage of STAGES) {
         const where = `${engine}: ${stage.entry} ${stage.variant} at ${width} px`;
 
@@ -295,7 +327,20 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
             await settle(page, stage.chips, [name]);
-            if (name === "Model") {
+            // Where the caller picks model and effort together (New Tab), the running model's effort
+            // is a side dropdown beside its row (#27948): its effort item opens the levels.
+            const sideEffort = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+            const sideLevel = '.acpmux-quick-effort-menu [role="menuitemradio"][aria-checked="false"]';
+            if (name === "Model")
+              await page.locator(`${sideEffort}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
+            if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
+              // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
+              // opens on hover): hover it, then press a level in its dropdown.
+              await page.locator(sideEffort).first().hover();
+              await page.locator(sideLevel).first().waitFor();
+              await menusAtRest(page);
+              await pressAt(page, sideLevel);
+            } else if (name === "Model") {
               // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
               await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');
               await page.locator('[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"]').first().waitFor();
