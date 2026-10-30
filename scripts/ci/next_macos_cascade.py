@@ -352,6 +352,7 @@ class Seen:
     owned_full: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     owned_full_known: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     snapshot: Mapping[str, Any] | None = dataclasses.field(default=None, compare=False)
+    observed_at: dt.datetime | None = dataclasses.field(default=None, compare=False)
     # Stale snapshots preserve only freshness reservations (#28341).
     stale: bool = False
 
@@ -505,7 +506,7 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
         reserved = stale_reservations.reserved if stale_reservations is not None else {}
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
                 owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot,
-                stale=fresh is None)
+                observed_at=now, stale=fresh is None)
 
 
 def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -533,7 +534,7 @@ def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen 
         return None
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
     reserved = {label: count for label, count in reserved.items() if count}
-    return Seen(waits={}, age=max(0.0, age), reserved=reserved, stale=True) if reserved else None
+    return Seen(waits={}, age=max(0.0, age), reserved=reserved, observed_at=now, stale=True) if reserved else None
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -740,7 +741,7 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     """
     empty = {label: () for label in LABELS}
     unavailable = tuple(label for label in LABELS if seen is not None and label_full_or_dead(
-        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0)))
+        label, seen.snapshot, live=(live or {}).get(label, 0), queued=(waiting or {}).get(label, 0), now=seen.observed_at))
     if skipped(env):
         return Placement(empty, "", skipped(env))
     if live is None or waiting is None:
@@ -798,7 +799,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     requested_fleet = set((env.get("FLEET_CLIENT_JOBS") or "").split())
     route_labels = tuple(label for label in (*LABELS, (env.get("SIDE_LABEL") or "").strip()) if label)
     all_routes_blocked = bool(requested_fleet) and seen is not None and bool(route_labels) and all(
-        label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0))
+        label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0),
+                           now=seen.observed_at)
         for label in route_labels)
     fleet_jobs = tuple(job for job in unplaced if job in requested_fleet) if all_routes_blocked else ()
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold

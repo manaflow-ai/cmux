@@ -874,8 +874,7 @@ class Stall(unittest.TestCase):
         shot = snapshot(minutes_old=1)
         shot["bs_health"] = {"label_outages": [{"pool": SMALL, "queued": 3,
                                                     "last_start_s": 1900}]}
-        shot["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
-        seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, snapshot=shot)
+        seen = cascade.Seen(waits={LARGE: 0.0, SMALL: 0.0}, snapshot=shot, observed_at=NOW)
         result = cascade.place(env(), (), None, {LARGE: 0, SMALL: 3}, seen)
         self.assertEqual(result.jobs, none_placed())
         self.assertIn("could not be read", result.why)
@@ -1597,12 +1596,11 @@ class Wiring(unittest.TestCase):
                 else:
                     for label in (LARGE, SMALL):
                         shot["pools"][label]["reserved_queued"] = 1
-                shot["generated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
                 output = Path(tmp) / "out"
                 with mock.patch.object(placement.pool, "GitHub") as api, \
                         mock.patch.object(placement.cascade, "read", return_value=(
                             {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1},
-                            cascade.seen(shot, dt.datetime.now(dt.timezone.utc)))):
+                            cascade.seen(shot, NOW))):
                     api.return_value.runners.return_value = [busy]
                     placement.main(env(ROUTE_TOKEN="test", GITHUB_REPOSITORY="manaflow-ai/cmux",
                                        GITHUB_OUTPUT=str(output), CASCADE_RUNS=" fast-tier "))
