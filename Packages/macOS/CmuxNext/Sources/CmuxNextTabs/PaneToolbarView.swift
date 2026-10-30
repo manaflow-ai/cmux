@@ -167,50 +167,57 @@ public final class PaneToolbarView: NSView {
 
     private func menu(for tool: PaneTabRowTool) -> NSMenu? {
         let menu = NSMenu(title: tool.label)
+        let invoke = onNativeTool
         menu.autoenablesItems = false
-        for item in tool.menu { menu.addItem(menuItem(item, toolID: tool.id)) }
+        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
         return menu
     }
 
     /// Native tools remain reachable from the overflow menu when a narrow pane cannot fit every
     /// supplied button. The same invoker path keeps the page event identical to a direct press.
     public func nativeOverflowItems() -> [NSMenuItem] {
-        nativeItems.map { tool in
+        let invoke = onNativeTool
+        return nativeItems.map { tool in
             let row = NSMenuItem(title: tool.label, action: nil, keyEquivalent: "")
             row.isEnabled = tool.enabled
             row.state = tool.toggled ? .on : .off
-            if tool.menu.isEmpty {
-                let invoker = NativeMenuInvoker(enabled: { tool.enabled }) { [weak self] in
-                    guard tool.enabled else { return }
-                    self?.onNativeTool?(tool.id, nil)
-                }
-                row.action = #selector(NativeMenuInvoker.run)
-                row.target = invoker
-                row.representedObject = invoker
-            } else {
+            let invoker = NativeMenuInvoker(enabled: { [weak self] in
+                tool.enabled && self?.nativeItems.contains(tool) == true
+            }) {
+                guard tool.menu.isEmpty else { return }
+                invoke?(tool.id, nil)
+            }
+            row.action = #selector(NativeMenuInvoker.run)
+            row.target = invoker
+            row.representedObject = invoker
+            if !tool.menu.isEmpty {
                 let submenu = NSMenu(title: tool.label)
                 submenu.autoenablesItems = false
-                tool.menu.forEach { submenu.addItem(menuItem($0, toolID: tool.id)) }
+                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
                 row.submenu = submenu
             }
             return row
         }
     }
 
-    private func menuItem(_ item: PaneTabRowMenuItem, toolID: String) -> NSMenuItem {
+    private func menuItem(_ item: PaneTabRowMenuItem, tool: PaneTabRowTool, ancestorsEnabled: Bool,
+                          invoke: ((String, String?) -> Void)?) -> NSMenuItem {
         let row = NSMenuItem(title: item.label, action: #selector(NativeMenuInvoker.run), keyEquivalent: "")
-        row.isEnabled = item.enabled
+        let enabled = ancestorsEnabled && item.enabled
+        row.isEnabled = enabled
         if let checked = item.checked { row.state = checked ? .on : .off }
-        let invoker = NativeMenuInvoker(enabled: { item.enabled }) { [weak self] in
-            guard item.enabled else { return }
-            self?.onNativeTool?(toolID, item.id)
+        let invoker = NativeMenuInvoker(enabled: { [weak self] in
+            enabled && self?.nativeItems.contains(tool) == true
+        }) {
+            guard item.children.isEmpty else { return }
+            invoke?(tool.id, item.id)
         }
         row.target = invoker
         row.representedObject = invoker
         if !item.children.isEmpty {
             let submenu = NSMenu(title: item.label)
             submenu.autoenablesItems = false
-            item.children.forEach { submenu.addItem(self.menuItem($0, toolID: toolID)) }
+            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke)) }
             row.submenu = submenu
         }
         return row
@@ -358,12 +365,12 @@ private final class NativeMenuInvoker: NSObject, NSMenuItemValidation {
         self.enabled = enabled
         self.action = action
     }
-    @objc func run() { guard enabled() else { return }; action() }
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let enabled = enabled()
-        menuItem.isEnabled = enabled
-        return enabled
+    @objc func run() {
+        guard enabled() else { return }
+        action()
     }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled() }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
