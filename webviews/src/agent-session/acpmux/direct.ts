@@ -929,6 +929,9 @@ export const BRIDGE_URL = "cmux-bridge://acpmux/";
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
 
+/// How soon a hidden page draws a change its native tab reads (`emitInFrame`).
+const HIDDEN_DRAW_MS = 50;
+
 /// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
 /// (an occluded window). A hidden page draws nothing: `run` waits until it shows, and its first
 /// frame then draws everything that landed meanwhile (`emitInFrame` holds one waiting snapshot).
@@ -1175,6 +1178,10 @@ export class AcpmuxDirectClient {
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
+  /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change the native tab
+  /// reads (`emitInFrame`): one 50 ms timer at a time, which ends when it fires.
+  private drawnWorking = false;
+  private hiddenDraw?: ReturnType<typeof setTimeout>;
   private socket?: WebSocket;
   private nextRequest = 1;
   private pending = new Map<
@@ -3553,11 +3560,31 @@ export class AcpmuxDirectClient {
     if (!schedule) return this.emit(connection);
     const scheduled = this.frameSnapshot !== undefined;
     this.frameSnapshot = connection;
+    // A hidden page's frames wait for it to show (`nextFrame`), but what the native tab reads from
+    // it still goes within 50 ms: a change to its chat (its title, its status) and a turn starting
+    // or ending (the header's state, App.tsx `pane.tabState`). The transcript's stream waits.
+    if (!pageShown() && (connection === "session changed" || this.workingNow() !== this.drawnWorking)) {
+      this.hiddenDraw ??= setTimeout(() => {
+        this.hiddenDraw = undefined;
+        const pending = this.frameSnapshot;
+        if (pending !== undefined && !this.closed) this.emit(pending);
+      }, HIDDEN_DRAW_MS);
+      return;
+    }
     if (scheduled) return;
     schedule(() => {
       const pending = this.frameSnapshot;
       if (pending !== undefined && !this.closed) this.emit(pending);
     });
+  }
+
+  /// Whether the chat runs a turn, as the snapshot says it (`isWorking`).
+  private workingNow(summary = this.summary): boolean {
+    return (
+      this.replayThrough === undefined &&
+      // acpmux may still list a paused queue as running after its turn failed.
+      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)))
+    );
   }
 
   /// This chat's names and the listed chats', which tell an agent's message addressed
@@ -4805,10 +4832,8 @@ export class AcpmuxDirectClient {
     }
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
-    const working =
-      this.replayThrough === undefined &&
-      // acpmux may still list a paused queue as running after its turn failed.
-      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)));
+    const working = this.workingNow(summary);
+    this.drawnWorking = working;
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(
@@ -7083,6 +7108,7 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail(false);
     this.replayMode = false;
     this.closed = true;
+    clearTimeout(this.hiddenDraw);
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

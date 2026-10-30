@@ -9,7 +9,7 @@
 // A burst of changes now draws once, in the next frame, like the transcript's own events
 // (`emitInFrame`), and a hidden pane leaves other chats' changes for when it shows again. The
 // change to the pane's own chat still reaches a hidden pane, so its tab row stays right.
-import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 
@@ -207,6 +207,7 @@ test("a hidden pane draws other chats' changes only when it shows again", async 
 
 test("a hidden pane still draws a change to its own chat", async () => {
   const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
   try {
     setVisibility("hidden");
     flushFrames();
@@ -218,9 +219,70 @@ test("a hidden pane still draws a change to its own chat", async () => {
       recordKind: "renamed",
       seq: 401,
     });
+    // Not in a frame (a hidden page draws none) but within 50 ms.
     flushFrames();
+    jest.advanceTimersByTime(50);
     expect(snapshots() - before).toBe(1);
   } finally {
+    jest.useRealTimers();
+    client.close();
+    setVisibility("visible");
+  }
+});
+
+/// A live record of the shown chat, as acpmux sends it.
+function record(socket: FakeAcpmux, seq: number, kind: string, msg: Record<string, unknown> = {}): void {
+  socket.notify("_acpmux/event", { sessionId: SELECTED, seq, at: seq, dir: "mux", kind, msg });
+}
+
+function chunk(socket: FakeAcpmux, seq: number): void {
+  socket.notify("_acpmux/event", {
+    sessionId: SELECTED,
+    seq,
+    at: seq,
+    dir: "in",
+    kind: "transcript",
+    msg: {
+      method: "session/update",
+      params: {
+        sessionId: SELECTED,
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word ${seq} ` } },
+      },
+    },
+  });
+}
+
+// A hidden page draws its chat's stream only when it shows, but a turn starting or ending still
+// reaches the snapshot within 50 ms: the native tab's header reads it (App.tsx `pane.tabState`).
+test("a hidden pane draws its chat's turn start and end, not its stream", async () => {
+  const { socket, client, snapshots } = await openPane();
+  jest.useFakeTimers();
+  try {
+    setVisibility("hidden");
+    flushFrames();
+    const before = snapshots();
+    // The fixture's transcript ends inside a turn: it ends, then the next one starts.
+    record(socket, 401, "turn_end");
+    jest.advanceTimersByTime(50);
+    expect(snapshots() - before).toBe(1);
+    record(socket, 402, "turn_started");
+    jest.advanceTimersByTime(50);
+    expect(snapshots() - before).toBe(2);
+    for (let seq = 403; seq < 463; seq++) chunk(socket, seq);
+    jest.advanceTimersByTime(10_000);
+    expect(snapshots() - before).toBe(2);
+    record(socket, 463, "turn_end");
+    jest.advanceTimersByTime(50);
+    expect(snapshots() - before).toBe(3);
+    // Nothing waits for the show: that snapshot carried the stream too.
+    setVisibility("visible");
+    flushFrames();
+    expect(snapshots() - before).toBe(3);
+    chunk(socket, 464);
+    flushFrames();
+    expect(snapshots() - before).toBe(4);
+  } finally {
+    jest.useRealTimers();
     client.close();
     setVisibility("visible");
   }
