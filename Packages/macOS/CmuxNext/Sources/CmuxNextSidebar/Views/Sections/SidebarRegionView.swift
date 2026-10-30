@@ -32,6 +32,9 @@ final class SidebarRegionView: NSView {
     var dropToListProbe: ((NSPoint?) -> Bool)?
     /// A workspace item was dropped on the list.
     var onDropToList: ((LayoutItemID) -> Void)?
+    /// The older path's drag out (the list's `removesOnDragOut` and `onDragOutRemove`): an item released beside the sidebar comes off it.
+    var removesOnDragOut: ((String) -> Bool)?
+    var onDragOutRemove: ((String) -> Void)?
     /// The list this region draws one section in (the sidebar document's
     /// one renderer, `SidebarBlockRowView`): its item drags are the list's.
     weak var docList: SidebarListView?
@@ -88,7 +91,7 @@ final class SidebarRegionView: NSView {
     private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
-    var reorder: SidebarRegionDrag?
+    var reorder: SidebarRegionDrag? { didSet { followPointerEnd(from: oldValue) } }
     /// Where a drag's lifted card lives: a view above the band's scroll
     /// view (the sidebar), so the card and its shadow are never clipped to
     /// the band. Nil: the region itself (tests, a region on its own).
@@ -226,6 +229,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: content.look, metrics: content.metrics)
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
@@ -349,7 +353,7 @@ final class SidebarRegionView: NSView {
         // A client-only item (What's New) only opens: no drag, no menu.
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
-        view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onRemove = { [weak self] in self?.onRemoveItem?(id) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }

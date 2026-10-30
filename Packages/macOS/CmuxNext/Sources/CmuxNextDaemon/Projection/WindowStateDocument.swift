@@ -82,6 +82,11 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
             window.workspaceKeys.removeAll { !liveWorkspaces.contains($0) }
             if let shown = window.workspaceKey, !liveWorkspaces.contains(shown) { window.workspaceKey = window.workspaceKeys.first }
             window.workspaceMachines = window.workspaceMachines.filter { liveWorkspaces.contains(WorkspaceKey(rawValue: $0.key)) }
+            if let docks = window.docks {
+                let kept = docks.filter { liveWorkspaces.contains($0.workspaceKey) }
+                window.docks = kept.isEmpty ? nil : kept
+            }
+            if let stage = window.stageKey, !liveWorkspaces.contains(stage) { window.stageKey = nil }
             return window.workspaceKey == nil && window.workspaceKeys.isEmpty ? nil : window
         }
     }

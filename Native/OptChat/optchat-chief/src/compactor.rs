@@ -1164,7 +1164,7 @@ impl AcpmuxCompactor {
                 if e.contains("is taken") {
                     let listed = self.port.find(name);
                     self.say(&format!(
-                        "compactor: acpmux says the session name {name} is taken; its list finds {listed:?}"
+                        "compactor: acpmux says the session name {name} is taken; acpmux finds it as {listed:?}"
                     ));
                 }
             })

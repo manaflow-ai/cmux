@@ -1,5 +1,5 @@
 {
-  "$comment": "cx-w1ald production approvals (plans/cmux-next/release-rails.md, Continuous delivery to production). required_secrets: names production must have before any deploy. do_tags: DO migration tags reviewed for production (reviewer; lawrence: true for a rename, delete or transfer). guarded_vars: production values of INFERENCE_*, AUTOMATION_CAP_* and HOME_INVITES_SEND that Lawrence approved, as NAME=value.",
+  "$comment": "cx-w1ald production approvals (plans/cmux-next/release-rails.md, Continuous delivery to production). required_secrets: names production must have before any deploy. do_tags: DO migration tags reviewed for production (reviewer; lawrence: true for a rename, delete or transfer). guarded_vars: production values of INFERENCE_*, AUTOMATION_CAP_*, HOME_INVITES_*, CHIEF_BRAIN_*, CHIEF_CREDITS_*, CHIEF_RUN_TOKEN_CAP_USD, CLOUD_PLAN_ENTITLEMENTS and PLATFORM_MACHINES that were approved, as NAME=value (prod-promote.ts GUARDED_VAR).",
   "required_secrets": [
     "JWT_PRIVATE_JWK",
     "STACK_SECRET_SERVER_KEY",
@@ -31,6 +31,11 @@
     "CHIEF_BRAIN_CLAUDE_OWNERS=team_2fcc617e7ba8be229bcb,team_6197db2f4b9d28c7115a,team_7648bed712529f7a64fa,team_760c83ddd31c6360c927": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: the 4 manaflow personal teams (lawrence, aziz, austin, leo)",
     "CHIEF_BRAIN_FALLBACK_MODEL=claude-haiku-5-5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: fallback through the same paid-model gate",
     "CHIEF_BRAIN_COMPACTOR_MODEL=claude-haiku-5-5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: compactor on Haiku, charged to credits",
-    "CHIEF_RUN_TOKEN_CAP_USD=5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: 5 USD cap per agent gateway token"
+    "CHIEF_RUN_TOKEN_CAP_USD=5": "lawrence 2026-10-15 via the chief (hq-1f): Cloud Chief in production for the manaflow team: 5 USD cap per agent gateway token",
+    "INFERENCE_MODEL_ALLOWLIST=deepseek/deepseek-v4.1-flash-1017,deepseek/deepseek-v4.1-flash,deepseek/deepseek-v4-flash,deepseek/deepseek-v4-pro": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_PRIMARY_PROVIDER=vercel": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_CF_GATEWAY_ID=cmux-ai-proxy": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_AZURE_ENDPOINT=https://lawrence-1614-resource.services.ai.azure.com": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider",
+    "INFERENCE_VERCEL_RELAY_URL=https://console.cmux.dev/api/ai-gateway/chat/completions": "lawrence 2026-10-28 via the chief (a800 successor): Vercel AI Gateway first via OIDC relay, DeepSeek only (V4.1 Flash 1017 with images), Azure/Cloudflare/OpenRouter/OpenAI providers; staging proven per provider"
   }
 }

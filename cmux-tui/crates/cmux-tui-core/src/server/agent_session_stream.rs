@@ -1,6 +1,7 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::*;
 use crate::panic_free::JsonFields;
+use cmux_json::JsonSet as _;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -77,7 +78,7 @@ pub(super) fn connect_and_attach(
     // the descendants it names are followed from now on.
     let mut watch = json!({"enabled": true});
     if let Some(author) = &author {
-        watch["_meta"]["acpmux"]["author"] = author.clone();
+        watch.set_path(&["_meta", "acpmux", "author"], author.clone());
     }
     let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
     let page = if author.is_some() { without_drafts(page) } else { page };
@@ -267,6 +268,12 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
     let _shared = mux.as_ref().map(|mux| mux.control_clients.agent_sessions.shared());
     if attachment.author.is_some() && (mux.is_none() || !attachment.tab_current()) {
         return attachment.end(Some("detached"));
+    }
+    // A link guest's stream stops once its share or the guest ended, however that was noticed.
+    if let (Some(mux), Some(author)) = (&mux, &attachment.author)
+        && !mux.control_clients.agent_sessions.link_shares().guest_live(author)
+    {
+        return attachment.end(Some("share_ended"));
     }
     // A closed tab, or one that now shows another session, stops streaming.
     if same_session && !attachment.tab_current() {

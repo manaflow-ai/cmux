@@ -2693,6 +2693,7 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `side` | `string` | default `"right"` | With `column-left-v1`: `"left"` opens the column immediately left of `pane`'s column (New Column Left), `"right"` after it; `"left"` takes a PTY column only |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
@@ -2712,6 +2713,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: side ...` | `side` is not `"left"` or `"right"`, or `"left"` with `kind:"browser"`; nothing is created |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -7036,15 +7038,15 @@ poster?:DerivedImage, preview?:DerivedImage}`. An upload belongs to the
 connection that began it, ends with that connection, and expires after 15
 minutes. At most 32 uploads are open at once. A record no message references
 is removed after 24 hours, with its bytes when no other record names them.
-The store holds at most 10 GB (decimal) across every conversation, uploads in
-flight included: a `begin` that does not fit first removes the oldest records
-no message references, and is refused with `storage_full` when only bytes
-that messages reference are left.
+The store has an advisory 10 GB (decimal) budget across every conversation,
+including uploads in flight. A `begin` above that budget logs a warning and
+continues. Budget pressure never removes fresh unsent or referenced attachments;
+the normal 24-hour sweep still removes abandoned uploads. Filesystem failures,
+including a full disk, remain errors when creating, writing or syncing bytes.
 Refusals have `error_code` `attachment_rejected` and one of the reasons
 `validation_invalid`, `type_refused`, `too_large`, `poster_refused`,
 `preview_refused`, `unknown_upload`, `unknown_piece`, `bad_offset`,
-`chunk_too_large`, `incomplete`, `hash_mismatch`, `too_many_uploads` or
-`storage_full`;
+`chunk_too_large`, `incomplete`, `hash_mismatch` or `too_many_uploads`;
 `unknown_conversation` and `not_participant` are `conversation_rejected`.
 
 A `message.send` or `message.edit` with an `attachment` part commits only
@@ -7182,10 +7184,13 @@ increases by one for every step written and every summary change, so a step's
 `{event:"conversation-run-changed", conversation, run, steps}` on `subscribe`
 to the connections that echoed `conversation-runs-v1` in `set-client-info`.
 
-`conversation-runs` `{conversation, turns?:[key], before_started_at?, limit?}`
-answers `{runs:[Run], has_more}`: with `turns` (at most 200 keys) the runs of
-those replies, else the newest runs that started before `before_started_at`
-(`limit` 1-200, default 50).
+`conversation-runs` `{conversation, turns?:[key], answers?:[key],
+before_started_at?, limit?}` answers `{runs:[Run], has_more}`: with `turns` (at
+most 200 keys) the runs of those replies. With `answers` (at most 200 message
+keys), a local owner advertising `conversation-run-answers-v1` returns runs
+whose `answers` include those messages; this exact lookup is for silent runs
+whose start predates the visible message window. Otherwise it returns the
+newest runs that started before `before_started_at` (`limit` 1-200, default 50).
 
 `conversation-run` `{conversation, run, after_rev?, limit?}` answers
 `{run:Run, steps:[Step], has_more}`: the steps written after `after_rev`
@@ -9109,7 +9114,7 @@ exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
 
 | `op` | Additional fields | Effect |
 | --- | --- | --- |
-| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `begin` | `mime`, `size` | Reserve an upload slot and create a private daemon-owned file. |
 | `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
 | `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
 | `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
@@ -9121,9 +9126,9 @@ destination path is accepted and no image path or content is returned in an
 acknowledgement. Stable error codes begin with `image-`; clients must treat a
 lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 
-The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
-32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
-two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+The policy is PNG/JPEG/GIF/WebP images of any size, eight images per connection
+and 32 retained uploads per daemon, with no byte budget. A pending upload expires
+two minutes after its last accepted chunk; committed uploads expire in ten minutes. Ownership receipts permit
 restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
@@ -9449,7 +9454,7 @@ own unbound same-user Unix connection may ask (otherwise
 
 ### agent-session-start
 
-`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}`
+`agent-session-start-v1`: `{id, cmd:"agent-session-start", surface, cwd, harness?}` (and, when `agent-session-start-model-v1` is advertised, optional `model`)
 starts a new chat for an agent tab of this store in this machine's own
 acpmux and binds it to the tab, then answers
 `{surface, session, conversation}` (the tab's record, as
@@ -9473,7 +9478,8 @@ Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
 the trust question; the person answers it on the machine or through
 `agent-session-trust`). There is no command, env, policy, mode,
-peer, preset or MCP server param; an unknown param is
+peer, preset or MCP server param; `model` is only accepted with the additive
+`agent-session-start-model-v1` capability and is passed to the first session; an unknown param is
 `agent_session.bad_request`. The machine kind decides first, read again at
 each start: a team VM (kind `team` in the root-owned `/etc/cmux/vm-kind` that
 cmux-host writes at a team enroll, or the team files root `/srv/team`,
