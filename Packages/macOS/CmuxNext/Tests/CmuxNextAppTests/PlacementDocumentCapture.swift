@@ -72,6 +72,8 @@ enum PlacementDocumentCapture {
             scope.perform {
                 root.layoutSubtreeIfNeeded()
                 sidebar.container.sidebarView.renderNow()
+                // Paint the committed model without retaining an in-flight row opening.
+                sidebar.container.sidebarView.list.reload(animated: false)
                 for view in AANestedGroupsGalleryTests.all(root) {
                     view.layoutSubtreeIfNeeded()
                     view.layer?.removeAllAnimations()
