@@ -154,19 +154,6 @@ mod tests {
         command.spawn().unwrap()
     }
 
-    fn gone(pid: &str) -> bool {
-        // A killed process may stay a zombie briefly until its new parent reaps it.
-        (0..50).any(|_| {
-            let out = Command::new("ps").args(["-o", "stat=", "-p", pid]).output().unwrap();
-            let stat = String::from_utf8_lossy(&out.stdout);
-            let dead = stat.trim().is_empty() || stat.trim_start().starts_with('Z');
-            if !dead {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            dead
-        })
-    }
-
     #[test]
     fn a_child_that_finishes_gives_its_output_and_status() {
         let child = spawn("cat; exit 3");
@@ -200,20 +187,14 @@ mod tests {
     }
 
     /// The child exits at once, but a descendant keeps its stdout open: the read is bounded
-    /// too, and the descendant (still in the group) is killed.
+    /// too. (tests/send_relay_cli.rs checks that such a descendant is killed with the group.)
     #[test]
     fn a_descendant_holding_the_output_open_ends_at_the_deadline() {
-        let dir = std::env::temp_dir().join(format!("acpmux-bounded-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let pid_file = dir.join("pid");
-        let child = spawn(&format!("sleep 30 & echo $! > {}; exit 0", pid_file.display()));
+        let child = spawn("sleep 30 & exit 0");
         let started = std::time::Instant::now();
         let deadline = Some(Instant::now() + Duration::from_millis(300));
         let error = wait(child, None, deadline, "the open").unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
         assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
-        let pid = std::fs::read_to_string(&pid_file).unwrap();
-        assert!(gone(pid.trim()), "the descendant {pid} survived");
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }
