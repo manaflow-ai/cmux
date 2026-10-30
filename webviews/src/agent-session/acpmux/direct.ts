@@ -3132,16 +3132,15 @@ export class AcpmuxDirectClient {
     try {
       return await this.attachWatched(watch, sessionId, generation, keptThrough, tries);
     } catch (error) {
+      const current =
+        token === this.copyAttaches && generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+      // acpmux may have subscribed the socket whatever failed, its reply or a retry that ran out:
+      // nothing comes live of the chat until it is attached again, streamed before or not.
+      if (current) this.unreadAttach = sessionId;
       // Failed after the row named another session or machine: what came live meanwhile may be
       // that one's, so nothing drawn stays as this chat's. The failure's handling reads the Mac's
       // copy of the session listed now (`keepPeerCopy`), or fails the open.
-      if (
-        token === this.copyAttaches &&
-        generation === this.selectionGeneration &&
-        this.selectedSessionId === sessionId &&
-        strayedFrom(watch)
-      )
-        this.resetSessionState();
+      if (current && strayedFrom(watch)) this.resetSessionState();
       throw error;
     } finally {
       if (this.attachWatch === watch) this.attachWatch = undefined;
@@ -3209,11 +3208,7 @@ export class AcpmuxDirectClient {
       },
       () => settled(),
     );
-    const result = await attaching.catch((error: unknown) => {
-      // Whether or not the attach streamed records before it failed (`dropUnread`).
-      if (current()) this.unreadAttach = sessionId;
-      throw error;
-    });
+    const result = await attaching;
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
