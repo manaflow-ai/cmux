@@ -261,11 +261,11 @@ mod tests {
         let (a, b) = (base.path().join(format!("{VERSION}-1-1")), base.path().join(format!("{VERSION}-2-2")));
         install(&a, "a");
         install(&b, "b");
-        age(&a);
-        age(&b);
         // Installer A activated, then B swapped before A pruned: A's prune must keep B's runtime.
         activate(base.path(), &a).unwrap();
         activate(base.path(), &b).unwrap();
+        age(&a);
+        age(&b);
         prune(base.path());
         assert_eq!(current(base.path()), "b");
         assert!(b.exists());
