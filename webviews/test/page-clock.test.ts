@@ -18,7 +18,7 @@ function installDocument(state: DocumentVisibilityState): FakeDocument {
       listeners.get(type)?.delete(listener as () => void);
     },
     show(next: DocumentVisibilityState) {
-      this.visibilityState = next;
+      Object.defineProperty(doc, "visibilityState", { value: next, configurable: true });
       for (const listener of listeners.get("visibilitychange") ?? []) listener();
     },
   } as unknown as FakeDocument;

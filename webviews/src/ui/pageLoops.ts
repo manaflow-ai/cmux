@@ -5,7 +5,12 @@ export type PageLoops = {
   parked: boolean;
   loops: number;
   hidden_loops: number;
-  animations: { playState: AnimationPlayState; animationName?: string; target?: string; pseudoElement?: string | null }[];
+  animations: {
+    playState: AnimationPlayState;
+    animationName?: string;
+    target?: string;
+    pseudoElement?: string | null;
+  }[];
   clocks: ReturnType<typeof pageClocks>;
 };
 
@@ -18,7 +23,9 @@ export function pageLoops(doc: Document = document): PageLoops {
   const animations = typeof doc.getAnimations === "function" ? doc.getAnimations() : [];
   const infinite = animations.filter((animation) => {
     const timing = animation.effect?.getComputedTiming?.();
-    return timing && (timing.iterations === Infinity || timing.duration === Infinity) && animation.playState === "running";
+    return (
+      timing && (timing.iterations === Infinity || timing.duration === Infinity) && animation.playState === "running"
+    );
   });
   const parked = (doc.defaultView as DebugWindow | null)?.__cmuxPageParked === true;
   const hidden = doc.visibilityState === "hidden";

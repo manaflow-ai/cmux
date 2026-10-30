@@ -37,13 +37,16 @@ export function visibleInterval(
   const schedule = () => {
     if (stopped || doc?.visibilityState === "hidden") return;
     clock.running = true;
-    timer = setTimeout(() => {
-      timer = undefined;
-      clock.running = false;
-      if (stopped || doc?.visibilityState === "hidden") return;
-      tick();
-      schedule();
-    }, options.aligned ? every - (Date.now() % every) + 5 : every);
+    timer = setTimeout(
+      () => {
+        timer = undefined;
+        clock.running = false;
+        if (stopped || doc?.visibilityState === "hidden") return;
+        tick();
+        schedule();
+      },
+      options.aligned ? every - (Date.now() % every) + 5 : every,
+    );
   };
   const sync = () => {
     clear();
