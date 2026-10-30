@@ -323,6 +323,8 @@ final class ListStressRig: NSObject {
             pass += 1
             guard pass < settings.passes else { finish(); return }
             DemoDirector.shared.post(.chatScroll(toTop: true))
+            // From the top, the next pass goes down (the first went up from the bottom).
+            direction = 1
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(2))
                 self?.startPass()

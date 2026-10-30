@@ -162,20 +162,28 @@ public struct ArtifactPreview: View {
             }
         }
         .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
+            // A load replaced by another (a new artifact, a retry) is cancelled: after each
+            // wait it writes nothing, so it never overwrites the newer preview.
             do {
                 let loaded = try await source.load(artifact)
+                guard !Task.isCancelled else { return }
                 if case .image(let data) = loaded {
-                    decodedImage = await Task.detached(priority: .userInitiated) {
+                    let image = await Task.detached(priority: .userInitiated) {
                         UIImage(data: data).map { $0.preparingForDisplay() ?? $0 }
                     }.value
+                    guard !Task.isCancelled else { return }
+                    decodedImage = image
                 } else {
                     decodedImage = nil
                 }
                 content = .success(loaded)
                 // The share copy (up to the preview limit) is written off the main actor.
                 let artifact = artifact
-                shareItem = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+                let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
+                guard !Task.isCancelled else { return }
+                shareItem = item
             } catch {
+                guard !Task.isCancelled else { return }
                 content = .failure(error)
                 shareItem = nil
             }
