@@ -1081,8 +1081,7 @@ impl Hub {
         // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
         // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
         let mut approved: HashMap<String, Value> = Default::default();
-        // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
-        // moved here was the source's until its `imported` record.
+        // A begun move not yet ended (`transfer_out.rs` `restored_moving`), until `imported`.
         let mut moving: Option<String> = None;
         // What a paused agent pair held here, what its releases took, its pauses and resumes,
         // and the prompt ids that reached the session (`agent_pairs.rs`).
@@ -1248,7 +1247,8 @@ impl Hub {
             self.restore_git_branch(session, branch);
         }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
-        session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+            transfer_out::restored_moving(scanned.is_ok(), moving);
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
