@@ -16,6 +16,8 @@ import Testing
     private static let left = PaneID(rawValue: 1), right = PaneID(rawValue: 2)
     private static let home = SurfaceID(rawValue: 1), link = SurfaceID(rawValue: 2)
 
+    private static func tabID(for surface: SurfaceID) -> String { "surface:\(surface.rawValue)" }
+
     /// One screen: the left pane with `surfaces`, and with `moved` a pane split off on its right holding those.
     /// `ids` names a surface's tab by a resource id (an agent tab's), else the tab is the surface's.
     private static func tree(left surfaces: [SurfaceID], right moved: [SurfaceID] = [], ids: [SurfaceID: String] = [:]) -> DaemonTree {
@@ -119,9 +121,9 @@ import Testing
         let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
         pane.selectWhenReported(surface: Self.link)
         services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
-        #expect(OutboundTab.hidden(in: pane).contains(Self.link.rawValue))
+        #expect(OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)))
         outbound.finish(moved: true)
-        #expect(!OutboundTab.hidden(in: pane).contains(Self.link.rawValue), "a landed tab is released once it is no longer in transit")
+        #expect(!OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)), "a landed tab is released once it is no longer in transit")
     }
 
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
