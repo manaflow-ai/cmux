@@ -1257,10 +1257,16 @@ impl StderrTail {
                 Err(error) if error.error_len().is_none() => error.valid_up_to(),
                 Err(_) => self.pending.len(),
             };
+            // Never back up to the very start: the piece must take something, or the pending
+            // bytes would grow without bound (an ESC at byte 0 is then cut after its sequence).
             if let Some(esc) = self.pending[..cut].iter().rposition(|&b| b == 0x1b)
+                && esc > 0
                 && cut - esc <= 64
             {
                 cut = esc;
+            }
+            if cut == 0 {
+                cut = self.pending.len();
             }
             let piece: Vec<u8> = self.pending.drain(..cut).collect();
             self.take(&piece);
@@ -1339,6 +1345,18 @@ mod stderr_tail_tests {
         let text = tail.text();
         assert!(text.len() <= StderrTail::CAP, "{}", text.len());
         assert!(text.ends_with('y'));
+    }
+
+    #[test]
+    fn an_endless_line_that_starts_a_control_stays_bounded() {
+        let mut tail = StderrTail::default();
+        tail.push(b"\x1bP");
+        for _ in 0..40 {
+            tail.push(&[b'A'; 4096]);
+            assert!(tail.pending.len() <= StderrTail::CAP + 4096, "{}", tail.pending.len());
+        }
+        tail.push(b"\x1b\\error: request timed out\n");
+        assert_eq!(tail.text(), "error: request timed out");
     }
 
     #[test]
