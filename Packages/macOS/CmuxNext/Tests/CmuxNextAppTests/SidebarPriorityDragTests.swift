@@ -271,4 +271,21 @@ struct SidebarPriorityDragTests {
         try harness.press("b", moves: [])
         #expect(harness.actions == [.open("b")], "a fresh click must work after Escape cancellation")
     }
+
+    @Test func childWindowKeyChangeKeepsPendingPriorityPressUntilRelease() throws {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(sidebar: sidebar)
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["b"])
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "b"))
+        #expect(harness.panel.draggingID == nil)
+
+        // The Priority panel owns this pending press, even though the shared list has no press.
+        // A child page window becoming key must not cancel it while the button is held.
+        sidebar.list.leftButtonIsDown = { true }
+        sidebar.list.pointerWindowLostKey()
+        sidebar.list.leftButtonIsDown = { false }
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "b"))
+        #expect(harness.actions == [.open("b")], "a child-window key change must preserve the pending click")
+    }
 }

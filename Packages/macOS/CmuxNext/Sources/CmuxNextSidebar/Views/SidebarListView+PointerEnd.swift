@@ -34,7 +34,11 @@ extension SidebarListViewComponents {
     /// still come to this window (a child page window took the keys after the press switched workspaces). With the
     /// button up, the release went to another window: the gesture ends as for the app losing focus.
     func pointerWindowLostKey() {
-        if holdsPointerGesture, leftButtonIsDown() { return }
+        // A Priority gesture is owned by its panel rather than this list, so holdsPointerGesture
+        // can be false while the button is down. A child page window may become key during that
+        // gesture; preserve it until its release arrives. App deactivation has its own callback
+        // and still cancels immediately.
+        if leftButtonIsDown() { return }
         pointerFocusLost()
     }
 
