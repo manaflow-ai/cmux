@@ -624,6 +624,7 @@ describe("lineage from a Codex chat's records", () => {
     expect(cleared).not.toHaveProperty("effort");
     expect(cleared).not.toHaveProperty("lastMessage");
   });
+});
 
 test("replay keeps an echoed native root out of direct collaboration siblings", () => {
   const fold = new SubagentFold();
