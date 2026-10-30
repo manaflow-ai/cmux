@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 527,
+  "count": 528,
   "sections": [
     {
       "id": "general",
@@ -110,6 +110,14 @@
           "key": "agentPane.showDictation",
           "title": "Show Dictation Button",
           "help": "The microphone beside Send in every composer, including the New Tab page.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.showMachineLoadWarnings",
+          "title": "Show Machine Load Warnings",
+          "help": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"

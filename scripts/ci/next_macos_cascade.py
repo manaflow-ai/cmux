@@ -173,6 +173,9 @@ RESCUE_ACTORS = frozenset({RESCUE_ACTOR, "cmux-bot[bot]"})
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
+# How old a snapshot may be and still hold a Blacksmith label for the freshness work it shows queued there
+# (reserved_from()): pr_runner_pool.MAX_SNAPSHOT_MINUTES, the oldest artifact the read fetches at all.
+RESERVED_SNAPSHOT_MINUTES = 45
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
 # A refused read is logged with its detail and raised, never retried here: the reads share
@@ -280,6 +283,9 @@ class Seen:
     # Queue counts are a separate unit from oldest waits. GUI/session placement weighs them against
     # online runners; the side-route dead-end check above keeps reading wait durations.
     owned_queued: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # A snapshot too old for counts (over QUEUE_SNAPSHOT_MINUTES) read only for its `reserved` (reserved_from()):
+    # its waits and owned queues are empty, so nothing else reads it as a fresh view.
+    stale: bool = False
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -333,6 +339,34 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
                     for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
                 owned_queued=owned_queued)
+
+
+def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
+    """A stale Seen carrying only `reserved`, from a snapshot QUEUE_SNAPSHOT_MINUTES to RESERVED_SNAPSHOT_MINUTES
+    old that shows freshness work queued for a Blacksmith label; else None.
+
+    The janitor's snapshot lands every 12 to 25 minutes (its sweep queues on Linux like any job), so the
+    15-minute read often finds none, and then the unread branch of place() sent MAX_PER_RUN PR jobs of every
+    run to 6 vCPU blind. On 2026-10-30 from 12:20Z, every cmux-next placement logged "no pool snapshot under
+    15 min old" and put its fast tier on blacksmith-6vcpu-macos-26 while nightly-next's
+    sign-nightly-identity-legacy and generate-nightly-deltas waited there. A nightly job stays queued for
+    longer than the snapshot is late, so the older snapshot's reservation still holds the label for it.
+    """
+    if not isinstance(snapshot, Mapping):
+        return None
+    try:
+        generated = dt.datetime.fromisoformat(str(snapshot.get("generated_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    pools = snapshot.get("pools")
+    if generated.tzinfo is None or not isinstance(pools, Mapping):
+        return None
+    age = (now - generated).total_seconds() / 60
+    if not -5 <= age <= RESERVED_SNAPSHOT_MINUTES:
+        return None
+    reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
+    reserved = {label: count for label, count in reserved.items() if count}
+    return Seen(waits={}, age=max(0.0, age), reserved=reserved, stale=True) if reserved else None
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -550,6 +584,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         # Queued freshness work the snapshot still shows keeps 6 vCPU for a feed's compile, as in cascade().
         feeds = set((env.get("FRESH_JOBS") or "").split())
         held = seen is not None and seen.reserved.get(SMALL, 0) > 0
+        if held and seen.stale:
+            why += (f"; the {seen.age:.0f}-min-old snapshot shows freshness work queued for `{SMALL}`, "
+                    "so only a feed's compile takes it")
         fresh = (tuple([job for job in candidates(env, owned, promote_busy)
                         if not held or job in feeds][:MAX_PER_RUN]) if saturated
                  else unread_fresh_jobs(env, owned))
@@ -698,7 +735,7 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
-            found = seen(snapshot, now)
+            found = seen(snapshot, now) or reserved_from(snapshot, now)
             if live is not None:
                 waiting = queued(snapshot, now)
                 live = with_running(live, snapshot, now)

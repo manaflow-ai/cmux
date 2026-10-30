@@ -69,7 +69,7 @@ extension TabHandlers {
         let allowed = ActionRunScope.viewChangeAllowed()
         let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
-        if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
+        if allowed, let source, let pane = ctx.services.locateTab(model: tab)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
         let work: ActionWork = Task {
             guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: ctx.services) else {
                 return "move-tab-to-new-workspace failed (see the app log)"
@@ -143,7 +143,7 @@ extension TabHandlers {
         let allowed = ActionRunScope.viewChangeAllowed()
         let source = services.landingWindow(tab: tab.id, workspaceID: nil)
         let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
-        if allowed, let landing, let pane = services.locateTab(tab.id)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
+        if allowed, let landing, let pane = services.locateTab(model: tab)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
         let daemon = services.machines.daemon(forTab: tab)
         return { landed in
             guard let reveal = services.actionReveal(outcome, allowed: allowed, landed: landed, window: landing, source: source) else { return }
