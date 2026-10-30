@@ -80,7 +80,7 @@ chmod 755 "$TMP/bin/cargo" "$TMP/bin/rustup" "$TMP/bin/lipo"
 run() {
   env -i PATH="$TMP/bin:$python_dir:/usr/bin:/bin" HOME="$TMP" TMPDIR="$TMP" CI=1 FAKE_CARGO_LOG="$TMP/cargo.log" \
     CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${ARCHS_UNDER_TEST:-arm64}" CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$TMP/cache" \
-    CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/target" "$@" "$src/scripts/cmux-next/build-optchat-chief.sh" --output "$TMP/out/optchat-chief"
+    CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$TMP/target" CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE="$TMP/result" "$@" "$src/scripts/cmux-next/build-optchat-chief.sh" --output "$TMP/out/optchat-chief"
 }
 builds() { grep -c . "$TMP/cargo.log" || true; }
 keyed() { run CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1 >/dev/null 2>"$TMP/err" || fail "keyed build failed: $(cat "$TMP/err")"; }
@@ -160,16 +160,24 @@ portable() {
     CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY="$environment_key" CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1 >/dev/null 2>"$TMP/err" \
     || fail "portable cache failed: $(cat "$TMP/err")"
 }
+# The result file tells the workflow whether to save the entry: only a build
+# that rebuilt it (a miss, or a restored entry that failed validation) saves.
+expect_result() { [[ "$(cat "$TMP/result" 2>/dev/null)" == "$1" ]] || fail "$2 (result file: $(cat "$TMP/result" 2>/dev/null || echo missing), expected $1)"; }
 portable; n=$((n + 1)); expect_builds "$n" "portable source key did not build once"
+expect_result built "a first portable build did not report a rebuild"
 portable; expect_builds "$n" "portable source key rebuilt its exact cache entry"
+expect_result reused "a valid cached entry did not report reuse"
 binary="$TMP/cache/inputs-$portable_key-$environment_key/x86_64/optchat-chief"
 printf 'corrupt\n' >> "$binary"
 portable; n=$((n + 1)); expect_builds "$n" "corrupt bytes were reused"
+expect_result built "a rebuilt corrupt entry did not report a rebuild, so it would never be saved again"
 mv "$binary" "$binary.target"; ln -s "$binary.target" "$binary"
 portable; n=$((n + 1)); expect_builds "$n" "symlink binary was reused"
+expect_result built "a rebuilt symlinked binary did not report a rebuild"
 echo untouched > "$TMP/ref-target"
 rm "$binary.ref"; ln -s "$TMP/ref-target" "$binary.ref"
 portable; n=$((n + 1)); expect_builds "$n" "symlink provenance was reused"
+expect_result built "a rebuilt symlinked provenance did not report a rebuild"
 [[ "$(cat "$TMP/ref-target")" == untouched ]] || fail "rebuild followed the provenance symlink"
 # A restored entry with no binary and a symlinked provenance file rebuilds
 # without writing through the link to a file outside the cache.
