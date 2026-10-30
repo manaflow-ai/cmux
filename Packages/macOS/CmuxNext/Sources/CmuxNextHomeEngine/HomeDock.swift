@@ -27,7 +27,7 @@ import os
 @MainActor
 public final class HomeDock {
     /// The page tab the dock holds: the Messages and Channels views of Home.
-    public static let page = "home-dock"
+    public static let page = WorkspaceModel.homeDockPage
     /// The page tab the dock held before the two views (hq-ec's `home-channels` page alone).
     static let legacyPage = "home-channels"
     /// Classic Home for one release (`labs.classicHome`): the top page, with the Chief tab in the

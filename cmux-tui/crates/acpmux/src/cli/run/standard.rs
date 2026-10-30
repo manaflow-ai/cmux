@@ -373,7 +373,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::New(args) if args.parent.is_some() => super::parent::run(*args, json_out).await,
+        Command::New(args) if args.parent.is_some() => {
+            super::parent::run(*args, json_out, deadline).await
+        }
         Command::New(args) => {
             let args = *args;
             // Checked before connecting, so the error needs no daemon. Preparing first preserves
@@ -572,7 +574,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    launch::show_in_group(&id, &name, title, group, daemon_cli_path.as_deref())?;
+                    launch::show_in_group(
+                        &id,
+                        &name,
+                        title,
+                        group,
+                        daemon_cli_path.as_deref(),
+                        deadline,
+                    )?;
                 }
                 Ok(())
             };
@@ -939,13 +948,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             .await;
             match (sent, relay) {
                 (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
-                    crate::cli::send_relay::send(
+                    crate::cli::send_relay::send_with_deadline(
                         &relay,
                         &relay_session,
                         &relay_text,
                         relay_from.as_deref(),
                         attaching,
                         json_out,
+                        deadline,
                     )
                 }
                 (Err(e), None)
