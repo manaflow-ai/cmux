@@ -280,6 +280,11 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       expect(layout.root.top).toBeGreaterThanOrEqual(layout.stage.top);
       expect(layout.root.bottom).toBeLessThanOrEqual(layout.stage.bottom);
       expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
+      // #27163's contract: the loading area stays centered in the space above the composer,
+      // even though the intentional loading state has no spinner or copy to paint.
+      const rootCenter = (layout.root.top + layout.root.bottom) / 2;
+      const availableCenter = (layout.stage.top + layout.composer.top) / 2;
+      expect(Math.abs(rootCenter - availableCenter)).toBeLessThanOrEqual(2);
     }
     await page.close();
   });
