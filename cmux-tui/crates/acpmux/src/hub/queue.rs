@@ -759,10 +759,11 @@ impl Hub {
                 return Ok(Withdrawn::NotWaiting);
             };
             let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
+            // Who may change it first: a filtered removal tells no one else whose prompt it is.
+            crate::author::may_change(editor, item.sender())?;
             if from_agents_only && item.run.agent.is_none() {
                 return Ok(Withdrawn::NotFromAgent);
             }
-            crate::author::may_change(editor, item.sender())?;
             // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
             let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
