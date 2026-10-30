@@ -322,3 +322,58 @@ fn a_corrupt_old_history_page_does_not_stop_the_open() {
     assert!(database.exists(), "the registry stays in place");
     let _ = fs::remove_dir_all(root);
 }
+
+/// The local feed's start trims its folded set against the notification
+/// receipts only: it read every stored receipt's outcome (a scan of all of
+/// resource_effect_receipts, 0.40 s cold of the 0.38 s restore step on a
+/// 41.6 GB registry, Lawrence 2026-10-30).
+#[test]
+fn feed_folded_trim_reads_only_notification_receipts() {
+    const RECEIPTS: usize = 2_000;
+    let registry = WorkspaceRegistry::in_memory("open-cost-feed-trim").unwrap();
+    // A folded notification whose receipt is still stored: the trim keeps
+    // it, and checking that is what reads the receipts.
+    let notification = "notif_0000000000000000000000000000feed";
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO resource_effect_receipts(
+               idempotency_key, operation, fingerprint, intent_json, state,
+               outcome_json, committed_revision
+             ) VALUES('notify-1', 'notification.create', '{}', '{}', 'committed', ?1, 1)",
+            [json!({"kind": "success", "value": {"id": notification}}).to_string()],
+        )
+        .unwrap();
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO feed_local_folded(notification_id, item_id, created_at_ms)
+             VALUES(?1, 'fi_00000000000000000000', 1)",
+            [notification],
+        )
+        .unwrap();
+    let trim_steps = |registry: &WorkspaceRegistry| {
+        let db = registry.connection.get();
+        vm_steps(&db, || {
+            let tx = db.unchecked_transaction().unwrap();
+            feed_local_store::trim_feed_local_folded(&tx).unwrap();
+            tx.commit().unwrap();
+        })
+    };
+    let empty = trim_steps(&registry);
+    finished_receipts(&registry, RECEIPTS);
+    let full = trim_steps(&registry);
+    let kept: i64 = registry
+        .connection
+        .get()
+        .query_row("SELECT COUNT(*) FROM feed_local_folded", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, 1, "the trim keeps a folded notification whose receipt is stored");
+    assert!(
+        full.saturating_sub(empty) < 512,
+        "the feed trim reads receipts that are not notifications: {empty} -> {full} VM steps \
+         with {RECEIPTS} terminal receipts"
+    );
+}

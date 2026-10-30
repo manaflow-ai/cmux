@@ -114,7 +114,7 @@ pub(crate) fn record_feed_local_folded(
 
 /// Drop folded rows that no ledger window can name again: the notification
 /// was cleared, or its `notification.create` receipt is gone.
-fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(super) fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute(
         "DELETE FROM feed_local_folded
          WHERE notification_id IN (SELECT notification_id FROM resource_notification_clears)
