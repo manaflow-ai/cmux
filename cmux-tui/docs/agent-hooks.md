@@ -101,8 +101,12 @@ session to a different cmux-tui terminal. Set
 embedded mode when given launch-time config; this does not repair a shared
 daemon's authorization for direct `cmux notify` calls.
 
-`ssh-tmux` mirrored workspaces use tmux's control transport rather than the
-cmux-tui journal, so the cmux-tui wrapper does not provide agent badges there.
+cmux-next has no `ssh-tmux` mirrored workspace. An SSH machine runs cmux-tui
+on the host, so Claude there starts through this wrapper and gets the full
+`CLAUDE_EVENTS` set, the same as a local session. The `ssh-tmux` mirror, which
+uses tmux's control transport rather than the cmux-tui journal, exists only in
+the classic app, and it reports agent badges through its own tmux
+subscription (`docs/investigations/remote-agent-status-sidebar.md`).
 
 ## Shell startup files and the shim
 
