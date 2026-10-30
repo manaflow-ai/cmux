@@ -324,6 +324,37 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(dialer.dialCount("m2") == 0)
     }
 
+    @Test func bannerRetryKeepsItsMacWhenFocusChanges() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
+        let first = try #require(live.sessions["m1"])
+        let second = try #require(live.sessions["m2"])
+        let link = first.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        guard case .waiting = link.phase else {
+            Issue.record("expected retry backoff")
+            return
+        }
+        #expect(live.banner?.identity == "m1")
+        // The displayed banner still belongs to m1 when focus moves to m2.
+        live.focusedMacID = "m2"
+        let firstGeneration = link.dialGeneration
+        let secondGeneration = second.link.dialGeneration
+        live.retryConnection()
+        #expect(link.dialGeneration > firstGeneration)
+        #expect(second.link.dialGeneration == secondGeneration)
+        #expect(live.focusedMacID == "m2")
+    }
+
     /// Review blocker: a chat tab id repeats across Macs; each Mac's chat is its own.
     @Test func chatsOfTwoMacsWithTheSameTabIDAreSeparate() {
         let sessions = AgentSessionDirectory()
