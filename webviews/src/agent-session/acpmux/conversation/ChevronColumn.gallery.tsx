@@ -1,5 +1,6 @@
 // l10n-allow-file: deterministic geometry fixture for transcript row columns.
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
 import { ToolGroupRow } from "./ToolGroupRow";
@@ -9,6 +10,8 @@ import { CommandRow } from "./CommandRow";
 import { SessionStartNote } from "./SessionStartNote";
 import type { AcpmuxActivity } from "../model";
 import { useEffect, type ReactNode } from "react";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { TerminalSquare } from "./icons";
 
 const commandItems: AcpmuxActivity[] = [
   tool("Run the focused tests", "execute", "completed", {
@@ -75,10 +78,42 @@ function ChevronColumnGallery() {
             id="thought"
           />
         </Row>
+        <Row label="agent-message">
+          <AgentMessageRow
+            direction="received"
+            icon={<TerminalSquare />}
+            sentence={"Received from \u0000"}
+            name="claude-code"
+            preview="Finished 4 background tasks, ran 5 commands (2 failed)"
+            label="Expand agent message"
+            open={false}
+            onToggle={() => {}}
+            body="Full agent message"
+          />
+        </Row>
       </main>
     </TranscriptDisclosureProvider>
   );
 }
+
+const checkInlineCaret: Play = async (ctx) => {
+  const token = 4;
+  const rows = [...ctx.document.querySelectorAll<HTMLElement>("[data-chevron-column] .chevron-column-gallery__row")];
+  await ctx.waitFor(() =>
+    rows.every((row) => row.querySelector(".cv-tool__chevron, .cv-agentmsg__toggle .cv-tool__chevron")),
+  );
+  for (const row of rows) {
+    const caret = row.querySelector<HTMLElement>(".cv-tool__chevron");
+    if (!caret) throw new Error(`Missing disclosure caret in ${row.dataset.label}`);
+    const label = row.querySelector<HTMLElement>(
+      ".cv-tool__text, .cv-command__text, .cv-thought__label, .cv-agentmsg__preview",
+    );
+    if (!label) throw new Error(`Missing disclosure label in ${row.dataset.label}`);
+    const gap = caret.getBoundingClientRect().left - label.getBoundingClientRect().right;
+    if (gap < -0.5 || gap > token + 0.5)
+      throw new Error(`${row.dataset.label} caret gap ${gap}px; expected <= ${token}px`);
+  }
+};
 
 export default componentEntry<Record<string, never>>({
   id: "agent-pane.transcript-chevron-column",
@@ -94,9 +129,15 @@ export default componentEntry<Record<string, never>>({
     Promise.all([import("../styles.css"), import("./conversation.css"), import("./ChevronColumn.gallery.css")]),
   load: async () => ChevronColumnGallery,
   variants: {
-    shipped: {
+    light: {
       props: {},
-      note: "Real summary, command, group and thought controls share one trailing chevron column. Check/time are before it; Copy remains inside the opened Shell block.",
+      note: "Light: every collapsible transcript row keeps its disclosure caret inline after the label.",
+      play: checkInlineCaret,
+    },
+    dark: {
+      props: {},
+      note: "Dark: every collapsible transcript row keeps its disclosure caret inline after the label.",
+      play: checkInlineCaret,
     },
   },
 });
