@@ -55,6 +55,15 @@ def build_line(name: str, url: str, sha: str) -> str:
     return f"- [{name}]({url}) (`{sha[:10]}`)"
 
 
+def updated_body(existing: str | None, line: str) -> str | None:
+    """Legacy standalone-comment update, retained as the lossless overflow fallback."""
+    if existing is None:
+        return f"{MARKER}\nShipped in:\n{line}\n"
+    if line in existing.splitlines():
+        return None
+    return existing.rstrip("\n") + "\n" + line + "\n"
+
+
 def publication_text(comments: list[dict], line: str, previous: str = "") -> str:
     """Keep every published build, including old standalone comments, once."""
     bodies = [previous] + [pr_status.parse(c["body"]).get(SECTION, "")
@@ -72,10 +81,7 @@ def status_api(method: str, path: str, payload: dict | None = None) -> object:
 
 
 def publish(repo: str, number: int, line: str, comments: list[dict], pause: float) -> str:
-    """Use the batched first read, then the status writer's normal race checks."""
-    # Recompute the publication lines on every settle read, so two release
-    # writers cannot replace each other's build lines. Other sections remain
-    # owned by pr_status.plan, including legacy comment migration.
+    """Write the shared section, retaining a standalone comment if it cannot fit losslessly."""
     snapshot = comments
     did = "unchanged"
     text = ""
@@ -84,13 +90,36 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
             snapshot = pr_status.list_comments(status_api, repo, number)
         text = publication_text(snapshot, line, text)
         writes = pr_status.plan(repo, number, snapshot, SECTION, text, legacy=MARKER)
-        if not writes:
+        if writes:
+            # pr_status.render trims the longest section when a comment exceeds
+            # GitHub's cap. Never delete a legacy comment if that would drop a
+            # publication line; update that comment separately below instead.
+            publication_lines = [item for item in text.splitlines() if item.startswith("- ")]
+            rendered = next((payload.get("body", "") for method, _, payload in writes
+                             if method in {"POST", "PATCH"} and payload), "")
+            if any(item not in rendered for item in publication_lines):
+                return legacy_publish(repo, number, line, snapshot, pause)
+            for method, path, payload in writes:
+                status_api(method, path, payload)
+                time.sleep(pause)
+            did = "written"
+        else:
             return did
-        for method, path, payload in writes:
-            status_api(method, path, payload)
-            time.sleep(pause)
-        did = "written"
     return did + " (unconfirmed: another writer kept replacing the comment)"
+
+
+def legacy_publish(repo: str, number: int, line: str, comments: list[dict], pause: float) -> str:
+    """Lossless fallback when the shared status comment has no room for all builds."""
+    old = pr_status.bot_comments(comments, MARKER)
+    if old:
+        body = updated_body(old[0]["body"], line)
+        if body is None:
+            return "unchanged"
+        status_api("PATCH", f"repos/{repo}/issues/comments/{old[0]['id']}", {"body": body})
+    else:
+        status_api("POST", f"repos/{repo}/issues/{number}/comments", {"body": updated_body(None, line)})
+    time.sleep(pause)
+    return "written"
 
 
 def git_subjects(since: str, head: str) -> list[str]:

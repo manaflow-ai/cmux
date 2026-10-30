@@ -78,6 +78,25 @@ class PublishedInTests(unittest.TestCase):
         self.assertEqual(plan[0][:2], ("PATCH", "repos/o/r/issues/comments/2"))
         self.assertEqual(module.pr_status.parse(plan[0][2]["body"]), {"published": "Shipped in:\n" + line})
 
+    def test_oversized_status_keeps_lossless_legacy_fallback(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        new = module.build_line("v2", "https://x/v2", "b" * 40)
+        history = "\n".join(f"- [v{i}](https://x/{i}) (`{i:010d}`)" for i in range(2500))
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"checks": "green"}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.MARKER + "\nShipped in:\n" + old + "\n" + history,
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        calls = []
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
+        self.assertEqual(calls[0][0], "PATCH")
+        self.assertIn(old, calls[0][2]["body"])
+        self.assertIn(new, calls[0][2]["body"])
+
     def test_settle_preserves_prior_build_after_stale_writer(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)
         new = module.build_line("v2", "https://x/v2", "b" * 40)
