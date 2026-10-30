@@ -171,11 +171,11 @@ test("back from Add Project cannot apply its deferred browse to the environment"
   });
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
   const pick = async (label: string) => {
-    const item = [...document.querySelectorAll("li")].find((node) => node.textContent?.includes(label));
+    const item = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((node) => node.textContent?.includes(label));
     expect(item).toBeTruthy();
     await act(async () => item!.click());
   };
-  await pick("New project");
+  await pick("Add project");
   await pick("This Mac");
   await pick("Local folder");
   expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
