@@ -295,3 +295,92 @@ test("a transcript replaced by fewer rows shows all of them, not only the last",
   await act(async () => root!.render(<SubagentTranscript rows={fresh(30)} running />));
   expect(container.querySelectorAll("[data-row-id]").length).toBe(30);
 });
+
+test("older workflow text merged into the first row keeps what the reader sees in place", async () => {
+  const container = installDom();
+  const observers: { fire(): void }[] = [];
+  scope.IntersectionObserver = class {
+    constructor(private readonly callback: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() {
+      observers.push({ fire: () => this.callback([{ isIntersecting: true }]) });
+    }
+    disconnect() {}
+  };
+  saved.set("IntersectionObserver", undefined);
+  let loaded = false;
+  const row = (): AcpmuxRow => ({
+    id: "r0",
+    version: loaded ? 2 : 1,
+    at: 0,
+    kind: "assistant",
+    text: loaded ? "Older text read from the page before. The newest text." : "The newest text.",
+  });
+  let rerender: () => Promise<void> = async () => {};
+  const loadOlder = async () => {
+    loaded = true;
+    await rerender();
+  };
+  root = createRoot(container);
+  rerender = () =>
+    act(async () => root!.render(<SubagentTranscript rows={[row()]} running={false} onLoadOlder={loadOlder} />));
+  await rerender();
+  const view = container.querySelector<HTMLElement>(".acpmux-bg__transcript")!;
+  // One pixel per character of text; scrollTop as a plain value (JSDOM lays nothing out).
+  Object.defineProperty(view, "scrollHeight", { get: () => (view.textContent ?? "").length * 10 });
+  Object.defineProperty(view, "clientHeight", { value: 40 });
+  let top = 0;
+  Object.defineProperty(view, "scrollTop", { get: () => top, set: (value: number) => (top = value) });
+  top = 20;
+  view.dispatchEvent(new window.Event("scroll"));
+  const fromBottom = view.scrollHeight - top;
+  // The row count stays one: the older text merged into the row the reader was reading.
+  await act(async () => observers.at(-1)!.fire());
+  await act(async () => {});
+  expect(container.querySelectorAll("[data-row-id]").length).toBe(1);
+  expect(view.scrollHeight - top).toBe(fromBottom);
+});
+
+test("a paused workflow named in a transcript shows no spinner and no stop", async () => {
+  const container = installDom();
+  const row: AcpmuxRow = {
+    id: "w",
+    version: 1,
+    at: 0,
+    kind: SUBAGENTS,
+    subagents: [
+      { id: "wf", parent: "a", name: "Workflow", kind: "workflow", state: "running", paused: true, startedAt: 1 },
+    ],
+  };
+  const nested = { open: () => {}, stop: () => <button type="button" className="probe-stop" aria-label="Stop" /> };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <NestedAgents.Provider value={nested}>
+        <SubagentTranscript rows={[row]} running={false} />
+      </NestedAgents.Provider>,
+    ),
+  );
+  expect(container.querySelector(".cv-spinner")).toBeNull();
+  expect(container.querySelector(".probe-stop")).toBeNull();
+});
+
+test("turning workflows off while a workflow agent's transcript shows steps back to the list", async () => {
+  const container = installDom();
+  const props = { groups: [], onClearFinished() {}, onExpand() {}, onClose() {} };
+  const pane = 'workflow:["chat","wf_demo","review"]';
+  const reads = {
+    sessionId: "chat",
+    chat: "This chat",
+    connection: "connected",
+    read: () => new Promise<never>(() => {}),
+  };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(<BackgroundTasksPanel {...props} initialDrill={{ agentId: pane, workflow: true }} workflow={reads} />),
+  );
+  expect(container.querySelector(".acpmux-bg__transcript")).not.toBeNull();
+  await act(async () =>
+    root!.render(<BackgroundTasksPanel {...props} initialDrill={{ agentId: pane, workflow: true }} />),
+  );
+  expect(container.querySelector<HTMLElement>(".acpmux-bg__list")!.hidden).toBe(false);
+});
