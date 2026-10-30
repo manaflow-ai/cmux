@@ -345,6 +345,7 @@ final class CloudService {
         // homes for a later confirmed run after policy is restored.
         codexBroker.setAvailable(!disabled)
         if disabled {
+            changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
@@ -356,6 +357,7 @@ final class CloudService {
             // So does this Mac's link (the session stays).
             link.policyTurnedOff()
         } else {
+            changes.start()
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
@@ -428,6 +430,7 @@ final class CloudService {
     @discardableResult
     func refresh() async -> Bool {
         guard auth.isSignedIn, unavailableReason == nil else { return false }
+        changes.start()
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
@@ -443,18 +446,18 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list); changes.listed(list) { [weak self] in await self?.refresh() }
+            reconcile(list); changes.listed(list) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
             await startHubForSSHRoutes()
             return true
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return false }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account, !Task.isCancelled else { return false }
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
             return false
@@ -505,8 +508,14 @@ final class CloudService {
             if let user = auth.user {
                 let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
                 let machineID = session.machineID
-                // task-owner: server-driven removal; the adapter stops renewal before cleanup.
-                Task { try? await codexBroker.revoke(machineID: machineID, scope: scope) }
+                // The authoritative list confirmed removal (or a destroyed tombstone).
+                // Only now may failed credential cleanup be discarded: delete acknowledgement
+                // alone can still be followed by a provider failure and a running record.
+                // task-owner: confirmed removal stops renewal, then discards the deleted target.
+                Task {
+                    try? await codexBroker.revoke(machineID: machineID, scope: scope)
+                    await codexBroker.machineWasDeleted(machineID, scope: scope)
+                }
             }
             creations.machineRemoved(session.machineID)
             machines.remove(session.machineID)?.disconnect()
@@ -543,6 +552,9 @@ final class CloudService {
     }
 
     private func dropAllMachines() {
+        // Account teardown must also fence a mutation that finishes after sign-out.
+        // The next permitted refresh re-enables tracking for the current account.
+        changes.stop()
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
         for creation in creations.all { creations.end(creation) }
@@ -624,22 +636,21 @@ final class CloudService {
         let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
         if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
         try await CloudMachineChanges.run(.deleting, of: { machines.session(machineID) }) { try await api.deleteMachine(machineID) }
-        if let brokerScope { await codexBroker.machineWasDeleted(machineID, scope: brokerScope) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
-        if let session = machines.session(machineID) { session.retainForDeleteTransition() }; changes.began { [weak self] in await self?.refresh() }
+        if let session = machines.session(machineID) { session.retainForDeleteTransition() }; changes.began { [weak self] in _ = await self?.refresh() }
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
 
     func pauseMachine(_ machineID: String) async throws {
         try await CloudMachineChanges.run(.pausing, of: { machines.session(machineID) }) { try await api.pauseMachine(machineID) }
-        changes.began { [weak self] in await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
+        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
 
     func resumeMachine(_ machineID: String) async throws {
         try await CloudMachineChanges.run(.starting, of: { machines.session(machineID) }) { try await api.resumeMachine(machineID) }
-        changes.began { [weak self] in await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
+        changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
     /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
