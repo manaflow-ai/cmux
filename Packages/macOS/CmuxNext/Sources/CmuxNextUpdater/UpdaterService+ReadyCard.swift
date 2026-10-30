@@ -88,6 +88,7 @@ extension UpdaterService {
     /// staged `version` with `notes`, no download; nil clears it.
     public func debugStage(version: String?, notes: ReleaseNotes?) {
         guard let version else {
+            newestFetch = nil
             debugIndicatorPhase = nil
             return
         }

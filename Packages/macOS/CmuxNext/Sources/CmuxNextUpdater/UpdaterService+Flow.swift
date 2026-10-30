@@ -15,9 +15,12 @@ extension UpdaterService {
     public var card: UpdateCard? {
         // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
-        guard let card = flow.card(downloadsAutomatically: true) else { return pulledWatch.card }
-        if card == .installing, installCardDismissed { return pulledWatch.card }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
+        if let newestCard { return newestCard }
+        guard let card = flow.card(downloadsAutomatically: true) else { return nil }
+        if card == .installing, installCardDismissed { return nil }
+        if case .available(let version) = card {
+            if updateSnooze.hides(version: version, at: now()) || pulledWatch.isPulled(version) || pulledWatch.isRefreshing { return nil }
+        }
         return card
     }
 
@@ -28,7 +31,8 @@ extension UpdaterService {
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
     public var availableButton: UpdateAvailableButton? {
-        guard !flow.userAsked, case .available(let version) = flow.phase, !updateSnooze.hides(version: version, at: now()) else { return nil }
+        guard !flow.userAsked, case .available(let version) = flow.phase,
+              !updateSnooze.hides(version: version, at: now()), !pulledWatch.isPulled(version), !pulledWatch.isRefreshing else { return nil }
         return UpdateAvailableButton(version: version)
     }
 
@@ -45,7 +49,7 @@ extension UpdaterService {
     /// repeated or late press (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
-        guard case .available = flow.phase else {
+        guard case .available(let version) = flow.phase, !pulledWatch.isPulled(version), !pulledWatch.isRefreshing else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
             return
         }
@@ -177,8 +181,10 @@ extension UpdaterService {
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
+        let previous = flow.phase
         send(.sparkle(phase))
         carryInstallClick(phase)
+        followNewestFetch(phase, previous: previous)
         followInstall(phase)
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
@@ -188,6 +194,9 @@ extension UpdaterService {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
+            followPulled()
+        case .available:
+            followPulled()
         case .note where wasInstalling && automaticInstallInFlight:
             // An install nobody clicked failed: nothing opens over the person's work; the
             // log keeps it and the next check offers the update again.
