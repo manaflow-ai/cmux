@@ -288,7 +288,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func runsSession(_ sessionId: String) async -> Bool? {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { return nil }
-        if FileManager.default.fileExists(atPath: environment.socketPath) {
+        if FileManager.checked.fileExists(atPath: environment.socketPath) {
             do {
                 return try await AcpmuxStatusClient.sessionSummary(socketPath: environment.socketPath, sessionId: sessionId) != nil
             } catch {
