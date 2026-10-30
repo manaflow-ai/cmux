@@ -89,9 +89,12 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
         await page.locator(".acpmux-quick-menu").first().waitFor();
         // The compact menu, not the full picker: that one is More models.
         expect(await page.locator(".acpmux-mp").count()).toBe(0);
+        // The running model's effort: its row's side dropdown (#27948), else the menu's Effort row.
+        // Exactly one of the two is offered.
+        const side = page.locator(".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger");
         const effortRow = page.getByRole("menuitem", { name: /^Effort/ });
-        expect(await effortRow.count()).toBe(1);
-        await effortRow.click();
+        expect((await side.count()) + (await effortRow.count())).toBe(1);
+        await ((await side.count()) ? side : effortRow).click();
         await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length >= 2);
         const levels = page.locator(".acpmux-quick-menu").last().locator('[role="menuitemradio"]');
         expect(await levels.count()).toBeGreaterThan(1);

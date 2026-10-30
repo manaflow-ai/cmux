@@ -95,7 +95,12 @@ await requireBrowserLane("model-menu-submenu-up.test.ts", async () => {
     await page.mouse.up();
     await page.locator('.acpmux-quick-menu [role="menuitemradio"]').first().waitFor();
     await atRest(page);
-    const row = page.locator('.acpmux-quick-menu [role="menuitem"]', { hasText: /^Effort/ }).first();
+    // The running model's effort item opens its side dropdown (#27948); a menu without one keeps
+    // its Effort row.
+    const side = page.locator(".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger").first();
+    const row = (await side.count())
+      ? side
+      : page.locator('.acpmux-quick-menu [role="menuitem"]', { hasText: /^Effort/ }).first();
     await row.focus();
     await page.keyboard.press("Enter");
     await page.waitForFunction(() => document.querySelectorAll(".acpmux-quick-menu").length > 1);
@@ -106,9 +111,11 @@ await requireBrowserLane("model-menu-submenu-up.test.ts", async () => {
         return { top: box.top, bottom: box.bottom };
       };
       const menus = [...document.querySelectorAll(".acpmux-quick-menu")];
-      const row = [...menus[0]!.querySelectorAll('[role="menuitem"]')].find((item) =>
-        item.textContent?.trim().startsWith("Effort"),
-      );
+      const row =
+        menus[0]!.querySelector(".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger") ??
+        [...menus[0]!.querySelectorAll('[role="menuitem"]')].find((item) =>
+          item.textContent?.trim().startsWith("Effort"),
+        );
       return {
         button: rect(document.querySelector('button[aria-label="Model"]')),
         menu: rect(menus[0]),
