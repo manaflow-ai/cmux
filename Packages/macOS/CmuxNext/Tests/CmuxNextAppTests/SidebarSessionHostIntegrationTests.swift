@@ -115,4 +115,64 @@ struct SidebarSessionHostIntegrationTests {
             #expect(list.model.sections[0].workspaces.map(\.id) == [Self.coordinator, Self.plain] + Self.workers + [Self.dragged])
         }
     }
+
+    /// GUI matrix for the host-group refusal: every in-sidebar target must keep
+    /// the card moving while showing no gap and must leave the document intact.
+    @Test func hostGroupRefusalMatrixRunsLegacyAndDocumentPaths() throws {
+        try Self.withList { list in
+            SidebarSessionTreeFeed.publish(Self.pass(enabled: true), to: .shared)
+            list.reload(animated: false)
+            let original = list.model.sections[0].workspaces.map(\.id)
+            let source = SidebarRowKey.workspace(Self.dragged)
+
+            func exercise(_ point: NSPoint, document: Bool) throws {
+                if document {
+                    list.model.docDrag = SidebarDocDrag(
+                        item: { key in if case let .workspace(id) = key { "workspace-\(id.rawValue)" } else { nil } },
+                        section: { _ in "machine-local" },
+                        begin: { ids in Dictionary(uniqueKeysWithValues: ids.map { ($0, SidebarDocAcceptance.none) }) },
+                        drop: { _, _ in }
+                    )
+                }
+                defer { list.model.docDrag = nil }
+                let row = try #require(list.displayed.row(for: source))
+                let press = SidebarPress(key: source, point: NSPoint(x: 80, y: row.y + row.height / 2))
+                list.press = press
+                list.beginDrag(press)
+                let drag = try #require(list.drag)
+                let beforeY = drag.lift.frame.minY
+                list.updateDrag(windowPoint: point)
+                #expect(drag.lift.frame.minY != beforeY)
+                #expect(list.displayed.gapY == nil)
+                #expect(drag.target == nil)
+                list.finishDrag()
+                #expect(list.model.sections[0].workspaces.map(\.id) == original)
+            }
+
+            let header = try #require(list.displayed.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))))
+            let family = try #require(list.displayed.row(for: .workspace(Self.workers[0])))
+            let plain = try #require(list.displayed.row(for: .workspace(Self.plain)))
+            let targets = [
+                NSPoint(x: 80, y: header.y + header.height / 2),
+                NSPoint(x: 80, y: family.y + family.height / 2),
+                NSPoint(x: 80, y: plain.y + plain.height / 2),
+                NSPoint(x: 80, y: list.displayed.totalHeight - 4),
+                NSPoint(x: 80, y: 1)
+            ]
+            for point in targets { try exercise(point, document: false) }
+            for point in targets { try exercise(point, document: true) }
+
+            // Control: with no host header, the ordinary resolver still opens a gap.
+            SidebarSessionTreeFeed.publish(Self.pass(enabled: false), to: .shared)
+            list.reload(animated: false)
+            let row = try #require(list.displayed.row(for: source))
+            let press = SidebarPress(key: source, point: NSPoint(x: 80, y: row.y + row.height / 2))
+            list.press = press
+            list.beginDrag(press)
+            let plainControl = try #require(list.displayed.row(for: .workspace(Self.plain)))
+            list.updateDrag(windowPoint: NSPoint(x: 80, y: plainControl.y + plainControl.height / 2))
+            #expect(list.displayed.gapY != nil)
+            list.cancelDrag()
+        }
+    }
 }
