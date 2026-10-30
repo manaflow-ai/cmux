@@ -214,6 +214,10 @@ public final class WorkspaceSync {
 
     private func enqueue(_ event: DaemonEvent, sequence: UInt64?) {
         guard event != .other else { return }
+        let entry = QueuedEvent(event: event, sequence: sequence)
+        // Snapshot coverage must be checked before title dedupe/activity state changes.
+        // A discarded replay cannot suppress the next real title or reorder a workspace.
+        guard !isBeforeSnapshot(entry) else { return }
         switch event {
         case .titleChanged(let surface, let title):
             // A title set again to the same text is not activity, and applying it
@@ -229,8 +233,6 @@ public final class WorkspaceSync {
         default:
             break
         }
-        let entry = QueuedEvent(event: event, sequence: sequence)
-        guard !isBeforeSnapshot(entry) else { return }
         if event == .treeChanged, let index = queued.firstIndex(where: { $0.event == .treeChanged }) {
             // One pending invalidation covers the burst. Keep its newest
             // position so a change during capture still requests a follow-up.

@@ -37,7 +37,7 @@ public struct MarkdownStreamParse: Sendable {
         if streaming == isStreaming, Self.sameText(text, source) { return }
         isStreaming = streaming
         let restart = restartPoint(for: text)
-        let tail = restart.offset == 0 ? text : String(Substring(text.utf8[text.utf8.index(text.utf8.startIndex, offsetBy: restart.offset)...]))
+        let tail = restart.offset == 0 ? text : String(decoding: text.utf8[text.utf8.index(text.utf8.startIndex, offsetBy: restart.offset)...], as: UTF8.self)
         let parser = MarkdownParser(text: tail)
         let parsed = parser.parseWithStarts()
         let offsets = Self.lineOffsets(parser.lines)
@@ -59,7 +59,7 @@ public struct MarkdownStreamParse: Sendable {
             var from = kept
             while from > 0, starts[from].offset > lastBlank { from -= 1 }
             let region = from == kept ? tail
-                : String(Substring(text.utf8[text.utf8.index(text.utf8.startIndex, offsetBy: starts[from].offset)...]))
+                : String(decoding: text.utf8[text.utf8.index(text.utf8.startIndex, offsetBy: starts[from].offset)...], as: UTF8.self)
             let shown = MarkdownStreamTail(region).displayed
             let regionBlocks = shown == region && from == kept ? parsed.blocks : MarkdownParser(text: shown).parse()
             displayed = Array(blocks[..<from]) + regionBlocks.enumerated().map { MarkdownBlock(id: from + $0.offset, kind: $0.element.kind) }

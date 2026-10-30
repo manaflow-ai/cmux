@@ -186,6 +186,9 @@ public final class FeedStore {
                     if readSet.contains(item.id) { item.isRead = true }
                     return item
                 }
+                reindex()
+                recordReadMarks()
+                refreshDerived()
                 return
             }
             reindex()
