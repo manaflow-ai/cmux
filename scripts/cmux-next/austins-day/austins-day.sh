@@ -108,8 +108,8 @@ run_arm() {
   slot=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<<"$info")
   preferred_host=${preferred_host:-$host}
   echo "[$arm round $round] lease $lease host $host slot $slot (job $job, $commit)"
-  printf '{"arm": "%s", "sha": "%s", "job": "%s", "round": %s, "position": %s, "host": "%s", "lease": "%s", "harness": "%s"}\n' \
-    "$arm" "$commit" "$job" "$round" "$position" "$host" "$lease" "$harness_sha" >"$dir/arm.json"
+  printf '{"arm": "%s", "sha": "%s", "job": "%s", "round": %s, "position": %s, "host": "%s", "lease": "%s", "harness": "%s", "batch": "%s"}\n' \
+    "$arm" "$commit" "$job" "$round" "$position" "$host" "$lease" "$harness_sha" "${AUSTINS_DAY_BATCH:-}" >"$dir/arm.json"
   ssh -o BatchMode=yes "$host" "uptime; sysctl -n vm.swapusage kern.memorystatus_level hw.memsize" >"$dir/host-before.txt" 2>&1 || true
   local stage=$stage_root/$job
   run=/Users/Shared/cmux-capture/austins-day/runs/$arm-$round-$(date +%H%M%S)

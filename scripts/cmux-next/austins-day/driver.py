@@ -714,6 +714,16 @@ def main():
     STOP.set()
     for thread in load_threads + threads:
         thread.join(timeout=30)
+    # acpmux's own log for the run (the slot's home is removed when the lease ends): the last 20 MB.
+    if ACPMUX_HOME:
+        try:
+            with open(os.path.join(ACPMUX_HOME, "daemon.log"), "rb") as src:
+                src.seek(0, os.SEEK_END)
+                src.seek(max(0, src.tell() - (20 << 20)))
+                with open(os.path.join(opts.out, "acpmux-daemon.log"), "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        except OSError as error:
+            note(f"acpmux daemon.log not copied: {error}")
     hangs = rpc("debug.hangs", timeout=60)
     app_probe_end = rpc("debug.daemon_requests", timeout=20)
     log_summary = app_log(time.time() - load_start)

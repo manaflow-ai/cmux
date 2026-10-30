@@ -241,6 +241,9 @@ def run_metrics(run):
         "acpmux_new_ms": dist(a["ms"] for a in answers if a["method"] == "session/new"),
         "acpmux_prompt_ms": dist(a["ms"] for a in answers if a["method"] == "session/prompt"),
         "acpmux_errors": counts(a["error"][:80] for a in answers if a.get("error")),
+        # #28041 extension (cmux-ad 2026-10-30): chat opens that hit acpmux's 90 s agent_start limit.
+        "acpmux_agent_start_90s_hangs": sum(1 for a in answers if "agent_start did not finish" in (a.get("error") or "")),
+        "acpmux_host_start_10s_timeouts": sum(1 for a in answers if "agent host start did not finish" in (a.get("error") or "")),
         "acpmux_waves": len(series["waves"]),
         "acpmux_restarts": restarts, "acpmux_unresponsive_log": run["app_log"].get("acpmux_unresponsive"),
         "load1": dist(s.get("load1") for s in load_samples),
@@ -314,6 +317,8 @@ KEY = [  # (label, path in metrics) for the text summary
     ("workspace close not done", ("workspace_close_not_done",)),
     ("acpmux restarts", ("acpmux_restarts",)),
     ("acpmux new p99 ms", ("acpmux_new_ms", "p99")),
+    ("acpmux 90 s agent_start hangs", ("acpmux_agent_start_90s_hangs",)),
+    ("acpmux 10 s host-start time-outs", ("acpmux_host_start_10s_timeouts",)),
     ("app RSS max MB", ("memory", "app", "rss_mb", "max")),
     ("daemon RSS max MB", ("memory", "daemon", "rss_mb", "max")),
     ("acpmux RSS max MB", ("memory", "acpmux", "rss_mb", "max")),
