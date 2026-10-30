@@ -4332,6 +4332,40 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
         self.assertEqual(fake.runs[stuck["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
 
+    def test_a_lost_job_that_took_a_runner_since_the_inventory_is_never_cancelled(self):
+        # The plan judged the sweep's job inventory; the job took a runner before the cancel. Cancelling now would
+        # interrupt valid work at the PR's head, so the jobs are read again first.
+        stuck, other, jobs, prs = open_head_world()
+        candidate = decision_for(open_head_plan([stuck, other], jobs, prs), stuck).candidate
+        self.assertTrue(candidate.open_head)
+        cases = {
+            "took a runner": [started_job(age=1)],
+            "no job is still unassigned": [],
+            "a job failed": [unassigned_job(age=85), started_job(age=2, status="completed", conclusion="failure")],
+        }
+        for case, now_jobs in cases.items():
+            with self.subTest(case=case):
+                if case == "took a runner":
+                    now_jobs[0]["name"] = jobs[stuck["id"]][0]["name"]
+                    now_jobs[0]["created_at"] = jobs[stuck["id"]][0]["created_at"]
+                fake = FakeGitHub({stuck["id"]: dict(stuck)}, {stuck["id"]: now_jobs})
+                results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+                self.assertTrue(results[stuck["id"]].startswith("skipped ("), results)
+                self.assertIn(case, results[stuck["id"]])
+                self.assertEqual((failures, fake.posts()), (0, []))
+                self.assertEqual(janitor.new_lost_reruns([candidate], results, now=NOW), [])
+        with self.subTest(case="jobs not readable"):
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
+            fake.unreadable_jobs.add(stuck["id"])
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertIn("could not be read again", results[stuck["id"]])
+            self.assertEqual(fake.posts(), [])
+        with self.subTest(case="still lost"):
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertEqual(results[stuck["id"]], "cancelled")
+            self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+
     def test_the_workflow_hands_the_janitor_cmux_bots_token_twice(self):
         workflow = yaml.safe_load(WORKFLOW.read_text())
         step = next(step for step in workflow["jobs"]["sweep"]["steps"] if step.get("name") == "Cancel wasted macOS runs")
