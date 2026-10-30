@@ -1,4 +1,5 @@
 import AppKit
+import class CmuxNextDesign.LaunchReveal
 @testable import CmuxNextApp
 
 extension AppServices {
