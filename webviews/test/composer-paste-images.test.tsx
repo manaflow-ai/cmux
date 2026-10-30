@@ -694,3 +694,35 @@ test("a prompt put back after its send keeps its inline attachment, and sends it
   expect(sent[1]!.text).toBe(`${prompt}!`);
   expect(sent[1]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
 });
+
+// Review of #26545 at 81dbee21: a failed upload placed in the text is not sent; the send clears the
+// text from outside (no edit), so its node goes, and it must stay reachable: its failed chip with
+// Retry and × in the strip, never hidden as "placed" with no node to draw it.
+test("a failed attachment left out of a send stays reachable with Retry and its x", async () => {
+  const upload = async () => ({ error: "The upload failed." });
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload });
+  await act(async () => composer.current!.restore("look", []));
+  await until(() => field().textContent?.includes("look") === true, "the prompt");
+  await act(async () => markdownField().setCaret("look".length));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" })],
+      types: ["Files"],
+      getData: () => "",
+    },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  await until(() => Boolean(field().querySelector('[data-state="failed"]')), "the failed tile in the text");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments).toEqual([]);
+  await until(() => !field().querySelector("[data-inline-attachment]"), "the cleared prompt");
+  const strip = () => document.querySelector(".acpmux-attachments");
+  await until(() => Boolean(strip()?.querySelector(".acpmux-attachment-retry")), "the failed chip in the strip");
+  expect(strip()!.querySelector(".acpmux-attachment-retry")).not.toBeNull();
+  expect(strip()!.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+});
