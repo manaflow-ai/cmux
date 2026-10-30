@@ -783,13 +783,15 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn('- cron: "*/10 * * * *"', text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("dry_run:", text)
-        self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", ""))
+        # No pull_request trigger (the concurrency group reads workflow_run.pull_requests, which is no trigger).
+        self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", "")
+                         .replace("workflow_run.pull_requests[0]", ""))
         self.assertIn("\npermissions: {}\n", text)
         self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         # It mints GLAEDA_ROUTE_APP_KEY and CMUX_BOT_APP_KEY: LINUX_RUNNER moves it only among the
         # Blacksmith Linux sizes the expression names (tests/test_ci_fork_runner_routing.py).
         self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
-        self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
+        self.assertIn("concurrency:\n  group: ${{ (github.event_name == 'workflow_run'", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
         self.assertIn("ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}", text)
         self.assertIn("run: python3 scripts/ci/queue_janitor.py", text)

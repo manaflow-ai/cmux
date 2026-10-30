@@ -94,9 +94,13 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 # One sweep at a time; a second sweep waits rather than racing the first
-# one's cancellations, and never cancels it.
+# one's cancellations, and never cancels it. GitHub keeps one run waiting per
+# group and cancels it for each newer arrival, so a run whose job's `if` starts
+# no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
+# own: in the shared group those runs cancelled the waiting sweep, often within
+# seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
 concurrency:
-  group: ci-queue-janitor
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor' }}
   cancel-in-progress: false
 
 jobs:
@@ -108,7 +112,9 @@ jobs:
     name: Sweep wasted macOS demand
     if: ${{ !(github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
+    # job skips the upload below, so this leaves room for the longest one seen.
+    timeout-minutes: 15
     steps:
       # Before the freshness gate, so its one read is on the App's budget too. Minting
       # spends the App's own requests, never GITHUB_TOKEN's.
