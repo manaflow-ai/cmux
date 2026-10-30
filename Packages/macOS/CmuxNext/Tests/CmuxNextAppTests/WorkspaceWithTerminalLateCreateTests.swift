@@ -45,8 +45,19 @@ struct WorkspaceWithTerminalLateCreateTests {
         elif command == 'create-workspace':
             # A busy daemon: every ask is answered once the slow start ends, the first one included.
             threading.Timer(max(0.0, start + delay - time.time()), made, args=(frame,)).start()
+        elif command == 'create-terminal':
+            # The first terminal starts late too: answered after the client's start deadline, once per mutation id.
+            def started(frame=frame):
+                key = 'term-' + (frame.get('mutation_id') or 'unkeyed')
+                with lock:
+                    replayed = key in workspaces
+                    workspaces.setdefault(key, 0)
+                reply(frame, {'surface': 7, 'terminal_id': frame.get('terminal_id'), 'pane': 3, 'screen': 2,
+                              'key': frame.get('key'), 'lifecycle': 'running', 'replayed': replayed})
+            threading.Timer(1.5, started).start()
         elif command == 'test-commands':
-            reply(frame, {'commands': commands, 'workspaces': len(workspaces)})
+            reply(frame, {'commands': commands, 'workspaces': len([k for k in workspaces if not str(k).startswith('term-')]),
+                          'terminals': len([k for k in workspaces if str(k).startswith('term-')])})
         else:
             reply(frame, {})
     """#
@@ -55,22 +66,22 @@ struct WorkspaceWithTerminalLateCreateTests {
         let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, "11"])
         let connection = DaemonConnection(
             endpoint: .init(socketPath: "/tmp/cmux-late-workspace-test-\(UUID().uuidString).sock", bridge: bridge),
-            configuration: .init(requiredCapabilities: [], requestTimeout: .milliseconds(500), spawnTimeout: .seconds(1),
+            configuration: .init(requiredCapabilities: [], requestTimeout: .milliseconds(500), spawnTimeout: .milliseconds(500),
                                  terminalEnvironment: nil))
         try await connection.start()
         let repair = EmptyWorkspaceRepair(store: DaemonStore(), create: { _ in nil }, close: { _ in }, cause: { _ in .tabClosed },
                                           canCreate: { true }, epoch: { 1 }, isLive: { true })
         let key = WorkspaceKey.generate()
-        var terminalAsked = false
+        // The first terminal as every workspace-with-a-terminal caller makes it (Cmd-N, Open Folder, fork, teams).
         let made = try await WorkspaceCreation.create(key, name: "late", on: connection, repair: repair) { created in
-            terminalAsked = true
+            _ = try await connection.createTerminalWaitingForStart(in: created, cwd: "/tmp")
             return created.rawValue
         }
         let recorded = try await connection.request(Recorded())
         await connection.close()
 
         #expect(made == key.rawValue)
-        #expect(terminalAsked, "the first terminal is asked for once the workspace exists")
+        #expect(recorded["terminals"]?.doubleValue == 1, "the first terminal that starts late is waited for and made once")
         let commands = try #require(recorded["commands"]?.arrayValue).compactMap(\.stringValue)
         #expect(!commands.contains("close-workspace"), "the workspace the person saw was closed: \(commands)")
         #expect(recorded["workspaces"]?.doubleValue == 1, "asking again under one mutation id makes one workspace")
