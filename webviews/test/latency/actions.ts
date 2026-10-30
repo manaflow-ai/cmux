@@ -2,7 +2,7 @@
 // VISIBLE response to the input (what the user sees change), not a later result: a source switch
 // responds when the source control shows the new source, not when the new diff has loaded.
 import type { Page } from "playwright";
-import type { LatencyAction, LatencyPageSpec } from "./measure";
+import type { Instrumentation, LatencyAction, LatencyPageSpec } from "./measure";
 import { measureRailFlow, RAIL_DRAG_CASE } from "./rail-flow";
 
 /** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
@@ -630,6 +630,10 @@ export const AGENT_PANE_PAGE: LatencyPageSpec = {
 
 const composerEditor = ".acpmux-composer [contenteditable='true']";
 const profiled = ["longTasks", "reactCommits"] as const;
+// WebKit does not expose the Long Tasks API. Keep React commit evidence required there,
+// while Chromium requires both sources.
+const requiredProfiled = (engine: string): Instrumentation[] =>
+  engine === "chromium" ? [...profiled] : ["reactCommits"];
 const shown = (selector: string) => `(() => {
   const node = document.querySelector(${js(selector)});
   if (!node) return false;
@@ -664,7 +668,7 @@ function pickerOpen(id: string, name: string, trigger: string, popup: string, ke
     id,
     name,
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       await page.waitForSelector(trigger);
@@ -688,7 +692,7 @@ function composerMenu(id: string, name: string, key: string, popup: string): Lat
     id,
     name,
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       await page.focus(composerEditor);
@@ -737,7 +741,7 @@ const flowActions: LatencyAction[] = [
     id: "chat.type.character",
     name: "type a character",
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       return `document.querySelector(${js(composerEditor)})?.textContent === "x"`;
@@ -754,7 +758,7 @@ const flowActions: LatencyAction[] = [
     id: "chat.send",
     name: "send prompt",
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       const text = `Latency prompt ${Date.now()}`;
@@ -779,7 +783,7 @@ const flowActions: LatencyAction[] = [
     id: `chat.session-info.${open ? "open" : "close"}`,
     name: `Session Info (${open ? "open" : "close"}, pointer)`,
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       if (!open) {
@@ -800,7 +804,7 @@ const flowActions: LatencyAction[] = [
     id: "chat.session-info.command",
     name: "toggleSessionInfo (web command)",
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       return shown("aside.acpmux-chat-inspector[data-presence='shown']");
@@ -817,7 +821,7 @@ const flowActions: LatencyAction[] = [
     id: "chat.new-tab.open",
     name: "openNewTab (web adoption)",
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
       return shown(".nt-screen .nt-field");
@@ -843,7 +847,7 @@ function longScroll(resident: boolean): LatencyAction {
     id: `chat.scroll.3000.${resident ? "resident" : "paged"}`,
     name: `3000-turn scroll (${resident ? "resident mixed rows" : "paged heavy history tail"})`,
     metricType: "target_painted",
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await page.waitForSelector(".acpmux-scroll");
       await page.evaluate(() => {
@@ -887,7 +891,7 @@ export const RAIL_DRAG_PAGE: LatencyPageSpec = {
     id: metricType === RAIL_DRAG_CASE.metric ? RAIL_DRAG_CASE.id : `${RAIL_DRAG_CASE.id}.cadence`,
     name: metricType === RAIL_DRAG_CASE.metric ? "rail drag target paint" : "rail drag frame cadence",
     metricType,
-    requiredInstrumentation: [...profiled],
+    requiredInstrumentation: requiredProfiled,
     measureRun: measureRailFlow,
     settle: quiet,
   })),

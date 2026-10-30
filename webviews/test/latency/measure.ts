@@ -56,7 +56,7 @@ export interface LatencyAction {
   metricType?: MetricType;
   /** Restrict capture to an adapter's event, e.g. pointermove for drag. */
   inputEvent?: string;
-  requiredInstrumentation?: Instrumentation[];
+  requiredInstrumentation?: Instrumentation[] | ((engine: string) => Instrumentation[]);
   /** Prepare outside the window; return an expression false now and true at the visible target. */
   prepare?(page: Page): Promise<string>;
   input?(page: Page): Promise<void>;

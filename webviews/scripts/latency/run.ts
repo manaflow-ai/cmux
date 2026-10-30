@@ -14,6 +14,7 @@ import {
   BUDGET_60HZ,
   measureAction,
   type ActionResult,
+  type LatencyAction,
   type IdleResult,
   type Instrumentation,
   type MetricReader,
@@ -191,6 +192,12 @@ export async function sampleIdle(page: Page, durationMs: number, metrics?: Metri
   };
 }
 
+export function actionInstrumentation(action: LatencyAction, engine: string): Instrumentation[] {
+  return typeof action.requiredInstrumentation === "function"
+    ? action.requiredInstrumentation(engine)
+    : (action.requiredInstrumentation ?? []);
+}
+
 export function evidenceErrors(
   results: ActionResult[],
   expectedCases: string[],
@@ -319,7 +326,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
                 result.unsupportedReasons.wakeups = "adapter failure closed the page before idle sampling";
               }
               results.push(result);
-              errors.push(...evidenceErrors([result], [result.id], action.requiredInstrumentation ?? []));
+              errors.push(...evidenceErrors([result], [result.id], actionInstrumentation(action, engineName)));
               console.log(`${result.id} ${result.metricType}: ${JSON.stringify(result.latencyMs)}`);
             }
           } finally {
