@@ -6872,7 +6872,13 @@ export class AcpmuxDirectClient {
     };
     this.peerStatus = {
       ...(this.peerEvents.authoritative
-        ? Object.fromEntries(this.peers.map((peer) => [peer, { connected: false }]))
+        ? Object.fromEntries(
+            this.peers.map((peer) => {
+              // Keeps what the status read last said (`lastSeen`, `attempts`) for the offline banner.
+              const { state: _state, ...seen } = this.peerStatus[peer] ?? {};
+              return [peer, { ...seen, connected: false }];
+            }),
+          )
         : this.peerStatus),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, { ...this.peerStatus[peer], ...link }])),
     };
