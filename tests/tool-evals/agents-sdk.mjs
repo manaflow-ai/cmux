@@ -109,12 +109,12 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, ef
 
 const tomlString = (value) => JSON.stringify(String(value));
 
-/** A clean CODEX_HOME: the model route and login of this machine's config, nothing else. */
 /** One shell word, single-quoted. */
 function shellQuote(text) {
   return `'${String(text).replaceAll("'", "'\\''")}'`;
 }
 
+/** A clean CODEX_HOME: the model route and login of this machine's config, nothing else. */
 export function codexHome(home) {
   mkdirSync(home, { recursive: true });
   const config = readFileSync(join(homedir(), ".codex/config.toml"), "utf8");
@@ -149,7 +149,8 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
   writeFileSync(join(scratchHome, ".zprofile"), profile);
   writeFileSync(join(scratchHome, ".bash_profile"), profile);
   const child = spawn(...guarded(home, own, "codex", ["app-server", ...mcpConfig]), {
-    cwd, env: { ...env, HOME: scratchHome, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"],
+    // ZDOTDIR too: an operator's own ZDOTDIR would skip the scratch .zprofile.
+    cwd, env: { ...env, HOME: scratchHome, ZDOTDIR: scratchHome, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"],
   });
   let next = 1;
   const waiting = new Map();
