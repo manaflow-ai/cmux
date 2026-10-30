@@ -306,14 +306,16 @@ def read_bun(lines: list[str], result: Result) -> None:
     file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
     block = False  # reading the assertion block under an `error:` line, up to its stack or annotation
     run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
-    diagnostics: dict = {}  # name: its distinct diagnostics, in the order printed
+    diagnostics: dict = {}  # name: its distinct diagnostics
+    added = None  # the diagnostic the last result line added, which its timeout note replaces
 
-    def fail(name: str, message: str) -> str:
+    def fail(name: str, message: str) -> str | None:
         result.failed.add(name)
         result.ran = True
         if message and message not in diagnostics.setdefault(name, []):
             diagnostics[name].append(message)
-        return name
+            return message
+        return None
 
     def end_run(why: str) -> None:
         nonlocal open_run
@@ -339,10 +341,13 @@ def read_bun(lines: list[str], result: Result) -> None:
         elif match := BUN_TEST.match(text):
             result.ran, open_run, last = True, True, None
             name = match.group(2)
+            added = None
             if match.group(1) == "fail" and not recap:
-                last = fail(f"{file} > {name}" if file else name, bun_diagnostic(said, where))
+                last = f"{file} > {name}" if file else name
+                added = fail(last, bun_diagnostic(said, where))
             elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
-                last = fail(name, "")  # failed before its file's header printed
+                last = name  # failed before its file's header printed
+                fail(last, "")
             said, where, block = [], "", False
         elif BUN_UNHANDLED.match(text):
             unhandled = True
@@ -364,6 +369,11 @@ def read_bun(lines: list[str], result: Result) -> None:
         elif (match := BUN_AT.match(text)) and said and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
             where = f"{file}:{match.group(2)}"
         elif (match := BUN_TIMED_OUT.match(text)) and last:
+            # A timeout is the test's diagnostic, whatever its run printed before bun stopped it; a repeated failure
+            # of the same name keeps its own.
+            if added is not None:
+                diagnostics[last].remove(added)
+            added = None
             fail(last, f"timed out after {match.group(1)}ms")
         elif BUN_COUNT.match(text):
             if unhandled:
@@ -373,7 +383,8 @@ def read_bun(lines: list[str], result: Result) -> None:
     end_run("the log ended")
     for name, found in diagnostics.items():
         if found:
-            # Like web_failures: several diagnostics for one name are all compared, none dropped.
+            # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
+            # head and base compare whatever order their runs printed them in.
             result.messages[name] = "\n--- repeated failure ---\n".join(sorted(found))
 
 

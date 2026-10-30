@@ -757,7 +757,7 @@ class BunTestReds(unittest.TestCase):
         assertion, type_error = "expect(received).toBe(expected)", "TypeError: undefined is not a function"
         head = run(assertion, type_error)
         self.assertEqual(reds.read(head).messages["test/a.test.ts > a > b"],
-                         f"{assertion} at test/a.test.ts:4\n--- repeated failure ---\n{type_error} at test/a.test.ts:4")
+                         f"{type_error} at test/a.test.ts:4\n--- repeated failure ---\n{assertion} at test/a.test.ts:4")
         verdict = reds.classify(head, run(assertion))
         self.assertTrue(verdict.own)
         self.assertIn("1 test(s) fail differently on the base", verdict.reasons[0])
