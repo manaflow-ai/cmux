@@ -53,6 +53,7 @@ export default componentEntry({
   id: "agent-pane.transcript-grid-cards",
   title: "Transcript grid cards",
   area: "Agent pane",
+  covers: ["agent-session/acpmux/conversation/AgentMessageRow.tsx", "agent-session/acpmux/subagents/AgentCard.tsx"],
   pane: true,
   height: 700,
   widths: { narrow: 480, normal: 1000, wide: 1200 },

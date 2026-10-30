@@ -1581,8 +1581,10 @@ export function placeRows(
     if (height > 0) {
       if (previousContent >= 0)
         top += estimate.prompts
-          ? estimate.prompts[index] || estimate.prompts[previousContent] ? TRANSCRIPT_TURN_GAP : TRANSCRIPT_BLOCK_GAP
-          : estimate.gaps?.[index] ?? 0;
+          ? estimate.prompts[index] || estimate.prompts[previousContent]
+            ? TRANSCRIPT_TURN_GAP
+            : TRANSCRIPT_BLOCK_GAP
+          : (estimate.gaps?.[index] ?? 0);
       previousContent = index;
     }
     tops[index] = top;

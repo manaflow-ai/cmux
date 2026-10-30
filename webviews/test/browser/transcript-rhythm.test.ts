@@ -93,14 +93,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               console.log(`TRANSCRIPT_RHYTHM ${JSON.stringify({ width, theme, state, metric, value })}`);
           if (process.env.CMUX_RHYTHM_CAPTURES) {
             await mkdir(process.env.CMUX_RHYTHM_CAPTURES, { recursive: true });
-            const capture = await page.screenshot({
-              path: `${process.env.CMUX_RHYTHM_CAPTURES}/${theme}-${width}.png`,
-            });
-            if (process.env.CMUX_RHYTHM_CAPTURE_LOG) {
-              const encoded = capture.toString("base64");
-              for (let offset = 0; offset < encoded.length; offset += 400)
-                console.log(`RHYTHM_PNG ${theme}-${width} ${offset} ${encoded.slice(offset, offset + 400)}`);
-            }
+            await page.screenshot({ path: `${process.env.CMUX_RHYTHM_CAPTURES}/${theme}-${width}.png` });
           }
           for (const state of [hidden, shown]) {
             expect(Math.abs(state.turn - 32), "turn gap").toBeLessThanOrEqual(0.5);

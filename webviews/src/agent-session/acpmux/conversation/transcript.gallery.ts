@@ -1204,6 +1204,46 @@ const BASH_PERMISSION = chat(
   },
 );
 
+const gridRhythmSnapshot = chat(
+  [
+    // Prior history exercises the followed composer boundary, including narrow panes.
+    assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
+      id: "grid-history",
+    }),
+    user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
+    user("Review the current verification results", 3, {
+      id: "grid-header",
+      incoming: {
+        kind: "message",
+        message: {
+          name: "review-agent",
+          text: "Review the current verification results",
+          raw: "Review the current verification results",
+        },
+      },
+      untyped: true,
+    }),
+    assistant(
+      "I am reading the verification report and checking the current changes.\n\nThe same column and equal block gaps keep the progress easy to follow.",
+      2.8,
+      { id: "grid-message" },
+    ),
+    activity(
+      [
+        tool("Read verification results", "execute", "completed", { command: "cat verification.txt" }),
+        tool("Inspect current changes", "execute", "completed", { command: "git diff --stat" }),
+        tool("Run focused checks", "execute", "in_progress", {
+          command: "bun test transcript",
+          startedAt: minutesAgo(0.5),
+        }),
+      ],
+      2.7,
+      { id: "grid-tools" },
+    ),
+  ],
+  { isWorking: true },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -1266,45 +1306,19 @@ export default agentPaneEntry({
     "grid-rhythm": {
       height: 900,
       note: "One received header, a two-paragraph reply, two completed commands and a live command above the composer. Synthetic grid measurement fixture.",
-      snapshot: chat(
-        [
-          // Prior history exercises the followed composer boundary, including narrow panes.
-          assistant(Array.from({ length: 32 }, (_, i) => `Earlier verification result ${i + 1}.`).join("\n\n"), 5, {
-            id: "grid-history",
-          }),
-          user("Check the verification and report the result.", 4, { id: "grid-prompt" }),
-          user("Review the current verification results", 3, {
-            id: "grid-header",
-            incoming: {
-              kind: "message",
-              message: {
-                name: "review-agent",
-                text: "Review the current verification results",
-                raw: "Review the current verification results",
-              },
-            },
-            untyped: true,
-          }),
-          assistant(
-            "I am reading the verification report and checking the current changes.\n\nThe same column and equal block gaps keep the progress easy to follow.",
-            2.8,
-            { id: "grid-message" },
-          ),
-          activity(
-            [
-              tool("Read verification results", "execute", "completed", { command: "cat verification.txt" }),
-              tool("Inspect current changes", "execute", "completed", { command: "git diff --stat" }),
-              tool("Run focused checks", "execute", "in_progress", {
-                command: "bun test transcript",
-                startedAt: minutesAgo(0.5),
-              }),
-            ],
-            2.7,
-            { id: "grid-tools" },
-          ),
-        ],
-        { isWorking: true },
-      ),
+      snapshot: gridRhythmSnapshot,
+    },
+    "grid-rhythm-hover": {
+      height: 900,
+      note: "The rhythm scene with the reply action row shown; glyphs overlay the existing block gap.",
+      snapshot: gridRhythmSnapshot,
+      play: async (ctx) => {
+        await ctx.hover({ selector: '[data-row-id="grid-message"] .cv-md' });
+        await ctx.waitFor(() => {
+          const actions = ctx.document.querySelector('[data-row-id="grid-message"] .cv-reply-actions');
+          return actions && ctx.document.defaultView!.getComputedStyle(actions).opacity === "1";
+        });
+      },
     },
     "activity-tone-secondary": {
       note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
