@@ -15,6 +15,9 @@ extension AgentHandlers {
     /// still fail normally instead of switching panes.
     static func withAgentPane(_ invocation: ActionInvocation, context: AppActionContext, seed: AgentPaneSeed,
                               _ open: @escaping @MainActor (PaneController) -> Void) {
+        // A shown pane target may allow a view change (for example, a context-menu action).
+        // Resolve that explicit target before applying the untargeted top-page route.
+        if invocation.target != nil, let pane = context.scope(invocation).pane { return open(pane) }
         guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
         // Over a top page the parked workspace's panes never mount: a new workspace, or a refusal now.
         if context.activeWindow?.state.page != nil {
