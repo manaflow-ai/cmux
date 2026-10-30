@@ -143,6 +143,10 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
     // WebKit (the app) leaves the focus in the field the menu focuses on open: a clicked button
     // takes none there. Chromium hands it to the clicked + button, so the test puts it back.
     await page.focus(".acpmux-palette-menu input");
+    // Read the settled style: a focus transition starts from "none" (the old ring read as a
+    // transparent 0px shadow on its first frame).
+    const settled = () =>
+      page.waitForFunction(() => document.querySelector(".acpmux-palette-menu input")?.getAnimations().length === 0);
     const ring = () =>
       page.$eval(".acpmux-palette-menu input", (input) => {
         const css = getComputedStyle(input);
@@ -152,6 +156,7 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
           outline: css.outlineStyle === "none" ? "none" : `${css.outlineWidth} ${css.outlineStyle}`,
         };
       });
+    await settled();
     const rest = await ring();
     console.log(`composer-plus-menu-polish: search field ${JSON.stringify(rest)}`);
     expect(rest.focused).toBe(true);
@@ -159,6 +164,7 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
     expect(rest.outline).toBe("none");
     // Typing filters and keeps the focus there (:focus-visible); still no ring.
     await page.keyboard.type("br");
+    await settled();
     expect(await ring()).toEqual({ focused: true, boxShadow: "none", outline: "none" });
     await page.close();
   });
