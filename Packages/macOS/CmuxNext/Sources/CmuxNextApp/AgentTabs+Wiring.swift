@@ -290,9 +290,8 @@ extension AgentTabStore {
                 services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
-            // it is sent, through any daemon (an app-server link has none: no owner word).
-            let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
-            let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
+            // it is sent, through any daemon (the legacy link's or the app link's own answer).
+            let ownerLink = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.ownerLink(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = ownerLink
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
