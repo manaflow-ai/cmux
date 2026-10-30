@@ -163,6 +163,10 @@ export interface MarkdownFile {
   readOnly?: boolean;
   readOnlyReason?: MarkdownReadOnlyReason;
   assetBase?: string;
+  /** The file's own remote-image grant, saved table widths and viewer comments (as in the config). */
+  remoteImageBase?: string;
+  tableWidths?: unknown;
+  comments?: unknown;
 }
 
 export function isMarkdownConfig(value: unknown): value is MarkdownConfig {
