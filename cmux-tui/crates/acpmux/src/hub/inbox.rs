@@ -17,7 +17,10 @@
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
 //! never steers into its turn (`turns.rs`, and a digest's steer in `inbox_digest.rs`): it queues
 //! behind the review as it did before the inbox and runs as a turn of its own once the review
-//! ends, which answers its sender. The person's own steer and Send now still go in. A coordinator
+//! ends, which answers its sender. Nor does a notice steer into its turn: messages its inbox
+//! took before it became one (a `review.` tag set later) wait for the turn's end, as an idle
+//! chat's do. The person's own steer still goes in, and so does a queued message the person
+//! sends with Send now: that is the person's choice, not another agent's. A coordinator
 //! found notices steered into review turns (2026-10-30): "The reviewer then reads the thread
 //! instead of reviewing and ends with no SHIP/BLOCK verdict."
 //!
@@ -405,7 +408,9 @@ fn prompt_waits(session: &Session) -> bool {
 /// past its cap (`turns.rs` checks it again at dispatch).
 pub(super) fn notice_held(session: &Session) -> bool {
     let started = session.turn().map(|t| t.started_at);
-    prompt_waits(session) || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
+    prompt_waits(session)
+        || review_box(session)
+        || started.is_some_and(|at| capped(&session.meta(), at, now_ms()))
 }
 
 /// Whether the session's running turn is past its cap.
@@ -628,9 +633,12 @@ impl Hub {
                                 0 => 0,
                                 at => at.saturating_add(REFUSED_RETRY_MS),
                             };
+                            // A review box's turn takes no notice: what its inbox held before
+                            // it became one waits for the turn's end (module docs).
                             if !steers
                                 || capped(&meta, turn.started_at, now)
                                 || prompt_waits(session)
+                                || crate::review_box::of_meta(&meta)
                             {
                                 Next::Nothing
                             } else if retry > now {
