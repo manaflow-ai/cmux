@@ -603,6 +603,12 @@
       "row": "global_mutable_statics",
       "allow": 4,
       "why": "MessagesLabHome PaletteScope (per-chat bubble colours, user 2026-10-28): the vendored MessagesLab renderer reads its palette from process-wide statics (Fixture.theme, Fixture.paletteGeneration) on any thread, so two Home chats on screen with different Chat Colors overwrote each other. The fix mirrors the renderer's existing RenderScaleScope: a main-thread scope slot (mainThreadScoped, as RenderScaleScope's, to avoid binding a task local on main outside a task), the process palette that replaces the stored Fixture.theme, a main-only intern table so equal palettes share cache ids, and Fixture.baseGeneration that replaces the stored paletteGeneration. Moving them into an injected instance would mean rewriting every static drawing helper of the vendored renderer, which reads Fixture.* by design."
+    },
+    {
+      "date": "2026-10-30",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "MessagesLabHome PaletteScope's one lock (crash ratchet base red, 2026-10-30): it replaces the four unsynchronized statics of the 2026-10-28 exception above (mainThreadScoped, process, the box table and Fixture.baseGeneration; three nonisolated(unsafe) waivers and one counted hit) with one OSAllocatedUnfairLock that guards them, because render workers read the process palette and the base generation while the main thread writes them: a data race the nonisolated(unsafe) marks only hid. The count falls by three. The state stays process-wide for the same reason as that exception: the vendored MessagesLab renderer reads Fixture.* statics from every static drawing helper by design."
     }
   ],
   "observer_wrappers": [
