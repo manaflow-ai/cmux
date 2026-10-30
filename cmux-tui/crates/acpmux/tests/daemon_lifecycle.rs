@@ -814,6 +814,43 @@ fn a_command_in_a_missing_home_starts_no_daemon() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The same with a systemd unit installed (a Linux machine running `acpmux.service`): the
+/// command refuses before it asks systemd anything, since starting the unit for that home would
+/// make it again (review of #27796).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_command_in_a_missing_home_starts_no_systemd_unit() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("nounit");
+    let home = dir.join("tmp7uxt3tq_/.acpmux");
+    let bin = dir.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let asked = dir.join("systemctl-asked");
+    let systemctl = bin.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\necho loaded\nexit 0\n", asked.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    let out = daemon_env::acpmux(&dir)
+        .args(["ls"])
+        .env("PATH", path)
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", home.join("acpmux.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("does not exist"), "{stderr}");
+    assert!(!asked.exists(), "systemctl was asked: {:?}", std::fs::read_to_string(&asked));
+    assert!(!dir.join("tmp7uxt3tq_").exists(), "the command made the removed home again");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `ACPMUX_SOCKET` alone names another home's daemon (the Chief's): with that daemon down, a
 /// command fails at once, naming the socket and its own home's, instead of starting a daemon
 /// under this home's lock for that socket and waiting out the handover budget on it.

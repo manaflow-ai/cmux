@@ -1091,6 +1091,10 @@ where
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
+    // Before the managed unit too: starting it would make a removed home again.
+    if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
+        check_autostart(path)?;
+    }
     if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
         return Ok(value);
     }
@@ -1411,11 +1415,11 @@ async fn holder_elsewhere(path: &std::path::Path) -> Option<std::path::PathBuf> 
         }
     }
     for socket in candidates {
-        let Ok(client) = Client::connect(&socket).await else { continue };
-        let asked = tokio::time::timeout(
-            START_BUDGET,
-            client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
-        )
+        // The connect too: a stopped (suspended) daemon accepts and never answers `initialize`.
+        let asked = tokio::time::timeout(START_BUDGET, async {
+            let client = Client::connect(&socket).await?;
+            client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
+        })
         .await;
         let Ok(Ok(status)) = asked else { continue };
         let serves =
