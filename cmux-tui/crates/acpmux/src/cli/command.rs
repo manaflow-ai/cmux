@@ -261,41 +261,7 @@ pub enum Command {
     /// (newest first, at most 40) and says how many it left out; `--json` with no filter is
     /// every session's full record.
     #[command(alias = "list", alias = "list-sessions")]
-    Ls {
-        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
-        #[arg(long)]
-        with_tools: bool,
-        /// Only sessions in this state: running, ready, idle, closed, waiting.
-        #[arg(long)]
-        status: Option<String>,
-        /// Only sessions with a pending permission request.
-        #[arg(long)]
-        pending: bool,
-        /// Only sessions carrying this tag (key or key=value).
-        #[arg(long)]
-        tag: Option<String>,
-        /// Return at most N sessions, newest first.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
-        limit: Option<u64>,
-        /// Select comma-separated fields from each session record.
-        #[arg(long, value_name = "FIELD[,FIELD…]")]
-        fields: Option<String>,
-        /// Only sessions updated within this duration (for example `24h` or `30m`).
-        #[arg(long, value_name = "DURATION")]
-        since: Option<String>,
-        /// Only live sessions: any status but closed.
-        #[arg(long)]
-        live: bool,
-        /// Only sessions whose name (`HOST/NAME` for a peer's) matches this regular expression.
-        #[arg(long, value_name = "REGEX")]
-        name: Option<String>,
-        /// Only sessions on this host: a peer's name, or this machine's (`local` too).
-        #[arg(long, value_name = "HOST")]
-        host: Option<String>,
-        /// Text view: every session, closed ones too, instead of the compact live view.
-        #[arg(long)]
-        all: bool,
-    },
+    Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {
