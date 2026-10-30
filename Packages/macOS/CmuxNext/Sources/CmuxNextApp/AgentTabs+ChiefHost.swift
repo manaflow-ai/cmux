@@ -46,23 +46,37 @@ extension AgentTabStore {
     /// The host to record for an existing session a caller names with no host
     /// (`agent.openSessionTab`, `agent.openSessionWorkspace`): nil (this Mac's acpmux) when that
     /// daemon runs it, the app's Chief home's (`chief:<home id>`) when that one does (#27934: a
-    /// chat a Chief subagent started with `acpmux new`, which this Mac's acpmux lacks). When a
+    /// chat a Chief subagent started with `acpmux new`, which this Mac's acpmux lacks), else another
+    /// Chief home's of this Mac that runs it (``ChiefHomeDirectory/host(running:)``). When a
     /// daemon cannot say, nil: the pane's router still finds the chat where it runs.
     ///
     /// - Throws: ``AgentTabRefusal`` when every daemon answered and none runs `session`, instead of
     ///   a tab that says "This chat isn't available".
     func hostRunning(_ session: String) async throws -> String? {
-        let local = await (sessionProbe ?? host).runsSession(session)
+        // Both daemons at once: each answers within its own deadline.
+        let probe = sessionProbe ?? host, chiefPane = chiefPaneHost
+        async let localRuns = probe.runsSession(session)
+        async let chiefRuns = Self.runs(session, on: chiefPane)
+        let (local, chief) = await (localRuns, chiefRuns)
         if local == true { return nil }
-        var chief: Bool?
-        if let chiefHost, let chiefPaneHost {
-            chief = await chiefPaneHost.runsSession(session)
-            if chief == true { return chiefHost }
-        } else {
-            chief = false
+        if chief == true, let chiefHost { return chiefHost }
+        // This Mac's other Chief homes (#25262): a tagged build's, a named Chief's.
+        var othersSayNo = true
+        if let chiefHomes {
+            let other = await chiefHomes.host(running: session)
+            if let host = other.host { return host }
+            othersSayNo = other.allSayNo
         }
-        if local == false, chief == false { throw AgentTabRefusal(message: MiscHandlerStrings.noLocalSession(session)) }
+        if local == false, chief == false, othersSayNo {
+            throw AgentTabRefusal(message: MiscHandlerStrings.noLocalSession(session))
+        }
         return nil
+    }
+
+    /// Whether `host` runs `session`; false with no host.
+    private nonisolated static func runs(_ session: String, on host: (any AgentPaneHostProviding)?) async -> Bool? {
+        guard let host else { return false }
+        return await host.runsSession(session)
     }
 }
 

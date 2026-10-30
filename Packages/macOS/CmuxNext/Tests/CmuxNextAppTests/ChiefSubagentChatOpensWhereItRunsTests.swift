@@ -54,7 +54,8 @@ struct ChiefSubagentChatOpensWhereItRunsTests {
         let appDaemon = try ListingDaemon(sessions: [["sessionId": appOwn]])
         defer { chiefDaemon.stop(); appDaemon.stop() }
         let app = NamedHost(name: "app", probe: AcpmuxHost(environment: appDaemon.environment, startsDaemons: false))
-        let router = AcpmuxChiefSessionRouter(local: app, chief: NamedHost(name: "chief"),
+        let chief = NamedHost(name: "chief", probe: AcpmuxHost(environment: chiefDaemon.environment, startsDaemons: false))
+        let router = AcpmuxChiefSessionRouter(local: app, chief: chief,
                                               chiefEnvironment: chiefDaemon.environment, parentTag: parentTag)
 
         // The issue's tab: recorded as this Mac's, its session only in the Chief home's acpmux.
@@ -72,9 +73,12 @@ struct ChiefSubagentChatOpensWhereItRunsTests {
         let host = AcpmuxHost(environment: daemon.environment, startsDaemons: false)
         #expect(await host.runsSession(appOwn) == true)
         #expect(await host.runsSession(untagged) == false)
-        daemon.stop()
+        // A session its home keeps on disk is its own even while the daemon does not resolve it
+        // (stopped, not loaded), and while no daemon answers.
         try FileManager.default.createDirectory(at: daemon.environment.home.appendingPathComponent("sessions/\(untagged)"),
                                                 withIntermediateDirectories: true)
+        #expect(await host.runsSession(untagged) == true)
+        daemon.stop()
         #expect(await host.runsSession(untagged) == true)
         #expect(await host.runsSession(appOwn) == nil)
 

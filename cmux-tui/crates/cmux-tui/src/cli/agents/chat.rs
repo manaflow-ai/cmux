@@ -270,7 +270,8 @@ pub(in crate::cli) fn required_app_acpmux(global: &GlobalArgs) -> Result<Option<
         mcp::agent_app(global, "agent.acpmux", json!({}), super::super::app::READ_TIMEOUT, None)
             .map_err(|error| {
                 // An app too old to know `agent.acpmux` answers the same on a retry.
-                let retryable = error["code"] != "method_not_found";
+                let retryable = !["method_not_found", "app.version_skew"]
+                    .contains(&error["code"].as_str().unwrap_or_default());
                 json!({"code": "chat.app_acpmux_unavailable",
                        "message": format!("cannot read the cmux app's acpmux (agent.acpmux); \
                                            no chat was started, try again: {}",

@@ -2,7 +2,7 @@ public import Foundation
 
 /// The pane host of a tab whose record names this Mac: a session the Chief host started in its
 /// home's acpmux (`mux.parent` = `optchat-chief:<home id>` in that one daemon's listing) attaches
-/// there, and so does any other session that daemon lists while this Mac's acpmux does not run it
+/// there, and so does any other session that daemon runs while this Mac's acpmux does not run it
 /// (#27934: a chat a Chief subagent started with `acpmux new`, untagged); any other session, and a
 /// new chat, attaches to this Mac's acpmux. Subagent tabs made before the `chief:<home id>` host
 /// existed record this Mac's host; this keeps them working with no record rewrite.
@@ -33,18 +33,13 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
             if let socket, FileManager.default.fileExists(atPath: socket),
                let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
                 if Self.owns(listing.value, session: session, parentTag: parentTag) { return true }
-                // Listed, whatever its tags, and not run by this Mac's acpmux: the chat is there.
-                guard Self.lists(listing.value, session: session) else { return false }
+                // Run there, whatever its tags (an exact resolve: a listing is paged and carries
+                // peer rows), and not by this Mac's acpmux: the chat is there.
+                guard await chief.runsSession(session) == true else { return false }
                 return await local.runsSession(session) != true
             }
             return Self.keeps(session: session, home: kept)
         }
-    }
-
-    /// Whether `_acpmux/sessions` result `listing` has `session`, whatever its tags.
-    public static func lists(_ listing: [String: Any], session: String) -> Bool {
-        let rows = listing["sessions"] as? [[String: Any]] ?? []
-        return rows.contains { $0["sessionId"] as? String == session }
     }
 
     /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).

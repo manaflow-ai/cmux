@@ -325,8 +325,9 @@ pub(super) fn reads_tabs(plan: &RequestPlan) -> bool {
     )
 }
 
-/// The tab kinds a CLI reader decodes (`declare_tab_kinds`).
-const TAB_KINDS: [&str; 3] = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"];
+/// The tab kinds a CLI reader decodes (`declare_tab_kinds`): agent chat tabs only; a page tab
+/// still reads as a `browser`, as before.
+const TAB_KINDS: [&str; 2] = ["conversation-tabs-v1", "agent-session-tabs-v1"];
 
 /// Declares the conversation tab kinds on this connection (`client.metadata.update
 /// {client: current, capabilities}`), so the daemon shows an agent chat tab as

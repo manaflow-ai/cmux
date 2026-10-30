@@ -83,6 +83,26 @@ import CmuxNextWakeups
         #expect(await reached(tabs.chiefTabHost(chiefHost), session: kept) == "chief")
     }
 
+    /// #27934: `agent.openSessionTab` with no host finds a session only another Chief home of this
+    /// Mac runs (its acpmux keeps it), and records that home; a session no home can speak for is
+    /// left to the pane's router, never refused.
+    @Test func anOpenWithNoHostRecordsTheOtherChiefHomeThatRunsTheSession() async throws {
+        let (base, current, old) = try homes()
+        defer { try? FileManager.default.removeItem(at: base.deletingLastPathComponent()) }
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        tabs.chiefHost = ChiefHomeAcpmux.host(muxHome: current.muxHome)
+        tabs.chiefPaneHost = SessionProbe(runs: false)
+        tabs.sessionProbe = SessionProbe(runs: false)
+        // Each home's acpmux, with no daemon running: it speaks for what its home keeps on disk.
+        tabs.chiefHomes = ChiefHomeDirectory(parents: [base], work: BackgroundWork(), environment: { owner in
+            AcpmuxEnvironment(executable: URL(fileURLWithPath: "/usr/bin/false"), home: owner.acpmuxHome,
+                              socketPath: owner.acpmuxHome.appendingPathComponent("acpmux.sock").path,
+                              daemonArguments: [], childEnvironment: [:])
+        })
+        #expect(try await tabs.hostRunning(kept) == ChiefHomeAcpmux.host(muxHome: old))
+        #expect(try await tabs.hostRunning("01a1610c-24e0-75a3-8440-e4bcf537a4ba") == nil)
+    }
+
     /// A Chief home made after the first lookup is found too.
     @Test func aHomeMadeAfterTheFirstLookupIsFound() async throws {
         let (base, _, _) = try homes()
