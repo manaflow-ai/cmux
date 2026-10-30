@@ -7,9 +7,11 @@
 // its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //
-// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
-// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
-// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
+// In the tray a line also says what kind of thing it is before its name (Leo 2026-10-21 on a tray
+// line that showed a raw shell line: "is that a command or a subagent?"): "Command" in words, a
+// subagent by its own icon, never the word on every line under a header that says it already (Leo,
+// 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add the icon
+// when it's in here"). A line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
 import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
@@ -40,6 +42,7 @@ export function AgentLine({
   title,
   label,
   kind,
+  kindIcon,
   chevron = false,
   onOpen,
   after,
@@ -75,8 +78,11 @@ export function AgentLine({
   title?: string;
   /// The accessible name, when the visible text is not enough ("Open Reviewer").
   label?: string;
-  /// What kind of thing it is, before its name ("Command", "Subagent"); the tray's lines say it.
+  /// What kind of thing it is, before its name ("Command"); the tray's lines say it.
   kind?: string;
+  /// The kind as an icon before its name in place of the word (a subagent's), with `kind` as its
+  /// accessible name.
+  kindIcon?: string;
   /// A trailing chevron when a click opens it (the tray's lines).
   chevron?: boolean;
   onOpen?: () => void;
@@ -131,7 +137,13 @@ export function AgentLine({
         )}
       </span>
       <span className="acpmux-summary-text">
-        {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
+        {kindIcon ? (
+          <span className="acpmux-agent-line__kind-icon">
+            <Icon name={kindIcon} size={iconSize} title={kind} row />
+          </span>
+        ) : (
+          kind && <span className="acpmux-agent-line__kind">{kind}</span>
+        )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         {progress && <span className="acpmux-agent-line__progress">{progress}</span>}

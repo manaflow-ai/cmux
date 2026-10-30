@@ -17,3 +17,4 @@ a3fc59d7f48dd0655c0fca0eac2e95a08bcdea03a604631ab6c41766cb17b8b8 glaeda 5ac20388
 4a7dff390b415503617dd7395df9d074701e59b273410f5e994b84de30a87eb1 glaeda 1f9758ef: runner: gateway runners for thin cmux-ci clients listen through CPU saturation and a full mini (#1755)
 0e773943b3d18dbeef58b5d22269aba654fc9737761393981b019a12fd92a575 glaeda efae6e73: runner-hook: the CPU gate decides on a 60 s average, not one iostat second (#1756)
 e94edf9ced072267bb1544d2f77d266a28476fb1e127a80b3fbe995f61cc9e0a glaeda 444f239a: runner-hook: declare per mini whether the CPU marks hold its listeners (config/runner-gate.json) (#1757)
+3b7fc168de010536643ec01c34592c5487ff9a89776b434fa32b6db39aaf63f5 glaeda 63ace48b: runner-hook: a signing job its claim gate would refuse is refused before it drains the mini (#1761)
