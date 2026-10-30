@@ -1925,15 +1925,12 @@ impl LocalStore {
         strict: bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        // `segments` first: it waits for the log writer to write the lines queued before this
-        // read, and the writer makes a new chat's `events` folder when it writes its first line.
-        let segments = self.segments(id)?;
         // A strict read learns that the log's segments could not be listed (`segments` lists
-        // none then). Only after the wait: a strict read sees every append made before it, a new
-        // chat's first one too.
+        // none then).
         if strict {
             cmux_blocking::fs::read_dir(self.dir(id).join("events"))?;
         }
+        let segments = self.segments(id)?;
         let mut line = Vec::new();
         for (index, (_, path)) in segments.iter().enumerate() {
             if after > 0
