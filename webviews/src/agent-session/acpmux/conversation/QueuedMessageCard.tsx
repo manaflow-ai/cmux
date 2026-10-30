@@ -80,6 +80,7 @@ export function QueuedMessageCard({
   onReply?(message: IncomingMessage, text: string): Promise<void>;
   githubRepository?: string;
 }) {
+  const t = useT();
   const act = useContext(TurnActionsContext).queuedMessages?.();
   // Send now goes once: hidden from its reply until acpmux's next word on the message (a new row).
   const [sentAt, setSentAt] = useState<number>();
