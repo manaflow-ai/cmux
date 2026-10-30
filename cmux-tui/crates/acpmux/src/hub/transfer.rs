@@ -39,6 +39,11 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        // What the log holds back goes in first (`store/deferred.rs`).
+        anyhow::ensure!(
+            self.store_deferred(session),
+            "could not store the chat's newest tool output"
+        );
         let meta = session.meta();
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;

@@ -5931,14 +5931,13 @@ jobs:
         if: steps.verdict.outputs.blocks == 'true'
         run: bash scripts/ci/nightly-steps/visual-gate-enforce-verdict.sh
 
-  # publish-nightly waits on this Linux job, never on the Mac gate: a gate still queued after 15 min,
-  # or past its 75 min, is `unavailable` and holds nothing. Same needs and `if` as the gate.
+  # publish-nightly waits on this Linux job, never the Mac gate: at most 10 min past the signed DMG.
   visual-gate-nightly-verdict:
-    needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly]
-    if: needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''
+    needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly, verify-final-dmg-nightly]
+    # A skipped signing path must not skip this job (implicit success()).
+    if: "!cancelled() && needs.verify-final-dmg-nightly.result == 'success' && needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-    # The 15 min queue budget, the gate's 75 min timeout, 5 min of slack in
-    # the script and 5 here.
+    # A re-run's 15 + 75 min, plus slack; attempt 1 waits at most 10.
     timeout-minutes: 100
     permissions:
       contents: read # the sparse checkout of the script
@@ -5957,10 +5956,11 @@ jobs:
             scripts/ci/nightly-steps/visual-gate-fail-when-held.sh
           sparse-checkout-cone-mode: false
 
-      - name: Wait for the visual gate, at most 15 min in the queue
+      - name: Wait for the visual gate, at most 10 min past the signed build
         id: await
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}
         run: bash scripts/ci/nightly-steps/visual-gate-await.sh
 
       - name: Fail with the gate when it holds the build

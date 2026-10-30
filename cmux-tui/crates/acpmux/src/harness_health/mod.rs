@@ -600,7 +600,9 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 
 #[cfg(test)]
 mod tests {
-    use super::{Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file};
+    use super::{
+        Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
 
