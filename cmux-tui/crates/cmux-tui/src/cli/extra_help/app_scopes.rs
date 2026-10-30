@@ -57,24 +57,17 @@ fn text(args: &[String]) -> Option<String> {
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
-        ["cloud", "exec"] => {
+        ["cloud", verb] => {
+            let japanese = crate::localization::catalog().is_japanese();
             return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                } else {
-                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                }
-                .into(),
+                super::super::cloud_help::verb_help(verb, japanese)
+                    .unwrap_or_else(|| super::super::cloud_help::overview(japanese)),
             );
         }
         ["cloud", ..] => {
-            return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    super::super::CLOUD_HELP.to_owned()
-                } else {
-                    super::super::CLOUD_HELP_JA.to_owned()
-                },
-            );
+            return Some(super::super::cloud_help::overview(
+                crate::localization::catalog().is_japanese(),
+            ));
         }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
@@ -106,6 +99,7 @@ fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) ->
         "open" => OPEN_HELP,
         "ghostty" => GHOSTTY_HELP,
         "errors" => ERRORS_HELP,
+        "team" => TEAM_HELP,
         _ => return None,
     };
     Some(format!("{}\n", text.trim_end()))
@@ -182,6 +176,14 @@ journal (`--source page` matches every page). --level shows that level and
 worse (warning, error, fault, crash); --top orders by count instead of most
 recent. Each list reads new log lines first unless --no-harvest. The journal
 is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
+
+const TEAM_HELP: &str = "\
+usage: cmux team invite --email <address>
+       (the same as cmux home invite-to-team --email <address>)
+Opens Invite to Team for the active team in the app, prefilled with the
+address and the line that an agent asked. The dialog shows what one more
+member costs the team; nothing is sent until the person clicks Send, and the
+command waits for that answer (up to about 3 minutes).";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

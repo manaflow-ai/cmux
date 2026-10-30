@@ -65,6 +65,11 @@ impl Hub {
                     ..
                 } => {
                     if m == method::SESSION_UPDATE {
+                        // What an agent a Stop ended still had in flight is not the next turn's
+                        // (`cancel.rs`): none of it lands in the turn that runs now.
+                        if agent == session.stopped_agent.load(Ordering::SeqCst) {
+                            continue;
+                        }
                         // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
                         // before it is applied (the log has it already), as a busy inbound loop
                         // does, so the daemon's integration tests can reach an agent first.
