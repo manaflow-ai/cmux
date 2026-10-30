@@ -231,14 +231,15 @@ extension WindowManager {
     /// Opening a Cloud machine (a claim of one of its workspaces) brings its other workspaces in:
     /// reconcile held them while nobody had opened the machine, and nothing else re-runs it after a
     /// claim. They are filed quietly into `windowID`; an ephemeral one goes to an incognito window
-    /// through the usual ephemeral placement.
+    /// through the usual ephemeral placement. An incognito `windowID` takes none of them: closing it
+    /// would discard them, so reconcile gives them to a normal window.
     func fileOpenedMachine(of workspaceID: String, into windowID: String) {
         guard !fillingOpenedMachine, let daemon = services.machines.daemon(forWorkspace: workspaceID),
               services.machines.session(daemon.machineID) != nil else { return }
         fillingOpenedMachine = true
         defer { fillingOpenedMachine = false }
         let value = registry.value
-        for workspace in daemon.store.workspaces where workspace.id != workspaceID && value.owner(of: workspace.id) == nil
+        for workspace in daemon.store.workspaces where !value.isIncognito(windowID) && workspace.id != workspaceID && value.owner(of: workspace.id) == nil
             && pendingClaims[workspace.id] == nil && !EphemeralWorkspaces.isEphemeral(workspace.id, self) {
             pendingClaims[workspace.id] = windowID
             quietClaims.insert(workspace.id)
