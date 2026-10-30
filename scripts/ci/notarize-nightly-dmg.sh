@@ -89,9 +89,11 @@ case "$CHANNEL" in
   nightly|rc) ENTITLEMENTS_NAME="cmux.${CHANNEL}.entitlements" ;;
   # nightly-next's cmux NEXT (cx-x7hwx): signed without a provisioning profile.
   next) ENTITLEMENTS_NAME="cmux.next-dev.entitlements" ;;
+  # cmux NEXT Stable (stable-next.yml): the nightly's entitlements under its own identity.
+  next-stable) ENTITLEMENTS_NAME="cmux.next-dev.entitlements" ;;
   stable) ENTITLEMENTS_NAME="cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, next, rc or stable)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, next, next-stable, rc or stable)" >&2
     exit 2
     ;;
 esac
