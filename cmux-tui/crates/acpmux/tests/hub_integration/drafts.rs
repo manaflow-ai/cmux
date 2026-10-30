@@ -57,6 +57,136 @@ async fn a_sent_draft_is_cleared_and_another_prompt_keeps_it() {
     c.request(method::SESSION_PROMPT, prompt("send this")).await.unwrap();
     let loaded = c.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
     assert!(loaded["draft"].is_null(), "{loaded}");
+    assert_eq!(loaded["generation"], 1);
+    assert!(
+        c.request(
+            method::MUX_DRAFT_SET,
+            json!({"sessionId": id, "text": "send this", "generation": 0})
+        )
+        .await
+        .is_err()
+    );
+    // The web client's matching explicit clear acknowledges that same send boundary.
+    let cleared = c
+        .request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": "", "generation": 1}))
+        .await
+        .unwrap();
+    assert_eq!(cleared["generation"], 1);
+}
+
+#[tokio::test]
+async fn composer_draft_generations_reject_stale_and_legacy_writes_but_allow_typing() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "draft-generations").await;
+    let initial = c.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(initial["generation"], 0);
+    for (generation, text) in [(0, "old"), (1, "replacement"), (1, "replacement typed")] {
+        let saved = c
+            .request(
+                method::MUX_DRAFT_SET,
+                json!({"sessionId": id, "text": text, "generation": generation}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(saved["draft"], text);
+        assert_eq!(saved["generation"], generation);
+    }
+    for params in [
+        json!({"sessionId": id, "text": "late old", "generation": 0}),
+        json!({"sessionId": id, "text": "late legacy"}),
+        json!({"sessionId": id, "text": "", "generation": 0}),
+    ] {
+        assert!(c.request(method::MUX_DRAFT_SET, params).await.is_err());
+    }
+    let loaded = c.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(loaded["draft"], "replacement typed");
+    assert_eq!(loaded["generation"], 1);
+}
+
+#[tokio::test]
+async fn composer_draft_generation_requires_a_nonnegative_safe_integer() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "draft-generation-validation").await;
+    for generation in [
+        json!(-1),
+        json!(1.5),
+        json!("1"),
+        json!(null),
+        json!(true),
+        json!(9_007_199_254_740_992_u64),
+    ] {
+        assert!(
+            c.request(
+                method::MUX_DRAFT_SET,
+                json!({"sessionId": id, "text": "bad", "generation": generation})
+            )
+            .await
+            .is_err()
+        );
+    }
+    let loaded = c.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
+    assert!(loaded["draft"].is_null());
+    assert_eq!(loaded["generation"], 0);
+}
+
+#[tokio::test]
+async fn composer_draft_clear_tombstone_survives_reload_without_double_increment() {
+    let dir =
+        std::env::temp_dir().join(format!("acpmux-draft-generation-{}", uuid::Uuid::now_v7()));
+    let (cfg, hub) = bookmarks::local_hub(&dir);
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, "draft-tombstone").await;
+    c.request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": "old", "generation": 4}))
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let cleared = c
+            .request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": "", "generation": 5}))
+            .await
+            .unwrap();
+        assert!(cleared["draft"].is_null());
+        assert_eq!(cleared["generation"], 5);
+    }
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    let mut c = connect(&hub).await;
+    let loaded = c.request(method::MUX_DRAFT_GET, json!({"sessionId": id})).await.unwrap();
+    assert!(loaded["draft"].is_null());
+    assert_eq!(loaded["generation"], 5);
+    for params in [
+        json!({"sessionId": id, "text": "resurrected", "generation": 4}),
+        json!({"sessionId": id, "text": "resurrected legacy"}),
+    ] {
+        assert!(c.request(method::MUX_DRAFT_SET, params).await.is_err());
+    }
+    let typed = c
+        .request(
+            method::MUX_DRAFT_SET,
+            json!({"sessionId": id, "text": "new typing", "generation": 5}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(typed["draft"], "new typing");
+    assert_eq!(typed["generation"], 5);
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn composer_draft_legacy_file_defaults_to_generation_zero() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "legacy-draft").await;
+    let mut legacy = serde_json::to_value(hub.resolve(&id).unwrap().meta()).unwrap();
+    legacy.as_object_mut().unwrap().remove("composerDraftGeneration");
+    legacy["composerDraft"] = json!("legacy text");
+    let meta: acpmux::store::SessionMeta = serde_json::from_value(legacy).unwrap();
+    let encoded = serde_json::to_value(meta).unwrap();
+    assert_eq!(encoded["composerDraftGeneration"], 0);
+    assert_eq!(encoded["composerDraft"], "legacy text");
 }
 
 #[tokio::test]
