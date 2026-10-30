@@ -56,10 +56,12 @@ struct PreviewPageTabVisibilityTests {
 
         try await settings.set(.bool(false), at: ["labs", "previewFeatures"])
         await Self.until { !ids().contains(storedAppStoreID) && !ids().contains(localAppStoreID) &&
-            !ids().contains(storedChangelogID) && !ids().contains(localChangelogID) &&
             pane.stripModel.selectedID?.rawValue != storedAppStoreID }
         #expect(!ids().contains(storedAppStoreID) && !ids().contains(localAppStoreID))
-        #expect(!ids().contains(storedChangelogID) && !ids().contains(localChangelogID))
+        // What's New is no Labs preview: an update's See What's New opens it with Labs off
+        // (Leo 2026-10-29), so its tabs stay in the strip.
+        #expect(ids().contains(storedChangelogID) && ids().contains(localChangelogID),
+                "Labs off hid the What's New tab")
         #expect(model.tabs.contains { $0.id == storedAppStoreID } && model.tabs.contains { $0.id == storedChangelogID },
                 "disabling Labs must not delete stored preview tabs")
         #expect(services.pages.tabIDs(in: model.id).contains(localAppStoreID) &&
@@ -69,8 +71,7 @@ struct PreviewPageTabVisibilityTests {
         #expect(fallbackSelection != storedAppStoreID)
 
         try await settings.set(.bool(true), at: ["labs", "previewFeatures"])
-        await Self.until { ids().contains(storedAppStoreID) && ids().contains(localAppStoreID) &&
-            ids().contains(storedChangelogID) && ids().contains(localChangelogID) }
+        await Self.until { ids().contains(storedAppStoreID) && ids().contains(localAppStoreID) }
         #expect(ids().contains(storedAppStoreID) && ids().contains(localAppStoreID))
         #expect(pane.stripModel.selectedID?.rawValue == fallbackSelection,
                 "re-enabling Labs must preserve the fallback selected while preview tabs were hidden")

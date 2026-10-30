@@ -72,6 +72,7 @@
 //! socket since before this).
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// The mark on a watchers' harness-feed payload that is a start-mode notice.
 pub(crate) const START_MODE_NOTE: &str = "startModeChanged";
@@ -730,7 +731,7 @@ impl Hub {
         let managed_off = self.full_access_managed_off();
         let mark = |mut answer: Value| {
             if managed_off {
-                answer["fullAccess"] = json!("managed");
+                answer.set("fullAccess", json!("managed"));
             }
             answer
         };
