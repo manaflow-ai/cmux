@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+## Reviewed behavior-only commits
+
+The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
+0075119003a, 19aed8cb69b, 876f8cdf5fc, 0137a6a9787, fda89c002c8, d8104ae97a6, 5218136c15f, db179b9bc0f.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
