@@ -40,6 +40,8 @@ class ClaudeHookSpoolTests(unittest.TestCase):
         self.frames = []
         self.rejected_seq = set()
         self.unacknowledged_seq = set()
+        self.fail_next_connection = False
+        self.connection_attempted = False
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.addCleanup(self.stopping.set)
@@ -110,6 +112,13 @@ sys.stdin.read()
                 continue
             except OSError:
                 return
+            with self.condition:
+                if self.fail_next_connection:
+                    self.fail_next_connection = False
+                    self.connection_attempted = True
+                    self.condition.notify_all()
+                    conn.close()
+                    continue
             threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
     def handle(self, conn):
@@ -244,17 +253,21 @@ sys.stdin.read()
             # Keep the live forwarder out until the producer has published and
             # acknowledged the event. Its first connect must then fail.
             fcntl.lockf(drain_lock, fcntl.LOCK_EX)
-            offline_socket = self.root / 'offline-socket'
-            self.socket_path.rename(offline_socket)
+            self.fail_next_connection = True
             self.run_hook('stop', {'session_id': 'spool-test', 'seq': 0})
             self.assertEqual(len(list(self.spool.glob('*.rec'))), 1)
             self.assertEqual(self.cli_launches(), [])
         finally:
             os.close(drain_lock)
 
-        # The lock probe is the readiness check: after a failed connect the
-        # forwarder must retain it while waiting to recover. No fixed delay is
-        # needed; the non-blocking operation observes the live owner directly.
+        # Wait for the fixture to observe the forwarder's failed connection
+        # attempt. This proves the test reached the transport failure path
+        # before checking that recovery retained ownership of the spool.
+        with self.condition:
+            self.assertTrue(
+                self.condition.wait_for(lambda: self.connection_attempted, timeout=5),
+                'forwarder never attempted the failed connection',
+            )
         forwarder_lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
         try:
             with self.assertRaises(BlockingIOError):
@@ -264,7 +277,6 @@ sys.stdin.read()
         finally:
             os.close(forwarder_lock)
 
-        offline_socket.rename(self.socket_path)
         self.admitted(1)  # Retry wakes even with no new spool write.
         self.run_hook('prompt-submit', {'session_id': 'spool-test', 'seq': 1})
         enqueued = self.admitted(2)
