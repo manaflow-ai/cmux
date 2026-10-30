@@ -12,10 +12,12 @@
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-draft-survives-host-failure.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { parseGhosttyTheme } from "../src/gallery/theme/ghostty";
+import { agentPaneTheme, themeTokens, webThemePayload } from "../src/gallery/theme/web";
 
 await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -47,7 +49,7 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
 
   /// A New Tab page whose first `ready` waits until `failHost` fails it; every later one answers.
   async function newTab(classic: boolean): Promise<Page> {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, deviceScaleFactor: 2 });
     await page.addInitScript((classic) => {
       const newTab = {
         kind: "agent",
@@ -83,10 +85,40 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
     await mkdir(directory, { recursive: true });
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme });
+      // Media emulation alone leaves the pane's native theme tokens dark. Use the gallery's
+      // real theme payloads, through the same two bridges as the app.
+      const name = colorScheme === "light" ? "Apple System Colors Light" : "Apple System Colors";
+      const source = await readFile(path.join(webviews, "../Resources/ghostty/themes", name), "utf8");
+      const theme = parseGhosttyTheme(name, source);
+      if (!theme) throw new Error(`Missing capture theme: ${name}`);
+      const tokens = themeTokens(theme);
+      await page.evaluate(
+        ({ web, agent }) => {
+          (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(web);
+          window.cmuxAcpmuxBridge!.applyTheme(agent);
+        },
+        { web: webThemePayload(tokens), agent: agentPaneTheme(tokens, false) },
+      );
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      const box = await page.locator(classic ? ".acpmux-newtab-field" : ".nt-box").boundingBox();
+      if (!box) throw new Error("Draft capture field is not visible");
+      const x = Math.max(0, box.x - 40);
+      const y = Math.max(0, box.y - 60);
       await page.screenshot({
         path: path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}-${colorScheme}.png`),
+        clip: { x, y, width: Math.min(900 - x, box.width + 80), height: Math.min(640 - y, box.height + 200) },
       });
     }
+    const selection = await page.locator(classic ? "input.acpmux-newtab-field" : ".nt-field").evaluate((node) => {
+      const field = node as HTMLInputElement | HTMLTextAreaElement;
+      return {
+        text: field.value,
+        start: field.selectionStart,
+        end: field.selectionEnd,
+        focused: document.activeElement === field,
+      };
+    });
+    await writeFile(path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}.json`), JSON.stringify(selection));
     await page.emulateMedia({ colorScheme: "light" });
   }
 
@@ -144,6 +176,8 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
       const retry = page.getByRole("button", { name: "Retry" });
       if (await retry.isVisible().catch(() => false)) await retry.click().catch(() => {});
       await page.locator(field).waitFor({ timeout: 30_000 });
+      // Capture before assertions so the identical harness also records the broken base state.
+      await captureDraft(page, classic, "after-retry");
       expect(await page.locator(field).inputValue()).toBe("compare the two retry policies");
       await page
         .locator(chip)
@@ -151,7 +185,18 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
         .waitFor({ timeout: 10_000 })
         .catch(() => {});
       expect(await page.locator(chip).count()).toBe(1);
-      await captureDraft(page, classic, "after-retry");
+      const selection = await page.locator(field).evaluate((node) => {
+        const input = node as HTMLInputElement | HTMLTextAreaElement;
+        return [input.selectionStart, input.selectionEnd, input.value.length];
+      });
+      expect(selection).toEqual([29, 29, 29]);
+      // No click or caret adjustment: the very next key after retry must append.
+      await page.keyboard.type("!");
+      expect(await page.locator(field).inputValue()).toBe("compare the two retry policies!");
+      // Cmd-L's host event still selects all; typing then replaces the draft.
+      await page.evaluate(() => window.dispatchEvent(new Event("acpmux-focus-location")));
+      await page.keyboard.type("replacement");
+      expect(await page.locator(field).inputValue()).toBe("replacement");
       await page.close();
     });
   }
