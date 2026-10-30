@@ -195,17 +195,26 @@ public final class ChiefComposer {
         session.send(routed)
     }
 
-    /// New Message's images as an agent prompt's attachments, bytes and order kept.
+    /// New Message's images as agent prompt attachments, normalized to formats agents accept.
     static func attachments(_ images: [ConversationComposeImage]) -> [AgentAttachment] {
         images.enumerated().map { index, image in
-            let ext = switch image.mimeType.lowercased() {
-            case "image/png": "png"
-            case "image/gif": "gif"
-            case "image/webp": "webp"
-            case "image/heic": "heic"
-            default: "jpg"
+            let data: Data
+            let ext: String
+            let attachment = AgentAttachment(kind: .image, name: "Image \(index + 1)", data: image.data)
+            let supportedSource = ["image/png", "image/jpeg", "image/gif", "image/webp"].contains(image.mimeType.lowercased())
+            if !supportedSource, let jpeg = UIImage(data: image.data)?.jpegData(compressionQuality: 0.85) {
+                data = jpeg
+                ext = "jpg"
+            } else {
+                data = image.data
+                ext = switch attachment.imageMIMEType {
+                case "image/png": "png"
+                case "image/gif": "gif"
+                case "image/webp": "webp"
+                default: "jpg"
+                }
             }
-            return AgentAttachment(kind: .image, name: "Image \(index + 1).\(ext)", data: image.data)
+            return AgentAttachment(kind: .image, name: "Image \(index + 1).\(ext)", data: data)
         }
     }
 
