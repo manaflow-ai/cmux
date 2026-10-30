@@ -166,6 +166,10 @@ enum AgentHandlers {
             }
             view.toggleDictation()
         })
+        // Stop Reading Aloud: the app's one voice (AgentPaneReadAloud), from any window, chat or none.
+        registry.bindEffect("agentPane.stopReadingAloud", requires: nil, effect: { _ in
+            context.services.agentTabs.readAloud.stop() ? .done : .refused(MiscHandlerStrings.nothingReadAloud)
+        })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
             services.map { AgentChatsPalettePage(services: $0).page() }

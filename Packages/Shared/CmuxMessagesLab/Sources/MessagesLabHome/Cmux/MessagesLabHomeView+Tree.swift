@@ -42,7 +42,8 @@ extension MessagesLabHomeView {
     /// Reply to Selection from the keyboard or the palette (`home.replyToSelection`): the selected
     /// text of one message is the reply's quote. False when there is no such selection.
     public func replyToSelection() -> Bool {
-        guard controller.intents?.canReply == true, let quote = controller.selectionQuote() else { return false }
+        guard controller.intents?.canReply == true, let quote = controller.selectionQuote(),
+              controller.intents?.canInteract(with: quote.source.messageId) != false else { return false }
         controller.replyToSelection(quote)
         return true
     }

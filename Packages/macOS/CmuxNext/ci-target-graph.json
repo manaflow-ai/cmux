@@ -460,6 +460,7 @@
         "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
@@ -1354,6 +1355,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextPages",
         "CmuxNextRemoteBrowser",
@@ -1953,7 +1955,6 @@
       "targets": [
         "CmuxNextAgentPane",
         "CmuxNextControl",
-        "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextUpdater",
