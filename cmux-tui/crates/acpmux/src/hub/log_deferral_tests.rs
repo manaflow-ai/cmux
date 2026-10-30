@@ -233,3 +233,34 @@ fn output_the_store_refused_is_stored_at_the_next_record() {
         assert_eq!(transcript(&logged), transcript(&sent), "{refused:?}");
     }
 }
+
+/// A newer record that the store also refuses leaves the waiting one to be stored before it.
+#[test]
+fn a_refused_newer_record_drops_nothing_waiting() {
+    let mut config = Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let refusing = Arc::new(AtomicBool::new(false));
+    let store = RefusingStore { inner, refusing: refusing.clone(), refused: &[] };
+    let hub = Hub::new(config, Box::new(store));
+    let s = session(&hub, "n");
+    let chat = codex_chat(1, 8);
+    for (dir, kind, msg) in &chat {
+        hub.append(&s, dir, kind, msg.clone());
+    }
+    refusing.store(true, Ordering::SeqCst);
+    hub.append(&s, "mux", "status", json!({"status": "idle"}));
+    let mut end = chat.last().unwrap().2.clone();
+    end["params"]["update"]["status"] = json!("completed");
+    end["params"]["update"]["content"] =
+        json!([{"type": "content", "content": {"type": "text", "text": "the end"}}]);
+    assert!(!hub.append_logged(&s, "in", "tool_call_update", end, None).1);
+    refusing.store(false, Ordering::SeqCst);
+    hub.append(&s, "mux", "status", json!({"status": "running"}));
+    let logged = hub.store.events("n", 0, usize::MAX).unwrap();
+    let newest =
+        chat.iter().rev().find_map(|(_, _, m)| m.pointer("/params/update/content")).unwrap();
+    let last_output =
+        logged.iter().rev().find_map(|r| r.msg.pointer("/params/update/content")).unwrap();
+    assert_eq!(last_output, newest, "the waiting output survives the refused end");
+}

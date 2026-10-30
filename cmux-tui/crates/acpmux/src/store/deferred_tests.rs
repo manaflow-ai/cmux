@@ -348,17 +348,18 @@ fn records_the_store_refused_go_first_in_order() {
     let status = json!({"status": "idle"});
     let due = deferral.keep("mux", "status", &status, 2, true).before;
     assert_eq!(due.len(), 2);
-    deferral.retry(due.clone(), Some(("mux", "status", &status)));
-    // The next record stores them first, in order, less what it replaces: a's newer output
-    // replaces a's.
+    deferral.retry(due.clone());
+    // The next record stores them first, in order, even the one it replaces.
     let of =
         |id: &str| due.iter().find(|(_, m)| m["params"]["update"]["toolCallId"] == id).cloned();
-    let next = deferral.keep("in", "tool_call_update", &snapshot("a", "a's newer"), 3, true);
-    assert_eq!(next.before, vec![of("b").unwrap()]);
-    // Refused again; b's newer output replaces it before it is stored.
-    deferral.retry(next.before, Some(("in", "tool_call_update", &snapshot("a", "a's newer"))));
+    let newer = snapshot("a", "a's newer");
+    let next = deferral.keep("in", "tool_call_update", &newer, 3, true);
+    assert_eq!(next.before, due);
+    // Refused again, while the record after them is stored: the one it replaces is dropped.
+    deferral.retry(next.before);
+    deferral.stored("in", "tool_call_update", &newer);
     let last = deferral.keep("in", "tool_call_update", &snapshot("b", "b's newer"), 4, true);
-    assert!(last.before.is_empty(), "{last:?}");
+    assert_eq!(last.before, vec![of("b").unwrap()]);
     // A fork copies what is held without taking it.
     let _ = deferral.keep("in", "tool_call_update", &snapshot("a", "newest"), 5, true);
     assert_eq!(deferral.pending().len(), 2, "a's newest and b's newer");
@@ -366,30 +367,33 @@ fn records_the_store_refused_go_first_in_order() {
 }
 
 #[test]
-fn a_refused_record_a_newer_one_replaces_is_dropped() {
+fn a_refused_record_is_dropped_once_a_record_that_replaces_it_is_stored() {
     let late = |text: &str| {
         let mut m = snapshot("c", text);
         m["params"]["update"].as_object_mut().unwrap().remove("_meta");
         ("tool_call_update", m)
     };
-    // Made due by its call id's next start: stored after it, it would read as the new call's.
     let mut deferral = Deferral::default();
-    deferral.retry(vec![late("old")], Some(("in", "tool_call", &start("c"))));
+    // Its call id's next start, stored: the late output would read as the new call's.
+    deferral.retry(vec![late("old")]);
+    deferral.stored("in", "tool_call", &start("c"));
     assert!(deferral.take_all().is_empty());
     // Another call's start leaves it.
-    deferral.retry(vec![late("old")], Some(("in", "tool_call", &start("d"))));
+    deferral.retry(vec![late("old")]);
+    deferral.stored("in", "tool_call", &start("d"));
     assert_eq!(deferral.take_all().len(), 1);
-    // A newer update of its call with content, stored while it waits, replaces it.
-    deferral.retry(vec![late("A")], None);
-    let mut ended = snapshot("c", "B");
-    ended["params"]["update"]["status"] = json!("completed");
-    let keep = deferral.keep("in", "tool_call_update", &ended, 1, true);
-    assert!(keep.before.is_empty(), "{keep:?}");
-    assert!(deferral.take_all().is_empty());
-    // An update without content does not.
-    deferral.retry(vec![late("A")], None);
+    // A newer update of its call with content replaces it; one without content does not.
+    deferral.retry(vec![late("A")]);
     let status = update(
         json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}),
     );
-    assert_eq!(deferral.keep("in", "tool_call_update", &status, 2, true).before.len(), 1);
+    deferral.stored("in", "tool_call_update", &status);
+    assert_eq!(deferral.take_all().len(), 1);
+    deferral.retry(vec![late("A")]);
+    deferral.stored("in", "tool_call_update", &snapshot("c", "B"));
+    assert!(deferral.take_all().is_empty());
+    // Until it is stored, a record that would replace it changes nothing: it goes first.
+    deferral.retry(vec![late("A")]);
+    let keep = deferral.keep("in", "tool_call_update", &snapshot("c", "B"), 1, false);
+    assert_eq!(keep.before, vec![late("A")]);
 }

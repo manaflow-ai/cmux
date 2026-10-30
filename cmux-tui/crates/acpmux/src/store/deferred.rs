@@ -86,7 +86,6 @@ impl Deferral {
     /// this record may be held back; a copy (a fork's of its parent's turns) never is.
     pub fn keep(&mut self, dir: &str, kind: &str, msg: &Value, at: u64, may_hold: bool) -> Keep {
         let mut keep = self.keep_one(dir, kind, msg, at, may_hold);
-        self.retry.retain(|(late_kind, late)| !supersedes(dir, kind, msg, late_kind, late));
         if !self.retry.is_empty() {
             let mut before = std::mem::take(&mut self.retry);
             before.append(&mut keep.before);
@@ -196,20 +195,20 @@ impl Deferral {
     }
 
     /// Records [`Deferral::keep`] or [`Deferral::take_all`] gave to be stored that the store
-    /// refused, in order: they are stored first at the next record, after `due_with` (the
-    /// `(dir, kind, msg)` of the record that made them due, stored as it would be). That order
-    /// keeps every call's fold, except where a record stored since replaces one ([`supersedes`]):
-    /// that one is dropped, here and at each record until it is stored.
-    pub fn retry(
-        &mut self,
-        mut refused: Vec<(&'static str, Value)>,
-        due_with: Option<(&str, &str, &Value)>,
-    ) {
-        if let Some((dir, kind, msg)) = due_with {
-            refused.retain(|(late_kind, late)| !supersedes(dir, kind, msg, late_kind, late));
-        }
+    /// refused, in order: they are stored first at the next record, which keeps each call's fold
+    /// (an older record before a newer one), until a record that replaces one is stored
+    /// ([`Deferral::stored`]).
+    pub fn retry(&mut self, refused: Vec<(&'static str, Value)>) {
         let mut later = std::mem::replace(&mut self.retry, refused);
         self.retry.append(&mut later);
+    }
+
+    /// A record (`dir`, `kind`, `msg`) is in the store: a waiting record it replaces
+    /// ([`supersedes`]) is dropped, since stored after it, it would undo it.
+    pub fn stored(&mut self, dir: &str, kind: &str, msg: &Value) {
+        if !self.retry.is_empty() {
+            self.retry.retain(|(late_kind, late)| !supersedes(dir, kind, msg, late_kind, late));
+        }
     }
 
     /// The snapshot and diff bytes held now, those waiting to be stored again included.

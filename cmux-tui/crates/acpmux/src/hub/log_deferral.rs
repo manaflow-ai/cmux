@@ -26,20 +26,20 @@ impl Hub {
             at.unwrap_or_else(now_ms),
             at.is_none(),
         );
-        self.store_late(session, keep.before, Some((dir, kind, &msg)));
+        self.store_late(session, keep.before);
         let kept = keep.stored.map_or(Kept::Sent, Kept::Stub);
-        self.append_record_locked(session, dir, kind, msg, host_seq, at, stored_only, kept)
+        let (record, stored) =
+            self.append_record_locked(session, dir, kind, msg, host_seq, at, stored_only, kept);
+        if stored {
+            let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
+            deferral.stored(&record.dir, &record.kind, &record.msg);
+        }
+        (record, stored)
     }
 
-    /// Stores held records made due (by `due_with`, the record stored next), in order. When the
-    /// store refuses one, it and those after it are stored first at the next record, less any
-    /// `due_with` replaces (`Deferral::retry`); false then.
-    fn store_late(
-        &self,
-        session: &Session,
-        late: Vec<(&'static str, Value)>,
-        due_with: Option<(&str, &str, &Value)>,
-    ) -> bool {
+    /// Stores held records made due, in order. When the store refuses one, it and those after it
+    /// are stored first at the next record (`Deferral::retry`); false then.
+    fn store_late(&self, session: &Session, late: Vec<(&'static str, Value)>) -> bool {
         let mut late = late.into_iter();
         while let Some((kind, msg)) = late.next() {
             let (record, stored) =
@@ -48,7 +48,7 @@ impl Hub {
                 let mut refused = vec![(kind, record.msg)];
                 refused.extend(late);
                 let mut deferral = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner());
-                deferral.retry(refused, due_with);
+                deferral.retry(refused);
                 return false;
             }
         }
@@ -61,7 +61,7 @@ impl Hub {
     pub(super) fn store_deferred(&self, session: &Session) -> bool {
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).take_all();
-        self.store_late(session, held, None)
+        self.store_late(session, held)
     }
 }
 
