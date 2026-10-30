@@ -319,6 +319,8 @@ const modelPressDragRelease: Play = async (ctx) => {
 // The current model's effort is a side dropdown beside its row (#27948): its effort item opens the
 // model's levels in a submenu of their own.
 const RUNNING_EFFORT = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+/// The checked level in that dropdown.
+const CHECKED_EFFORT = '.acpmux-quick-effort-menu .acpmux-quick-effort-segment[aria-checked="true"]';
 
 /// Opens the model menu, then the running model's effort dropdown; resolves with the dropdown.
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
