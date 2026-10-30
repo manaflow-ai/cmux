@@ -99,6 +99,11 @@ impl CliError {
         &self.message
     }
 
+    /// For HTTP 429, the budget the server named, if any.
+    pub fn budget(&self) -> Option<&str> {
+        self.budget.as_deref()
+    }
+
     /// The HTTP status, for an API error.
     pub fn status(&self) -> Option<u16> {
         self.status

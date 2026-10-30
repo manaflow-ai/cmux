@@ -295,8 +295,12 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
 
 /// A create that failed without a definite answer (the connection dropped, or
 /// the server failed) may still have allocated a VM. 501 is a definite no.
+/// So may a 429 for `capacity`: the server keeps a VM whose growth failed
+/// after allocation, uncommitted, under the create's key. A 429 for another
+/// budget (`rate`, `vms`, the agent key's) is refused before anything runs.
 fn unconfirmed(error: &CliError) -> bool {
     match error.status() {
+        Some(429) => error.budget().is_none_or(|budget| budget == "capacity"),
         Some(status) => status >= 500 && status != 501,
         None => error.exit_code() == exit::NETWORK,
     }
@@ -1180,7 +1184,20 @@ mod tests {
         assert!(unconfirmed(&CliError::from_status(503, b"")));
         assert!(unconfirmed(&CliError::from_status(500, b"")));
         assert!(!unconfirmed(&CliError::from_status(501, b"")));
-        assert!(!unconfirmed(&CliError::from_status(429, b"")));
+        // Capacity may have allocated a VM (growth failed after it); the
+        // other budgets refuse before anything runs.
+        assert!(unconfirmed(&CliError::from_status(429, b"")));
+        assert!(unconfirmed(&CliError::from_status(
+            429,
+            br#"{"_tag":"QuotaExceeded","budget":"capacity","message":"VM capacity is exhausted for now; retry later"}"#
+        )));
+        for budget in ["rate", "vms", "agent_vms", "agent_usd_per_hour"] {
+            let body = format!(r#"{{"_tag":"QuotaExceeded","budget":"{budget}","message":"no"}}"#);
+            assert!(
+                !unconfirmed(&CliError::from_status(429, body.as_bytes())),
+                "{budget}"
+            );
+        }
         assert!(!unconfirmed(&CliError::from_status(402, b"")));
         assert!(!unconfirmed(&CliError::usage("bad flag")));
     }
