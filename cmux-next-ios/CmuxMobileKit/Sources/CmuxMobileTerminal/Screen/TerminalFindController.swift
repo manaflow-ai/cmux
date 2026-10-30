@@ -75,7 +75,7 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// The search running off the main thread, superseded by the next.
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
-    /// Rows Ghostty dropped since the bar opened: a search that finishes after a drop
+    /// Rows Ghostty dropped (a running total, negative): a search that finishes after a drop
     /// moves its matches by the rows dropped while it ran.
     private var droppedRows = 0
     /// The query the bar asked for last (the results may still be for an older one).
@@ -110,8 +110,9 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
             guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
             self.results = found
             // The snapshot's rows are numbered as before any drop that happened meanwhile.
-            if self.droppedRows != droppedAtStart { self.results.shiftRows(by: self.droppedRows - droppedAtStart) }
-            if let nearRow { self.results.select(nearestRow: nearRow) }
+            let moved = self.droppedRows - droppedAtStart
+            if moved != 0 { self.results.shiftRows(by: moved) }
+            if let nearRow { self.results.select(nearestRow: nearRow + moved) }
             findLog.notice("find: \(found.matches.count, privacy: .public) matches in \(rows.rows.count, privacy: .public) rows")
             if revealing, let match = self.results.selectedMatch { self.reveal(match) }
             self.interaction?.updateResultCount()
