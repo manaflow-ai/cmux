@@ -878,8 +878,8 @@ impl<B: Backend> Server<B> {
         Ok(self.call_action(tool, &arguments))
     }
 
-    /// A terminal tool called with a `tab` and no `terminal`: the terminal that tab shows,
-    /// from `tab_get` (its `content_id`). Models name a terminal by the tab id they listed
+    /// A terminal tool called with a `tab` and no `terminal`, or a tab or pane given as
+    /// `terminal`: the terminal that tab (or the pane's shown tab) shows, its `content_id`. Models name a terminal by the tab id they listed
     /// (tests/tool-evals: 39 "needs terminal" errors in one 9-model panel). Other calls
     /// pass unchanged.
     fn terminal_of_tab<'a>(
@@ -901,6 +901,7 @@ impl<B: Backend> Server<B> {
         let tab_like = terminal_arg.filter(|value| {
             let bare = value.rsplit_once(':').map_or(*value, |(_, id)| id);
             bare.starts_with("tab_")
+                || bare.starts_with("pane_")
                 || (!scoped
                     && !bare.starts_with("term_")
                     && !matches!(bare, "current" | "focused" | "caller"))
@@ -929,7 +930,32 @@ impl<B: Backend> Server<B> {
         let bare = tab.rsplit_once(':').map_or(tab, |(_, id)| id);
         let under_scope =
             ["workspace", "screen", "pane"].iter().any(|key| arguments.contains_key(*key));
-        let record = if bare.starts_with("tab_") || under_scope {
+        let record = if bare.starts_with("pane_") {
+            // A pane named where a terminal goes (`terminal: n.pane.id` after
+            // pane_neighbor_get, tests/tool-evals m1): the terminal of the tab it shows.
+            let Some(tab_list) = v2_tools::find("tab_list") else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            let mut list = Map::new();
+            if let Some(session) = arguments.get("session") {
+                list.insert("session".into(), session.clone());
+            }
+            list.insert("pane".into(), Value::String(tab.to_owned()));
+            let answer = self.call_v2(tab_list, &list);
+            if answer["isError"] == true {
+                return Err(answer);
+            }
+            let items =
+                answer["structuredContent"]["items"].as_array().cloned().unwrap_or_default();
+            let shown = match items.as_slice() {
+                [only] => Some(only),
+                items => items.iter().find(|item| item["focused"] == true),
+            };
+            let Some(shown) = shown else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            shown.clone()
+        } else if bare.starts_with("tab_") || under_scope {
             let answer = self.call_v2(tab_get, &lookup);
             if answer["isError"] == true {
                 return Err(answer);

@@ -1888,4 +1888,23 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     let get = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.get");
     let get = get.unwrap_or_else(|| panic!("{sent:?}"));
     assert!(get["request"].to_string().contains("pane_x"), "the pane scopes the name: {get}");
+    drop(sent);
+
+    // A pane given as the terminal is the terminal of the tab it shows.
+    server
+        .call(&json!({"name": "terminal_process_get",
+                       "arguments": {"terminal": "pane_00000000000000000000000000000007"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
+    let list = list.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(
+        list["request"].to_string().contains("pane_00000000000000000000000000000007"),
+        "{list}"
+    );
+    let last = sent.last().unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(
+        last["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+        "{last}"
+    );
 }
