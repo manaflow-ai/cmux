@@ -88,11 +88,11 @@ extension JoinConsentModel {
     static func app(_ services: AppServices) -> JoinConsentModel {
         let model = JoinConsentModel(services: .app(services))
         var panel: JoinConsentAskPanel?
+        let person = PersonInputCheck(sources: services.eventSources)
         model.present = { [weak model] shown in
             guard let model else { return }
             if shown, panel == nil {
                 let made = JoinConsentAskPanel(model: model)
-                let person = PersonInputCheck()
                 made.isPersonEvent = { person.isPerson($0) }
                 panel = made
             }

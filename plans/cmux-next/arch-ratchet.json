@@ -603,6 +603,12 @@
       "row": "global_mutable_statics",
       "allow": 4,
       "why": "MessagesLabHome PaletteScope (per-chat bubble colours, user 2026-10-28): the vendored MessagesLab renderer reads its palette from process-wide statics (Fixture.theme, Fixture.paletteGeneration) on any thread, so two Home chats on screen with different Chat Colors overwrote each other. The fix mirrors the renderer's existing RenderScaleScope: a main-thread scope slot (mainThreadScoped, as RenderScaleScope's, to avoid binding a task local on main outside a task), the process palette that replaces the stored Fixture.theme, a main-only intern table so equal palettes share cache ids, and Fixture.baseGeneration that replaces the stored paletteGeneration. Moving them into an injected instance would mean rewriting every static drawing helper of the vendored renderer, which reads Fixture.* by design."
+    },
+    {
+      "date": "2026-10-30",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "EventSourceProcesses (P-MAIN S5) reads a posting process's start time (proc_pidinfo PROC_PIDTBSDINFO) only in its read, on its own serial queue com.cmuxterm.next.event-source-processes, never on the main thread: the fix moves the per-event proc_pidpath off the key path onto that queue. feat-cmux-next's CmuxNextCompat has no system-call seam (no blockingCall(.systemCall)) to wrap it in, so the line carries a blocking-allow naming the queue. Independent review of the PR covers it."
     }
   ],
   "observer_wrappers": [

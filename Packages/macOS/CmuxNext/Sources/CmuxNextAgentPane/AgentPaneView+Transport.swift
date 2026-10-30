@@ -81,7 +81,7 @@ extension AgentPaneView {
         if let window, let eventWindow, eventWindow !== window, eventWindow.parent === window {
             return judgeChromium(event, eventWindow: eventWindow)
         }
-        guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
+        guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         switch event.type {
         case .keyDown:
             guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
@@ -94,7 +94,7 @@ extension AgentPaneView {
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
     /// while the page has the keyboard, or a click on the page.
     private func judgeChromium(_ event: NSEvent, eventWindow: NSWindow?) {
-        guard page?.showsChromium == true, let eventWindow, AgentPanePersonInput.isPerson(event) else { return }
+        guard page?.showsChromium == true, let eventWindow, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
         switch event.type {
         case .keyDown:
             // CEF can leave its child window non-key while a native file picker or attachment
