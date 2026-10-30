@@ -8315,7 +8315,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Mac Screen Tab",
+      "title" : "Screen Sharing",
       "title_key" : "action.macScreen.open",
       "title_table" : "ActionCatalog"
     },
