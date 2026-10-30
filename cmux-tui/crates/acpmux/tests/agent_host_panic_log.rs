@@ -46,6 +46,7 @@ async fn agent_host_panic_log_gets_one_line_and_the_host_keeps_its_harness() {
         hosts_dir: hosts.clone(),
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
+        cpu_class: Default::default(),
     };
     let launcher = daemon_env::host_launcher();
     let record = link::spawn(&launcher, &spec).await.expect("spawn host");
