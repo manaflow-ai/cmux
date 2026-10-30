@@ -146,12 +146,14 @@ impl Hub {
                 {
                     turn_stopped |= is_cut;
                     has_retry_marker = true;
-                    retry = None
+                    retry = None;
+                    manual = None;
                 }
                 "turn_stop_requested" if is_cut => {
                     turn_stopped = true;
                     has_retry_marker = true;
-                    retry = None
+                    retry = None;
+                    manual = None;
                 }
                 "auto_resume_skipped" | "auto_resume_settled" | "auto_resume_exhausted"
                     if is_cut =>
@@ -175,6 +177,7 @@ impl Hub {
         if turn_stopped {
             has_retry_marker = true;
             retry = None;
+            manual = None;
         }
         // Refresh the durable last-turn summary before every skip/configuration decision.
         let mut summary = serde_json::Map::new();

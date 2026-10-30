@@ -829,7 +829,10 @@ impl Hub {
     ) {
         // Transfer replacement can leave this old task alive after the returning journal
         // takes its id. It must neither fire nor record a skip in that new journal.
-        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst)
+            || (self.shutting_down()
+                && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst))
+        {
             return;
         }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
@@ -898,7 +901,10 @@ impl Hub {
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         self.clear_fired(session, cut_turn);
         let _pending = session.auto_resume.lock();
-        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst)
+            || (self.shutting_down()
+                && !self.restart_requested.load(std::sync::atomic::Ordering::SeqCst))
+        {
             return;
         }
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
