@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1224,
+    "entries": 1225,
     "shortcuts": 189
   },
   "sections": [
@@ -170,6 +170,12 @@
           "title": "Invite to cmux-next…",
           "shortcut": null,
           "command": "cmux home invite"
+        },
+        {
+          "id": "home.inviteToTeam",
+          "title": "Invite to Team…",
+          "shortcut": null,
+          "command": "cmux home invite-to-team"
         },
         {
           "id": "keepMacAwake",

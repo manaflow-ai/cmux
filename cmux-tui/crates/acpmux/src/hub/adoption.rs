@@ -37,8 +37,17 @@ impl Hub {
         if family.is_empty() {
             return Ok(None);
         }
+        // A profile name (`claude-sr2`) reads its store family's store, as `new_session` does.
+        let family = {
+            let cfg = self.config.read().await;
+            cfg.resolve_harness(family)
+                .ok()
+                .and_then(|name| {
+                    cfg.harnesses.get(&name).map(|p| crate::config::store_family(&name, p))
+                })
+                .unwrap_or_else(|| family.to_owned())
+        };
         let homes = self.harness_homes.lock().unwrap().clone();
-        let family = family.to_owned();
         let id = agent_session_id.to_owned();
         let index = self.chats.get().filter(|_| !remote).cloned();
         let (found, _) = tokio::task::spawn_blocking(move || {
@@ -51,9 +60,9 @@ impl Hub {
         Ok(found.cwd.map(|cwd| cwd.to_string_lossy().into_owned()))
     }
 
-    /// Checks `adopt` against the resolved harness and its store. No adopt
-    /// resolves to `Found(None)`. `remote` (a Web-class connection) adopts
-    /// only from a profile's store, never from another store of the index.
+    /// Checks `adopt` against the resolved harness and its store (`family`: the store family,
+    /// `config::store_family`). No adopt resolves to `Found(None)`. `remote` (a Web-class
+    /// connection) adopts only from a profile's store, never from another store of the index.
     pub(super) async fn adoption(
         &self,
         adopt: Option<&AdoptRequest>,
@@ -78,9 +87,10 @@ impl Hub {
                 "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
             )));
         }
+        let stores = store_families(&*self.config.read().await);
         // A fork is a new conversation, never the chat that already adopted (or views) this one.
         if a.if_live != IfLive::Fork
-            && let Some(existing) = self.adopted_session(family, &a.agent_session_id)
+            && let Some(existing) = self.adopted_session(&stores, family, &a.agent_session_id)
         {
             return Ok(Adoption::Existing(existing));
         }
@@ -147,7 +157,7 @@ impl Hub {
             .and_then(|own| {
                 self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&own).cloned()
             })
-            .filter(|s| s.meta().family.as_deref() == Some("claude"))
+            .filter(|s| session_store(&stores, &s.meta()).is_some_and(|f| f == "claude"))
         {
             return Ok(Adoption::Existing(existing));
         }
@@ -165,11 +175,16 @@ impl Hub {
         })
     }
 
-    /// The session that already adopted `agent_session_id` in `family`, so
+    /// The session that already adopted `agent_session_id` in store `family`, so
     /// adopting twice opens the same session instead of two resuming one.
-    /// Any profile of the family counts: they share one store.
-    fn adopted_session(&self, family: &str, agent_session_id: &str) -> Option<Arc<Session>> {
-        adopted_in(&self.sessions.lock().unwrap(), family, agent_session_id)
+    /// Any profile that reads the store counts (`adopted_in`).
+    fn adopted_session(
+        &self,
+        stores: &StoreFamilies,
+        family: &str,
+        agent_session_id: &str,
+    ) -> Option<Arc<Session>> {
+        adopted_in(&self.sessions.lock().unwrap(), stores, family, agent_session_id)
     }
 
     /// An agent that could not load the adopted session started a fresh one
@@ -436,9 +451,31 @@ fn normalize_remote(url: &str) -> String {
     format!("{host}/{path}")
 }
 
-/// The session in `sessions` that adopted `agent_session_id` in `family`.
+/// Each configured profile's store family (`config::store_family`), for `adopted_in`.
+pub(super) type StoreFamilies = BTreeMap<String, String>;
+
+pub(super) fn store_families(cfg: &crate::config::Config) -> StoreFamilies {
+    cfg.harnesses
+        .iter()
+        .map(|(name, p)| (name.clone(), crate::config::store_family(name, p)))
+        .collect()
+}
+
+/// The store a session's conversation lives in: its profile's, else its recorded family when
+/// that names a store, else unknown (a profile gone from this config, such as a refused user
+/// file): such a session is never the one an adopt opens.
+fn session_store(stores: &StoreFamilies, m: &SessionMeta) -> Option<String> {
+    stores.get(&m.harness).cloned().or_else(|| {
+        m.family.clone().filter(|f| matches!(f.as_str(), "claude" | "codex" | "opencode"))
+    })
+}
+
+/// The session in `sessions` that adopted or ran `agent_session_id` in store `family`, on
+/// whichever profile: adopting the chat again opens it, on the profile it recorded (a
+/// `claude-sr2` chat adopted as `claude` stays on `claude-sr2`).
 pub(super) fn adopted_in(
     sessions: &HashMap<String, Arc<Session>>,
+    stores: &StoreFamilies,
     family: &str,
     agent_session_id: &str,
 ) -> Option<Arc<Session>> {
@@ -446,8 +483,8 @@ pub(super) fn adopted_in(
         .values()
         .find(|s| {
             let m = s.meta();
-            m.family.as_deref() == Some(family)
-                && m.agent_session_id.as_deref() == Some(agent_session_id)
+            m.agent_session_id.as_deref() == Some(agent_session_id)
+                && session_store(stores, &m).is_some_and(|f| f == family)
         })
         .cloned()
 }
@@ -608,6 +645,10 @@ impl Hub {
 #[cfg(test)]
 #[path = "adoption_page_tests.rs"]
 mod page_tests;
+
+#[cfg(test)]
+#[path = "adoption_profile_tests.rs"]
+mod profile_tests;
 
 // The tests name Unix paths of another machine.
 #[cfg(all(test, unix))]
