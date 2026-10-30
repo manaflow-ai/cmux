@@ -202,30 +202,36 @@ export class SubagentFold {
 
   /// Seeds the native root before a persisted event window is replayed. A malformed historical
   /// record can mention the root as a subagent, so this must happen before the first `apply`.
-  setRoot(id: string | undefined): void {
-    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return;
+  /// True when a record folded already named the root (``names``): the fold repaired its tree
+  /// here, and a pane that drew it folds again (direct.ts `seedRoots`).
+  setRoot(id: string | undefined): boolean {
+    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return false;
     this.rootThreads.add(id);
+    if (!this.named.has(id)) return false;
     // A live update can arrive before the session summary. Remove that late phantom and promote
-    // anything it had already acquired so a later root seed repairs the in-memory tree too.
+    // anything recorded under the root, a phantom or only a parent a record named, so a later
+    // root seed repairs the in-memory tree too.
     const phantom = this.agents.get(id);
-    if (!phantom) return;
-    const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
-    this.agents.delete(id);
-    const phantomGroup = this.groupOf.get(id);
-    this.groupOf.delete(id);
-    this.own.delete(id);
-    this.drawn.delete(id);
-    this.versions.delete(id);
-    for (const group of groups) {
-      if (!group.ids.includes(id)) continue;
-      group.ids = group.ids.filter((child) => child !== id);
-      this.changed.add(group);
+    if (phantom) {
+      const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
+      this.agents.delete(id);
+      const phantomGroup = this.groupOf.get(id);
+      this.groupOf.delete(id);
+      this.drawn.delete(id);
+      this.versions.delete(id);
+      for (const group of groups) {
+        if (!group.ids.includes(id)) continue;
+        group.ids = group.ids.filter((child) => child !== id);
+        this.changed.add(group);
+      }
+      if (phantomGroup) this.changed.add(phantomGroup);
+      for (const parent of this.own.keys()) this.dropSpawn(parent, id);
     }
-    if (phantomGroup) this.changed.add(phantomGroup);
-    for (const parent of this.own.keys()) this.dropSpawn(parent, id);
+    this.own.delete(id);
     const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
-    if (promoted.length === 0) return;
-    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at: phantom.startedAt, version: 0, ids: [] };
+    if (promoted.length === 0) return true;
+    const at = phantom?.startedAt ?? Math.min(...promoted.map((agent) => agent.startedAt));
+    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at, version: 0, ids: [] };
     this.open = group;
     for (const agent of promoted) {
       agent.parent = null;
@@ -233,6 +239,7 @@ export class SubagentFold {
       this.groupOf.set(agent.id, group);
     }
     this.changed.add(group);
+    return true;
   }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
@@ -295,7 +302,7 @@ export class SubagentFold {
               typeof change.parent === "string" && this.rootThreads.has(change.parent)
               ? { ...change, parent: null }
               : change
-          : { ...change, parent: this.parentFor(sender), ...(authoritative ? { __reparent: true } : {}) };
+          : { ...change, parent: this.parentFor(sender, change.parent), ...(authoritative ? { __reparent: true } : {}) };
       this.apply(normalized, event, spawn);
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
@@ -680,8 +687,13 @@ export class SubagentFold {
     if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
-  private parentFor(sender: string): string | null {
-    return this.rootThreads.has(sender) || !this.agents.has(sender) ? null : sender;
+  /// The parent a spawnAgent's `sender` gives what it lists. The fold overrides the parent acpmux
+  /// recorded only with one it knows: a root (none) or an agent it holds. A sender whose own spawn
+  /// is before the page is still the parent when the record agrees (Rust wrote it from the whole
+  /// history); a recorded parent that is not the sender (an older wrapper's owner) is not.
+  private parentFor(sender: string, recorded: unknown): string | null {
+    if (this.rootThreads.has(sender) || this.isChat(sender)) return null;
+    return this.agents.has(sender) || recorded === sender ? sender : null;
   }
 
   /// A turn starts: its stop ends the subagents spawned from here on.
@@ -859,7 +871,8 @@ export class SubagentFold {
   /// Moves a recorded agent under `parent` (null: the session's own group), out of the parent
   /// view or group it was in. A parent that is the agent or below it is ignored: no loops.
   private reparent(agent: Subagent, parent: string | null, event: Event): void {
-    if (parent !== null && (this.isChat(parent) || !this.agents.has(parent))) parent = null;
+    // A parent the page has not met stays: like a new agent's (``apply``), it is what acpmux recorded.
+    if (parent !== null && (this.isChat(parent) || this.rootThreads.has(parent))) parent = null;
     if (agent.parent === parent) return;
     for (let at = parent, steps = 0; at !== null && steps <= this.agents.size; steps += 1) {
       if (at === agent.id) return;

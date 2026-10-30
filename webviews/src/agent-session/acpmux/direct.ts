@@ -1154,13 +1154,15 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 /// Every native root a session summary names into `fold`: the chat's current agent session and
 /// the earlier ones acpmux retired (`retiredAgentSessionIds`), which older records still name.
+/// True when a record already folded named one of them: the rows drawn from it are stale.
 function seedRoots(
   fold: SubagentFold,
   summary: { agentSessionId?: unknown; retiredAgentSessionIds?: unknown } | undefined,
-) {
+): boolean {
   const retired = summary?.retiredAgentSessionIds;
-  if (Array.isArray(retired)) for (const id of retired) fold.setRoot(text(id));
-  fold.setRoot(text(summary?.agentSessionId));
+  let named = false;
+  if (Array.isArray(retired)) for (const id of retired) named = fold.setRoot(text(id)) || named;
+  return fold.setRoot(text(summary?.agentSessionId)) || named;
 }
 
 export class AcpmuxDirectClient {
@@ -3442,8 +3444,10 @@ export class AcpmuxDirectClient {
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A harness restart or a new conversation names a new native root without a rebuild: the
-      // fold learns it now, or a record naming it as a parent would not repair its child.
-      seedRoots(this.subagents, session);
+      // fold learns it now, or a record naming it as a parent would not repair its child. One
+      // that records already folded named (a retired root, too) drew rows that are now wrong:
+      // folded again by lineage, as ``learnChatThread`` does, with no later update needed.
+      if (seedRoots(this.subagents, session)) this.rebuildKeepingLiveState();
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
