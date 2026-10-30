@@ -56,6 +56,8 @@ export type StartedSession = {
   doingTool?: string;
   /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
   retry?: RetryState;
+  /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
+  harness?: string;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -153,6 +155,7 @@ export function startedSessions(
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
         ...(entry.retry ? { retry: entry.retry } : {}),
+        ...(entry.harness ? { harness: entry.harness } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

@@ -11,14 +11,10 @@ struct FeedInboxView: View {
     @State private var filter = FeedInboxFilter()
 
     var body: some View {
-        let items = filter.items(from: model.visibleItems)
-        let groups = FeedInboxGroups(items: items, now: model.now)
+        // The model's ordered sections, filtered and grouped once per change (no sort).
+        let groups = model.inboxGroups(filter)
+        let items = groups.all.flatMap(\.members)
         let shown = filter.selectedItem(model.selection, groups: groups)
-        let pendingIDs = Set(items.filter { model.isPending($0.id) }.map(\.id))
-        let now = model.now
-        // Capture actions here, outside LazyVStack. Its child views hold only
-        // immutable snapshots and callbacks, never the observable model.
-        let select: (String) -> Void = { model.select($0) }
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 FeedInboxHeader(filter: $filter, hasUnread: items.contains(where: \.isUnread),
@@ -28,18 +24,7 @@ struct FeedInboxView: View {
                 if groups.all.isEmpty {
                     FeedEmptyState(text: filter.query.isEmpty && filter.category == .all ? FeedStrings.empty : FeedStrings.noMatches)
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            FeedInboxSection(title: FeedStrings.needsYou, entries: groups.needsYou,
-                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
-                            FeedInboxSection(title: FeedStrings.today, entries: groups.today,
-                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
-                            FeedInboxSection(title: FeedStrings.earlier, entries: groups.earlier,
-                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
-                        }
-                        .padding(.bottom, 10)
-                        .thinScrollers()
-                    }
+                    FeedRowsHost(model: model, mode: .inbox, filter: filter)
                 }
             }
             .frame(width: 330)
