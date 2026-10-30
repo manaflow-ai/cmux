@@ -61,7 +61,7 @@ impl Hub {
                 return Err(e);
             }
             // The names it nearly matched, as `Hub::unknown_session` gives them.
-            let names = summaries.iter().filter_map(|s| s["name"].as_str());
+            let names = summaries.iter().filter_map(|s| s.get("name")?.as_str());
             let close = crate::session_name::candidates(names, query);
             if close.is_empty() {
                 return Err(e);

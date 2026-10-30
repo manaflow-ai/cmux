@@ -85,7 +85,7 @@ impl AppError {
         let candidates: Vec<String> = e
             .downcast_ref::<crate::client::DaemonError>()
             .and_then(|d| d.0.data.as_ref())
-            .and_then(|d| d["candidates"].as_array())
+            .and_then(|d| d.get("candidates")?.as_array())
             .map(|c| c.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect())
             .unwrap_or_default();
         if candidates.is_empty() {

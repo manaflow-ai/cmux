@@ -1299,27 +1299,29 @@ impl Hub {
     }
 
     /// The one session here whose last name segment is the bare `key` (`HOST/SHORT` with this
-    /// machine as `HOST`, `own_host.rs`): None when none is; refused when several are.
+    /// machine as `HOST`, `own_host.rs`): None when none is; refused when several are. Closed
+    /// sessions count only when none is live, as in `key_route` and `resolve_here`.
     pub(super) fn resolve_short_here(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
         if key.contains('/') {
             return None;
         }
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let found: Vec<(Arc<Session>, String)> = sessions
+        let (live, closed): (Vec<_>, Vec<_>) = sessions
             .values()
             .filter_map(|s| {
-                let name =
-                    s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name.clone();
-                crate::session_name::ends_with_segments(&name, key).then(|| (s.clone(), name))
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                crate::session_name::ends_with_segments(&meta.name, key)
+                    .then(|| (s.clone(), meta.name.clone(), meta.status == SessionStatus::Closed))
             })
-            .collect();
+            .partition(|(_, _, closed)| !closed);
         drop(sessions);
+        let found = if live.is_empty() { closed } else { live };
         match found.as_slice() {
             [] => None,
-            [(s, _)] => Some(Ok(s.clone())),
+            [(s, _, _)] => Some(Ok(s.clone())),
             many => Some(Err(crate::session_name::ambiguous(
                 key,
-                &many.iter().map(|(s, n)| format!("{n} ({})", s.id)).collect::<Vec<_>>(),
+                &many.iter().map(|(s, n, _)| format!("{n} ({})", s.id)).collect::<Vec<_>>(),
             ))),
         }
     }

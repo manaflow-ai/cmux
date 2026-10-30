@@ -22,9 +22,7 @@ pub fn validate(name: &str) -> Result<(), String> {
 pub fn ends_with_segments(name: &str, key: &str) -> bool {
     !key.is_empty()
         && !key.starts_with('/')
-        && name.len() > key.len()
-        && name.ends_with(key)
-        && name.as_bytes()[name.len() - key.len() - 1] == b'/'
+        && name.strip_suffix(key).is_some_and(|head| head.ends_with('/'))
 }
 
 /// How many candidates a refusal lists before it says how many more there were.

@@ -19,6 +19,7 @@
 //! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
 
 use crate::no_panic::JsonExt;
+use cmux_json::JsonSet as _;
 use std::time::Duration;
 
 use super::*;
@@ -88,10 +89,10 @@ pub(super) async fn handle(
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
         // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
-        let close = hub.unknown_session(&target).data.map(|d| d["candidates"].clone());
+        let close = hub.unknown_session(&target).data.and_then(|d| d.get("candidates").cloned());
         let mut data = json!({"reason": "no_session", "session": target});
         if let Some(close) = close {
-            data["candidates"] = close;
+            data.set("candidates", close);
         }
         return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
     }
