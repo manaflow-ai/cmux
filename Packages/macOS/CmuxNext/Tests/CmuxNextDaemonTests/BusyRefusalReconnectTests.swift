@@ -28,6 +28,39 @@ import Testing
         #expect(pacer.failed() == nil, "a real failure still spends the budget")
     }
 
+    /// A busy refusal noted by a reconnect loop that then stopped does not make the next drop's
+    /// first real failure free.
+    @Test func aResetForgetsAnUnspentBusyRefusal() {
+        var pacer = RetryPacer(RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 1))
+        pacer.refusedBusy()
+        pacer.reset()
+        #expect(pacer.failed() != nil, "the one timed retry")
+        #expect(pacer.failed() == nil, "a stale busy refusal gave a real failure an extra retry")
+    }
+
+    /// The daemon closes a refused connection right after its line, so the hello's write can fail
+    /// (broken pipe) before the reader routes the line: that failure is still a busy refusal.
+    @Test func aRefusalWaitingUnreadIsSeenOnAFailedWrite() throws {
+        func pair(_ daemonWrites: String) throws -> Int32 {
+            var fds: [Int32] = [0, 0]
+            try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+            let bytes = Array(daemonWrites.utf8)
+            if !bytes.isEmpty { _ = bytes.withUnsafeBytes { write(fds[1], $0.baseAddress, $0.count) } }
+            close(fds[1])
+            return fds[0]
+        }
+        let refused = try pair(#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy","message":"m"}"# + "\n")
+        defer { close(refused) }
+        #expect(LineTransport.hasPendingBusyRefusal(fd: refused))
+        #expect(LineTransport.hasPendingBusyRefusal(fd: refused), "peeking leaves the line for the reader")
+        let other = try pair(#"{"protocol":"cmux.protocol/2","type":"event","event":"x"}"# + "\n")
+        defer { close(other) }
+        #expect(!LineTransport.hasPendingBusyRefusal(fd: other))
+        let empty = try pair("")
+        defer { close(empty) }
+        #expect(!LineTransport.hasPendingBusyRefusal(fd: empty))
+    }
+
     /// Refuses its first `refusals` connections the way cmux-tui does at its connection limit (one
     /// `refused` line, then EOF), then serves the handshake.
     private static let script = #"""

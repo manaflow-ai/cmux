@@ -70,6 +70,7 @@ public struct RetryPacer: Sendable {
         socketFailures = 0
         wokeBySocket = false
         budgetSocket = nil
+        busyRefusal = false
         backoff.reset()
     }
 
