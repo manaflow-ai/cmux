@@ -23,8 +23,8 @@ public final class FeedModel {
     /// Bumps once per change of anything shown: a reader that needs more than the row edits
     /// (the Inbox groups) observes this.
     public private(set) var version = 0
-    /// The list subscriptions, held weakly: a released one leaves on its own, on any thread.
-    @ObservationIgnored private let listeners = NSHashTable<FeedListSubscription>.weakObjects()
+    @ObservationIgnored private var listeners: [Int: @MainActor (FeedRowChanges) -> Void] = [:]
+    @ObservationIgnored private var nextListener = 0
     @ObservationIgnored private var inboxMemo: (version: Int, now: Date, filter: FeedInboxFilter, groups: FeedInboxGroups)?
     @ObservationIgnored private var visibleMemo: (version: Int, items: [FeedItem])?
     /// The last refusal, for the panel's notice; cleared on the next send.
@@ -145,9 +145,10 @@ public final class FeedModel {
     /// moved (relative times). A subscriber reads the rows it
     /// has not seen yet with ``listCount`` and ``listItem(at:)`` when it starts.
     public func observeList(_ body: @escaping @MainActor (FeedRowChanges) -> Void) -> FeedListSubscription {
-        let subscription = FeedListSubscription(body)
-        listeners.add(subscription)
-        return subscription
+        nextListener += 1
+        let key = nextListener
+        listeners[key] = body
+        return FeedListSubscription { [weak self] in self?.listeners[key] = nil }
     }
 
     /// An intent on this item still waits for the owner.
@@ -317,7 +318,7 @@ public final class FeedModel {
         let (changes, changed) = ledger.update(ids, confirmed: confirmed, pending: pending, user: user, device: device,
                                                now: now, forced: forcing ? touched : [])
         // Every commit reaches the list: no row edits still means `now` moved (relative times).
-        for listener in listeners.allObjects { listener.body?(changes) }
+        for listener in listeners.values { listener(changes) }
         guard changed else { return }
         version &+= 1
         let next = FeedSummary(counts: ledger.counts, listIsEmpty: ledger.list.count == 0, hasUnread: ledger.unread > 0)
@@ -340,18 +341,22 @@ public nonisolated struct FeedSummary: Sendable, Equatable {
 }
 
 /// A ``FeedModel/observeList(_:)`` registration; ends on ``cancel()`` or when released.
-///
-/// The model holds it weakly and the subscription holds the body, so a release on any thread ends
-/// it (#26698: a deinit that ended it only on the main thread left a released one registered).
 @MainActor
 public final class FeedListSubscription {
-    fileprivate private(set) var body: (@MainActor (FeedRowChanges) -> Void)?
+    private var end: (@MainActor () -> Void)?
 
-    init(_ body: @escaping @MainActor (FeedRowChanges) -> Void) {
-        self.body = body
+    init(end: @escaping @MainActor () -> Void) {
+        self.end = end
     }
 
     public func cancel() {
-        body = nil
+        end?()
+        end = nil
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { end?() }
     }
 }
