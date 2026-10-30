@@ -179,6 +179,20 @@ import Testing
         #expect(h.sparkle.backgroundChecks == 1)
     }
 
+    /// The running build (100) and the staged build (300) are both pulled, and the staged
+    /// installer is not this app's to cancel: the running build still looks for the newest good
+    /// build, once.
+    @Test func aPulledRunningBuildStillUpdatesWhenAPulledStagedBuildCannotBeDropped() async throws {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        h.updater.cancelStaged = { false }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 1, "the app stays on pulled build 100")
+        #expect(h.updater.newestFetch == .runningPulled)
+        h.updater.newestFetch = nil
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 1, "the pulled running build looked twice")
+    }
+
     /// With nothing newer than the pulled running build on the feed, the check ends and nothing shows.
     @Test func aPulledRunningBuildWithNothingNewerEndsQuietly() async throws {
         let h = Base.make(ring: "nightly", pulled: ["100"])
