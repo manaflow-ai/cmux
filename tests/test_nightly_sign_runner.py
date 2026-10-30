@@ -235,6 +235,58 @@ class Unverified(unittest.TestCase):
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
 
 
+def observed(age_minutes: int = 2, **overrides: dict) -> dict:
+    """The queue janitor's 2026-10-30 18:37Z snapshot, `age_minutes` old: both labels stalled by the queue rule,
+    blacksmith-12vcpu-macos-26 with nothing running and no start (absent from label_started), 6 vCPU busy."""
+    generated = NOW - dt.timedelta(minutes=age_minutes)
+    pools = {LARGE: {"queued": 180, "running": 0, "oldest_queued_minutes": 1399},
+             SMALL: {"queued": 77, "running": 5, "oldest_queued_minutes": 552}}
+    for label, entry in overrides.items():
+        pools[label] = {**pools[label], **entry}
+    started = {SMALL: (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools, "label_started": started}
+
+
+class DeadLabel(unittest.TestCase):
+    """A label that started nothing for an hour is dead, not busy (2026-10-30: run 41100841614's sign pick read a
+    38-minute-old snapshot, took 6 vCPU unverified and offered the dead 12 vCPU label to every re-run)."""
+
+    def test_an_unverified_pick_never_offers_a_label_a_stale_snapshot_shows_dead(self) -> None:
+        for attempt in (1, 2, 3):
+            with self.subTest(attempt=attempt):
+                runner, other, _, verified = picker.place(LARGE, observed(age_minutes=38), NOW, attempt)
+                self.assertEqual((runner, other, verified), (SMALL, SMALL, False))
+
+    def test_a_dead_variable_label_is_skipped_even_with_its_queue_cleared(self) -> None:
+        snap = observed(**{LARGE: {"queued": 0, "oldest_queued_minutes": 0}})
+        self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, SMALL))
+
+    def test_with_every_label_stalled_the_pick_is_one_that_still_starts_jobs(self) -> None:
+        snap = observed(**{SMALL: {"running": 0}, LARGE: {"running": 2}})
+        snap["label_started"] = {LARGE: snap["label_started"][SMALL]}
+        label, why = picker.pick(SMALL, snap, NOW)
+        self.assertEqual(label, LARGE, why)
+        self.assertEqual(picker.alternate(SMALL, LARGE, snap, NOW), LARGE)
+
+    def test_a_truncated_snapshot_proves_no_label_dead(self) -> None:
+        # Its listing missed in-flight runs, so it can miss a running job or a start on the label.
+        snap = dict(observed(age_minutes=38), truncated=True)
+        self.assertEqual(picker.dead(snap, NOW), set())
+        self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, LARGE))
+
+    def test_no_label_showing_life_or_an_older_janitor_changes_nothing(self) -> None:
+        both = observed(**{SMALL: {"running": 0}})
+        both["label_started"] = {}
+        self.assertEqual(picker.place(LARGE, both, NOW, 1)[:2], (SMALL, SMALL))  # every label stalled: DEFAULT
+        self.assertEqual(picker.place(LARGE, dict(both, generated_at="2026-10-26T08:50:00Z"), NOW, 1)[:2],
+                         (SMALL, LARGE))
+        older = observed(age_minutes=38)
+        del older["label_started"]
+        self.assertEqual(picker.place(LARGE, older, NOW, 1)[:2], (SMALL, LARGE))
+        # Past the evidence window a snapshot proves nothing.
+        self.assertEqual(picker.place(LARGE, observed(age_minutes=7 * 60), NOW, 1)[:2], (SMALL, LARGE))
+
+
 class Workflow(unittest.TestCase):
     def test_signing_jobs_read_the_picked_label_first(self) -> None:
         jobs = WORKFLOW["jobs"]
@@ -384,6 +436,72 @@ class OwnedVerify(unittest.TestCase):
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
         self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
+
+
+class SnapshotReadToken(unittest.TestCase):
+    """The two nightly pickers read the pool snapshot with the routing App's own budget.
+
+    Run 41051244674 (2026-10-30, pick-nightly-sign-runner): with SNAPSHOT_TOKEN set to GITHUB_TOKEN,
+    every snapshot read got "HTTP 403 X-RateLimit-Remaining=0 ... API rate limit exceeded for
+    installation", the repo-wide GITHUB_TOKEN budget. The sign pick fell to "placement unverified",
+    signing_runner.py offered no owned Mac, and signing queued behind PR overflow on Blacksmith. The
+    pickers already mint GLAEDA_ROUTE_APP_KEY in ci-routing-agent, so each also mints an actions: read
+    token from it, as cmux-next.yml's macos-placement does, and falls back to GITHUB_TOKEN.
+    """
+
+    PICKERS = ("pick-nightly-build-runner", "pick-nightly-sign-runner")
+    READ = "${{ steps.snapshot-read-token.outputs.token || github.token }}"
+    KEY = "secrets.GLAEDA_ROUTE_APP_KEY"
+    # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
+    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
+    # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly"}
+
+    def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
+        for name in self.PICKERS:
+            job = WORKFLOW["jobs"][name]
+            steps = job["steps"]
+            ids = [step.get("id") for step in steps]
+            readers = [index for index, step in enumerate(steps) if "SNAPSHOT_TOKEN" in (step.get("env") or {})]
+            with self.subTest(job=name):
+                self.assertTrue(readers)
+                mint_at = ids.index("snapshot-read-token")
+                self.assertLess(mint_at, min(readers))
+                for index in readers:
+                    self.assertEqual(steps[index]["env"]["SNAPSHOT_TOKEN"], self.READ, steps[index].get("name"))
+
+    def test_the_read_mint_asks_only_actions_read_of_the_routing_app(self) -> None:
+        for name in self.PICKERS:
+            job = WORKFLOW["jobs"][name]
+            mint = next(step for step in job["steps"] if step.get("id") == "snapshot-read-token")
+            route = next(step for step in job["steps"] if step.get("id") == "route-token")
+            with self.subTest(job=name):
+                self.assertEqual(mint["uses"], route["uses"])
+                self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+                self.assertEqual(mint["with"]["app-id"], "${{ vars.GLAEDA_ROUTE_APP_ID }}")
+                self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+                self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
+                                 {"permission-actions": "read"})
+                # A failed mint never blocks the pick: the reads fall back to GITHUB_TOKEN.
+                self.assertTrue(mint["continue-on-error"])
+                self.assertEqual(int(mint["timeout-minutes"]), 1)
+                # Minted only where the routing token already is (nightly-next push and dispatch).
+                self.assertEqual(mint["if"], route["if"])
+                # No widening: the job keeps actions: read and contents: read, in the routing environment.
+                self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
+                self.assertEqual(job["environment"], "ci-routing-agent")
+                budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
+                self.assertGreaterEqual(int(job["timeout-minutes"]), budget)
+
+    def test_no_other_job_gains_the_routing_app_key(self) -> None:
+        keyed = {name for name, job in WORKFLOW["jobs"].items() if self.KEY in yaml.safe_dump(job)}
+        self.assertEqual(keyed, self.KEYED_JOBS)
+        for name, job in WORKFLOW["jobs"].items():
+            if name in self.KEYED_JOBS:
+                continue
+            with self.subTest(job=name):
+                self.assertNotIn("snapshot-read-token", yaml.safe_dump(job))
+
 
 if __name__ == "__main__":
     unittest.main()
