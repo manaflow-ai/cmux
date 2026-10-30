@@ -15,17 +15,21 @@ type Props = {
   install?: "running" | "fails";
   /// The update `harness.health` offers.
   update?: string;
+  healthFailure?: boolean;
+  launchFailure?: "tab.open" | "chat.new";
 };
 
 /// The page in a pane, with a host that answers `harness.health` and `shell.*` and records what the
 /// page asks.
-function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Props) {
+function GalleryHarnesses({ acpmux, signedOut, checking, install, update, healthFailure, launchFailure }: Props) {
   const [asked, setAsked] = useState<string>();
   const [closed, setClosed] = useState(false);
   const reads = useRef(0);
   const native = useMemo(
     () =>
       (method: string, params: Record<string, unknown> = {}) => {
+        if (method === "harness.health" && healthFailure) return Promise.reject(new Error("Health check unavailable"));
+        if (method === launchFailure) return Promise.reject(new Error("Host could not open the tab"));
         if (method === "harness.health")
           return Promise.resolve({
             health: {
@@ -49,7 +53,7 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Prop
         setAsked(`${method} ${JSON.stringify(params)}`);
         return Promise.resolve({});
       },
-    [signedOut, install, update],
+    [signedOut, install, update, healthFailure, launchFailure],
   );
   return (
     <div
@@ -87,6 +91,15 @@ const signIn: Play = async (ctx) => {
   await ctx.click({ selector: '[data-harness-status="signIn"] button' });
   await asked(ctx, 'tab.open {"kind":"terminal","text":"codex login"');
 };
+
+const failedLaunch =
+  (harness: string): Play =>
+  async (ctx) => {
+    const selector = `[data-harness-row="${harness}"]`;
+    await ctx.waitFor(() => ctx.document.querySelector(`${selector} button`) !== null);
+    await ctx.click({ selector: `${selector} button` });
+    await ctx.waitFor(() => ctx.document.querySelector(`${selector}[data-harness-status="failed"]`) !== null);
+  };
 
 const installOpenCode: Play = async (ctx) => {
   await ctx.click({ selector: '[data-harness-row="opencode"] button' });
@@ -129,6 +142,24 @@ export default componentEntry<Props>({
     hover: {
       note: "Harness action hover states without an automatic play.",
       props: { acpmux: thisMac, signedOut: ["codex"] },
+    },
+    "signed-out-no-login": {
+      note: "Claude is installed but signed out with no login command: setup recovery, never Start Chat.",
+      props: { acpmux: thisMac, signedOut: ["claude"] },
+    },
+    "health-failed": {
+      note: "A failed health read is unavailable with a recovery action, never Ready or an endless spinner.",
+      props: { acpmux: thisMac, signedOut: [], healthFailure: true },
+    },
+    "sign-in-launch-failed": {
+      note: "A rejected Sign In launch stays visible with the error and a retry, never waiting for an unopened tab.",
+      props: { acpmux: thisMac, signedOut: ["codex"], launchFailure: "tab.open" },
+      play: failedLaunch("codex"),
+    },
+    "chat-launch-failed": {
+      note: "A rejected Start Chat keeps the setup page open with the error and a retry.",
+      props: { acpmux: thisMac, signedOut: [], launchFailure: "chat.new" },
+      play: failedLaunch("grok"),
     },
     "custom-harness": {
       note: "Custom harness… starts the harness guide chat in this tab.",

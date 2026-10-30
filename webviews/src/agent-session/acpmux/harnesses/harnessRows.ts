@@ -51,11 +51,13 @@ export function harnessRows(
         ? checking
           ? "checking"
           : "notInstalled"
-        : checked?.auth === "signedOut" && login
-          ? "signIn"
-          : entry.unavailable
-            ? "unavailable"
-            : "ready";
+        : !checked
+          ? "checking"
+          : checked.auth === "signedOut"
+            ? "signIn"
+            : checked.auth === "unknown" || entry.unavailable
+              ? "unavailable"
+              : "ready";
       return {
         harness,
         name: entry.name,
@@ -67,8 +69,9 @@ export function harnessRows(
         ...(INSTALL_COMMANDS[harness] ? { install: INSTALL_COMMANDS[harness] } : {}),
       };
     });
-  return [
-    ...rows.filter((row) => row.status !== "notInstalled" && row.status !== "checking"),
-    ...rows.filter((row) => row.status === "notInstalled" || row.status === "checking"),
-  ];
+  // Group by installation, not asynchronously resolved health, so a check never moves a row.
+  const installed = new Set(
+    catalog.harnesses.filter((entry) => entry.installed).map((entry) => entry.acpmuxHarness ?? entry.id),
+  );
+  return [...rows.filter((row) => installed.has(row.harness)), ...rows.filter((row) => !installed.has(row.harness))];
 }
