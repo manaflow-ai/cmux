@@ -596,8 +596,9 @@ export function fillAlpha(raw: string, seen = new Set<string>()): number | null 
   if (/^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)$/.test(fn.name)) {
     const legacy = fn.args.length === 4 ? Number.parseFloat(fn.args[3] ?? "") : null;
     const alpha = legacy !== null ? legacy / ((fn.args[3] ?? "").endsWith("%") ? 100 : 1) : alphaOf(fn.args.join(" "));
-    // No alpha: opaque, unless a token may carry one.
-    if (alpha === null) return value.includes("var(") ? null : 1;
+    // No alpha at all: opaque, unless a token may carry one. An alpha this cannot read (`/ calc(...)`)
+    // is unknown, not opaque.
+    if (alpha === null) return value.includes("var(") || value.includes("/") || fn.args.length > 3 ? null : 1;
     return Number.isNaN(alpha) ? null : alpha;
   }
   if (fn.name === "color-mix") {

@@ -256,6 +256,8 @@ test("glass tints, rows inside a menu, Reduce Transparency and a written reason 
     ".demo-hovercard { background: color-mix(in srgb, Canvas 82%, CanvasText 6%); }",
     ":root { --demo-card-fill: color-mix(in srgb, Canvas 82%, CanvasText 6%); }",
     ".demo-bubble { background: var(--demo-card-fill); }",
+    // An alpha this cannot read is unknown, never opaque.
+    ".demo-toast { background: rgb(255 255 255 / calc(0.5)); }",
     ".ui-menu-item[data-highlighted] { background: Canvas; }",
     ".demo-menu .demo-menu-row { background: Canvas; }",
     "@media (prefers-reduced-transparency: reduce) { .demo-popover { background: var(--surface-popup); } }",
