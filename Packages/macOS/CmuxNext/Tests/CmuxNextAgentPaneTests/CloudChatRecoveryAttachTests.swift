@@ -1,5 +1,4 @@
-import CmuxNextAgentPane
-@testable import CmuxNextApp
+@testable import CmuxNextAgentPane
 import CmuxNextCloud
 import Testing
 

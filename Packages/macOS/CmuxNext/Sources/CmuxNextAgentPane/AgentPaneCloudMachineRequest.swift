@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import Foundation
 
 /// The signed-in account's Cloud machines in the composer's environment picker, beside the peers
@@ -100,6 +101,53 @@ public final class AgentPaneCloudMachines {
     public var list: (@MainActor () async -> Inventory)?
     /// Fresh inventory for a disconnected chat; avoids the picker cache hiding a paused machine.
     public var recoveryList: (@MainActor () async -> Inventory)?
+    /// What Resume machine on an unavailable chat does, decided on a fresh read of the machine:
+    /// the recovery list that offered it may be a minute old, and a machine that turned live since
+    /// must not be resumed again.
+    enum RecoveryAttach: Equatable {
+        /// Paused: ``CloudMachineSession/attach(origin:)``, which resumes it through Resume Machine's path.
+        case resume
+        /// Live without a connection: connect it (an app link connects; a legacy daemon is woken or
+        /// connected again). ``CloudMachineSession/attach(origin:)`` only resumes a paused legacy
+        /// machine, so it would do nothing here.
+        case connect
+        /// Live and connected: nothing to do; the chat reopens when it lists.
+        case connected
+        /// The read failed, or the machine is gone or failed.
+        case refuse
+    }
+
+    static func recoveryAttach(fresh: Bool, status: CloudMachine.Status?, connected: Bool) -> RecoveryAttach {
+        guard fresh, let status else { return .refuse }
+        if status == .paused { return .resume }
+        guard status.isLive else { return .refuse }
+        return connected ? .connected : .connect
+    }
+
+    /// Refreshes, then reads the machine, then resumes or connects only on what that fresh read says.
+    static func recoveryAttach(
+        refresh: @MainActor () async -> Bool,
+        machine: @MainActor () -> (status: CloudMachine.Status, connected: Bool)?,
+        resume: @MainActor () -> Void,
+        connect: @MainActor () -> Void
+    ) async -> Bool {
+        let fresh = await refresh()
+        let read = machine()
+        switch recoveryAttach(fresh: fresh, status: read?.status, connected: read?.connected ?? false) {
+        case .resume:
+            resume()
+            return true
+        case .connect:
+            connect()
+            return true
+        case .connected:
+            return true
+        case .refuse:
+            return false
+        }
+    }
+
+
     /// Runs Open Machine on a machine of the loaded list; false when it is not one.
     public var open: (@MainActor (String) -> Bool)?
     /// Runs Resume Machine on a paused machine of the loaded list; false otherwise.
