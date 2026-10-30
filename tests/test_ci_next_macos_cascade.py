@@ -1540,6 +1540,19 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
 
+    def test_fast_tier_keeps_fork_and_disabled_pool_routes(self):
+        runs_on = self.jobs["fast-tier"]["runs-on"]
+        self.assertEqual(evaluate(runs_on, self.context(fork=True, runner="", placed="1")), SMALL)
+        disabled = self.context(runner="", placed="1")
+        disabled["vars"]["CI_PR_POOL_OWNED"] = "0"
+        self.assertEqual(evaluate(runs_on, disabled), SMALL)
+
+    def test_fast_tier_bot_retry_with_carried_placement_has_no_runner(self):
+        runs_on = self.jobs["fast-tier"]["runs-on"]
+        # A rescue retry whose placement was skipped must not consume stale
+        # attempt-1 outputs and evaluate runs-on to boolean false.
+        self.assertFalse(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")))
+
     def test_gui_jobs_keep_their_route(self):
         for name in GUI_JOBS:
             runs_on = self.jobs[name]["runs-on"]

@@ -268,6 +268,9 @@ QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
 # main, and Blacksmith on every later attempt.
 NIGHTLY_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 NIGHTLY_EVENTS = frozenset({"push", "schedule"})
+# The one job of a nightly run the watch judges (the visual gate must never
+# cancel signing or notarization siblings).
+NIGHTLY_APP_JOB = "build-nightly-app"
 # The trusted owned pool's labels: minis with no pull request runners, whose
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
@@ -455,6 +458,13 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+def nightly_watched(job: Mapping[str, Any]) -> bool:
+    """Jobs whose queue may trigger rescue in a nightly run."""
+    return job.get("name") == NIGHTLY_APP_JOB or any(
+        TRUSTED_LABEL.fullmatch(str(label)) for label in job.get("labels") or ()
+    )
+
+
 def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:
     """The route a queued job is waiting on.
 
@@ -605,12 +615,14 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
            floor_seconds: int | None = None, allow_running_rescue: bool = False,
+           judged: Callable[[Mapping[str, Any]], bool] | None = None,
            include_blacksmith_macos: bool = False,
            health_snapshot: Mapping[str, Any] | None = None) -> Look:
-    """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
+    """One look at the judged jobs of a run on a persistent pool."""
     seen = first_seen or {}
+    owned = [job for job in jobs if job_pool(job) and (judged is None or judged(job))]
     waiting = [job for job in jobs if queued_pool(job, include_blacksmith_macos=include_blacksmith_macos)
-               and waiting_for_runner(job)]
+               and (judged is None or judged(job)) and waiting_for_runner(job)]
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
@@ -630,24 +642,24 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # boundary: move the run as the bot once a side job waits past budget even
     # when another side job is still running. Manual reruns stay minis-first;
     # the bot's rerun (attempt 2 on) is the overflow.
-    on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
+    on_mini = [job for job in owned if job.get("status") == "in_progress" and not in_setup(job)]
     if stuck and (allow_running_rescue or not on_mini):
         suffix = (" while another owned job is running; overflowing the queued side jobs"
                   if on_mini else " with no runner")
         return Look("rescue", f"{names} queued on {queued_pool(stuck[0], include_blacksmith_macos=include_blacksmith_macos)} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s{suffix}")
-    settling = [job for job in jobs if job_pool(job) and in_setup(job)]
+    settling = [job for job in owned if in_setup(job)]
     held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
     # Cancelling the run would kill siblings still running (run 36198335113 lost five
     # shards that way to a refusal), so a job held in setup waits for them, as a
     # refusal does, until the watch is about to end.
-    running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
+    running = [job for job in owned if job.get("status") == "in_progress" and not in_setup(job)]
     closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
     if held and (not running or closing):
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
         return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
                               f"{SETUP_WAIT_SECONDS}s")
-    turned_away = [job for job in jobs if refused(job)]
+    turned_away = [job for job in owned if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
@@ -1053,6 +1065,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        # Nightly signing/notarization must never be cancelled for a visual or
+        # other sibling gate. Only the app build and trusted-pool jobs drive
+        # the nightly rescue decision.
+        watched = [job for job in jobs if nightly_watched(job)] if target.nightly else jobs
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
             # gated job appears once its Linux gate ends.
@@ -1107,10 +1123,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         if on_persistent:
             finished = run_finished(jobs) and \
                 read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed"
-            if finished and not any(refused(job) for job in jobs):
+            if finished and not any(refused(job) for job in watched):
                 return "stop", "the run finished"
             seen_at = now()
-            for job in jobs:
+            for job in watched:
                 if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
             health = None
@@ -1121,7 +1137,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 health = api.pool_snapshot(seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
-                          allow_running_rescue=target.side,
+            allow_running_rescue=target.side and not target.nightly,
+            judged=nightly_watched if target.nightly else None,
                           include_blacksmith_macos=target.side and not target.nightly,
                           health_snapshot=health)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
