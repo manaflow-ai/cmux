@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -39,7 +40,13 @@ ENTRY_POINTS = {"prepush-gate.py": "cmux_next_prepush_gate.py", "git_batch.py": 
 
 def git(repo: Path, *args: str, check: bool = True, data: bytes | None = None) -> bytes:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    result = subprocess.run(["git", "-C", str(repo), *args], input=data, capture_output=True, env=env, timeout=60)
+    # DATA goes through a file, never `input=`: on a Mac short of pipe memory a write into a pipe blocks in the
+    # kernel, where `timeout` never runs; pushes hung here for up to an hour on 2026-10-28 (git_batch.py).
+    with tempfile.TemporaryFile() as stdin:
+        if data is not None:
+            stdin.write(data)
+            stdin.seek(0)
+        result = subprocess.run(["git", "-C", str(repo), *args], stdin=stdin, capture_output=True, env=env, timeout=60)
     if check and result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args[:2])} failed: {result.stderr.decode(errors='replace').strip()[:200]}")
     return result.stdout if result.returncode == 0 else b""

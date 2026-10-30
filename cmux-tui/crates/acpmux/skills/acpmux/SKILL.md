@@ -66,11 +66,11 @@ every tool call its harness would ask about. Never ask the user to allow,
 confirm or approve a step, with AskUserQuestion or in text ("allow this?",
 "should I go ahead?"): decide, say why in one line, and go on. Deciding never
 widens the task: a step a cmux skill keeps for the user's own request
-(computer use, importing a browser's cookies, deleting their data) waits for
-that request, and a cmux consent panel is theirs to answer; leave such a step
-out and say so. Ask only about product taste you cannot settle from the
-request or the code (how something should look, read or behave), and ask it
-as that choice, never as a permission.
+(importing a browser's cookies, deleting their data) waits for that request,
+and a cmux consent card (computer use setup) is theirs to answer; leave such
+a step out and say so. Ask only about product taste you cannot settle from
+the request or the code (how something should look, read or behave), and ask
+it as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -130,18 +130,27 @@ acpmux session fork NAME [--name NEW]              # new session sharing the his
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
+acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
-Start an agent for a task (its own worktree, its brief, shown in the app) with
-one command; running it again reuses the session and worktree and sends nothing:
+Start an agent for a task (its own worktree and brief) with one command; running
+it again reuses the session and worktree and sends nothing:
 
 ```bash
-acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
+
+`--group "GROUP"` is optional person-facing app state. It runs `cmux agent
+open`, creates a workspace and places it in the named cmux sidebar group (and
+may create that group); it does not move focus. Use a human label only, never a
+`grp_…`, `ws_…` or other object id. Omit it unless the person asked for this
+sidebar placement. To recover from an unwanted placement, inspect
+`cmux --json workspace group list`, then move/delete the affected workspace or
+group with the other `workspace group` commands; rerunning without `--group` is safe.
 
 A child of another harness under your own chat (a Codex child of a Claude chat): it lists
 under your chat, and your sub-session tools read, message and stop it.
@@ -236,11 +245,14 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **Where files live.** A remote session reads and writes the peer's disk. `--cwd` and
   `--worktree` are paths there, and its worktrees go to `~/.cmux/worktrees/<project>/<name>`
   on that machine. Nothing it writes appears here unless it pushes it (git) or you fetch it.
-- **Moving a session.** `acpmux session export HOST/NAME` fetches the bundle to
-  `~/.acpmux/bundles/`, and `acpmux session import DIR` restores it on this machine. No command
-  moves a session from one peer to another yet. To continue the work on another machine, start
-  a session there with `--host` and a `--prompt-file` that says where the work stands (branch,
-  PR, next step).
+- **Moving a session.** `acpmux session move SESSION... --host PEER` (or `--host auto`, the
+  placement's pick, never a reserved host; `--all-idle` for every idle chat here) moves chats from
+  this machine to an ssh peer with their history, queue and draft. A chat's worktree branch is
+  pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
+  `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
+  would go. The copy left here never runs again and `resolve` points at the new one.
+  `acpmux session export HOST/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
+  `acpmux session import DIR` restores a copy on this machine.
 - **What the host allows.** Some machines are not for builds or long jobs. When the task or the
   session's first message names what a host must not run, honour it, and pick another host
   from `host status`.

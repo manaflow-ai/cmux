@@ -34,13 +34,16 @@ FAKE_CURL = r'''#!/usr/bin/env python3
 import os, shutil, sys
 out = None
 url = None
+write_out = False
 args = sys.argv[1:]
 i = 0
 while i < len(args):
     a = args[i]
     if a in ("-o", "--output"):
         out = args[i + 1]; i += 2; continue
-    if a in ("--proto", "--connect-timeout", "--max-time", "--retry", "--retry-delay", "-w", "--write-out"):
+    if a in ("-w", "--write-out"):
+        write_out = True; i += 2; continue
+    if a in ("--proto", "--connect-timeout", "--max-time", "--retry", "--retry-delay"):
         i += 2; continue
     if a.startswith("https://"):
         url = a
@@ -50,7 +53,11 @@ if not url or not url.startswith(prefix):
     sys.exit(2)
 path = os.path.join(os.environ["FAKE_R2"], url[len(prefix):].split("?", 1)[0])
 if not os.path.isfile(path):
+    if write_out:
+        sys.stdout.write("404")
     sys.exit(22)
+if write_out:
+    sys.stdout.write("200")
 if out:
     shutil.copyfile(path, out)
 else:
@@ -86,10 +93,16 @@ p.add_argument("--conflict-exit-code", type=int)
 p.add_argument("--download-to")
 a = p.parse_args()
 dest = os.path.join(os.environ["FAKE_R2"], a.key)
+if os.environ.get("FAKE_UPLOAD_LOG") and not a.download_to:
+    with open(os.environ["FAKE_UPLOAD_LOG"], "a") as log:
+        log.write(a.key + "\n")
 # A read (--download-to), as the real uploader's: exit 22 on a missing object.
 # FAKE_DOWNLOAD_FAIL=<key>=<exit> fails that read as a transfer error would,
 # after the real uploader's retries.
 if a.download_to:
+    if os.environ.get("FAKE_READ_LOG"):
+        with open(os.environ["FAKE_READ_LOG"], "a") as log:
+            log.write(a.key + "\n")
     failing, _, code = os.environ.get("FAKE_DOWNLOAD_FAIL", "").partition("=")
     if failing == a.key:
         print(f"R2 download of s3://{a.bucket}/{a.key} failed: Connection reset by peer", file=sys.stderr)
@@ -180,12 +193,17 @@ class Sandbox:
             "GITHUB_REPOSITORY": "manaflow-ai/cmux",
             "R2_ENDPOINT": "https://r2.invalid",
             "FAKE_SLEEP_LOG": str(self.root / "sleep.log"),
+            # Each run is its own job, as on a runner: a fresh RUNNER_TEMP.
+            "RUNNER_TEMP": tempfile.mkdtemp(prefix="runner-temp-", dir=self.root),
             **env,
         }
         return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, env=full, text=True, capture_output=True)
 
-    def build(self, generation: str, *optional: str) -> None:
-        """This run's build outputs for the publish job, as the build job leaves them."""
+    def build(self, generation: str, *optional: str, real_checksums: bool = False) -> None:
+        """This run's build outputs for the publish job, as the build job leaves them.
+
+        With real_checksums the checksums files are sha256sum output, as
+        "Build manifest and checksums" writes them (chatmux-relay has none)."""
         assets = self.repo / "assets"
         shutil.rmtree(assets, ignore_errors=True)
         for prefix, names in {
@@ -197,7 +215,11 @@ class Sandbox:
             d.mkdir(parents=True)
             for n in names:
                 (d / n).write_text(f"{n} build {generation}\n")
-            (d / f"{prefix}-checksums.txt").write_text(f"checksums {generation}\n")
+            if not real_checksums:
+                (d / f"{prefix}-checksums.txt").write_text(f"checksums {generation}\n")
+            elif prefix != "chatmux-relay":
+                (d / f"{prefix}-checksums.txt").write_text(
+                    "".join(f"{sha256(d / n)}  {n}\n" for n in sorted(names)))
             (d / "manifest.json").write_text(json.dumps({
                 "commit": self.sha,
                 "attestationUrl": f"https://github.com/manaflow-ai/cmux/actions/runs/{generation}",
@@ -241,6 +263,22 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), earlier[key], key)
         for path in (self.box.repo / "assets-legacy").iterdir():
             self.assertEqual(path.read_bytes(), earlier[f"mux/{self.box.sha}/{path.name}"], path.name)
+
+    def test_adopting_reads_each_object_once(self) -> None:
+        """The legacy mux/ manifest lists its own checksums file too; the
+        reads run side by side, so a second read of one name would race on
+        the same local file."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        manifest = json.loads((self.box.r2 / "mux" / self.box.sha / "manifest.json").read_text())
+        self.assertIn("cmux-mux-checksums.txt", manifest["binaries"])
+        self.box.build("2")
+        log = Path(self.tmp.name) / "reads.log"
+        result = self.box.run(self.upload, FAKE_READ_LOG=str(log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        reads = log.read_text().splitlines()
+        self.assertIn(f"mux/{self.box.sha}/cmux-mux-checksums.txt", reads)
+        self.assertEqual(sorted(reads), sorted(set(reads)), "an object was read twice")
 
     def test_a_rebuild_with_other_optional_binaries_keeps_the_published_set(self) -> None:
         # The agent screen detector is optional: either build may lack it.
@@ -289,6 +327,45 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         # Provenance names the run that built them (bundle-cmux-tui.sh stamps it).
         self.assertEqual(json.loads((published / "source.json").read_text())["run"], "1")
 
+    def test_the_tree_verification_reads_every_binary_and_fails_on_any_bad_one(self) -> None:
+        """The binaries are read side by side; every one is still checked."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+            (tree / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/2",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        key = "a" * 40
+        publish = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        self.assertEqual(self.box.run(publish, KEY_V2=key, LEGACY_KEY="").returncode, 0)
+        verify = step_script("publish-tree", "Verify the tree publication")
+        result = self.box.run(verify, KEY=key, LEGACY_KEY="", CMUX_TUI_PUBLISH_PASS="unix")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        checked = {"cmux-tui-aarch64-apple-darwin", "cmux-tui-x86_64-unknown-linux-musl",
+                   "cmux-tui-aarch64-unknown-linux-musl"}
+        for n in checked:
+            self.assertIn(f"Verified: https://files.cmux.com/cmux-tui/tree/{key}/{n}\n", result.stdout)
+        self.assertIn('"commit"', result.stdout, "source.json is printed")
+        for n in sorted(checked):
+            with self.subTest(corrupt=n):
+                published = self.box.r2 / "cmux-tui" / "tree" / key / n
+                good = published.read_bytes()
+                published.write_bytes(good + b"tampered")
+                bad = self.box.run(verify, KEY=key, LEGACY_KEY="", CMUX_TUI_PUBLISH_PASS="unix")
+                published.write_bytes(good)
+                self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+                self.assertNotIn(f"Verified: https://files.cmux.com/cmux-tui/tree/{key}/{n}\n", bad.stdout)
+
     def test_a_tree_read_that_fails_is_not_taken_for_an_absent_tree(self) -> None:
         """Run 40670486094: the edge reset a companion read (curl exit 92). The reads now go
         to R2; one that still fails after the downloader's retries fails the step, and a
@@ -322,6 +399,49 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         result = self.box.run(script, KEY_V2=key, LEGACY_KEY="")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((self.box.r2 / "cmux-tui" / "tree" / key / "completion.json").is_file())
+
+    def test_this_runs_own_published_bytes_are_not_read_back(self) -> None:
+        """The usual push: this run published the commit, so its downloaded
+        build has the bytes the commit manifest names. Those companions are
+        taken from the build (a read of them would fail here); a companion
+        whose bytes differ is still read from R2."""
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        commit.mkdir(parents=True)
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+            (tree / n).write_text(f"{n} build 1\n")
+        # One companion of this run's build differs from the published one.
+        differs = names[-1]
+        (tree / differs).write_text(f"{differs} build 2\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/2",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        key = "a" * 40
+        result = self.box.run(script, KEY_V2=key, LEGACY_KEY="",
+                              FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/{names[0]}=1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Took cmux-tui/{self.box.sha}/{names[0]} from this run's build", result.stdout)
+        self.assertNotIn(f"Took cmux-tui/{self.box.sha}/{differs} ", result.stdout)
+        published = self.box.r2 / "cmux-tui" / "tree" / key
+        for n in names:
+            self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
+        # The differing companion is read from R2: a failed read of it fails the step.
+        shutil.rmtree(published)
+        # The step leaves the published bytes in assets/tree; a new job starts
+        # from its own download again.
+        (tree / differs).write_text(f"{differs} build 2\n")
+        failed = self.box.run(script, KEY_V2=key, LEGACY_KEY="",
+                              FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/{differs}=1")
+        self.assertNotEqual(failed.returncode, 0, failed.stdout + failed.stderr)
+        self.assertFalse(published.exists())
 
     def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
         """The commit's earlier publication attests acpmux for the four Unix targets."""
@@ -379,6 +499,152 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         for n in acpmux:
             self.assertFalse((published / n).exists(), n)
 
+
+
+class ParallelUploadsOfAClaimedPrefix(unittest.TestCase):
+    """A prefix whose checksums file names every file in it is claimed by that
+    file: it is written first and alone, the other files go up side by side,
+    and manifest.json is still written last."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.box = Sandbox(Path(self.tmp.name))
+        self.upload = step_script("publish", "Upload to R2")
+        self.log = Path(self.tmp.name) / "uploads.log"
+        self.other = Path(self.tmp.name) / "other-run"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def published(self, root: Path | None = None) -> dict[str, bytes]:
+        root = root or self.box.r2
+        return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+    def uploads(self, prefix: str) -> list[str]:
+        start = f"{prefix}/{self.box.sha}/"
+        return [k[len(start):] for k in self.log.read_text().splitlines() if k.startswith(start)]
+
+    def test_the_checksums_go_first_and_the_manifest_last(self) -> None:
+        self.box.build("1", real_checksums=True)
+        result = self.box.run(self.upload, FAKE_UPLOAD_LOG=str(self.log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for prefix in ("cmux-tui", "cmux-relay", "mux"):
+            with self.subTest(prefix=prefix):
+                order = self.uploads(prefix)
+                self.assertTrue(order[0].endswith("-checksums.txt"), order)
+                self.assertEqual(order[-1], "manifest.json", order)
+                local = self.box.repo / ("assets-legacy" if prefix == "mux" else f"assets/{prefix}")
+                self.assertEqual(sorted(order), sorted(p.name for p in local.iterdir()))
+        # chatmux-relay has no checksums file: it keeps the serial order.
+        order = self.uploads("chatmux-relay")
+        self.assertEqual(order, sorted(order[:-1]) + ["manifest.json"])
+
+    def test_a_file_the_checksums_do_not_name_keeps_the_serial_order(self) -> None:
+        self.box.build("1", real_checksums=True)
+        (self.box.repo / "assets/cmux-relay/cmux-relay-extra").write_text("not in the checksums\n")
+        result = self.box.run(self.upload, FAKE_UPLOAD_LOG=str(self.log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        order = self.uploads("cmux-relay")
+        self.assertEqual(order, sorted(order))
+
+    def test_a_failed_upload_writes_no_manifest(self) -> None:
+        self.box.build("1", real_checksums=True)
+        failing = self.box.repo / "scripts/ci/upload-r2-object.py"
+        body = failing.read_text()
+        failing.write_text(body.replace(
+            'body = open(a.file, "rb").read()',
+            'body = open(a.file, "rb").read()\nif a.key.endswith("aarch64-apple-darwin") and a.key.startswith("cmux-tui/"):\n    sys.exit(1)',
+            1))
+        result = self.box.run(self.upload)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(f"cmux-tui/{self.box.sha}/manifest.json", self.published())
+
+    def test_the_loser_of_the_checksums_race_keeps_the_other_publication(self) -> None:
+        self.box.build("1", real_checksums=True)
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        shutil.move(str(self.box.r2), str(self.other))
+        self.box.r2.mkdir()
+        other = self.published(self.other)
+        self.box.build("2", real_checksums=True)
+        result = self.box.run(self.upload, FAKE_RACE_DIR=str(self.other), FAKE_RACE_FINISHES="1",
+                              FAKE_UPLOAD_LOG=str(self.log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertEqual(self.published(), other)
+        # The loser wrote nothing past the checksums file it lost.
+        self.assertEqual(self.uploads("cmux-tui"), ["cmux-tui-checksums.txt"])
+        for path in (self.box.repo / "assets").rglob("*"):
+            if path.is_file():
+                key = f"{path.parent.name}/{self.box.sha}/{path.name}"
+                self.assertEqual(path.read_bytes(), other[key], key)
+
+    def test_a_run_with_the_same_bytes_completes_an_unfinished_publication(self) -> None:
+        self.box.build("1", real_checksums=True)
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        first = self.published()
+        # An attempt that stopped before its manifests: the same build again
+        # (a re-run) writes identical bytes, which write-once accepts.
+        for key in first:
+            if key.endswith("/manifest.json"):
+                (self.box.r2 / key).unlink()
+        result = self.box.run(self.upload, FAKE_UPLOAD_LOG=str(self.log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertEqual(self.published(), first)
+        self.assertGreater(len(self.uploads("cmux-tui")), 2)
+
+
+class WindowsPassKeepsTheFirstPassPrefixes(unittest.TestCase):
+    """publish-windows runs the same Upload to R2 step after the first pass
+    published every Unix prefix. It keeps them without reading them back
+    (21 min of every publish-windows, run 40921878495) and writes only its
+    own cmux-tui-windows/<sha>/."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.box = Sandbox(Path(self.tmp.name))
+        self.upload = step_script("publish", "Upload to R2")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def published(self) -> dict[str, bytes]:
+        return {str(p.relative_to(self.box.r2)): p.read_bytes() for p in self.box.r2.rglob("*") if p.is_file()}
+
+    def windows_build(self) -> Path:
+        windows = self.box.repo / "assets" / "cmux-tui-windows"
+        windows.mkdir(parents=True)
+        exe = windows / "cmux-tui-x86_64-pc-windows-gnu.exe"
+        exe.write_text("windows build\n")
+        (windows / "cmux-tui-windows-checksums.txt").write_text(f"{sha256(exe)}  {exe.name}\n")
+        (windows / "manifest.json").write_text(json.dumps({"commit": self.box.sha, "binaries": {exe.name: sha256(exe)}}))
+        return windows
+
+    def test_the_windows_pass_reads_none_of_the_unix_prefixes(self) -> None:
+        self.box.build("1", real_checksums=True)
+        self.assertEqual(self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="unix").returncode, 0)
+        earlier = self.published()
+        self.box.build("1", real_checksums=True)
+        self.windows_build()
+        # Any read from R2 fails: the Windows pass must not need one.
+        result = self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="windows",
+                              FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/manifest.json=1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("the Windows pass does not read it back", result.stdout)
+        now = self.published()
+        self.assertEqual({k: v for k, v in now.items() if not k.startswith("cmux-tui-windows/")}, earlier)
+        self.assertIn(f"cmux-tui-windows/{self.box.sha}/manifest.json", now)
+
+    def test_a_missing_legacy_prefix_fails_the_windows_pass(self) -> None:
+        self.box.build("1", real_checksums=True)
+        self.assertEqual(self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="unix").returncode, 0)
+        shutil.rmtree(self.box.r2 / "mux")
+        self.box.build("2", real_checksums=True)
+        self.windows_build()
+        result = self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="windows")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mux prefix missing", result.stdout + result.stderr)
+        self.assertFalse((self.box.r2 / "mux").exists(), "this run's bytes are not published under mux/")
 
 
 class TwoRunsOfOneCommitAtOnce(unittest.TestCase):

@@ -531,6 +531,43 @@ async fn a_paired_phone_is_refused_full_access_without_its_setting_and_allowed_w
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// Canonical fork normalization must keep the mobile host's narrowing mark,
+/// whichever boundary it resolves, until the real remote guard checks it.
+#[tokio::test]
+async fn canonical_fork_boundaries_keep_the_phones_full_access_requirement() {
+    let d = dir("phone-fork-boundaries");
+    let hub = hub(&d);
+    let mut person = Client::person(&hub).await;
+    let (device, token) = issue_phone(&mut person, "fork-phone").await;
+    let mut phone = Client::device(&hub, &token, false);
+    assert!(!hub.pairing.full_access(&device));
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let source = bridge_chat(&mut local, &d).await;
+    assert_ne!(mode_now(&hub, &source), "ask");
+    for id in ["first", "second"] {
+        let mut params = prompt(&source);
+        params["_meta"] = json!({"acpmux": {"promptId": id}});
+        let reply = local.call("session/prompt", params).await;
+        assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    }
+    let original = hub.events(&source, 0, 10_000).unwrap();
+    let through = original.iter().find(|event| event.kind == "turn_result").unwrap().seq;
+    let count = hub.sessions().len();
+    for boundary in [json!({"live": true}), json!({"throughSeq": through})] {
+        let mut params = boundary.clone();
+        params["sessionId"] = json!(source);
+        let reply = phone.call("acp.session.fork", marked(params)).await;
+        assert_eq!(
+            reply["error"]["data"]["reason"], "remote.full_access_required",
+            "{boundary}: {reply}"
+        );
+        assert_eq!(hub.sessions().len(), count, "refusal creates no child: {boundary}");
+        assert_eq!(hub.events(&source, 0, 10_000).unwrap(), original);
+    }
+    hub.shutdown_all().await;
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 /// Only the person issues a phone's credential, and never through a ticket:
 /// it names the device the setting covers, so an agent on this Mac must not
 /// hold one. Issuing it again for the same phone (the Mac app does at each
