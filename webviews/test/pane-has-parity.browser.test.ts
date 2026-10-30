@@ -108,10 +108,9 @@ await requireBrowserLane("pane-has-parity.browser.test.ts", async () => {
           await page.evaluate(
             () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
           );
-          const digest = createHash("sha256")
-            .update(await styleDigest(page))
-            .digest("hex")
-            .slice(0, 16);
+          const styles = await styleDigest(page);
+          if (out) fs.writeFileSync(path.join(out, `${name}.styles.txt`), styles);
+          const digest = createHash("sha256").update(styles).digest("hex").slice(0, 16);
           const png = await page.screenshot({ animations: "disabled", caret: "hide" });
           const pixels = createHash("sha256").update(png).digest("hex").slice(0, 16);
           if (out) fs.writeFileSync(path.join(out, `${name}.png`), png);

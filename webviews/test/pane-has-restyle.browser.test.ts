@@ -119,7 +119,7 @@ await requireBrowserLane("pane-has-restyle.browser.test.ts", async () => {
   async function insertOnce(page: Page, tag: string): Promise<Styled> {
     const styled = await traced(page, () =>
       page.evaluate(
-        async ({ tag, frames }) => {
+        async ({ tag }) => {
           const rows = document.querySelectorAll(".acpmux-scroll .acpmux-row");
           const row = rows[rows.length - 1]!;
           const host = row.querySelector(".cv-md") ?? row;
@@ -128,9 +128,9 @@ await requireBrowserLane("pane-has-restyle.browser.test.ts", async () => {
           node.textContent = "probe";
           node.setAttribute("data-has-probe", "");
           host.append(node);
-          await new Function(`return ${frames}`)();
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         },
-        { tag, frames: twoFrames },
+        { tag },
       ),
     );
     await page.evaluate(() => document.querySelectorAll("[data-has-probe]").forEach((node) => node.remove()));
@@ -328,19 +328,16 @@ await requireBrowserLane("pane-has-restyle.browser.test.ts", async () => {
     await browser!.startTracing(page, {
       categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
     });
-    await page.evaluate(
-      async ({ frames }) => {
-        const rows = document.querySelectorAll(".acpmux-scroll .acpmux-row");
-        const row = rows[rows.length - 1]!;
-        const node = document.createElement("button");
-        node.type = "button";
-        node.textContent = "probe";
-        node.setAttribute("data-has-probe", "");
-        (row.querySelector(".cv-md") ?? row).append(node);
-        await new Function(`return ${frames}`)();
-      },
-      { frames: twoFrames },
-    );
+    await page.evaluate(async () => {
+      const rows = document.querySelectorAll(".acpmux-scroll .acpmux-row");
+      const row = rows[rows.length - 1]!;
+      const node = document.createElement("button");
+      node.type = "button";
+      node.textContent = "probe";
+      node.setAttribute("data-has-probe", "");
+      (row.querySelector(".cv-md") ?? row).append(node);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
     const raw = JSON.parse((await browser!.stopTracing()).toString()) as {
       traceEvents: { name: string; cat: string; args?: any }[];
     };

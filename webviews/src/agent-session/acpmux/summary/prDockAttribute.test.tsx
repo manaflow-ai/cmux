@@ -39,8 +39,8 @@ function actionRow(markup: string) {
 }
 
 for (const [name, node] of [
-  ["a turn's footer", <TurnFooter row={summary} />],
-  ["a reply's actions", <ReplyActions row={reply} />],
+  ["a turn's footer", <TurnFooter key="turn" row={summary} />],
+  ["a reply's actions", <ReplyActions key="reply" row={reply} />],
 ] as const) {
   test(`${name} is marked when its PR links draw, and only then`, () => {
     const withLinks = actionRow(
