@@ -107,7 +107,9 @@ fn bundled(exe: &Path) -> bool {
         })
         .collect();
     names.iter().any(|n| n == "AppTranslocation")
-        || names.windows(2).any(|w| w[0].ends_with(".app") && w[1] == "Contents")
+        || names
+            .windows(2)
+            .any(|w| matches!(w, [app, next] if app.ends_with(".app") && *next == "Contents"))
 }
 
 /// What starting a daemon from `exe` for state folder `home` does.
@@ -120,7 +122,8 @@ pub enum Verdict {
 }
 
 /// The verdict for a daemon of `home` run from `exe`. `default_home` is the
-/// person's `~/.acpmux`; a default home that itself sits in a temporary
+/// person's `~/.acpmux`; `verified_clone` comes only from the signature verifier.
+/// A default home that itself sits in a temporary
 /// folder (a test's `HOME`) is not the person's.
 pub fn verdict(
     exe: &Path,
@@ -128,6 +131,7 @@ pub fn verdict(
     default_home: &Path,
     temp_dir: &Path,
     allow: bool,
+    verified_clone: bool,
 ) -> Verdict {
     let Some(why) = classify(exe, temp_dir) else { return Verdict::Stable };
     if home != default_home || classify(home, temp_dir).is_some() {
@@ -140,7 +144,9 @@ pub fn verdict(
         why.phrase()
     );
     match why {
-        Unstable::RunnerWork | Unstable::Temp if !allow && !bundled(exe) => {
+        Unstable::RunnerWork | Unstable::Temp
+            if !(allow || bundled(exe) || why == Unstable::Temp && verified_clone) =>
+        {
             Verdict::Refuse(format!(
                 "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
              or copy it to ~/.local/bin/acpmux) and run that, give this one its own ACPMUX_HOME, \
@@ -179,6 +185,7 @@ fn current(allow: bool) -> Verdict {
         &resolved(&crate::config::default_home()),
         &resolved(&std::env::temp_dir()),
         allow || allowed_by_env(),
+        cmux_link::app_caller::verified_clone_executable(&exe).is_some(),
     )
 }
 
@@ -223,6 +230,69 @@ pub fn check_run(ready_fd: Option<i32>) -> anyhow::Result<()> {
 pub fn refused_line(ready: &str) -> Option<String> {
     let line: serde_json::Value = serde_json::from_str(ready.trim()).ok()?;
     line.get("refused").and_then(serde_json::Value::as_str).map(str::to_owned)
+}
+
+/// Test runners: `swift test` runs Swift Testing in `swiftpm-testing-helper`, XCTest in `xctest`.
+const TEST_RUNNERS: &[&str] = &["swiftpm-testing-helper", "xctest"];
+
+/// Why a client run from `peer_exe` may not stop the daemon of `home` (`_acpmux/shutdown`), or
+/// None. Only the person's own home is guarded, as in [`verdict`]: a test runner never stops it,
+/// and a client from a runner `_work` or a temporary folder does not unless `allow`
+/// ([`ALLOW_ENV`] in the daemon's own environment; a client cannot grant it) or it is an app's
+/// bundled binary. On 2026-10-26 a `cmux-next swift test` job on a CI mini
+/// (`swiftpm-testing-helper`, no `ACPMUX_HOME`) handed the mini's own `~/.acpmux` daemon off and
+/// cycled daemons there until the run ended.
+pub fn shutdown_refusal(
+    peer_exe: &Path,
+    home: &Path,
+    default_home: &Path,
+    temp_dir: &Path,
+    allow: bool,
+    verified_clone: bool,
+) -> Option<String> {
+    if home != default_home || classify(home, temp_dir).is_some() {
+        return None;
+    }
+    let name = peer_exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let refused = if TEST_RUNNERS.contains(&name.as_str()) {
+        Some("a test runner")
+    } else {
+        match classify(peer_exe, temp_dir) {
+            Some(why @ (Unstable::RunnerWork | Unstable::Temp))
+                if !(allow || bundled(peer_exe) || why == Unstable::Temp && verified_clone) =>
+            {
+                Some(why.phrase())
+            }
+            _ => None,
+        }
+    }?;
+    Some(format!(
+        "acpmux: refused to stop the daemon of {}: the request came from {} ({}). A test or CI \
+         job gives its client its own ACPMUX_HOME; a daemon started with {ALLOW_ENV}=1 allows a \
+         client from an unstable path",
+        home.display(),
+        peer_exe.display(),
+        refused
+    ))
+}
+
+/// [`shutdown_refusal`] for this daemon's home and a Unix socket peer, whose executable its audit
+/// token names (macOS; elsewhere, and for a peer that exec'd since it connected, nothing is
+/// known and nothing is refused).
+pub fn peer_shutdown_refusal(
+    peer: Option<&cmux_link::app_caller::PeerToken>,
+    allow: bool,
+) -> Option<String> {
+    let peer = peer?;
+    let exe = cmux_link::app_caller::executable_path(peer)?;
+    shutdown_refusal(
+        &resolved(&exe),
+        &resolved(&crate::config::home()),
+        &resolved(&crate::config::default_home()),
+        &resolved(&std::env::temp_dir()),
+        allow,
+        cmux_link::app_caller::verified_clone_peer(peer).is_some(),
+    )
 }
 
 #[cfg(test)]

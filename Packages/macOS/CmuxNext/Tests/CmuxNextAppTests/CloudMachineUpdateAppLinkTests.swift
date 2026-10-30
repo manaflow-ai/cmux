@@ -42,7 +42,7 @@ struct CloudMachineUpdateAppLinkTests {
         let outcome = await target.update(to: try #require(DaemonBuildCommit("abc123def456")), whileBusy: true)
 
         #expect(outcome == .updated(build: "abc123def456"))
-        #expect(fixture.cliCalls == [["link", "machine", "update", "--socket", fixture.daemonSocket.path, "--to-bundled"]])
+        #expect(fixture.cliCalls == [["link", "machine", "update", "--socket", fixture.daemonSocket.path, "--to-bundled", "--if-older"]])
         // The machine connects again, to the daemon the update left there.
         try await fixture.waitUntil { fixture.identifies >= 2 }
         #expect(await resolver.opens == 2, "a fresh connect of the app link")

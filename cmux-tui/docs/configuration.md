@@ -386,6 +386,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
+| `viewport.docked_workspaces` | boolean | `false` | Prototype: edge docks that each hold a workspace around the active workspace (see Docked workspaces below). `CMUX_TUI_DOCKED_WORKSPACES=1` also turns it on |
 
 `Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Ctrl-b N` or `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
 
@@ -480,6 +481,17 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.show-shortcuts` | chord string or array or `"none"` | `"?"` | Open the resolved keyboard shortcut modal |
 | `keys.provider-menu` | chord string or array or `"none"` | `"m"` | Open the machine provider menu when the machine rail is focused |
 | `keys.detach` | chord string or array or `"none"` | `"d"` | Quit local TUI or detach attached TUI |
+| `keys.dock-workspace-left` | chord string or array or `"none"` | unbound | Dock the active workspace on the left edge |
+| `keys.dock-workspace-right` | chord string or array or `"none"` | unbound | Dock the active workspace on the right edge |
+| `keys.dock-workspace-top` | chord string or array or `"none"` | unbound | Dock the active workspace on the top edge |
+| `keys.dock-workspace-bottom` | chord string or array or `"none"` | unbound | Dock the active workspace on the bottom edge |
+| `keys.undock-workspace` | chord string or array or `"none"` | unbound | Return the active docked workspace to the stage |
+| `keys.toggle-dock-left` | chord string or array or `"none"` | unbound | Show or hide the left dock; with no left dock, dock a new workspace there |
+| `keys.toggle-dock-right` | chord string or array or `"none"` | unbound | Show or hide the right dock; with no right dock, dock a new workspace there |
+| `keys.toggle-dock-top` | chord string or array or `"none"` | unbound | Show or hide the top dock; with no top dock, dock a new workspace there |
+| `keys.toggle-dock-bottom` | chord string or array or `"none"` | unbound | Show or hide the bottom dock; with no bottom dock, dock a new workspace there |
+| `keys.toggle-dock-floating` | chord string or array or `"none"` | unbound | Switch the active docked workspace between Docked and Floating |
+| `keys.toggle-dock-orientation` | chord string or array or `"none"` | unbound | Switch which docks own the corners (side docks or top and bottom bands) |
 
 Each action override replaces all default chords for that action. Values may be a string, an array of strings, or `"none"`. Non-string array entries are ignored. Changing `keys.prefix` also moves the default `send-prefix` chord so pressing the configured prefix twice continues to pass it through. An explicit `keys.send-prefix` override takes precedence. Set `keys.alt_shortcuts` or `keys.super_shortcuts` to `false` to remove that modeless default layer before applying user overrides; explicitly configured chords still work.
 
@@ -492,6 +504,12 @@ Screen and tab positions are zero-based, so each `select-screen-N` or `select-ta
 Use `"shift+="` to configure the `+` character, since `+` separates modifiers in chord strings.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, `cmd`, `command`, `super`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
+
+## Docked workspaces
+
+Docked workspaces are a prototype and are off by default. Set `{"viewport":{"docked_workspaces":true}}` (or `CMUX_TUI_DOCKED_WORKSPACES=1`) to turn them on. Each edge of the content area (left, right, top, bottom) can hold one dock, and each dock holds one ordinary workspace. The stage in the center shows the active workspace; selecting another workspace changes only the stage, and the docks stay. Selecting a docked workspace, or clicking in its dock, focuses it in its dock and keeps the stage. A Docked dock takes space from the stage; a Floating dock floats over the stage's edge and does not resize it. A hidden dock keeps its workspace and draws nothing. Side docks take at most half of the width each (two fifths when both are present); top and bottom docks take at most half of the height (one third when both are present). Column-major orientation (the default) gives the corners to the side docks; row-major gives them to the top and bottom docks.
+
+The dock actions have no default keys. Bind them under `keys` (for example `"dock-workspace-left": "alt+shift+h"`) or open them from the context menu's Docked workspaces submenu. Each client stores its docks in its own frontend projection on the session (`frontend: "cmux-tui"`, `scope: "personal"`, with the fields `docks`, `dock_orientation` and `stage_key` of the macOS app's window record), so a restarted client with the same client id shows the same docks.
 
 ## Example
 

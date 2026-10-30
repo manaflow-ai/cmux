@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// below an insert make room on the render server's spring (`RowMotion.animate`, `SidebarDragSpring`): each
 /// row's frame is at its slot at once and an additive spring carries what is on screen there, so the main
 /// thread writes no row frame per display frame. AppKit's spring wrote every moving row's frame each frame.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarRowsMoveOnRenderServerTests {
     /// The local machine's section with the workspaces `ids`, in that order.
     private static func sections(_ ids: [Int]) -> [CmuxNextSidebar.SidebarSection] {
@@ -43,6 +44,46 @@ struct SidebarRowsMoveOnRenderServerTests {
     private static func positionSprings(_ view: NSView) -> Int { springs(view, "position") }
 
     private static func sizeSprings(_ view: NSView) -> Int { springs(view, "bounds.size") }
+
+    @Test
+    func recyclingAParkedRowStopsItsListSpring() {
+        let list = SidebarListView(model: SidebarModel())
+        let view = SidebarRowView(key: .workspace(WorkspaceID("recycled")))
+        list.addSubview(view)
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        view.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+
+        #expect(Self.positionSprings(view) == 1)
+        list.recycle(view)
+        #expect(Self.positionSprings(view) == 0)
+    }
+
+    @Test
+    func anOldCloseCannotFinishTheReusedRowsNewClose() throws {
+        let list = SidebarListView(model: SidebarModel())
+        let key = SidebarRowKey.workspace(WorkspaceID("reused"))
+        let view = list.dequeue(key)
+        list.addSubview(view)
+        let oldClose = view.reuseGeneration
+        list.recycle(view)
+        let reused = list.dequeue(key)
+        try #require(reused === view)
+        // It left rowViews for a second close before the first close's completion arrived.
+        reused.closingEnd = .zero
+        list.fadingRows[ObjectIdentifier(reused)] = reused
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        reused.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+        list.finishLeaving(view, generation: oldClose)
+        #expect(!reused.isHidden)
+        #expect(Self.positionSprings(reused) == 1)
+        #expect(list.fadingRows[ObjectIdentifier(reused)] === reused)
+        list.finishLeaving(reused, generation: reused.reuseGeneration)
+        #expect(reused.isHidden && reused.closingEnd == nil)
+        #expect(Self.positionSprings(reused) == 0)
+        #expect(list.fadingRows.isEmpty)
+    }
 
     /// The rows and group lines that still carry a row move's spring.
     private static func springing(_ list: SidebarListView) -> [String] {
@@ -80,6 +121,7 @@ struct SidebarRowsMoveOnRenderServerTests {
         window.isReleasedWhenClosed = false
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
+        if window.screen == nil { window.close() } // the require below throws before any test's restore
         try #require(window.screen != nil)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -91,7 +133,7 @@ struct SidebarRowsMoveOnRenderServerTests {
             Motion.reduceMotionOverride = nil
             DesignSettings.shared.enabledAnimations = kinds
             DesignSettings.shared.animationSpeed = speed
-            window.orderOut(nil)
+            window.close()
         })
     }
 
@@ -106,10 +148,14 @@ struct SidebarRowsMoveOnRenderServerTests {
             if case .workspace = key { (key, view, view.frame.minY - clip.bounds.minY) } else { nil }
         }
 
-        model.sections = Self.sections([0] + Array(1...30))
+        // The new row goes right under the first one, which stays in place. An insert above the first shown row keeps
+        // what the user sees still (`ListViewport.anchored`, close-focus.md V5): the list scrolls by the new row's height
+        // and no row moves on screen (the run read "pushed 0 rows down"). In the app Home stands above the list, so a new
+        // row at the list's top lands under a row that holds still, as here.
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
 
-        // The rows the insert pushed down on screen (the list's top holds still, so all of them).
+        // The rows the insert pushed down on screen: every shown row under the first one.
         var moved = 0
         for (key, view, wasOnScreen) in shown {
             let row = try #require(list.displayed.row(for: key))
@@ -120,9 +166,12 @@ struct SidebarRowsMoveOnRenderServerTests {
             #expect(view.frame == slot, "\(key) is at \(view.frame), its slot is \(slot)")
             #expect(Self.positionSprings(view) >= 1, "\(key) did not move on the render server")
         }
-        #expect(moved > 3, "the insert at the top pushed \(moved) rows down (of \(shown.count) shown)")
+        #expect(moved > 3, "the insert near the top pushed \(moved) rows down (of \(shown.count) shown)")
+        let firstKey = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
+        let first = try #require(shown.first { $0.0 == firstKey }, "the first row is not shown")
+        #expect(abs(first.1.frame.minY - clip.bounds.minY - first.2) <= 0.5, "the first row moved: the insert is not under a still row")
         let added = try #require(Self.sections([0]).first?.workspaces.first?.id)
-        let opening = try #require(list.rowViews[.workspace(added)], "the new row at the top has no view")
+        let opening = try #require(list.rowViews[.workspace(added)], "the new row near the top has no view")
         let slot = try #require(list.displayed.row(for: opening.key).map(list.frame(for:)))
         #expect(opening.frame == slot, "the new row is at \(opening.frame), its slot is \(slot)")
         #expect(Self.sizeSprings(opening) >= 1, "the new row did not open its slot on the render server")
@@ -137,13 +186,15 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aSecondInsertStacksOnTheFirstMove() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        let key = SidebarRowKey.workspace(try #require(Self.sections([1]).first?.workspaces.first?.id))
+        // Both inserts go under the first row, which holds still (as `anInsertAtTheTopMovesTheRowsBelowOnTheRenderServer`):
+        // above it, the list keeps what the user sees still and no row moves. Workspace 2 is pushed by both.
+        let key = SidebarRowKey.workspace(try #require(Self.sections([2]).first?.workspaces.first?.id))
         let view = try #require(list.rowViews[key])
 
-        model.sections = Self.sections([0] + Array(1...30))
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
         try #require(Self.positionSprings(view) == 1)
-        model.sections = Self.sections([999, 0] + Array(1...30))
+        model.sections = Self.sections([1, 999, 0] + Array(2...30))
         list.reload(animated: true)
 
         #expect(list.rowViews[key] === view)
@@ -159,7 +210,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aMoveTheDisplaySleepsThroughEndsAtTheSlots() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
-        model.sections = Self.sections([0] + Array(1...30))
+        // Under the first row, so the rows below move (above it, the list holds what the user sees still).
+        model.sections = Self.sections([1, 0] + Array(2...30))
         list.reload(animated: true)
         try #require(list.rowViews.values.contains { Self.positionSprings($0) > 0 })
 
@@ -182,15 +234,43 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aReloadWithoutMotionMidMoveShowsTheSlotsAtOnce() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
         defer { restore() }
-        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        // Remove a realized row while the insert starts its move: it stays as a closing subview with
+        // its render-server spring until the animated move ends.
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
         list.reload(animated: true)
         try #require(!Self.springing(list).isEmpty, "the insert did not move on the render server")
 
-        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        // Reintroduce that same key before the close ends. A calm reload must recycle the old leaving
+        // view first, so the replacement is at its slot with no stale close spring attached.
+        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
         list.reload(animated: false)
 
         #expect(Self.springing(list).isEmpty, "still springing after a reload without motion: \(Self.springing(list))")
         #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+        #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
+    }
+
+    /// Reduce Motion takes RowMotion's snap branch while `reload(animated:)` still reports an animated apply.
+    /// The leaving row must be recycled before the same key is realized again in that effective snap path.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func reduceMotionReloadRecyclesAClosingRowBeforeReusingItsKey() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
+        defer { restore() }
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        list.reload(animated: true)
+        try #require(!Self.springing(list).isEmpty, "the first change did not start a row move")
+
+        Motion.reduceMotionOverride = true
+        // Keep the removed workspace absent so `animate` remains true; this exercises the
+        // effective snap gate (`!Motion.sidebar.animatesMovement`) rather than its `!animate` arm.
+        model.sections = Self.grouped(["new"] + (1...7).reversed().map { "w\($0)" })
+        list.reload(animated: true)
+
+        #expect(Self.springing(list).isEmpty, "still springing after Reduce Motion snap: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at slots after Reduce Motion snap: \(Self.offSlot(list))")
+        #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
     }
 
     /// Reduce Motion turned on mid-move: the next change snaps, the earlier move's springs with it.
