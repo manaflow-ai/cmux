@@ -78,6 +78,12 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_snapshot",
 ];
 
+/// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
+/// itself (`SESSION_SCOPED_EXCLUDED`).
+pub(super) fn names_a_session(m: &str) -> bool {
+    !SESSION_SCOPED_EXCLUDED.contains(&m)
+}
+
 /// The reply when `m` is for a peer's session (forwarded there), else None
 /// (this daemon handles it).
 /// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with no sender of its own, from the
