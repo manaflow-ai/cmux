@@ -86,7 +86,7 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
     pane = await papercutPane(() => current!, {
       turns: 1,
       running: false,
-      ready: "img.cv-img",
+      ready: "img.cv-thumb__img",
       extra: [
         ["mux", "user_message", { text: "Take a screenshot" }],
         ["mux", "turn_started", {}],
