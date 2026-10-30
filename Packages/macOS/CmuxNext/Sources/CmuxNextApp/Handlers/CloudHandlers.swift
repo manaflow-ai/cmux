@@ -216,7 +216,7 @@ enum CloudHandlers {
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         let daemon = session.daemon
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        if let first = await existingWorkspace(in: daemon.store) { return first }
+        if let first = try await existingWorkspace(in: daemon.store) { return first }
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
         return id
     }
@@ -225,13 +225,16 @@ enum CloudHandlers {
     /// before its first tree is applied (right after a resume), and the list then is the last
     /// connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`), up to
     /// `limit`, so an open never makes a second workspace. The connection is published before the
-    /// store hears `.connected` (which moves the epoch), so the store must say connected too.
-    static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async -> String? {
+    /// store hears `.connected` (which moves the epoch), so the store must say connected too. A tree
+    /// that never comes within `limit` throws "not connected": never "none", which would make one.
+    static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async throws -> String? {
         let current = { @MainActor @Sendable in
             if case .connected = store.connectionState { return store.liveTreeEpoch == store.connectionEpoch }
             return false
         }
-        if !current() { _ = await CloudMove.holds(within: limit, until: current) }
+        if !current(), await !CloudMove.holds(within: limit, until: current) {
+            throw ActionFailure(message: CloudStrings.notConnected)
+        }
         return store.workspaces.first?.id
     }
 
