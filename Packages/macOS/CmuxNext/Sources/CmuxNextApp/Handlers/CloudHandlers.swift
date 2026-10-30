@@ -70,13 +70,13 @@ enum CloudHandlers {
             }
             guard !cloud.isSignedIn else {
                 signedOutCreation.cancel()
-                return ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), start: start)
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), start: start)
             }
             guard actionOrigin == .user else {
                 return .refused(CloudStrings.signInFirst)
             }
             let expected = signedOutCreation.reserve()
-            return ActionTrackedWork.effect(registry: registry, cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), authorize: {
+            return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), authorize: {
                 let authorized = await signedOutCreation.perform(expected: expected,
                     signIn: { await cloud.auth.signIn() }, resume: {})
                 guard authorized, cloud.isSignedIn else {
