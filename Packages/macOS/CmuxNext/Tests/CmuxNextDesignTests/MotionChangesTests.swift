@@ -30,15 +30,18 @@ import Testing
     }
 
     /// The app's instance hears the test override and the settings that post the notifications.
+    /// Other suites may change them meanwhile, so it counts at least its own changes.
     @Test func theAppsInstanceHearsTheOverrideAndTheSpeed() {
         var heard: [MotionChange] = []
         let subscription = Motion.changes.subscribe { heard.append($0) }
         defer { subscription.cancel() }
-        Motion.reduceMotionOverride = true
-        Motion.reduceMotionOverride = nil
+        let override = Motion.reduceMotionOverride
+        Motion.reduceMotionOverride = !(override ?? false)
+        Motion.reduceMotionOverride = override
         let speed = DesignSettings.shared.animationSpeed
         DesignSettings.shared.animationSpeed = speed == .fast ? .normal : .fast
         DesignSettings.shared.animationSpeed = speed
-        #expect(heard == [.reduceMotion, .reduceMotion, .speed, .speed])
+        #expect(heard.filter { $0 == .reduceMotion }.count >= 2)
+        #expect(heard.filter { $0 == .speed }.count >= 2)
     }
 }
