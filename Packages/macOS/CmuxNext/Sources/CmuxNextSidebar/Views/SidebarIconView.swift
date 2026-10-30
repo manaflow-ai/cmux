@@ -14,6 +14,10 @@ final class SidebarIconView: NSView {
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
+    /// A row is configured before the list attaches a newly realized view. Keep
+    /// its entrance until the icon has a window, so Motion.canAnimate can see
+    /// the screened display and the first frame carries the grow/fade.
+    private var entrancePending = false
     /// What the last `configure` drew from (the glyphs scale with the title font).
     private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat)?
     /// One ink for every symbol, tinted or not (the solid group header's
@@ -80,7 +84,21 @@ final class SidebarIconView: NSView {
         }
         needsDisplay = true
         needsLayout = true
-        if oldIcon == nil, icon != nil { animateEntrance() }
+        if oldIcon == nil, icon != nil {
+            entrancePending = true
+            animateEntranceIfAttached()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        animateEntranceIfAttached()
+    }
+
+    private func animateEntranceIfAttached() {
+        guard entrancePending, window != nil else { return }
+        entrancePending = false
+        animateEntrance()
     }
 
     /// A workspace created by Cmd-N enters with its icon growing and fading in
@@ -116,6 +134,7 @@ final class SidebarIconView: NSView {
 
     /// Clears a previous row's entrance state before this icon well is reused.
     func resetMotion() {
+        entrancePending = false
         layer?.removeAnimation(forKey: "workspace-icon-scale")
         layer?.removeAnimation(forKey: "workspace-icon-opacity")
         Motion.withoutAnimation {

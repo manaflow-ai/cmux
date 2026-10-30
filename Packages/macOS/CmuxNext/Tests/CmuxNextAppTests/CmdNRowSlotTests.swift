@@ -9,6 +9,13 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
+/// Both suites drive one same-tree daemon each through process-wide sidebar
+/// state (`SidebarDocStore.current`, `SidebarDocWiring.docSections`, and
+/// `PendingWorkspaceRows.shared`). Keep them in one serialized suite so a
+/// concurrent group run cannot read the other test's placement or anchor.
+@MainActor @Suite(.serialized)
+struct CmdNRowSlotSuites {
+
 /// Austin 2026-10-20: Cmd-N "draws the new workspace somewhere in the sidebar and then moves it via an
 /// animation / glitch to the right place". On the sidebar document (`sidebar-doc-v1`) the daemon's
 /// workspace replaced Cmd-N's pending row in the turn it took over the stand-in, while the document's
@@ -218,4 +225,5 @@ struct CmdNInGroupRowSlotTests {
         }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot by \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
     }
+}
 }
