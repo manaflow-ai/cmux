@@ -7,13 +7,11 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
-use std::sync::mpsc;
+use std::process::{Command, Output, Stdio};
 
 use anyhow::{Result, bail};
 use serde_json::{Value, json};
 use tokio::time::Instant;
-use wait_timeout::ChildExt;
 
 use crate::cli::command::NewArgs;
 use crate::client::Client;
@@ -374,7 +372,15 @@ pub(super) fn show_in_group(
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = result.map_err(|error| {
+    let out = result.map_err(|error| -> anyhow::Error {
+        if error.kind() == std::io::ErrorKind::TimedOut {
+            return crate::cli::errors::AppError::timeout(format!(
+                "session {session_name} was created, but showing it in --group {group} did not finish \
+                 before the deadline ({error}); retry only the open: {command}"
+            ))
+            .with_session(id)
+            .into();
+        }
         anyhow::anyhow!(
             "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
              bundled CLI on PATH, then retry on that Mac: {command}"
@@ -412,76 +418,9 @@ fn run_bounded(path: &Path, args: &[&str], deadline: Option<Instant>) -> std::io
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    let mut child = command.spawn()?;
-    let stdout = pipe_reader(child.stdout.take());
-    let stderr = pipe_reader(child.stderr.take());
-    let status = match deadline {
-        Some(deadline) => {
-            match child.wait_timeout(deadline.saturating_duration_since(Instant::now()))? {
-                Some(status) => status,
-                None => {
-                    terminate_child(&mut child);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "cmux group open exceeded the caller deadline",
-                    ));
-                }
-            }
-        }
-        None => child.wait()?,
-    };
-    let stdout = read_pipe(stdout, deadline, &mut child)?;
-    let stderr = read_pipe(stderr, deadline, &mut child)?;
-    Ok(Output { status, stdout, stderr })
-}
-
-fn pipe_reader(
-    pipe: Option<impl Read + Send + 'static>,
-) -> Option<mpsc::Receiver<std::io::Result<Vec<u8>>>> {
-    let pipe = pipe?;
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut pipe = pipe;
-        let mut bytes = Vec::new();
-        let result = pipe.read_to_end(&mut bytes).map(|_| bytes);
-        let _ = tx.send(result);
-    });
-    Some(rx)
-}
-
-fn read_pipe(
-    pipe: Option<mpsc::Receiver<std::io::Result<Vec<u8>>>>,
-    deadline: Option<Instant>,
-    child: &mut Child,
-) -> std::io::Result<Vec<u8>> {
-    let Some(pipe) = pipe else { return Ok(Vec::new()) };
-    let result = match deadline {
-        Some(deadline) => {
-            match pipe.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(result) => result,
-                Err(_) => {
-                    terminate_child(child);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "cmux group output stalled",
-                    ));
-                }
-            }
-        }
-        None => {
-            pipe.recv().map_err(|_| std::io::Error::other("cmux group output reader stopped"))?
-        }
-    }?;
-    Ok(result)
-}
-
-fn terminate_child(child: &mut Child) {
-    #[cfg(unix)]
-    if let Ok(pid) = i32::try_from(child.id()) {
-        unsafe { libc::kill(-pid, libc::SIGKILL) };
-    }
-    let _ = child.kill();
-    let _ = child.wait();
+    let done =
+        crate::cli::bounded_child::wait(command.spawn()?, None, deadline, "cmux agent open")?;
+    Ok(Output { status: done.status, stdout: done.stdout, stderr: done.stderr })
 }
 
 fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
@@ -711,19 +650,24 @@ mod tests {
         assert!(error.contains("--group remote-audit"), "{error}");
     }
 
+    /// A `cmux agent open` that stalls ends at the caller's deadline, exits as a timeout and is
+    /// not tried again on the PATH fallback.
     #[cfg(unix)]
     #[test]
-    fn a_stalled_group_open_is_killed_at_the_caller_deadline() {
-        let path = std::env::temp_dir().join(format!("acpmux-group-stall-{}", std::process::id()));
-        std::fs::write(&path, "#!/bin/sh\nsleep 30\n").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    fn a_stalled_group_open_ends_at_the_caller_deadline_as_a_timeout() {
+        let dir = std::env::temp_dir().join(format!("acpmux-group-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cli = dir.join("cmux");
+        crate::test_exec::write_executable(&cli, "#!/bin/sh\nsleep 30\n");
         let started = std::time::Instant::now();
-        let result =
-            run_bounded(&path, &[], Some(Instant::now() + std::time::Duration::from_millis(200)));
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
-        std::fs::remove_file(path).unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_millis(300);
+        let error = show_in_group("session-id", "lane-name", None, "g", Some(&cli), Some(deadline))
+            .unwrap_err();
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        let app = error.downcast_ref::<crate::cli::errors::AppError>();
+        assert_eq!(app.map(|a| a.code), Some(crate::cli::errors::Code::Timeout), "{error:#}");
+        assert!(error.to_string().contains("session lane-name was created"), "{error:#}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

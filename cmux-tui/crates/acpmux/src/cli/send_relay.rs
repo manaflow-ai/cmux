@@ -18,11 +18,10 @@ use crate::cli::sender::FROM_ENV;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use tokio::time::Instant;
-use wait_timeout::ChildExt;
 
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -120,50 +119,26 @@ pub(crate) fn relay_with_deadline(
         Some(from) => cmd.env(FROM_ENV, from),
         None => cmd.env_remove(FROM_ENV),
     };
-    let mut child =
-        cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
-    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("the send relay has no stdin"))?;
-    let mut stdout = child.stdout.take();
+    let child = cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
-    let body = text.as_bytes().to_owned();
-    let writer = std::thread::spawn(move || stdin.write_all(&body));
-    let reader = stdout.take().map(|mut stdout| {
-        std::thread::spawn(move || {
-            let mut output = Vec::new();
-            let result = stdout.read_to_end(&mut output);
-            (result, output)
-        })
-    });
-    let status = match deadline {
-        Some(deadline) => {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            match child.wait_timeout(remaining).context("the send relay")? {
-                Some(status) => status,
-                None => {
-                    terminate_child(&mut child);
-                    // Do not let a relay that deliberately keeps an inherited
-                    // pipe open extend the caller's deadline. The child group
-                    // is gone; helper threads are detached on this error path.
-                    return Err(AppError::timeout(format!(
-                        "the send relay for {session:?} exceeded its caller deadline"
-                    ))
-                    .into());
-                }
-            }
+    let done = crate::cli::bounded_child::wait(
+        child,
+        Some(text.as_bytes().to_owned()),
+        deadline,
+        "the send relay",
+    )
+    .map_err(|e| -> anyhow::Error {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            AppError::timeout(format!(
+                "the send relay for {session:?} exceeded its caller deadline"
+            ))
+            .into()
+        } else {
+            anyhow::Error::new(e).context("the send relay")
         }
-        None => child.wait().context("the send relay")?,
-    };
-    let written = writer.join().unwrap_or_else(|_| Err(std::io::Error::other("writer panicked")));
-    let output = match reader {
-        Some(reader) => {
-            let (result, output) = reader
-                .join()
-                .unwrap_or_else(|_| (Err(std::io::Error::other("reader panicked")), Vec::new()));
-            result.context("reading the send relay")?;
-            output
-        }
-        None => Vec::new(),
-    };
+    })?;
+    let (status, output) = (done.status, done.stdout);
+    let written = done.written.unwrap_or_else(|| Err(std::io::Error::other("no stdin")));
     let status = status.code().unwrap_or(1);
     // A relay that stopped reading and still said yes was not handed the whole message; its own
     // refusal stays its status.
@@ -176,17 +151,6 @@ pub(crate) fn relay_with_deadline(
         status,
         output: capture.then(|| String::from_utf8_lossy(&output).trim_end().to_owned()),
     })
-}
-
-fn terminate_child(child: &mut Child) {
-    #[cfg(unix)]
-    if let Ok(pid) = i32::try_from(child.id()) {
-        // The group was created by this command, so this cannot target an
-        // unrelated process discovered by name.
-        unsafe { libc::kill(-pid, libc::SIGKILL) };
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// `acpmux send` to a target nobody here resolves, with a relay configured: run it, print what

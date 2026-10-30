@@ -1,0 +1,198 @@
+//! A child command bounded by the caller's deadline (cmuxterm-hq#5120): its exit, the write of
+//! its stdin and the reads of its piped output all end by the deadline. The caller spawns it in
+//! its own process group (`process_group(0)`); on expiry that group, and only that group, is
+//! killed.
+//!
+//! The child is not reaped until the end: while it is unreaped (running or a zombie) its pid,
+//! and so its group id, cannot be taken by another process, so the kill can never reach an
+//! unrelated group. A descendant that left the group and keeps a pipe open is not killed; its
+//! reader thread is left behind, and the command exits soon after.
+
+use std::io::{Read, Write};
+use std::process::{Child, ExitStatus};
+use std::sync::mpsc;
+use tokio::time::Instant;
+
+/// What a bounded child did. `written` is the stdin write's result when stdin was given.
+#[derive(Debug)]
+pub(crate) struct Finished {
+    pub status: ExitStatus,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    pub written: Option<std::io::Result<()>>,
+}
+
+/// Wait for CHILD, writing STDIN to its piped stdin and reading its piped stdout and stderr
+/// (whichever were piped), until DEADLINE. On expiry its process group is killed, it is reaped
+/// and the error is `ErrorKind::TimedOut` with WHAT in its text. With no deadline it waits as
+/// long as the child and its pipes take.
+pub(crate) fn wait(
+    mut child: Child,
+    stdin: Option<Vec<u8>>,
+    deadline: Option<Instant>,
+    what: &str,
+) -> std::io::Result<Finished> {
+    let written = stdin.and_then(|body| {
+        let mut pipe = child.stdin.take()?;
+        Some(in_thread(move || pipe.write_all(&body)))
+    });
+    let stdout = child.stdout.take().map(|pipe| in_thread(move || read_all(pipe)));
+    let stderr = child.stderr.take().map(|pipe| in_thread(move || read_all(pipe)));
+    let mut finish = || -> Result<_, Expired> {
+        exit_within(&mut child, deadline)?;
+        let written = written.as_ref().map(|rx| within(rx, deadline)).transpose()?;
+        let stdout = stdout.as_ref().map(|rx| within(rx, deadline)).transpose()?;
+        let stderr = stderr.as_ref().map(|rx| within(rx, deadline)).transpose()?;
+        Ok((written, stdout, stderr))
+    };
+    match finish() {
+        Ok((written, stdout, stderr)) => Ok(Finished {
+            status: child.wait()?,
+            stdout: stdout.transpose()?.unwrap_or_default(),
+            stderr: stderr.transpose()?.unwrap_or_default(),
+            written,
+        }),
+        Err(Expired) => {
+            kill_group(&mut child);
+            let _ = child.wait();
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("{what} timed out at the caller deadline"),
+            ))
+        }
+    }
+}
+
+struct Expired;
+
+fn within<T>(rx: &mpsc::Receiver<T>, deadline: Option<Instant>) -> Result<T, Expired> {
+    match deadline {
+        Some(deadline) => {
+            rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).map_err(|_| Expired)
+        }
+        // A sender drops only after sending, unless its thread panicked.
+        None => rx.recv().map_err(|_| Expired),
+    }
+}
+
+fn in_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> mpsc::Receiver<T> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(work());
+    });
+    rx
+}
+
+fn read_all(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.read_to_end(&mut bytes).map(|_| bytes)
+}
+
+/// Wait for CHILD to exit until DEADLINE, without reaping it.
+#[cfg(unix)]
+fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expired> {
+    let pid: libc::id_t = child.id();
+    let exited = in_thread(move || {
+        loop {
+            // SAFETY: an all-zero siginfo_t is valid; waitid only writes it.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: WNOWAIT leaves the child for `Child::wait` to reap.
+            let done =
+                unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
+            if done == 0
+                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+            {
+                return;
+            }
+        }
+    });
+    within(&exited, deadline)
+}
+
+/// Wait for CHILD to exit until DEADLINE. Elsewhere there is no process group to protect.
+#[cfg(not(unix))]
+fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expired> {
+    use wait_timeout::ChildExt;
+    let exited = match deadline {
+        Some(deadline) => {
+            child.wait_timeout(deadline.saturating_duration_since(Instant::now())).ok().flatten()
+        }
+        None => child.wait().ok(),
+    };
+    exited.map(|_| ()).ok_or(Expired)
+}
+
+fn kill_group(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = i32::try_from(child.id()) {
+        // SAFETY: CHILD is not reaped yet, so this group id is still its own (see the module
+        // comment).
+        unsafe { libc::kill(-pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    fn spawn(script: &str) -> Child {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]).stdin(Stdio::piped()).stdout(Stdio::piped());
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        command.spawn().unwrap()
+    }
+
+    fn gone(pid: &str) -> bool {
+        // A killed process may stay a zombie briefly until its new parent reaps it.
+        (0..50).any(|_| {
+            let out = Command::new("ps").args(["-o", "stat=", "-p", pid]).output().unwrap();
+            let stat = String::from_utf8_lossy(&out.stdout);
+            let dead = stat.trim().is_empty() || stat.trim_start().starts_with('Z');
+            if !dead {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            dead
+        })
+    }
+
+    #[test]
+    fn a_child_that_finishes_gives_its_output_and_status() {
+        let child = spawn("cat; exit 3");
+        let done = wait(child, Some(b"hello".to_vec()), None, "cat").unwrap();
+        assert_eq!(done.status.code(), Some(3));
+        assert_eq!(done.stdout, b"hello");
+        assert!(done.written.unwrap().is_ok());
+    }
+
+    #[test]
+    fn a_stalled_child_and_its_group_end_at_the_deadline() {
+        let child = spawn("sleep 30");
+        let started = std::time::Instant::now();
+        let deadline = Some(Instant::now() + Duration::from_millis(300));
+        let error = wait(child, None, deadline, "the stall").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    }
+
+    /// The child exits at once, but a descendant keeps its stdout open: the read is bounded
+    /// too, and the descendant (still in the group) is killed.
+    #[test]
+    fn a_descendant_holding_the_output_open_ends_at_the_deadline() {
+        let dir = std::env::temp_dir().join(format!("acpmux-bounded-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pid_file = dir.join("pid");
+        let child = spawn(&format!("sleep 30 & echo $! > {}; exit 0", pid_file.display()));
+        let started = std::time::Instant::now();
+        let deadline = Some(Instant::now() + Duration::from_millis(300));
+        let error = wait(child, None, deadline, "the open").unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+        let pid = std::fs::read_to_string(&pid_file).unwrap();
+        assert!(gone(pid.trim()), "the descendant {pid} survived");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -153,13 +153,29 @@ fn a_target_nobody_here_resolves_goes_to_the_relay_and_a_session_here_never_does
     assert_eq!(relayed(&dir).len(), count, "{:?}", relayed(&dir));
 }
 
+/// Dead, or a zombie its new parent has not reaped yet.
+fn gone(pid: &str) -> bool {
+    (0..50).any(|_| {
+        let out = std::process::Command::new("ps").args(["-o", "stat=", "-p", pid]).output();
+        let stat = String::from_utf8_lossy(&out.unwrap().stdout).trim().to_owned();
+        let dead = stat.is_empty() || stat.starts_with('Z');
+        if !dead {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        dead
+    })
+}
+
+/// The relay stalls, and a process it started holds the CLI's stdout and stderr open: the send
+/// still ends at its deadline, exits 3, and the relay's whole group is gone.
 #[test]
 fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
     let dir = scratch("deadline");
     let _shutdown = Shutdown(&dir);
-    let pid_file = dir.join("relay-pid");
+    let pids = dir.join("relay-pids");
     let relay = dir.join("relay");
-    fs::write(&relay, format!("#!/bin/sh\necho $$ > {}\nsleep 30\n", pid_file.display())).unwrap();
+    let script = format!("#!/bin/sh\nsleep 30 &\necho $$ $! > {}\nsleep 30\n", pids.display());
+    fs::write(&relay, script).unwrap();
     fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
         dir.join("config.json"),
@@ -178,16 +194,18 @@ fn a_stalled_relay_is_killed_at_the_send_deadline_with_its_process_group() {
         .stderr(Stdio::piped());
     let started = Instant::now();
     let mut child = command.spawn().unwrap();
-    let status = child
-        .wait_timeout(Duration::from_secs(4))
-        .unwrap()
-        .expect("stalled relay was not bounded by --timeout");
-    let elapsed = started.elapsed();
+    if child.wait_timeout(Duration::from_secs(5)).unwrap().is_none() {
+        let _ = child.kill();
+        panic!("a stalled relay was not bounded by --timeout");
+    }
+    // Its output ends too: nothing the relay started still holds the pipes.
     let output = child.wait_with_output().unwrap();
-    assert_eq!(status.code(), Some(3), "stdout: {:?}\nstderr: {:?}", output.stdout, output.stderr);
-    assert!(elapsed < Duration::from_secs(3), "relay exceeded deadline: {elapsed:?}");
+    let elapsed = started.elapsed();
+    assert_eq!(output.status.code(), Some(3), "{}", text(&output));
+    assert!(elapsed < Duration::from_secs(4), "the relay outlived the deadline: {elapsed:?}");
 
-    let relay_pid = fs::read_to_string(&pid_file).unwrap().trim().parse::<i32>().unwrap();
-    std::thread::sleep(Duration::from_millis(100));
-    assert_eq!(unsafe { libc::kill(relay_pid, 0) }, -1, "relay child survived timeout");
+    let pids = fs::read_to_string(&pids).unwrap();
+    for pid in pids.split_whitespace() {
+        assert!(gone(pid), "relay process {pid} survived the timeout ({pids})");
+    }
 }
