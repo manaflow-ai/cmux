@@ -10,9 +10,10 @@ import Testing
 @MainActor @Suite(.serialized)
 struct SidebarTabHomeTitleTests {
     /// One workspace whose one terminal tab sits in `cwd`, titled `title` (empty: untitled, as a fresh shell is).
-    private static func tab(cwd: String, title: String = "", machine: MachineID) -> SidebarTab? {
+    /// `name` is the person's own name for the tab (a rename).
+    private static func tab(cwd: String, title: String = "", name: String? = nil, machine: MachineID) -> SidebarTab? {
         let store = DaemonStore()
-        let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, title: title, cwd: cwd)])
+        let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, name: name, title: title, cwd: cwd)])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "dev", screens: [screen])]))
         guard let workspace = store.workspaces.first else { return nil }
@@ -49,5 +50,22 @@ struct SidebarTabHomeTitleTests {
     @Test func aTitleThatIsNotAFolderIsUnchanged() {
         #expect(Self.tab(cwd: "/home/cmux", title: "vim notes.md", machine: Self.cloud)?.title == "vim notes.md")
         #expect(Self.tab(cwd: "/srv/app", title: "/srv/app", machine: .local)?.title == "/srv/app")
+    }
+
+    @Test func aTitleNamingItsFolderWithATrailingSlashIsStillItsFolder() {
+        #expect(Self.tab(cwd: "/home/cmux", title: "/home/cmux/", machine: Self.cloud)?.title == "~")
+    }
+
+    /// Only a title that is the tab's own folder is shortened: a path a program titles the tab with says something else.
+    @Test func aTitleNamingAnotherFolderIsUnchanged() {
+        #expect(Self.tab(cwd: "/home/cmux/other", title: "/home/cmux/project", machine: Self.cloud)?.title == "/home/cmux/project")
+        let home = NSHomeDirectory()
+        #expect(Self.tab(cwd: home + "/other", title: home + "/project", machine: .local)?.title == home + "/project")
+    }
+
+    /// A name the person gave the tab is theirs, as typed, even when it is a folder.
+    @Test func aRenamedTabKeepsItsName() {
+        #expect(Self.tab(cwd: "/home/cmux/other", name: "/home/cmux/project", machine: Self.cloud)?.title == "/home/cmux/project")
+        #expect(Self.tab(cwd: "/home/cmux", name: "/home/cmux", machine: Self.cloud)?.title == "/home/cmux")
     }
 }
