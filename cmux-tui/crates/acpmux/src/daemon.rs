@@ -201,6 +201,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The home and lock this daemon holds, read as soon as it holds them: one replaced during
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
+    // Gone already (removed between taking the lock and here): stop before the startup makes
+    // anything there. A relative home is never watched (it reads as missing from the home cwd).
+    if owned_home.is_none() && home().is_absolute() {
+        anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
+    }
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
     // `local-coderouter` routes read its port and mint keys from it. Opt-in
     // (the cmux app sets ACPMUX_LOCAL_ROUTER=1). Its owner ties the router's
@@ -684,9 +689,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // New clients get "connection refused" instead of a dying daemon. Only the socket this
     // daemon bound: one replaced since is another daemon's.
     recheck_home();
-    // Read again: the router, pid and app files below stay alone once it is lost.
-    let home_lost = crate::config::home_lost();
-    if bound_socket.as_ref().map_or(!home_lost, |s| s.lost().is_none()) {
+    // One that could not be read right after the bind is left alone: it may be another's. (A
+    // replacement between this check and the unlink cannot be ruled out: unlink takes a path.)
+    if bound_socket.as_ref().is_some_and(|s| s.lost().is_none()) {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
         let _ = std::fs::remove_file(socket_path());
@@ -711,6 +716,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.
+    // Read after the agents: the home may have been lost while they drained.
+    recheck_home();
+    let home_lost = crate::config::home_lost();
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0 && !home_lost)).await;
     // Cancelled and finished before the removal, so a late retry never puts it back.
     if let Some(retry) = pid_retry {

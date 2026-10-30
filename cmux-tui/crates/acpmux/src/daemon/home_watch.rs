@@ -26,7 +26,9 @@
 //! `agent_tools::write_private`) refuse to write under the old home (`config::mark_home_lost`):
 //! it may be another daemon's now. A request already being served when the loss is seen may
 //! still finish a write of its own there during the bounded shutdown; base, with no watch,
-//! kept writing there for as long as it ran. Its agent hosts are other processes: they end with
+//! kept writing there for as long as it ran. Hosted agents end when the loss is seen before the
+//! shutdown reads its plan for them; a loss seen later leaves them to end with their record.
+//! The socket is checked, then unlinked by path: a replacement in between cannot be ruled out. Its agent hosts are other processes: they end with
 //! their record (`agent_host` `watch_record`); one still starting when the home is replaced may
 //! write its record into the replacement, as on a daemon without this watch. A renamed
 //! ancestor (above) also leaves an unadopted host running until its folder changes.
