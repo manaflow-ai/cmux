@@ -7,6 +7,7 @@ import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
+import type { RetryNote, RetryTarget } from "../subagents/retryState";
 import type { MessageBranch } from "./branches";
 import type { SlashCommand } from "../slashCommands";
 import type { RetryModel } from "./retryModelSections";
@@ -61,6 +62,11 @@ export type TurnActions = {
   /// Restart on a subagent's end line (subagents/restart.ts): asks the chat to run it again with
   /// its prompt.
   restartSubagent?: (agent: Subagent) => void;
+  /// Retry on a failed subagent's or sub-session's row (subagents/retryState.ts `runRetry`):
+  /// settles with the note a refusal leaves on the row.
+  retryAgent?: (agent: RetryTarget) => Promise<RetryNote | undefined>;
+  /// The capabilities acpmux named (retryState.ts `retryActionOf`): which Retry a row offers.
+  retryCapabilities?: ReadonlySet<string>;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
