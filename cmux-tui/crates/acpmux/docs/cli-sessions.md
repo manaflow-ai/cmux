@@ -65,10 +65,11 @@ boundary); `--no-steer` queues it instead.
 | Take other agents' messages out of its queue | `acpmux session queue clear coord --from-agents` |
 | Follow its raw events | `acpmux session tail coord -f` |
 | Label it | `acpmux session tag review-27310 pr=27310` |
-| Cap how many sub-sessions it runs at once | `acpmux session limits coord --max 4` |
+| How many sub-sessions it runs and queues | `acpmux session limits coord` |
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |
 
 An allow, and an answer to an agent's question, are accepted only from the cmux app; from the CLI,
-`session allow` takes a deny option and `session answer` prints the questions.
+`session allow` takes a deny option and `session answer` prints the questions. A session's limits
+are changed by the cmux app or by a session above it in its family.
 See also [hosts](cli-hosts.md), [harnesses](cli-harnesses.md), [the daemon](cli-daemon.md) and
 [tasks and other work](cli-work.md).

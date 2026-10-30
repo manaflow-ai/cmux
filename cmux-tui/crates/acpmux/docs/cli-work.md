@@ -40,7 +40,7 @@ A cleanup archives work that exists only in a worktree before removing it.
 | Open one again | `acpmux chats open claude-code:5f0c2a9e` |
 | From an agent session, leave a person a report without waking anyone | `acpmux deliver --target reports:sam "PR 27310 landed"` |
 | Team messages the hub holds (Labs) | `acpmux inbox` |
-| Post a rule every session reads at its next prompt | `acpmux forum announce --key builds "No local builds"` |
+| From an agent session, post a rule every session reads at its next prompt | `acpmux forum announce --key builds "No local builds"` |
 | The current rules | `acpmux forum rules` |
 
 ## This machine as a Cloud Chief's hand
