@@ -4,16 +4,18 @@ import CmuxNextTerminal
 
 /// `tab.restart` (plans/cmux-next/ownership.md 3.2, cx-7e7b): a terminal
 /// tab whose shell ended gets a new shell under the same terminal id
-/// (`restart-tab`). The dead-tab overlay's button, the tab's right-click
+/// (`restart-tab`). On a tab whose host link failed (`terminal_state`
+/// `failed`, "cmux lost its link to the shell") it is Recover: the daemon
+/// ends the unreachable host and rehosts the same, still running shell. The dead-tab overlay's button, the tab's right-click
 /// item, the palette and `cmux tab <id> restart` all run this one action
 /// (the CLI sends the same daemon command). The store shows the result from
 /// the daemon's tree push: the tab turns live and its view re-attaches.
 enum TabRestart {
     static let action: ActionID = "tab.restart"
 
-    /// A daemon terminal tab whose shell ended.
+    /// A daemon terminal tab whose shell ended, or whose host link failed.
     static func isRestartable(_ tab: TabModel) -> Bool {
-        tab.kind == .pty && tab.dead
+        tab.kind == .pty && (tab.dead || tab.terminalState == .failed)
     }
 
     /// The tab menu's rows to hide: Restart unless the tab can restart.
@@ -37,7 +39,7 @@ enum TabRestart {
         registry.bind(action, unavailable: ctx.needs(DaemonCapability.tabRestart.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
-            guard tab.dead else { return ctx.refuse(RefusalStrings.tabNotDead) }
+            guard isRestartable(tab) else { return ctx.refuse(RefusalStrings.tabNotDead) }
             let surface = tab.surface
             ctx.send("restart-tab") { _ = try await $0.request(RestartTabRequest(surface: surface)) }
         })
