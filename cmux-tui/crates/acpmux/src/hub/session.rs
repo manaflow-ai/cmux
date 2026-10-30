@@ -428,25 +428,36 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     keyed.into_iter().map(|(_, s)| s).collect()
 }
 
-/// A session's agent stderr streams, one per agent generation (`Inbound::Stderr`). Only the newest
-/// two are kept: the current agent and the one it replaced, whose late lines may still arrive.
+/// A session's agent stderr streams, one per agent generation (`Inbound::Stderr`). Only a stream
+/// inside a string control is kept (a closed one is the same as a new one), until its agent's
+/// exit (`ended`); late lines of a replaced agent keep its state. At most `MAX_OPEN` are kept, the
+/// oldest dropped first, so agents that each die inside a control cannot grow it without bound.
 #[derive(Debug, Default)]
 pub(crate) struct SessionStderr {
-    streams: std::collections::VecDeque<(u64, crate::stderr::StderrStream)>,
+    open: std::collections::VecDeque<(u64, crate::stderr::StderrStream)>,
 }
 
 impl SessionStderr {
+    const MAX_OPEN: usize = 64;
+
     /// `line` of agent `generation`'s stderr, cleaned in that agent's own stream.
     pub(crate) fn clean_line(&mut self, generation: u64, line: &str) -> String {
-        if let Some((_, stream)) = self.streams.iter_mut().find(|(g, _)| *g == generation) {
-            return stream.clean_line(line);
-        }
-        if self.streams.len() >= 2 {
-            self.streams.pop_front();
-        }
-        let mut stream = crate::stderr::StderrStream::default();
+        let mut stream = match self.open.iter().position(|(g, _)| *g == generation) {
+            Some(index) => self.open.remove(index).map(|(_, s)| s).unwrap_or_default(),
+            None => crate::stderr::StderrStream::default(),
+        };
         let clean = stream.clean_line(line);
-        self.streams.push_back((generation, stream));
+        if stream.is_open() {
+            if self.open.len() >= Self::MAX_OPEN {
+                self.open.pop_front();
+            }
+            self.open.push_back((generation, stream));
+        }
         clean
+    }
+
+    /// Agent `generation` exited after its stderr was queued: its stream ends.
+    pub(crate) fn ended(&mut self, generation: u64) {
+        self.open.retain(|(g, _)| *g != generation);
     }
 }

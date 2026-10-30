@@ -64,7 +64,8 @@ pub enum Inbound {
     Stderr(String, Option<u64>, Option<u64>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
-    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
+    /// `agent` is its generation: the stderr stream it owns ends with it.
+    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64>, agent: Option<u64> },
     /// Answered once every item queued before it was handled. A prompt's answer
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
@@ -1041,7 +1042,12 @@ impl ChildAgent {
                     stop.agent_ended().await;
                 }
                 let _ = inbound
-                    .send(Inbound::Exited { pid: agent_for_exit.pid, code, host_seq: None })
+                    .send(Inbound::Exited {
+                        pid: agent_for_exit.pid,
+                        code,
+                        host_seq: None,
+                        agent: Some(agent_for_exit.generation),
+                    })
                     .await;
             });
         }
@@ -2079,8 +2085,14 @@ impl ChildAgent {
                 // `exited` and the exit notify follow the Exit entry's ack
                 // (`start_reader`), so a terminate that waits on them never
                 // returns before the host knows its Exit is logged.
-                let _ =
-                    inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
+                let _ = inbound
+                    .send(Inbound::Exited {
+                        pid: self.pid,
+                        code,
+                        host_seq: Some(h),
+                        agent: Some(self.generation),
+                    })
+                    .await;
                 true
             }
         }

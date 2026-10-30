@@ -23,6 +23,11 @@ pub(crate) struct StderrStream {
 }
 
 impl StderrStream {
+    /// Whether the stream is inside a string control (its next line is still payload).
+    pub(crate) fn is_open(&self) -> bool {
+        self.open.is_some()
+    }
+
     /// One line cleaned on its own, with no stream before it.
     pub(crate) fn clean_line_of(mut self, line: &str) -> String {
         self.clean_line(line)

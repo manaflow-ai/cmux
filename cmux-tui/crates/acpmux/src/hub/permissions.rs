@@ -231,7 +231,15 @@ impl Hub {
                         self.idle_wake.notify_one();
                     }
                 }
-                Inbound::Exited { pid, code, host_seq } => {
+                Inbound::Exited { pid, code, host_seq, agent } => {
+                    // Its stderr was queued before its exit: the stream it left open ends here.
+                    if let Some(agent) = agent {
+                        session
+                            .stderr_stream
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .ended(agent);
+                    }
                     {
                         let mut slot = session.child.lock().await;
                         // A late exit from a process that was already replaced
@@ -1602,6 +1610,21 @@ mod stderr_tests {
         super::remember_stderr(&mut tail, &stream.clean_line(1, "leaked payload"));
         super::remember_stderr(&mut tail, &stream.clean_line(1, "\x1b\\error: request timed out"));
         assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec!["error: request timed out"]);
+    }
+
+    #[test]
+    fn an_old_agents_late_line_keeps_its_open_control_however_many_agents_followed() {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, &stream.clean_line(1, "\x1bPsecret"));
+        for generation in 2..10 {
+            super::remember_stderr(&mut tail, &stream.clean_line(generation, "ok"));
+        }
+        super::remember_stderr(&mut tail, &stream.clean_line(1, "late payload"));
+        assert!(tail.iter().all(|line| !line.contains("payload")), "{tail:?}");
+        // Once agent 1 ended, its stream is gone: a stray line of it is read on its own.
+        stream.ended(1);
+        assert_eq!(stream.clean_line(1, "after the end"), "after the end");
     }
 
     #[test]
