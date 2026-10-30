@@ -326,6 +326,48 @@ fn a_late_automatic_workspace_open_cannot_undo_hide() {
 }
 
 #[test]
+fn hide_while_the_spawn_still_opens_its_workspace_closes_it() {
+    let recorder = Arc::new(Recorder::default());
+    let (mut h, sp) = setup(&recorder, Some("true"));
+    let worker = std::thread::spawn(move || {
+        sp.spawn(vec!["Title: Delayed helper\nsay hello".into()], None)
+    });
+    // The automatic open completed but the brain has not taken it yet.
+    let until = Instant::now() + Duration::from_secs(10);
+    let delayed = loop {
+        let input =
+            h.rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+                .expect("automatic workspace open never completed");
+        if matches!(&input, Input::SubagentWorkspace { .. }) {
+            break input;
+        }
+        h.brain.step(input);
+    };
+    let opened_key = recorder.opened.lock().unwrap()[0].0.clone();
+    assert_eq!(workspace(&h, "a1"), None);
+    assert!(
+        control(&mut h, "hide", "a1")
+            .unwrap()
+            .starts_with("outcome: noop.")
+    );
+    h.brain.step(delayed);
+    assert_eq!(workspace(&h, "a1"), None, "hide must win over the open");
+    let (closed, timeout) = recorder
+        .closed_changed
+        .wait_timeout_while(
+            recorder.closed.lock().unwrap(),
+            Duration::from_secs(10),
+            |closed| closed.is_empty(),
+        )
+        .unwrap();
+    assert!(!timeout.timed_out(), "the late workspace was not closed");
+    assert_eq!(*closed, vec![opened_key]);
+    drop(closed);
+    drain(&mut h);
+    worker.join().unwrap().unwrap();
+}
+
+#[test]
 fn the_setting_is_off_by_default_and_saved_with_the_chief_settings() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("settings.json");
