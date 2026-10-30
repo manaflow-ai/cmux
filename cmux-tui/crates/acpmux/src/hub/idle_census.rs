@@ -125,14 +125,14 @@ impl Hub {
     /// under it.
     pub(super) async fn sidecars(&self, child: &ChildAgent) -> Option<Vec<Sidecar>> {
         let state = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let (mut servers, path) = match state {
+        let (mut servers, path, cwd) = match state {
             None => return Some(Vec::new()),
-            Some(LaunchServers::Known { servers, path }) => (servers, path),
+            Some(LaunchServers::Known { servers, path, cwd }) => (servers, path, cwd),
             Some(LaunchServers::Unknown) => return None,
         };
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let read = tokio::task::spawn_blocking(move || {
-            servers.extend(resolved(from_json(given.as_ref()), &path));
+            servers.extend(resolved(from_json(given.as_ref()), &path, &cwd));
             servers
         });
         tokio::time::timeout(CENSUS_BUDGET, read).await.ok()?.ok()
@@ -142,8 +142,8 @@ impl Hub {
 /// What the idle census knows of a harness's MCP servers (`ChildAgent::launch`).
 #[derive(Debug, Clone)]
 pub(crate) enum LaunchServers {
-    /// The servers its configs named just before it started, and its `PATH`.
-    Known { servers: Vec<Sidecar>, path: String },
+    /// The servers its configs named just before it started, its `PATH` and its folder.
+    Known { servers: Vec<Sidecar>, path: String, cwd: PathBuf },
     /// Its configs could not be read within [`CENSUS_BUDGET`].
     Unknown,
 }
@@ -155,11 +155,12 @@ impl LaunchServers {
     /// config edited after it.
     pub(crate) async fn read(launch: &crate::agent::Launch, family: String) -> Self {
         let path = launch.env.get("PATH").cloned().unwrap_or_default();
-        let (at, launch) = (path.clone(), launch.clone());
-        let read =
-            tokio::task::spawn_blocking(move || resolved(from_launch(&family, &launch), &at));
+        let (at, cwd, launch) = (path.clone(), launch.cwd.clone(), launch.clone());
+        let read = tokio::task::spawn_blocking(move || {
+            resolved(from_launch(&family, &launch), &at, &launch.cwd)
+        });
         match tokio::time::timeout(CENSUS_BUDGET, read).await {
-            Ok(Ok(servers)) => Self::Known { servers, path },
+            Ok(Ok(servers)) => Self::Known { servers, path, cwd },
             _ => Self::Unknown,
         }
     }
@@ -174,7 +175,7 @@ impl ChildAgent {
 
 /// `servers` with each one given by name resolved on `path`, and each script's interpreter,
 /// without repeats.
-fn resolved(mut servers: Vec<Sidecar>, path: &str) -> Vec<Sidecar> {
+fn resolved(mut servers: Vec<Sidecar>, path: &str, _cwd: &Path) -> Vec<Sidecar> {
     for s in servers.iter_mut() {
         if !s.command.contains('/') {
             s.resolved = first_on_path(&s.command, path);
@@ -794,8 +795,52 @@ mod tests {
         assert_eq!(shebang(&direct, &path), Some("/bin/sh".into()));
         assert_eq!(shebang(&plain, &path), None);
         assert_eq!(shebang(&root.join("missing"), &path), None);
-        let servers = resolved(vec![sidecar(&env.to_string_lossy(), &[]).unwrap()], &path);
+        let servers = resolved(vec![sidecar(&env.to_string_lossy(), &[]).unwrap()], &path, &root);
         assert_eq!(servers[0].interpreter, shebang(&env, &path));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A server given by a relative path (`./mcp-server`) is the file the harness's own folder
+    /// holds, not one in acpmux's: the harness spawns it from there. Its folder has a space in it.
+    #[test]
+    fn a_relative_server_is_the_one_in_the_harnesss_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+        let (work, bin, other) = (root.join("my work"), root.join("bin"), root.join("other"));
+        for d in [&work, &bin, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let file = |p: &Path, text: &str| {
+            std::fs::write(p, text).unwrap();
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p.to_path_buf()
+        };
+        let server = file(&work.join("mcp-server"), "");
+        let elsewhere = file(&other.join("mcp-server"), "");
+        file(&work.join("server.js"), "#!/usr/bin/env node\nconsole.log(1)\n");
+        let node = file(&bin.join("node"), "");
+        let servers = from_json(Some(&json!({
+            "direct": {"command": "./mcp-server", "args": ["--stdio"]},
+            "script": {"command": "./server.js", "args": ["--port", "0"]},
+        })));
+        let servers = resolved(servers, &bin.to_string_lossy(), &work);
+        let who = |exe: &Path, argv: &[&str]| Identity {
+            exe: exe.to_path_buf(),
+            argv: argv.iter().map(|w| w.to_string()).collect(),
+        };
+        let cases = [
+            (who(&server, &["./mcp-server", "--stdio"]), true),
+            (who(&node, &["node", "./server.js", "--port", "0"]), true),
+            // The same argv, but the file it runs is in another folder.
+            (who(&elsewhere, &["./mcp-server", "--stdio"]), false),
+            // The script's argv, but not the interpreter its `#!` line runs.
+            (who(&server, &["node", "./server.js", "--port", "0"]), false),
+        ];
+        for (identity, server) in cases {
+            let found = [under(11, 10, &identity.argv.join(" "))];
+            let census = classify(&found, 10, "claude", &servers, |_| Some(identity.clone()));
+            assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 }
