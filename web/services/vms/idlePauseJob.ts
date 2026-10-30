@@ -47,7 +47,7 @@ export function enforceVmIdlePause(input: { readonly now?: () => number; readonl
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const candidates = repo.idlePauseCandidates;
-    if (!candidates || !repo.recordIdleObservation || !providers.pause) {
+    if (!candidates || !repo.recordIdleObservation || !repo.recordIdleCheck || !providers.pause) {
       return yield* Effect.fail(new VmDatabaseError({ operation: "idle_pause_candidates", cause: new Error("idle pause is unavailable") }));
     }
     const limit = input.limit ?? VM_IDLE_PAUSE_BATCH_LIMIT;
@@ -111,11 +111,17 @@ function checkMachine(vm: CloudVmRow, now: () => number) {
       console.info("[VM] idle pause", JSON.stringify({ vmId: vm.id, minutes, idleSince: decision.observation?.idleSince }));
       return "paused" as const;
     }
+    // A pause candidate that lost its row fence must keep the prior idle
+    // stretch. Writing a null observation here would restart the timeout on
+    // every run when unrelated metadata keeps changing updatedAt.
+    if (decision.pause) {
+      const repo = yield* VmRepository;
+      yield* repo.recordIdleCheck!({ id: vm.id, providerVmId, probedAt: checkedAt });
+      return "active" as const;
+    }
     // Every checked machine records when it was checked, so the next run starts with the others.
-    const observation = decision.pause ? null : decision.observation;
-    yield* recordObservation(vm.id, providerVmId, observation, checkedAt);
-    // A pause skipped because the row moved: something used the machine since the candidate read.
-    return decision.pause ? "active" as const : outcomeOf(decision);
+    yield* recordObservation(vm.id, providerVmId, decision.observation, checkedAt);
+    return outcomeOf(decision);
   });
 }
 
@@ -129,8 +135,14 @@ function stillUnchanged(vm: CloudVmRow, providerVmId: string) {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
+    // This branch predates the dedicated idle epoch fence. Keep updatedAt as
+    // its lifecycle fence until the complete claim protocol is ported.
     if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
-    return vmLastApiActivityFromRow(current) === vmLastApiActivityFromRow(vm) ? current : null;
+    if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
+    // Addresses are probe inputs; reject a change even if its writer did not
+    // advance the lifecycle timestamp.
+    if (vmIdlePrivateAddressesFromRow(current).join("\u0000") !== vmIdlePrivateAddressesFromRow(vm).join("\u0000")) return null;
+    return current;
   });
 }
 

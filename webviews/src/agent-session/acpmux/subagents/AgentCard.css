@@ -96,3 +96,15 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be. */
+.cv-chief-text-avatar {
+  display: inline-flex;
+  width: 16px;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--cv-card-fill);
+  font-size: var(--text-detail);
+  line-height: 1;
+}
