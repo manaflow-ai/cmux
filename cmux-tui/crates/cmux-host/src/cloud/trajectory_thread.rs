@@ -150,15 +150,8 @@ fn run<H: Http>(
         };
         let mut api = ClientApi { client: c, stop, now };
         if !primed {
-            match mirror.prime(&mut api) {
-                Ok(waiting) => {
-                    primed = true;
-                    if waiting > 0 {
-                        log(&format!(
-                            "trajectory: {waiting} chats of the restore source to import"
-                        ));
-                    }
-                }
+            match mirror.prime_own(&mut api) {
+                Ok(()) => primed = true,
                 Err(Pass::Disabled) => {
                     wait = Some(DISABLED_EVERY);
                     continue;
@@ -169,6 +162,15 @@ fn run<H: Http>(
                     continue;
                 }
             }
+        }
+        // The restore source's list is retried on its own backoff: a failure there must not
+        // stop this machine's own chats from being kept.
+        match mirror.prime_parent_when_due(&mut api, now(), random()) {
+            Some(Ok(waiting)) if waiting > 0 => {
+                log(&format!("trajectory: {waiting} chats of the restore source to import"));
+            }
+            Some(Err(other)) => log(&format!("trajectory: restore source list failed: {other:?}")),
+            _ => {}
         }
         // Imports wait for acpmux to run (the person opens a chat); each pass tries again.
         mirror.restore(&mut api, importer.as_mut());
@@ -183,6 +185,7 @@ fn run<H: Http>(
             }
             Pass::Disabled => {
                 primed = false;
+                mirror.reset_parent();
                 DISABLED_EVERY
             }
             Pass::Failed(why) => {

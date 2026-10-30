@@ -2333,8 +2333,68 @@ jobs:
           }
           publish_legacy_prefix "mux/latest" "no-cache, no-store, must-revalidate"
 
-      - name: Verify published Unix manifests
+      # The first pass's last gate before publish-tree, read from this job's
+      # own copy: the bytes it uploaded, or the earlier publication it kept
+      # (Upload to R2 reads that one from R2 into the same directories). Each
+      # manifest's provenance, required artifacts and digests are checked as
+      # the read-back below checks them, in seconds. The read-back through
+      # files.cmux.com took 143 s of every push's path to its tree
+      # (run 40921878495) and adds nothing publish-tree needs: the attestation
+      # ran before the upload, each prefix's manifest.json was written last,
+      # and publish-tree checks every companion it takes against that
+      # manifest. So in this pass it runs in verify-publish, beside the tree.
+      - name: Verify the kept Unix manifests
+        if: env.CMUX_TUI_PUBLISH_PASS == 'unix'
         run: |
+          set -euo pipefail
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/cmux-tui/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-tui-aarch64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-apple-darwin \
+            --require-artifact cmux-tui-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-aarch64-unknown-linux-musl \
+            --require-artifact cmux-tui-app-host-aarch64-apple-darwin \
+            --require-artifact cmux-tui-app-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-app-host-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-app-host-aarch64-unknown-linux-musl \
+            --require-artifact cmux-tui-cloud-server-aarch64-apple-darwin \
+            --require-artifact cmux-tui-cloud-server-x86_64-apple-darwin \
+            --require-artifact cmux-tui-browser-host-aarch64-apple-darwin \
+            --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-host-aarch64-apple-darwin \
+            --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
+            --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
+            --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-acpmux-x86_64-pc-windows-gnu.exe \
+            --artifact-directory assets/cmux-tui
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/cmux-relay/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --require-provenance \
+            --require-artifact cmux-relay-aarch64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-apple-darwin \
+            --require-artifact cmux-relay-x86_64-unknown-linux-musl \
+            --require-artifact cmux-relay-aarch64-unknown-linux-musl \
+            --forbid-artifact cmux-relay-x86_64-pc-windows-gnu.exe \
+            --artifact-directory assets/cmux-relay
+          python3 cmux-tui/scripts/verify_published_manifest.py \
+            --manifest-file assets/chatmux-relay/manifest.json \
+            --expected-commit "$GITHUB_SHA" \
+            --machine-manifest \
+            --artifact-directory assets/chatmux-relay
+
+      # The read-back through files.cmux.com: here for the Windows pass, in
+      # verify-publish (the same script) for the first.
+      - name: Verify published Unix manifests
+        if: env.CMUX_TUI_PUBLISH_PASS != 'unix'
+        run: &verify-published-unix-manifests |
           set -euo pipefail
           python3 cmux-tui/scripts/verify_published_manifest.py \
             --manifest-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json" \
@@ -2431,6 +2491,26 @@ jobs:
               --machine-manifest \
               --artifact-base-url "https://files.cmux.com/chatmux-relay/latest"
           fi
+
+  # The first pass's read-back of the published manifests through
+  # files.cmux.com, beside publish-tree instead of before it (publish's
+  # "Verify the kept Unix manifests" checks the same manifests and bytes
+  # from the job's own copy). A read-back that fails still fails the run.
+  verify-publish:
+    name: verify the published commit manifests
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    needs: publish
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Verify published Unix manifests
+        run: *verify-published-unix-manifests
 
   # The Windows pass of publish (the same steps): this commit's
   # cmux-tui-windows/<sha>/ prefix, once build-windows is done. The prefixes the
@@ -2726,6 +2806,26 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: assets/tree
 
+      # Only for its acpmux, which the tree carries: with this run's bytes at
+      # hand, the helper step below need not read it back from R2. Optional:
+      # without it, that step reads the published acpmux as before.
+      - name: Download the macOS x86_64 cmux-tui
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-tui-x86_64-apple-darwin
+          path: assets/macos-x86_64
+
+      - name: Keep only the macOS x86_64 acpmux for the tree
+        run: |
+          set -euo pipefail
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
+            if [[ "$asset" == *-x86_64-apple-darwin && -f "assets/macos-x86_64/$asset" && ! -e "assets/tree/$asset" ]]; then
+              cp "assets/macos-x86_64/$asset" "assets/tree/$asset"
+            fi
+          done
+          rm -rf assets/macos-x86_64
+
       # GPUI's Windows daemon mode fetches the Windows daemon by tree key
       # (pin-cmux-tui.sh fetch on Git Bash, or CMUX_TUI_TREE_TARGET). The
       # Windows build artifact also holds the hook and relays; only the daemon
@@ -2778,6 +2878,23 @@ jobs:
           # directory for each run of this step, so nothing read by another run
           # (or another step on a reused runner) is ever served from it.
           r2_read="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/r2-read.XXXXXX")"
+          # A binary of this commit's prefix that this run built with the
+          # bytes the prefix serves: the commit's manifest (read from R2 first)
+          # names this run's file's SHA-256, so the file is the object R2 holds
+          # and needs no read (2.3 min of the step in run 40921878495). Any
+          # other file, a rebuild whose bytes differ (the publish job then kept
+          # an earlier run's publication), or a missing manifest is read from
+          # R2 as before; the helper checks every companion against the
+          # manifest either way.
+          same_as_published() {
+            local object="$1" kept="$2" name="${1##*/}" manifest="$r2_read/cmux-tui/$GITHUB_SHA/manifest.json" expected
+            [[ "$object" == "cmux-tui/$GITHUB_SHA/$name" && "$name" != manifest.json ]] || return 1
+            [[ -f "assets/run/$name" && -f "$manifest" ]] || return 1
+            expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) or "")' "$manifest" "$name")" || return 1
+            [[ "$expected" =~ ^[0-9a-f]{64}$ && "$(sha256sum "assets/run/$name" | awk '{print $1}')" == "$expected" ]] || return 1
+            cp "assets/run/$name" "$kept"
+            echo "Took $object from this run's build (SHA-256 $expected, as the commit manifest names)"
+          }
           # Publishes the tree under KEY, which must be this checkout's key
           # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
           publish_tree() {
@@ -2807,8 +2924,9 @@ jobs:
               local kept="$r2_read/$object"
               if [[ ! -f "$kept" ]]; then
                 mkdir -p "${kept%/*}"
-                CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=120 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" \
-                  --bucket cmux-binaries --key "$object" --download-to "$kept" || return $?
+                same_as_published "$object" "$kept" ||
+                  CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS=120 python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" \
+                    --bucket cmux-binaries --key "$object" --download-to "$kept" || return $?
               fi
               cp "$kept" "$2"
               return 0

@@ -5,6 +5,7 @@ import {
   COMPOSER_PLUS_SECTIONS,
   composerPlusRegistry,
   composerPlusSections,
+  nativeComposerExtensions,
   runComposerPlusAction,
 } from "./composerPlusRegistry";
 
@@ -161,4 +162,18 @@ test("unknown actions cannot silently close the + menu", () => {
       },
     ),
   ).toBe(false);
+});
+
+test("native catalog rows keep their real action ids and reject malformed rows", () => {
+  const rows = nativeComposerExtensions([
+    { id: "openBrowser", section: "tools", name: "New Browser Tab", description: "Open a browser tab", icon: "globe" },
+    { id: "search.chats", section: "sessions", name: "Search Chats", description: "Find a chat", icon: "bubble.left" },
+    { id: "unknown", section: "debug", name: "Debug", description: "Not a composer section" },
+    { id: "", section: "tabs", name: "Empty", description: "No action" },
+  ]);
+  expect(rows.map((row) => [row.section, row.action])).toEqual([
+    ["tools", { kind: "command", id: "openBrowser" }],
+    ["sessions", { kind: "command", id: "search.chats" }],
+  ]);
+  expect(rows[0]?.icon).toBe("browser");
 });

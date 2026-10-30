@@ -620,12 +620,20 @@ impl Hub {
             "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
             "turn": report.turn, "state": report.state,
         });
+        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
+        let lane_session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let sender = lane_session
+            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
+        let provenance = crate::prompt_provenance::stamp_sender(provenance, sender.as_ref());
         let (tx, rx) = oneshot::channel();
         let opts = PromptOptions {
             prompt_id: Some(prompt_id),
             resend: true,
             provenance: Some(provenance),
             agent: Some(report.name.clone()),
+            // A lane's report says what its turn did (`prompt_class.rs`).
+            class: Some(crate::prompt_class::PromptClass::Result),
             on_accepted: Some(Box::new(move |v| {
                 let _ = tx.send(v);
             })),
@@ -1225,6 +1233,9 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
         assert_eq!(parent.queued(), 1, "the report never queued behind the parent's turn");
+        // A lane's report is a result (`prompt_class.rs`): it never wakes a coordinator by itself.
+        let class = parent.queue().first().and_then(|q| q.run.class);
+        assert_eq!(class, Some(crate::prompt_class::PromptClass::Result));
         let turns = parent.meta().turn_count;
         hub.kill(&parent, false).await.unwrap();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(5), busy).await;

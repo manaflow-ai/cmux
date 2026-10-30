@@ -61,6 +61,8 @@ export const READ_MAX_RECORDS = 2000
 /** A read page's records stop past this many bytes (at least one record is returned). */
 export const READ_MAX_BYTES = 4 * 1024 * 1024
 export const LIST_MAX_SESSIONS = 500
+/** A list page's session records stop past this many bytes (at least one session is returned). */
+export const LIST_MAX_BYTES = 4 * 1024 * 1024
 
 /** The labels acpmux bundles use for the agents' own files (acpmux native.rs). */
 const NATIVE_LABELS: ReadonlySet<string> = new Set(["claude-project", "codex-rollout"])
@@ -223,8 +225,18 @@ export class TrajectoryStore {
       `SELECT * FROM traj_session WHERE session > ? ORDER BY session ASC LIMIT ?`,
       afterSession ?? "", LIST_MAX_SESSIONS + 1
     ).toArray() as unknown as Array<SessionRow>
-    const hasMore = rows.length > LIST_MAX_SESSIONS
-    const sessions = rows.slice(0, LIST_MAX_SESSIONS).map((r) => ({
+    // Each session record may be up to RECORD_MAX_BYTES, so 500 of them could exceed the Durable
+    // Object reply limit; cut the page at a byte budget too. The cursor makes a short page safe.
+    let take = 0
+    let bytes = 0
+    while (take < Math.min(rows.length, LIST_MAX_SESSIONS)) {
+      const size = bytesOf(rows[take]!.meta)
+      if (take > 0 && bytes + size > LIST_MAX_BYTES) break
+      bytes += size
+      take++
+    }
+    const hasMore = rows.length > take
+    const sessions = rows.slice(0, take).map((r) => ({
       session: r.session,
       generation: Number(r.generation),
       last_seq: Number(r.last_seq),

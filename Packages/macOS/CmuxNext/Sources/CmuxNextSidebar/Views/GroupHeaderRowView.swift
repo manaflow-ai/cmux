@@ -356,8 +356,15 @@ final class GroupHeaderRowView: SidebarRowView {
         chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
-        // The more button sits left of the chevron.
-        moreButton.frame = NSRect(x: max(pad, chevronFrame.minX - Metrics.space1 - control), y: (b.height - control) / 2, width: control, height: control)
+        // The more button and the + center on the slots left of the chevron (`trailingSlotCenterX`), the lines a hovered
+        // row's chevron and menu take, whatever the header's control size (Leo 2026-10-29: "MISALIGNED").
+        // At most one slot wide, so neighbors never overlap (at a comfortable app density the control outgrows the pitch).
+        let slotWidth = min(control, SidebarStyle.trailingSlotPitch)
+        func slotFrame(_ slot: Int) -> NSRect {
+            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: slot) - slotWidth / 2)
+            return NSRect(x: x, y: (b.height - control) / 2, width: slotWidth, height: control)
+        }
+        moreButton.frame = slotFrame(1)
         // Lawrence 2026-10-11: the + and more show only on hover, keyboard
         // focus or while the editor is open. Hidden (not only clear): a click
         // there collapses the group, and VoiceOver uses the header's custom
@@ -374,8 +381,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let fades = fadesNextHover && !onColumn
         setHoverShown(moreButton, showsActions, fades: fades, token: .hoverReveal)
         moreButton.setAccessibilityElement(showsActions)
-        addButton.frame = moreButton.frame.offsetBy(dx: -(control + Metrics.space1), dy: 0)
-        addButton.frame.origin.x = max(pad, addButton.frame.minX)
+        addButton.frame = slotFrame(2)
         let offersAdd = onAdd != nil && !isEmpty
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
@@ -404,13 +410,15 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
-        // A pinned group's pin leads the bar, its ink at the rows' leading inset, and its icon and name take the one
-        // text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not aligned").
+        // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
+        // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
+        // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = Metrics.smallIconSize
         pin.isHidden = !pinned
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
-        pin.frame = NSRect(x: ((lead - (pinInk?.minX ?? 0)) * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
+        pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         let iconLead = pinned ? SidebarStyle.leadingTextX(leading: lead) : lead
         glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.

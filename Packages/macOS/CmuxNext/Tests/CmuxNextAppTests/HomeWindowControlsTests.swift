@@ -136,7 +136,8 @@ struct HomeWindowControlsTests {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false, windowControls: Self.lightsFrame)
         #expect(!h.search.intersects(Self.lightsFrame) && !h.filter.intersects(Self.lightsFrame))
         #expect(h.filter.midY == Self.lightsFrame.midY)
-        #expect(h.search.minY == Self.lightsFrame.maxY + HomeSidebarHeaderLayout.rowGap)
+        // The search row under the lights and the filter circle on their line.
+        #expect(h.search.minY == max(Self.lightsFrame.maxY, h.filter.maxY) + HomeSidebarHeaderLayout.rowGap)
         #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset)
         #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.rowGap)
         #expect(!h.filter.intersects(h.search))

@@ -59,6 +59,7 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
                     ".nt-composer .acpmux-location-label",
                     ".nt-foot .acpmux-access-trigger",
                     ".nt-foot .acpmux-location-leading",
+                    '.nt-foot .acpmux-location-picker[data-kind="computer"]',
                   ].map((selector) => {
                     const r = document.querySelector(selector)?.getBoundingClientRect();
                     return [selector, r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null];
@@ -87,7 +88,17 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
                       currentRect: DOMRectReadOnly;
                     }[];
                   };
-                  state.total += shift.value;
+                  // A selected folder changes its content-sized button. Its label/chevron may
+                  // move inside the reserved slot; every other painted shift still fails.
+                  const projectContent =
+                    ".nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child :is(.acpmux-location-label, .ui-ghost-icon:last-child)";
+                  const expected =
+                    shift.sources?.length &&
+                    shift.sources.every((source) => {
+                      const element = source.node instanceof Element ? source.node : source.node?.parentElement;
+                      return Boolean(element?.closest(projectContent));
+                    });
+                  if (!expected) state.total += shift.value;
                   state.sources.push(
                     ...(shift.sources ?? []).map((source) => ({
                       node: (source.node as Element)?.outerHTML?.slice(0, 160) ?? source.node?.textContent,
@@ -118,6 +129,7 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
             await page.evaluate(
               () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
             );
+            const reopened = await rects();
             const shifts = await page.evaluate(
               () => (window as unknown as { headlineShifts: { total: number; sources: unknown[] } }).headlineShifts,
             );
@@ -128,6 +140,12 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
             expect(after[".nt-headline"]).toEqual(before[".nt-headline"]);
             expect(after[".nt-foot .acpmux-access-trigger"]).toEqual(before[".nt-foot .acpmux-access-trigger"]);
             expect(after[".nt-foot .acpmux-location-leading"]).toEqual(before[".nt-foot .acpmux-location-leading"]);
+            const machine = '.nt-foot .acpmux-location-picker[data-kind="computer"]';
+            expect(after[machine]).not.toBeNull();
+            expect(after[machine]).toEqual(before[machine]);
+            expect(reopened[".nt-headline .acpmux-project-button"]).toEqual(
+              after[".nt-headline .acpmux-project-button"],
+            );
             expect((await trigger.getAttribute("title")) ?? (await trigger.getAttribute("data-tooltip"))).toContain(
               name,
             );

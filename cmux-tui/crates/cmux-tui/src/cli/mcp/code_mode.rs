@@ -19,6 +19,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 use serde_json::{Map, Value, json};
 
@@ -71,11 +72,11 @@ const DOCS_MORE_NAMES: usize = 60;
 
 pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux_exec. In a \
     script, `cmux.docs(query)` searches every cmux tool and returns its input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
-    one script and return what you need. Tools of the chat's other cmux servers (cua_*, \
-    secrets_*, sessions_*, subsessions_*, forum_*) come with their rules in `servers` of a \
-    cmux.docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
-    from the *_list tools; a unique prefix or <session>:<id> works. `current` is this chat's \
-    own workspace or pane; `focused` is the one the person looks at. A change takes \
+    one script and return what you need. Tools of the chat's other cmux servers (cua_*: \
+    computer use on Mac apps; secrets_*, sessions_*, subsessions_*, forum_*) come with \
+    their rules in `servers` of a cmux.docs answer: follow them. Objects have public ids \
+    (ws_…, pane_…, tab_…, term_…) from the *_list tools; a unique prefix or <session>:<id> \
+    works. `current` is this chat's own workspace or pane; `focused` is the one the person looks at. A change takes \
     idempotency_key: on in_progress, retry with the key from the error; another server's \
     call that fails in_progress has no key and may have run, so check its effect first. Tools \
     never move the \
@@ -85,12 +86,31 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux
     it when they ask to go there. In a chat reply, show UI: ![alt](/abs/path.png) or an image \
     path or https address draws as a thumbnail.";
 
+/// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
+pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
+/// What `cmux_exec` says when the chat has computer use.
+pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use: the cua_* tools see \
+    and operate the apps on the person's Mac (screenshots, clicks, typing). Use them for any \
+    task in a desktop app, never osascript or AppleScript keystrokes; `cmux.docs(\"cua\")` \
+    lists them with their rules. Never type into a terminal or script tool, never copy app \
+    data out of the app unless the person asked, and stop before a payment, a password, \
+    sending a message or deleting that they did not ask for, and say what is left.";
+
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with
 /// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
 /// is the full list, for the family summary in its description.
 pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
-    let families = families(tools)
+    // A chat with acpmux's background tasks (acpmux `acpmux_mcp_bg.rs`) is told to use them in
+    // the one description every turn shows: in code mode a server's own instructions reach the
+    // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
+    let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
+    let grouped = families(tools);
+    // A harness that shows one tool must still find computer use in it: a
+    // chat asked to "open Calculator" used osascript (2026-10-27).
+    let computer_use =
+        if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
+    let families = grouped
         .iter()
         .map(|(family, names)| format!("{family} ({})", names.len()))
         .collect::<Vec<_>>()
@@ -99,15 +119,15 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "name": EXEC,
         "title": "Run a cmux script",
         "description": format!(
-            "Run JavaScript that calls cmux tools and return its result. The script is \
-             an async function body: use await and return a JSON value. \
+            "Run JavaScript that calls cmux tools and return its result.{computer_use} The \
+             script is an async function body: use await and return a JSON value. \
              `cmux.docs(query)` finds tools with their input schemas (words such as \
              \"pane split\", or nothing for every name by family); \
              `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls one and returns its \
              result; a failed call throws an Error whose `cmux` field has the error, its \
              state and its idempotency key. console.log output comes back in logs. There \
              is no file system, network or timer access. A failed script reports the calls \
-             that already ran. Families: {families}."
+             that already ran. Families: {families}.{bg}"
         ),
         "inputSchema": {
             "type": "object",
@@ -124,6 +144,13 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "annotations": {"destructiveHint": true, "openWorldHint": false},
     })]
 }
+
+/// acpmux's `bg_start` behind this server (its upstream prefix `acpmux`).
+const BG_START: &str = "acpmux_bg_start";
+const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long build or \
+    test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
+    of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
+    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -190,7 +217,9 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .iter()
         .filter_map(|tool| {
             let name = tool["name"].as_str()?.to_lowercase();
-            let description = tool["description"].as_str().unwrap_or_default().to_lowercase();
+            let description =
+                super::upstream::without_rules(tool["description"].as_str().unwrap_or_default())
+                    .to_lowercase();
             let arguments = tool["inputSchema"]["properties"]
                 .as_object()
                 .map(|properties| properties.keys().cloned().collect::<Vec<_>>().join(" "))
@@ -226,7 +255,7 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     // A task no one tool answers (`cmux docs search` returns the same).
     let guides = super::super::docs::guides(query);
     if !guides.is_empty() {
-        answer["guides"] = json!(guides);
+        answer.set("guides", json!(guides));
     }
     answer
 }
@@ -299,10 +328,10 @@ pub(super) fn exec(
                     if records.len() < MAX_CALL_RECORDS {
                         let mut record = json!({"name": name, "ok": ok});
                         if let Some(state) = state {
-                            record["state"] = json!(state);
+                            record.set("state", json!(state));
                         }
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
-                            record["idempotency_key"] = json!(key);
+                            record.set("idempotency_key", json!(key));
                         }
                         records.push(record);
                     }
@@ -331,18 +360,18 @@ pub(super) fn exec(
     };
     let mut value = json!({"calls": calls, "call_log": records, "logs": outcome.logs});
     if outcome.dropped_logs > 0 {
-        value["dropped_logs"] = json!(outcome.dropped_logs);
+        value.set("dropped_logs", json!(outcome.dropped_logs));
     }
     Ok(match outcome.result {
         Ok(result) => {
-            value["result"] = result;
+            value.set("result", result);
             super::success(fit(value), applied)
         }
         Err(error) => {
-            value["error"] = error;
+            value.set("error", error);
             // `partial`: some call may have applied; `call_log` says which,
             // with each failed call's state and idempotency key.
-            value["state"] = json!(if applied { "partial" } else { "not_run" });
+            value.set("state", json!(if applied { "partial" } else { "not_run" }));
             super::tool_error(fit(value))
         }
     })
@@ -368,18 +397,18 @@ fn fit(mut value: Value) -> Value {
         }
     }
     while size(&value) > budget
-        && let Some(logs) = value["logs"].as_array_mut()
+        && let Some(logs) = value.get_mut("logs").and_then(Value::as_array_mut)
         && !logs.is_empty()
     {
         let keep = logs.len() / 2;
         logs.truncate(keep);
-        value["logs_truncated"] = json!(true);
+        value.set("logs_truncated", json!(true));
     }
     if size(&value) > budget
-        && let Some(records) = value["call_log"].as_array_mut()
+        && let Some(records) = value.get_mut("call_log").and_then(Value::as_array_mut)
     {
         records.clear();
-        value["call_log_truncated"] = json!(true);
+        value.set("call_log_truncated", json!(true));
     }
     value
 }
@@ -663,7 +692,7 @@ pub(super) fn script_answer(
         }
         let mut result = result;
         let failed = result["isError"] == true;
-        result["structuredContent"] = from_content(&result["content"], images, failed);
+        result.set("structuredContent", from_content(&result["content"], images, failed));
         result
     });
     match result {
@@ -720,4 +749,21 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
         return json!({"content": blocks, "error": {"message": message}});
     }
     json!({"content": blocks})
+}
+
+#[cfg(test)]
+mod bg_steer_tests {
+    use super::*;
+
+    /// A chat whose tools include acpmux's `bg_start` is told in `cmux_exec`'s own description
+    /// to run long commands there; one without it is not (acpmux docs/hibernation.md).
+    #[test]
+    fn the_exec_description_steers_long_commands_to_bg_start_only_where_it_is() {
+        let with = descriptors(&[json!({"name": BG_START}), json!({"name": "pane_split"})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
+        assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
+    }
 }

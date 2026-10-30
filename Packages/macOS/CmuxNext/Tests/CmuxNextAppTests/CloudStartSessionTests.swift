@@ -246,7 +246,7 @@ struct CloudStartSessionTests {
         })
         var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", endpoint: { throw CancellationError() },
                                       servesKeyedReason: servesKeyedReason, approvals: approvals)
-        host.start = { _, _, key in
+        host.start = { _, _, _, key in
             steps.note(key == nil ? "start" : "start keyed")
             if key != nil { throw AgentRemoteStartRefusal(code: AgentSessionAttachError.needsKeyedStart, machine: "devbox", keyedRestartSafe: true) }
             return AgentTabRemoteStart.Started(surface: 1, session: "s-1")

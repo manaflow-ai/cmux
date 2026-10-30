@@ -231,9 +231,10 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   `features.multi_agent = false` (harness.rs guard test).
 - A host with no app (`CMUX_SOCKET_PATH` unset) and a cloud install (the
   always-on brain on a server) makes each workspace in its OWN session
-  daemon instead (`DaemonWorkspaces`: `create-workspace` by key,
-  `create-terminal` in the subagent's directory, `new-conversation-tab` with
-  `agent_session {host: install:<id>, host_name, session, harness}`). The
+  daemon instead (`DaemonWorkspaces`: `create-workspace` by key, then
+  `new-conversation-tab {workspace}` with `agent_session {host:
+  install:<id>, host_name, session, harness}`, the chat as its only tab and no
+  shell). The
   subagent runs on that machine, so its workspace belongs to that machine's
   session (data-model.md 1.2); an app shows it while connected to that
   session, and an app on another machine shows the chat tab as running on

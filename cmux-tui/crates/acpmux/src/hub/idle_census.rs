@@ -20,7 +20,11 @@
 //! Only a child of the harness can be a server, and only when its command line is exactly the
 //! server's: its program (as configured, or what `PATH` runs for a name), or an interpreter
 //! running that program as a script, then exactly its args (`runs`). What runs under a server is
-//! the server's. The configs and `ps` each get [`CENSUS_BUDGET`]; past it the harness stays up,
+//! the server's. A launcher (an interpreter running a script by path: npm's `node .../bin/codex
+//! ARGS`) whose child runs a program of the script's name with exactly the same args relays to
+//! that child, which is then the harness too: its children may be servers, and a program beside
+//! it named after it (`codex-code-mode-host`) is its own helper, though what runs under a helper
+//! is judged on its own (`relays`, `part_of`). The configs and `ps` each get [`CENSUS_BUDGET`]; past it the harness stays up,
 //! so the leases the pass holds are never held longer.
 
 #![cfg_attr(not(unix), allow(dead_code))]
@@ -69,7 +73,9 @@ impl Hub {
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             let found = tokio::task::spawn_blocking(move || crate::agent_host::tree::under(pid));
             return match tokio::time::timeout(CENSUS_BUDGET, found).await {
-                Ok(Ok(Some(found))) => classify(&found, pid, &sidecars),
+                Ok(Ok(Some((leader_args, found)))) => {
+                    classify(&found, pid, &leader_args, &sidecars)
+                }
                 _ => Census::Unknown,
             };
         }
@@ -174,12 +180,16 @@ fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
     let Some(home) = env("HOME") else { return out };
     let cwd = &launch.cwd;
     if family == "claude" {
-        for pair in launch.args.windows(2).filter(|w| w[0] == "--mcp-config") {
-            match serde_json::from_str::<Value>(&pair[1]) {
+        for pair in launch.args.windows(2) {
+            let [flag, value] = pair else { continue };
+            if flag != "--mcp-config" {
+                continue;
+            }
+            match serde_json::from_str::<Value>(value) {
                 Ok(inline) if inline.is_object() => out.extend(from_json(inline.get("mcpServers"))),
                 // A file, relative to the harness's folder.
                 _ => {
-                    let file = read_json(&cwd.join(&pair[1]));
+                    let file = read_json(&cwd.join(value));
                     out.extend(from_json(file.as_ref().and_then(|j| j.get("mcpServers"))));
                 }
             }
@@ -303,14 +313,7 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
 /// about what it runs, so it never matches.
 fn runs(args: &str, s: &Sidecar) -> bool {
     let words: Vec<&str> = args.split_whitespace().collect();
-    let base = |w: &str| Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
-    let interpreter = |w: &str| {
-        let name = base(w).unwrap_or_default();
-        INTERPRETERS.iter().any(|i| {
-            name.strip_prefix(i)
-                .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
-        })
-    };
+    let interpreter = is_interpreter;
     if s.args.is_empty() && interpreter(&s.command) {
         return false;
     }
@@ -324,26 +327,101 @@ fn runs(args: &str, s: &Sidecar) -> bool {
     } else {
         return false;
     };
-    words.len() == at + s.args.len() && words[at..].iter().zip(&s.args).all(|(a, b)| a == b)
+    words.len() == at + s.args.len()
+        && words.get(at..).unwrap_or_default().iter().zip(&s.args).all(|(a, b)| a == b)
 }
 
-/// `Busy` with the first process that is neither a server (a child of `leader`) nor under one.
+/// Whether `w` names one of [`INTERPRETERS`] (`python3.12` included).
+fn is_interpreter(w: &str) -> bool {
+    let name = Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
+    let name = name.unwrap_or_default();
+    INTERPRETERS.iter().any(|i| {
+        name.strip_prefix(i)
+            .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
+    })
+}
+
+/// A launcher's command line: an interpreter running a script by path (`node
+/// /home/u/.local/bin/codex -c x app-server`, npm's Codex launcher). Its script's file name and
+/// the args after the script.
+fn launcher(args: &str) -> Option<(&str, Vec<&str>)> {
+    let words: Vec<&str> = args.split_whitespace().collect();
+    let (interp, script) = (words.first().copied()?, words.get(1).copied()?);
+    if !is_interpreter(interp) || !script.starts_with('/') {
+        return None;
+    }
+    Some((Path::new(script).file_name()?.to_str()?, words[2..].to_vec()))
+}
+
+/// Whether `args` is the program a launcher (`launcher`) runs for itself: a program by absolute
+/// path, not an interpreter, with the launcher's script name and exactly its args. npm's Codex
+/// launcher runs its native `.../vendor/<triple>/bin/codex` with its own args and relays stdio:
+/// that child is the harness, so its children are the harness's children.
+fn relays(args: &str, launcher: &(&str, Vec<&str>)) -> bool {
+    let words: Vec<&str> = args.split_whitespace().collect();
+    let Some(program) = words.first().filter(|w| w.starts_with('/') && !is_interpreter(w)) else {
+        return false;
+    };
+    Path::new(program).file_name().and_then(|n| n.to_str()) == Some(launcher.0)
+        && words[1..] == launcher.1[..]
+}
+
+/// Whether `args` runs one of the harness's own helper programs: an absolute path in the same
+/// folder as a relayed harness program (`relays`), named after it (`.../bin/codex-code-mode-host`
+/// beside `.../bin/codex`). Only the helper itself: what runs under it is judged on its own.
+fn part_of(args: &str, harness_programs: &[&str]) -> bool {
+    let Some(program) = args.split_whitespace().next().filter(|w| w.starts_with('/')) else {
+        return false;
+    };
+    let program = Path::new(program);
+    harness_programs.iter().map(Path::new).any(|h| {
+        let named = |p: &Path| p.file_name().and_then(|n| n.to_str()).map(str::to_owned);
+        program.parent() == h.parent()
+            && named(h).zip(named(program)).is_some_and(|(h, p)| p.starts_with(&format!("{h}-")))
+    })
+}
+
+/// `Busy` with the first process that is neither a server (a child of the harness), under one, the
+/// harness's relayed program (`relays`) nor one of its helpers (`part_of`). `leader_args` is the
+/// leader's own command line.
 #[cfg(unix)]
-fn classify(found: &[crate::agent_host::tree::Under], leader: u32, sidecars: &[Sidecar]) -> Census {
+fn classify(
+    found: &[crate::agent_host::tree::Under],
+    leader: u32,
+    leader_args: &str,
+    sidecars: &[Sidecar],
+) -> Census {
+    let launched = launcher(leader_args);
+    let mut harness: Vec<u32> = vec![leader];
+    let mut harness_programs: Vec<&str> = Vec::new();
+    let mut parts: Vec<u32> = Vec::new();
     let mut allowed: Vec<u32> = Vec::new();
     let mut grew = true;
     while grew {
         grew = false;
         for p in found {
-            // The harness starts its servers itself: only its own children can be one.
-            let server = p.ppid == leader && sidecars.iter().any(|s| runs(&p.args, s));
-            if !allowed.contains(&p.pid) && (allowed.contains(&p.ppid) || server) {
-                allowed.push(p.pid);
-                grew = true;
+            if harness.contains(&p.pid) || parts.contains(&p.pid) || allowed.contains(&p.pid) {
+                continue;
             }
+            let of_harness = harness.contains(&p.ppid);
+            // The harness starts its servers itself: only its own children can be one.
+            if allowed.contains(&p.ppid)
+                || (of_harness && sidecars.iter().any(|s| runs(&p.args, s)))
+            {
+                allowed.push(p.pid);
+            } else if of_harness && launched.as_ref().is_some_and(|l| relays(&p.args, l)) {
+                harness.push(p.pid);
+                harness_programs.extend(p.args.split_whitespace().next());
+            } else if of_harness && part_of(&p.args, &harness_programs) {
+                parts.push(p.pid);
+            } else {
+                continue;
+            }
+            grew = true;
         }
     }
-    match found.iter().find(|p| !allowed.contains(&p.pid)) {
+    let known = |pid: &u32| harness.contains(pid) || parts.contains(pid) || allowed.contains(pid);
+    match found.iter().find(|p| !known(&p.pid)) {
         Some(p) => {
             let first = p.args.split_whitespace().next().unwrap_or_default();
             let comm = Path::new(first).file_name().map_or(first.into(), |n| n.to_string_lossy());
@@ -381,19 +459,19 @@ mod tests {
             under(12, 10, "node /usr/local/bin/npx -y @example/fetch"),
             under(13, 12, "node /tmp/_npx/fetch/index.js"),
         ];
-        assert!(matches!(classify(&found, 10, &servers), Census::Clear));
+        assert!(matches!(classify(&found, 10, "claude", &servers), Census::Clear));
         for same in [
             "npx -y @example/fetch",
             "/usr/local/bin/npx -y @example/fetch",
             "/usr/bin/python3.12 /usr/local/bin/npx -y @example/fetch",
         ] {
             let found = [under(12, 10, same)];
-            assert!(matches!(classify(&found, 10, &servers), Census::Clear), "{same}");
+            assert!(matches!(classify(&found, 10, "claude", &servers), Census::Clear), "{same}");
         }
         let mut busy = found.to_vec();
         busy.push(under(14, 10, "/usr/bin/python3 -m http.server 8000"));
         assert!(
-            matches!(classify(&busy, 10, &servers), Census::Busy { pid: 14, ref comm } if comm == "python3")
+            matches!(classify(&busy, 10, "claude", &servers), Census::Busy { pid: 14, ref comm } if comm == "python3")
         );
         for other in [
             "node /usr/local/bin/npx -y @example/other",
@@ -409,11 +487,67 @@ mod tests {
             "python3 -c print(1)",
         ] {
             let found = [under(12, 10, other)];
-            assert!(matches!(classify(&found, 10, &servers), Census::Busy { .. }), "{other}");
+            assert!(
+                matches!(classify(&found, 10, "claude", &servers), Census::Busy { .. }),
+                "{other}"
+            );
         }
         // A server's command line under something other than the harness is not its server.
         let nested = [under(15, 10, "bash"), under(16, 15, "npx -y @example/fetch")];
-        assert!(matches!(classify(&nested, 10, &servers), Census::Busy { pid: 15, .. }));
+        assert!(matches!(classify(&nested, 10, "claude", &servers), Census::Busy { pid: 15, .. }));
+    }
+
+    /// npm's Codex launcher (`node .../bin/codex ARGS`) runs the native binary with the same
+    /// args, and that binary starts the MCP servers and its own helper. An idle Codex session held
+    /// all of it (about 180 tasks) forever: the native binary was not a server, so the census
+    /// kept every such harness up.
+    #[test]
+    fn a_launchers_relayed_harness_and_its_helpers_let_it_end() {
+        let servers = from_json(Some(&json!({
+            "acpmux": {"command": "/home/u/.local/bin/acpmux", "args": ["acpmux-mcp"]},
+            "forum": {"command": "/home/u/.local/bin/acpmux", "args": ["forum-mcp"]},
+        })));
+        let leader = "node /home/u/.local/bin/codex -c agents.max_depth=16 app-server";
+        let bin = "/home/u/.local/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin";
+        let native = format!("{bin}/codex -c agents.max_depth=16 app-server");
+        let helper = format!("{bin}/codex-code-mode-host");
+        let idle = vec![
+            under(11, 10, &native),
+            under(12, 11, "/home/u/.local/bin/acpmux acpmux-mcp"),
+            under(13, 11, "/home/u/.local/bin/acpmux forum-mcp"),
+            under(14, 12, "/home/u/.local/bin/acpmux helper"),
+            under(15, 11, &helper),
+        ];
+        assert!(matches!(classify(&idle, 10, leader, &servers), Census::Clear));
+
+        // What the agent left running still keeps it up: under the relayed harness, under its
+        // helper, or a relay whose args differ.
+        for (extra, busy) in [
+            (under(16, 11, "/usr/bin/python3 -m http.server 8000"), 16),
+            (under(16, 15, "/usr/bin/node /tmp/sandbox.js"), 16),
+            (under(16, 10, &format!("{bin}/codex exec run-this")), 16),
+            (under(16, 10, "/tmp/elsewhere/codex-code-mode-host"), 16),
+            (under(16, 11, &format!("{bin}/other-code-mode-host")), 16),
+        ] {
+            let mut found = idle.clone();
+            found.push(extra);
+            assert!(
+                matches!(classify(&found, 10, leader, &servers), Census::Busy { pid, .. } if pid == busy),
+                "{:?}",
+                found.last()
+            );
+        }
+
+        // No launcher: a same-named child with the same args is not the harness.
+        let direct = format!("{bin}/codex -c agents.max_depth=16 app-server");
+        let found = [under(11, 10, &native), under(12, 11, "/home/u/.local/bin/acpmux acpmux-mcp")];
+        assert!(matches!(classify(&found, 10, &direct, &servers), Census::Busy { pid: 11, .. }));
+        // A launcher run as a bare name (no script path) relays nothing either.
+        let bare = "node codex -c agents.max_depth=16 app-server";
+        assert!(matches!(classify(&found, 10, bare, &servers), Census::Busy { pid: 11, .. }));
+        // A helper beside the launcher's script, not beside a relayed program, is not the harness's.
+        let found = [under(11, 10, "/home/u/.local/bin/codex-code-mode-host")];
+        assert!(matches!(classify(&found, 10, leader, &servers), Census::Busy { pid: 11, .. }));
     }
 
     #[test]

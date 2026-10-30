@@ -172,6 +172,25 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     expect((await traj(source.vm, source.machine, "list", { after_session: 1234 })).status).toBe(400)
   })
 
+  it("a list page stops at its byte budget and the cursor reads the rest", async () => {
+    const s = await setup("traj-paged-bytes")
+    // Five session records near RECORD_MAX_BYTES: over LIST_MAX_BYTES together, so a page holds four.
+    const pad = "x".repeat(1000 * 1000)
+    for (let i = 0; i < 5; i++) {
+      const session = `chat-${i}`
+      const answer = await traj(s.vm, s.machine, "append", { session, generation: CREATED, meta: { ...meta(session, 1), pad }, lines: [line(1)] })
+      expect(answer.body.ok, JSON.stringify(answer.body).slice(0, 300)).toBe(true)
+    }
+    const first = await traj(s.vm, s.machine, "list", { page_protocol: 2 })
+    expect(first.body.value.sessions.map((r: { session: string }) => r.session)).toEqual(["chat-0", "chat-1", "chat-2", "chat-3"])
+    expect(first.body.value).toMatchObject({ has_more: true, next_after_session: "chat-3" })
+    const rest = await traj(s.vm, s.machine, "list", { page_protocol: 2, after_session: "chat-3" })
+    expect(rest.body.value.sessions.map((r: { session: string }) => r.session)).toEqual(["chat-4"])
+    expect(rest.body.value.has_more).toBe(false)
+    // A guest that cannot follow a cursor is refused rather than shown four of five.
+    expect((await traj(s.vm, s.machine, "list", {})).body.error.code).toBe("cloud.trajectory.pagination_required")
+  })
+
   it("a record must name its own session and generation", async () => {
     const s = await setup("traj-6")
     const wrong = await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED + 1, meta: meta("chat-a", 1), lines: lines(1, 1) })
