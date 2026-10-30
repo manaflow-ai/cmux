@@ -154,14 +154,15 @@ async fn move_steps(
         bail!("{why}");
     }
     let cwd = PathBuf::from(info["cwd"].as_str().unwrap_or_default());
-    let cwd = cwd.canonicalize().map_err(|_| {
-        anyhow!("its folder {} is gone here; there is nothing to carry", cwd.display())
-    })?;
-    let checkout = tokio::task::spawn_blocking({
-        let cwd = cwd.clone();
-        move || checkout_of(&cwd)
-    })
-    .await??;
+    // With --cwd nothing of the folder here is carried, so it need not exist any more.
+    let cwd = if args.cwd.is_some() {
+        cwd
+    } else {
+        cwd.canonicalize().map_err(|_| {
+            anyhow!("its folder {} is gone here; there is nothing to carry", cwd.display())
+        })?
+    };
+    let checkout = checkout_unless_named(&cwd, args).await?;
     let home = home.canonicalize().unwrap_or_else(|_| home.to_path_buf());
     let group = checkout.as_ref().map(|c| c.top.clone()).unwrap_or_else(|| cwd.clone());
     let target = targets.pick(src, &group).await?;
@@ -188,7 +189,8 @@ async fn move_steps(
     }
     // Frozen from here: no prompt, turn or agent write changes the chat while its folder is
     // made, and every failure below gives it back.
-    let watch = json!({"socket": remote.socket, "ssh": target.ssh});
+    // The peer's name too: a move the watch ends records where it went, for `resolve`.
+    let watch = json!({"socket": remote.socket, "ssh": target.ssh, "host": target.name});
     let begun = super::transfer::begin_move(src, &id, Some(watch), args.interrupt).await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, o).await;
     let (record, forward, dst) = match prepared {
@@ -220,11 +222,7 @@ async fn prepare(
     args: &MoveArgs,
     o: &mut Outcome,
 ) -> Result<(Value, Forward, std::sync::Arc<Client>)> {
-    let checkout = tokio::task::spawn_blocking({
-        let cwd = cwd.to_path_buf();
-        move || checkout_of(&cwd)
-    })
-    .await??;
+    let checkout = checkout_unless_named(cwd, args).await?;
     let folder = plan::plan_folder(
         cwd,
         home,
@@ -262,6 +260,15 @@ async fn prepare(
     )
     .await?;
     Ok((record, forward, dst))
+}
+
+/// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).
+async fn checkout_unless_named(cwd: &Path, args: &MoveArgs) -> Result<Option<Checkout>> {
+    if args.cwd.is_some() {
+        return Ok(None);
+    }
+    let cwd = cwd.to_path_buf();
+    tokio::task::spawn_blocking(move || checkout_of(&cwd)).await?
 }
 
 fn sub_text(subdir: &str) -> String {
@@ -308,7 +315,7 @@ fn push_branch(top: &Path, branch: &str) -> Result<String> {
         .context("git push")?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim();
+        let last = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
         bail!("pushing {branch} to origin failed (it may have moved on there): {last}");
     }
     Ok(head)
@@ -377,7 +384,7 @@ fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
         Some(input.as_bytes()),
     )?;
     if !out.ok {
-        let last = out.stderr.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("");
+        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("");
         bail!("making the folder on {host} failed: {}", last.trim());
     }
     let path = out.stdout.lines().last().unwrap_or_default().trim().to_owned();

@@ -3,12 +3,13 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?}}`: the chat stops
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?}}`: the chat stops
 //!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
 //!    `interrupt`), and its bundle (`transfer.rs` export) is made. Answers `{schema, transferId,
 //!    sessionId, files: [{path, size}], session}`: the manifest the target takes. `to` names the
 //!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
-//!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`).
+//!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`);
+//!    `host` is the peer's name, recorded in `movedTo` when the watch ends the move.
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -137,7 +138,9 @@ impl Hub {
                         "transfer: `to.ssh` needs a plain ssh host and an absolute `to.socket`",
                     ));
                 }
-                self.transfer_begin(&session, interrupt, socket, ssh).await
+                let host = to.and_then(|to| to.get("host")).and_then(Value::as_str);
+                let host = host.filter(|h| crate::cli::hosts::checked_host(h).is_ok());
+                self.transfer_begin(&session, interrupt, socket, ssh, host).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -168,6 +171,7 @@ impl Hub {
         interrupt: bool,
         to: Option<&str>,
         to_ssh: Option<&str>,
+        to_host: Option<&str>,
     ) -> Result<Value, RpcError> {
         // A stopped chat moves (its bundle is its whole history); one that moved away never
         // does again.
@@ -221,6 +225,9 @@ impl Hub {
         }
         if let Some(host) = to_ssh {
             let _ = std::fs::write(dir.join("to-ssh"), host);
+        }
+        if let Some(host) = to_host {
+            let _ = std::fs::write(dir.join("to-host"), host);
         }
         super::transfer_watch::note_activity(&dir, None);
         self.watch_transfer(session, &transfer_id);

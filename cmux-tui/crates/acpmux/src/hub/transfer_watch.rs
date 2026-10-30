@@ -14,7 +14,7 @@
 //!
 //! Its state is in the move's directory, so a daemon that restarts mid-move watches it again:
 //! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
-//! `to-ssh`.
+//! `to-ssh` and `to-host`.
 
 use super::transfer_out::{bundle_files, transfers_dir};
 use super::*;
@@ -216,7 +216,11 @@ impl Hub {
         };
         let ended = match landed {
             Some(true) => {
-                let to = json!({"sessionId": session.id, "by": "watch"});
+                let mut to = json!({"sessionId": session.id, "by": "watch"});
+                // Where it went, so `resolve` follows it to that peer (`locate.rs`).
+                if let Ok(host) = std::fs::read_to_string(dir.join("to-host")) {
+                    to["host"] = json!(host.trim());
+                }
                 self.transfer_commit(session, transfer_id, to).await.map(|_| ())
             }
             Some(false) => {
