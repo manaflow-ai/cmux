@@ -108,6 +108,7 @@ struct CrossMachineTabMoveTests {
             let deadline = ContinuousClock.now + .seconds(20)
             // A move's reply can precede the store applying its rename. Read after the
             // daemon's barrier so the creation event alone cannot satisfy this lookup.
+            let daemon = self.machine.daemon
             try await withThrowingTaskGroup(of: Void.self) { group in
                 defer { group.cancelAll() }
                 group.addTask {
