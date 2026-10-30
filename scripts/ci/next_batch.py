@@ -100,6 +100,16 @@ HEAVY_CHECKS = frozenset({
     "cmux-next generated files (shared build)",
     "wait for the same-tree cmux-tui",
 })
+# cmux-next.yml's base tier dispatch (cmux-next-base-tier-kick.yml) and the jobs it carries: a
+# feat-cmux-next push no longer runs them (cmuxterm-hq#5424).
+BASE_TIER_TITLE = "cmux-next base tier · "
+BASE_TIER_JOBS = frozenset({
+    "cmux app scheme compile (Debug)",
+    "cmux-next daemon tests",
+    "cmux-next generated files",
+    "cmux-next generated files (shared build)",
+    "cmux-next crash ends the app",
+})
 # One job, many static checks. Its last step lists each red one; the queue
 # compares those, not the job, with the base (one base red never hides another).
 CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -1456,7 +1466,30 @@ class Controller:
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
         self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
+        self.base_failures |= self.base_tier_failures()
         return self.base_failures
+
+    def base_tier_failures(self) -> set[str]:
+        """Outright reds of the base's newest completed base tier run (cmuxterm-hq#5424).
+
+        A feat-cmux-next push leaves daemon tests, generated files and the Debug scheme compile to
+        a `cmux-next base tier · <sha>` dispatch at most every 15 minutes, so the base's push run has
+        no verdict for them. The newest one stands in, named with its commit and age: it is from at
+        most one window before the base head, and a red the base head fixed shows here as inherited.
+        """
+        runs = self.gh.runs(HEAVY_WORKFLOW, f"branch={BASE}&event=workflow_dispatch&status=completed&per_page=50")
+        tier = next((run for run in runs if (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
+                     and run.get("conclusion") != "skipped"), None)
+        if tier is None:
+            log("no completed base tier run on the base; its jobs have no base verdict")
+            return set()
+        tested = tier["display_title"][len(BASE_TIER_TITLE):]
+        failed = {red for red in self.failed_jobs(tier["id"], OUTRIGHT_RED, detail=True)
+                  if red.split(":", 1)[0] in BASE_TIER_JOBS}
+        log(f"base tier verdict from {tier.get('html_url') or tier['id']} at {tested[:12]} "
+            f"(created {tier.get('created_at', '?')}; the newest, not necessarily the base head): "
+            f"{', '.join(sorted(failed)) or 'no red'}")
+        return failed
 
     def stop_base_probe(self) -> None:
         """A batch that ends before its probe does cancels the probe's run."""

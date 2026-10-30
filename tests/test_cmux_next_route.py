@@ -1000,6 +1000,28 @@ class PushAttribution(unittest.TestCase):
         self.assertEqual(sections["checks"], "Existing check evidence")
         self.assertIn("<!-- cmux-next-push-attribution:12 -->", sections["push-attribution"])
 
+    def test_a_base_tier_run_starts_the_range_at_the_commit_it_tested(self):
+        """cmuxterm-hq#5424: the base Mac tier runs in `cmux-next base tier · <sha>` dispatches. Its
+        same-tree run's head_sha is the branch tip when it started, not the commit it tested, so the
+        range since the last pass starts at the sha in the run's name."""
+        import cmux_next_push_attribution as attribution
+
+        tested, newer, red = "a" * 40, "b" * 40, "c" * 40
+        runs = [{"id": 30, "head_sha": newer, "status": "completed", "display_title": f"cmux-next base tier · {tested}"},
+                {"id": 20, "head_sha": "d" * 40, "status": "completed", "display_title": "cmux-next · " + "d" * 40}]
+        self.assertEqual(attribution.tested_sha(runs[0]), tested)
+        self.assertEqual(attribution.tested_sha({"head_sha": newer, "display_title": "cmux NEXT DEV daily"}), newer)
+        jobs = {40: {"cmux-next daemon tests": "failure"}, 30: {"cmux-next daemon tests": "success"},
+                20: {"cmux-next daemon tests": "skipped"}}
+        ranges = []
+        with mock.patch.object(attribution, "run_jobs", side_effect=lambda repo, run_id: jobs[run_id]), \
+             mock.patch.object(attribution, "gh_api", return_value={"workflow_runs": runs}), \
+             mock.patch.object(attribution, "pull_requests",
+                               side_effect=lambda repo, good, head, branch: ranges.append((good, head)) or []):
+            self.assertEqual(attribution.main(["--repo", "o/r", "--run-id", "40", "--sha", red,
+                                               "--events", "push,workflow_dispatch"]), 0)
+        self.assertEqual(ranges, [(tested, red)])
+
     def test_skipped_jobs_do_not_end_the_range(self):
         earlier = [
             ("c3", {"cmux-next swift test": "skipped"}),

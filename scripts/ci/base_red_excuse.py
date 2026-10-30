@@ -116,19 +116,46 @@ BASE_JOB_READS = 40
 # HTTP 502 at 100 and 50 per page, every time, and at 30 it answered (2026-10-30).
 JOBS_PAGE = 30
 # A job no feat-cmux-next push runs gets its base verdict from a dispatch: main's tip suite dispatcher
-# (cmux-next-tip-swift-suite-dispatch.yml, a run named `<title><tested sha>`) or a hand dispatch. Base
-# pushes land every minute or two, so the window above can miss them (2026-10-30: no daemon-test verdict
-# on the base for hours, #27692). When it does, the base's newest completed dispatches are read too,
-# newest first, and the first with a verdict for the job decides, a green one included: an older red never
-# stands over a newer green. DEV daily runs and the other job's tip suite never run the job, so they are
-# skipped unread. At most TIP_SUITE_JOB_READS job lists; none of them with a verdict refuses as before.
-TIP_SUITES = {
-    "cmux-next swift test": "cmux-next tip Swift suite · ",
-    "cmux-next daemon tests": "cmux-next tip daemon suite · ",
+# (cmux-next-tip-swift-suite-dispatch.yml), cmux-next-base-tier-kick.yml (the base Mac tier, at most
+# once every 15 minutes on the tip, cmuxterm-hq#5424), each a run named `<title><tested sha>`, or a hand
+# dispatch. Base pushes land every minute or two, so the window above can miss them (2026-10-30: no
+# daemon-test verdict on the base for hours, #27692). When it does, the base's newest completed dispatches
+# are read too, newest first, and the first with a verdict for the job decides, a green one included: an
+# older red never stands over a newer green. A suite that never runs the job (DEV daily runs, the other
+# suites) is skipped unread, here and in the window above. At most TIP_SUITE_JOB_READS job lists; none of
+# them with a verdict refuses as before.
+SUITES = {
+    "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test"}),
+    "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests"}),
+    # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else.
+    "cmux-next base tier · ": frozenset({
+        "cmux-next daemon tests", "cmux-next generated files", "cmux-next generated files (shared build)",
+        "cmux app scheme compile (Debug)", "cmux-next crash ends the app",
+    }),
+    # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
+    "cmux NEXT DEV daily": frozenset(),
 }
 TIP_SUITE_JOB_READS = 6
-# cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
-DISPATCHES_WITHOUT_TESTS = ("cmux NEXT DEV daily",)
+
+
+def suite_jobs(run: dict) -> frozenset[str] | None:
+    """The jobs a base run's suite can carry, or None for a run of no known suite (a push, a hand dispatch)."""
+    title = run.get("display_title") or ""
+    return next((jobs for prefix, jobs in SUITES.items() if title.startswith(prefix)), None)
+
+
+def never_carries(run: dict, name: str) -> bool:
+    jobs = suite_jobs(run)
+    return jobs is not None and name not in jobs
+
+
+def tested_sha(run: dict) -> str:
+    """The commit a cmux-next.yml run tested: the sha its name ends in (a same-tree run tests it after the
+    branch moved on), else its head_sha."""
+    match = re.search(r" · ([0-9a-f]{40})$", run.get("display_title") or "")
+    return match.group(1) if match else str(run.get("head_sha") or "")
+
+
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -516,13 +543,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
 
 def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
                       base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
-    """The newest completed tip suite run of BASE with a verdict for job NAME, and that job."""
-    others = tuple(title for job, title in TIP_SUITES.items() if job != name) + DISPATCHES_WITHOUT_TESTS
+    """The newest completed suite run of BASE with a verdict for job NAME, and that job."""
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
                          f"&status=completed&per_page={BASE_RUNS_PAGE}")
     candidates = [run for run in listed.get("workflow_runs") or []
-                  if run.get("conclusion") != "skipped"
-                  and not (run.get("display_title") or "").startswith(others)]
+                  if run.get("conclusion") != "skipped" and not never_carries(run, name)]
     for run in candidates[:TIP_SUITE_JOB_READS]:
         if run["id"] not in base_jobs:
             base_jobs[run["id"]] = [found for page in github.json(
@@ -574,6 +599,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # run's Mac job is often cancelled by the next push, or refused by a mini.
         base_run = base_job = None
         for candidate_run in base_runs[workflow]:
+            if never_carries(candidate_run, name):
+                continue
             if candidate_run["id"] not in base_jobs:
                 if job_reads.get(workflow, 0) >= BASE_JOB_READS:
                     break
@@ -585,7 +612,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
                 base_run, base_job = candidate_run, found
                 break
-        if base_run is None and name in TIP_SUITES:
+        if base_run is None and any(name in jobs for jobs in SUITES.values()):
             base_run, base_job = tip_suite_verdict(repo, base, workflow, name, github, base_jobs)
         if base_run is None:
             raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
@@ -615,7 +642,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
         what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
-        audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
+        # The base verdict is the newest one, not necessarily the base tip's: the base tier runs at most
+        # once every 15 minutes, so name the commit and time it is from.
+        at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
+        when = f", {base_run['created_at']}" if base_run.get("created_at") else ""
+        audit.append(f"excused '{name}': {base} run {base_run['id']}{at} (the newest {base} verdict for it{when}) "
+                     f"fails the same way ({url}): {what[:400]}")
     return audit
 
 
