@@ -51,7 +51,8 @@ struct AgentPaneStateFileTests {
         file.write {
             started.signal()
             // concurrency-allow: test only; holds the file queue so later saves overlap
-            _ = release.wait(timeout: .now() + 10)
+            // A safety net only: twice the longest wait a test makes while it holds the queue.
+            _ = release.wait(timeout: .now() + 60)
             return Data("held".utf8)
         }
         // concurrency-allow: test only; the first save is running
@@ -119,7 +120,7 @@ struct AgentPaneStateFileTests {
             return Data("a".utf8)
         }
         // concurrency-allow: test only; A's save has reached its read of B
-        _ = reading.wait(timeout: .now() + 10)
+        #expect(reading.wait(timeout: .now() + 30) == .success, "A's save never reached its read of B")
         // concurrency-allow: test only; while B is held the read must not finish (it did, at once, with one key on every queue)
         #expect(read.wait(timeout: .now() + 0.3) == .timedOut, "read B while its queue was still busy")
         release.signal()
