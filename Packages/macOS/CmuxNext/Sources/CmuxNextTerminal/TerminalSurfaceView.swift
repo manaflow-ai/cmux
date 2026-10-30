@@ -228,6 +228,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         #endif
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
+        teardownDelivery = MainDelivery(class: .visible, owner: "terminal.surface-teardown", on: mainWork)
         let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
         self.visibilityNode = visibilityNode
         windowNode = VisibilityNode("terminal.surface.window", own: .hidden, parent: visibilityNode)
@@ -242,7 +243,6 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         shownWatch = windowNode.subscribe(owner: "TerminalSurfaceView.shown") { [weak self] _ in self?.syncWindowState() }
         windowWatch.onChange = { [weak self] change in self?.windowStateChanged(change) }
         bridge.followLinkAnswers(on: mainWork)
-        teardownDelivery = MainDelivery(class: .visible, owner: "terminal.surface-teardown", on: mainWork)
         // Enter, exit and moves in any window state, one area for the surface's life (`.inVisibleRect`). The I-beam
         // has its own area (addCursorUpdateArea above): NSTrackingArea.h does not support `.activeAlways` with `.cursorUpdate`.
         // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
