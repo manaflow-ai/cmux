@@ -140,7 +140,7 @@ import Testing
                     defer { h.window.close() }
                     let column = try T.columnX(h)
                     let tolerance = Self.tolerance(h)
-                    var accessories: [(String, CGRect)] = []
+                    var accessories: [(String, CGRect, Bool)] = []
                     let rows: [(String, NSView)] = [
                         ("status", try h.row(.workspace(T.unread))),
                         ("selected", try h.row(.workspace(T.selected))),
@@ -149,7 +149,7 @@ import Testing
                     for (name, row) in rows {
                         for mark in T.marks(in: row, named: name, list: h.list) {
                             let side = SidebarStyle.trailingSlotSide
-                            accessories.append((mark.what, CGRect(x: mark.midX - side / 2, y: 0, width: side, height: side)))
+                            accessories.append((mark.what, CGRect(x: mark.midX - side / 2, y: 0, width: side, height: side), true))
                         }
                     }
 
@@ -160,20 +160,24 @@ import Testing
                     defer { selected.isHovered = false; selected.layoutSubtreeIfNeeded() }
                     for (name, view) in [("close", selected.closeButton), ("disclosure", selected.disclosureButton), ("more", selected.moreButton)]
                         where !view.isHidden && T.drawnAlpha(view, below: h.list) > 0.01 {
-                        accessories.append((name, h.list.convert(view.frame, from: selected)))
+                        // Hover controls occupy the shared slot grid: close is slot 0, while
+                        // disclosure and menu intentionally step left by one pitch each.
+                        accessories.append((name, h.list.convert(view.frame, from: selected), name == "close"))
                     }
 
                     #expect(!h.sidebar.searchButton.isHidden, "\(density)/\(width)pt: Search is hidden")
-                    accessories.append(("search", h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar)))
+                    accessories.append(("search", h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar), true))
 
                     let band = SidebarResizeBand(width: max(Metrics.dividerHitWidth, SidebarResizeBand.minimumWidth),
                                                  gutter: Metrics.mainPaneGutter)
                     #expect(band.inside <= SidebarResizeBand.contentInset + tolerance,
                             "\(density)/\(width)pt resize band takes \(band.inside) pt of the content")
                     let contentEdge = width - band.inside
-                    for (name, frame) in accessories {
-                        #expect(abs(frame.midX - column) <= tolerance,
-                                "\(density)/\(width)pt \(name) centers at \(frame.midX), column \(column)")
+                    for (name, frame, sharesColumn) in accessories {
+                        if sharesColumn {
+                            #expect(abs(frame.midX - column) <= tolerance,
+                                    "\(density)/\(width)pt \(name) centers at \(frame.midX), column \(column)")
+                        }
                         #expect(frame.maxX <= contentEdge + tolerance,
                                 "\(density)/\(width)pt \(name) reaches \(frame.maxX), inside content edge \(contentEdge), band \(band)")
                     }

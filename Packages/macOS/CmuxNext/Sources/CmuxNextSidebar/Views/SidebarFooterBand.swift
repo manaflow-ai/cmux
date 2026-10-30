@@ -151,7 +151,15 @@ final class SidebarFooterBand {
             // normal avatar slot; ordinary rows keep the shared column exactly.
             let columnMinX = columnX - side / 2
             let rightEdge = host.bounds.maxX - side
-            (x, midY) = (min(max(columnMinX, row.itemsMaxX + Metrics.space2), rightEdge), row.frame.midY + searchLensDrop)
+            let requestedX = max(columnMinX, row.itemsMaxX + Metrics.space2)
+            guard requestedX <= rightEdge else {
+                // There is no non-overlapping slot in an overfull customized row. Keep the
+                // accessory alive but give it no hit frame, matching update-button no-room
+                // behavior instead of putting Search under another control or outside the pane.
+                button.frame = .zero
+                return nil
+            }
+            (x, midY) = (requestedX, row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
