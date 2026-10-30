@@ -101,9 +101,9 @@ export function ImageViewer({
   }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
-  // Whether the stage saw the first press of the current click run. A double click on a chat
-  // thumbnail opens the viewer on its first click; its second lands here as a double click and
-  // must not zoom the image that just opened (#27955).
+  // Whether the stage has seen a fresh press (a click run's first, `detail` 1) since the viewer
+  // opened. A double click on a chat thumbnail opens the viewer on its first click; its second
+  // lands here as a double click and must not zoom (or close) the image that just opened (#27955).
   const pressedHere = useRef(false);
   const count = images.length;
   const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
