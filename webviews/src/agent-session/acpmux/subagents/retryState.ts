@@ -177,9 +177,10 @@ export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | 
 export type SubagentRetryNotice = { name?: string; agentId?: string; error?: string };
 
 /// `retry_text`'s words: `Your subagent "<name>" (agent id <id>) failed on a transient upstream
-/// error (<error>). Resume it …`, the name left out when acpmux has none.
+/// error (<error>). Resume it …`, the name left out when acpmux has none. acpmux writes the name as
+/// it is, so a name may hold quotes: it ends at the `" (agent id ` that follows it.
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const RETRY_HEAD = /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]+)\)/;
+const RETRY_HEAD = /^Your subagent (?:"([^\n]*?)" )?\(agent id ([^)\s]+)\)/;
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
 const RETRY_TAIL = " failed on a transient upstream error";
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
@@ -187,11 +188,11 @@ const RETRY_ERROR = /^ failed on a transient upstream error \(([^\n]*?)\)\. Resu
 /// A queue listing's preview is the prompt's first 200 characters and "…": cut in the agent id, or in
 /// a long name.
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const CUT_IN_ID = /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]*)…$/;
+const CUT_IN_ID = /^Your subagent (?:"([^\n]*?)" )?\(agent id ([^)\s]*)…$/;
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const CUT_IN_NAME = /^Your subagent "([^"\n]*)…$/;
+const CUT_IN_NAME = /^Your subagent "([^\n]*)…$/;
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
-const CUT_AFTER_NAME = /^Your subagent "([^"\n]*)"(.*)…$/;
+const CUT_AFTER_NAME = /^Your subagent "([^\n]*)"(.*)…$/;
 const AGENT_ID_LEAD = " (agent id ";
 
 /// The subagent, agent id and error `retry_text` wrote in `text`, a preview of it included.

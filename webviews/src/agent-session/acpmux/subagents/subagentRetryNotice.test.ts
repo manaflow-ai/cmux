@@ -104,3 +104,25 @@ test("a teammate's prompt in acpmux's words, or an edit the pane missed, is no r
   const [again] = mergeQueue([whole!], [{ promptId: "p-6", client: "acpmux", prompt: `${named.slice(0, 199)}…` }]);
   expect(again?.retry?.agentId).toBe("af0cbece62b15d0e1");
 });
+
+test("a name with quotes in it, whole or cut, is the whole name", () => {
+  const name = 'Fix "Resume" button';
+  const full = `Your subagent "${name}" (agent id abc123) failed on a transient upstream error (529). Resume it`;
+  expect(subagentRetryNotice(full)).toEqual({ name, agentId: "abc123", error: "529" });
+  expect(subagentRetryNotice(`${full.slice(0, full.indexOf("abc123") + 3)}…`)).toEqual({ name });
+  expect(subagentRetryNotice(`${full.slice(0, full.indexOf(" (agent id") + 4)}…`)).toEqual({ name });
+});
+
+test("an edited prompt is never a resume again, whatever its listing says", () => {
+  const [entry] = mergeQueue([], [{ promptId: "p-7", client: "acpmux", prompt: named }]);
+  expect(entry?.retry).toBeDefined();
+  // The person appended a line: acpmux keeps client "acpmux", and the text still starts the same.
+  const appended = `${named} Do not resume it; just explain the error.`;
+  const [edited] = mergeQueue(
+    [{ ...entry!, retry: undefined, prompt: appended }],
+    [{ promptId: "p-7", client: "acpmux", prompt: `${appended.slice(0, 199)}…` }],
+    undefined,
+    new Set(["p-7"]),
+  );
+  expect(edited?.retry).toBeUndefined();
+});

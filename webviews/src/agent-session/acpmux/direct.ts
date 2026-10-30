@@ -618,6 +618,7 @@ export function mergeQueue(
   current: readonly QueuedPrompt[],
   listed: readonly any[],
   authors?: ReadonlyMap<string, Participant | null>,
+  edited?: ReadonlySet<string>,
 ): QueuedPrompt[] {
   const known = new Map(current.map((entry) => [entry.id, entry]));
   return listed.map((entry) => {
@@ -656,7 +657,7 @@ export function mergeQueue(
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
       // The resume read before holds while its text does: the listing's preview is that text, or cut
       // from it ("…"). An edit the pane missed, a shorter prompt included, reads the listing.
-      message || author
+      message || author || edited?.has(id)
         ? undefined
         : ((whole && (preview.endsWith("…") || oneLine(had.prompt) === preview) ? had.retry : undefined) ??
           subagentRetryNotice(preview, entry)),
@@ -1200,6 +1201,9 @@ export class AcpmuxDirectClient {
   /// Each waiting prompt's author as its newest `queued` or `queue_updated` record named it (null:
   /// none), kept while it waits, so acpmux's list (which names none) keeps it (mergeQueue).
   private queueAuthors = new Map<string, Participant | null>();
+  /// The waiting prompts edited since they were queued (`queue_updated`): the person's words now,
+  /// never acpmux's resume, whatever their text or client says (mergeQueue).
+  private queueEdited = new Set<string>();
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   private sessionReread: ReturnType<typeof setTimeout> | undefined;
@@ -1951,6 +1955,7 @@ export class AcpmuxDirectClient {
     this.loadingOlder = undefined;
     this.rows.clear();
     this.queueAuthors.clear();
+    this.queueEdited.clear();
     this.forkedAtSeq = undefined;
     for (const id of this.failedPrompts.keys()) this.clearedBySwitch.add(id);
     for (const id of this.clearedBySwitch) {
@@ -2347,7 +2352,7 @@ export class AcpmuxDirectClient {
       if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
     }
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
-    this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors);
+    this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue, this.queueAuthors, this.queueEdited);
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
     // before it is asked (while the chat left detaches) is held too (`copyLive`).
     if (this.lastSeq > 0) this.copyLive = new Map();
@@ -3333,7 +3338,7 @@ export class AcpmuxDirectClient {
     this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
-    this.queue = mergeQueue(this.queue, detail.queue ?? [], this.queueAuthors);
+    this.queue = mergeQueue(this.queue, detail.queue ?? [], this.queueAuthors, this.queueEdited);
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
@@ -3437,7 +3442,7 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, ...session };
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
+      if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors, this.queueEdited);
       // The machine of a chat shown from the Mac's copy is back: read the chat from it now (an
       // attach of a recreated session replaces the copy). A row naming another session while the
       // machine is still down leaves no copy of the old one on screen as if it were this chat. An
@@ -3718,6 +3723,7 @@ export class AcpmuxDirectClient {
       const id = String(msg.promptId ?? "");
       // Kept also when the row is not in yet: an attach's page may begin after its `queued` record.
       if (id) this.queueAuthors.set(id, promptAuthor(msg) ?? null);
+      if (id) this.queueEdited.add(id);
       const parts = recordedPromptParts(
         msg,
         this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
@@ -3805,6 +3811,7 @@ export class AcpmuxDirectClient {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
       this.queueAuthors.delete(id);
+      this.queueEdited.delete(id);
       if (event.kind === "queue_removed" && id)
         this.queueWithdrawn = [...this.queueWithdrawn.filter((each) => each !== id), id].slice(-QUEUE_WITHDRAWN_KEPT);
       // A prompt sent now that will never run: the turn it stopped ends as it did.
