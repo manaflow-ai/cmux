@@ -561,13 +561,14 @@ final class CloudService {
         // The classic `/api/vm` create names it itself (its slug).
         var reserved: String?
         if configuration.linkSource == .appServer {
-            if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
-                let picked = creation?.defaultMachineName ?? CloudMachine.defaultName(
-                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.defaultMachineName) + machineNamesInFlight,
+            if let pinned = creation?.pinnedMachineName {
+                name = pinned
+            } else if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                name = CloudMachine.defaultName(
+                    taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight,
                     base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
-                creation?.defaultMachineName = picked
-                name = picked
             }
+            creation?.pinnedMachineName = name
             // Held until this create ends, typed names included, so a default picked meanwhile is another one.
             reserved = name
             if let name { machineNamesInFlight.append(name) }
