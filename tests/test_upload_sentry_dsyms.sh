@@ -50,4 +50,79 @@ if ! awk '
   exit 1
 fi
 
+# nightly.yml's build-nightly-app holds no Sentry token: scripts/ci/collect-sentry-difs.py gathers
+# what `sentry-cli debug-files upload --include-sources` reads there (Mach-O files with a debug id,
+# whole dSYM bundles) and bundles their sources, which exist only on the build machine; the
+# upload-nightly-dsyms job uploads both from Linux.
+COLLECT="$ROOT_DIR/scripts/ci/collect-sentry-difs.py"
+P="$WORK/products"
+mkdir -p "$P/bin" "$P/Frameworks/F.framework/Versions/A" "$P/x.app.dSYM/Contents/Resources/DWARF" "$P/obj"
+python3 - "$P" <<'PY'
+import struct, sys
+root = sys.argv[1]
+def thin(filetype, uuid=True, big=False):
+    order = ">" if big else "<"
+    cmds = struct.pack(order + "II", 0x1b, 24) + bytes(range(16)) if uuid else struct.pack(order + "II", 0x19, 72) + bytes(64)
+    return struct.pack(order + "IiiIIIII", 0xfeedfacf, 0x0100000c, 0, filetype, 1, len(cmds), 0, 0) + cmds
+def write(path, data):
+    with open(f"{root}/{path}", "wb") as out:
+        out.write(data)
+write("bin/tool", thin(2))
+write("bin/big-endian", thin(6, big=True))
+write("obj/Thing.o", thin(1, uuid=False))
+first, second = thin(1, uuid=False), thin(6)
+header = struct.pack(">II", 0xcafebabe, 2) + struct.pack(">iiIII", 0x01000007, 3, 4096, len(first), 12) \
+    + struct.pack(">iiIII", 0x0100000c, 0, 8192, len(second), 14)
+fat = bytearray(8192 + len(second))
+fat[:len(header)] = header
+fat[4096:4096 + len(first)] = first
+fat[8192:] = second
+write("Frameworks/F.framework/Versions/A/F", bytes(fat))
+write("x.app.dSYM/Contents/Resources/DWARF/x", thin(10))
+write("x.app.dSYM/Contents/Info.plist", b"<?xml version='1.0'?><plist/>")
+write("README", b"not a binary")
+write("Java.class", struct.pack(">II", 0xcafebabe, 52) + bytes(64))
+write("truncated", struct.pack("<I", 0xfeedfacf))
+PY
+ln -s Versions/A/F "$P/Frameworks/F.framework/F"
+cat > "$WORK/bundle-cli" <<'FAKE'
+#!/usr/bin/env bash
+# debug-files bundle-sources -o OUT PATH: a bundle for the dSYM only, a failure for "big-endian".
+echo "$*" >> "$BUNDLE_LOG"
+out="$4"; path="$5"
+[[ "$(basename "$path")" == big-endian ]] && exit 1
+[[ "$(basename "$path")" == x ]] || { echo "skipped $path (no files found)" >&2; exit 0; }
+mkdir -p "$out" && echo sources > "$out/x.src.zip"
+FAKE
+chmod +x "$WORK/bundle-cli"
+mkdir -p "$WORK/collected/stale"
+BUNDLE_LOG="$WORK/bundle.log" python3 "$COLLECT" "$P" "$WORK/collected" --sentry-cli "$WORK/bundle-cli" > "$WORK/out" 2>&1 \
+  || { echo "FAIL: collecting dSYMs must succeed"; cat "$WORK/out"; exit 1; }
+got="$(cd "$WORK/collected/products" && find . \( -type f -o -type l \) | sort | tr '\n' ' ')"
+want="./Frameworks/F.framework/Versions/A/F ./bin/big-endian ./bin/tool ./x.app.dSYM/Contents/Info.plist ./x.app.dSYM/Contents/Resources/DWARF/x "
+[ "$got" = "$want" ] || { echo "FAIL: collected $got, expected $want"; exit 1; }
+cmp -s "$P/bin/tool" "$WORK/collected/products/bin/tool" || { echo "FAIL: a collected file must be the same bytes"; exit 1; }
+[ -s "$WORK/collected/sources/x.app.dSYM/Contents/Resources/DWARF/x/x.src.zip" ] \
+  || { echo "FAIL: the dSYM's source bundle must be under sources/<its path>"; find "$WORK/collected"; exit 1; }
+[ "$(find "$WORK/collected/sources" -type f | wc -l)" -eq 1 ] || { echo "FAIL: only files with sources leave a bundle"; exit 1; }
+[ ! -e "$WORK/collected/stale" ] || { echo "FAIL: collecting must start from an empty folder"; exit 1; }
+[ "$(wc -l < "$WORK/bundle.log")" -eq 4 ] || { echo "FAIL: bundle-sources must run once per collected Mach-O file"; cat "$WORK/bundle.log"; exit 1; }
+grep -q -- "^debug-files bundle-sources -o $WORK/collected/sources/bin/tool $P/bin/tool$" "$WORK/bundle.log" \
+  || { echo "FAIL: bundle-sources must read the original path (its sources resolve there)"; cat "$WORK/bundle.log"; exit 1; }
+grep -q '^::warning' "$WORK/out" || { echo "FAIL: a failed source bundle must leave a warning"; cat "$WORK/out"; exit 1; }
+python3 "$COLLECT" "$P" "$WORK/plain" > "$WORK/out" 2>&1 || { echo "FAIL: collecting without sentry-cli must succeed"; exit 1; }
+[ -d "$WORK/plain/sources" ] && [ -z "$(ls -A "$WORK/plain/sources")" ] || { echo "FAIL: without sentry-cli, sources/ is empty"; exit 1; }
+echo "PASS: the dSYM collector keeps what sentry-cli uploads and bundles sources where they exist"
+
+if ! awk '
+  /^      - name: Upload dSYMs to Sentry/ { in_step=1; next }
+  in_step && /^      - name:/ { in_step=0 }
+  in_step && /SENTRY_AUTH_TOKEN/ { token=1 }
+  in_step && /upload-sentry-dsyms\.sh "\$RUNNER_TEMP\/sentry-difs\/products" "\$RUNNER_TEMP\/sentry-difs\/sources"/ { both=1 }
+  END { exit !(token && both) }
+' "$ROOT_DIR/.github/workflows/nightly.yml"; then
+  echo "FAIL: the nightly Sentry upload must send the collected files and their source bundles"
+  exit 1
+fi
+
 echo "PASS: dSYM upload retries with backoff and never fails the nightly"

@@ -313,9 +313,6 @@ SECRET_RUNNER_EXCEPTIONS = {
     ("cmux-next-dev-daily.yml", "tip-deltas"):
         "the runner job's `cloud`/`alternate` outputs, from classic_nightly_build_runner.py: "
         "only Blacksmith macOS labels",
-    ("nightly.yml", "build-nightly-app"):
-        "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER) "
-        "by design; nightlies never use Blacksmith",
     ("seed-derived-data.yml", "seed"):
         "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
         "(it seeds their DerivedData)",
@@ -1355,6 +1352,87 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 continue
             with self.subTest(workflow=workflow, job=job):
                 self.assertEqual(job_runner_errors(workflow, body), [], f"{workflow}:{job} holds a secret")
+
+    def test_the_nightly_app_build_hands_its_secrets_to_short_jobs(self) -> None:
+        # build-nightly-app runs on the pinned trusted mini (a reused machine a variable picks). It held
+        # the ci-cache-writer R2 keys (two cache saves) and SENTRY_AUTH_TOKEN (the dSYM upload). It now
+        # packs what those steps read, in the same place and under the same `if:`, and hands it through
+        # this run's artifacts to save-nightly-app-caches and upload-nightly-dsyms on a literal label.
+        document = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
+        jobs = document["jobs"]
+        build = jobs["build-nightly-app"]
+        self.assertIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", build["runs-on"])
+        text = json.dumps(build)
+        for held in ("secrets", "SENTRY_AUTH_TOKEN", "AWS_SECRET_ACCESS_KEY", "./.github/actions/cache-save"):
+            self.assertNotIn(held, text)
+        self.assertNotIn("environment", build)
+        steps = build["steps"]
+        ids = [step.get("id") for step in steps]
+        restore = steps[ids.index("compilation-cache-restore")]["with"]
+        self.assertEqual(build["outputs"]["compilation_cache_key"], restore["key"])
+        self.assertEqual(build["outputs"]["cache_platform"], "${{ runner.os }}-${{ runner.arch }}")
+        self.assertEqual(build["outputs"]["daemon_build"], "${{ steps.remote_daemon.outputs.build }}")
+        self.assertEqual(build["outputs"]["daemon_version"], "${{ steps.remote_daemon.outputs.version }}")
+        # The `if:` each removed step had, and the step the pack now follows (the old step's place).
+        handoffs = {
+            "compilation-cache": ("steps.compilation-cache-restore.outputs.cache-hit != 'true' && "
+                                  "steps.compilation-cache-bound.outputs.save == 'true'", "compilation-cache-bound"),
+            "swift-packages": ("steps.swift-packages-restore.outputs.cache-hit != 'true'", "compilation-cache-handoff"),
+            "sentry-difs": ("needs.decide.outputs.build_only != 'true'", None),
+        }
+        for name, (condition, after) in handoffs.items():
+            with self.subTest(handoff=name):
+                pack = ids.index(f"{name}-pack")
+                if after is None:
+                    self.assertEqual(steps[pack - 1]["name"], "Upload unsigned nightly app")
+                else:
+                    self.assertEqual(ids[pack - 1], after)
+                self.assertEqual(steps[pack]["if"], condition)
+                self.assertIs(steps[pack]["continue-on-error"], True)
+                self.assertIn("scripts/ci/handoff-archive.sh pack", steps[pack]["run"])
+                upload = steps[pack + 1]
+                self.assertEqual(upload["id"], f"{name}-handoff")
+                self.assertEqual(upload["uses"].split("@")[0], "actions/upload-artifact")
+                self.assertEqual(upload["if"], f"steps.{name}-pack.outcome == 'success'")
+                self.assertIs(upload["continue-on-error"], True)
+                self.assertIs(upload["with"]["overwrite"], True)
+                self.assertEqual(upload["with"]["compression-level"], 0)
+                self.assertEqual(build["outputs"][name.replace("-", "_")], f"${{{{ steps.{name}-handoff.outcome }}}}")
+        self.assertEqual(ids[-2:], ["sentry-difs-pack", "sentry-difs-handoff"])
+
+        save, sentry = jobs["save-nightly-app-caches"], jobs["upload-nightly-dsyms"]
+        for job in (save, sentry):
+            self.assertEqual(job["needs"], ["decide", "build-nightly-app"])
+            self.assertEqual(job_runner_errors("nightly.yml", job), [])
+            self.assertNotIn("vars.", job["runs-on"])
+            self.assertEqual(job["permissions"], {"contents": "read"})
+        self.assertEqual(save["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
+        self.assertIn("!cancelled()", save["if"])
+        saves = [step for step in save["steps"] if step.get("uses") == "./.github/actions/cache-save"]
+        self.assertEqual([step["name"] for step in saves], ["Save Xcode compilation cache", "Save Swift packages"])
+        self.assertEqual(saves[0]["with"]["key"], "${{ needs.build-nightly-app.outputs.compilation_cache_key }}")
+        self.assertEqual(saves[0]["with"]["path"], restore["path"])
+        swift = steps[ids.index("swift-packages-restore")]["with"]
+        self.assertEqual((saves[1]["with"]["key"], saves[1]["with"]["path"]), (swift["key"], swift["path"]))
+        for step in saves:
+            self.assertEqual(step["env"]["CI_CACHE_R2_PLATFORM"], "${{ needs.build-nightly-app.outputs.cache_platform }}")
+            self.assertEqual(step["with"]["backend"], restore["backend"])
+        self.assertIn("needs.build-nightly-app.outputs.compilation_cache == 'success'", saves[0]["if"])
+        self.assertIn("needs.build-nightly-app.outputs.swift_packages == 'success'", saves[1]["if"])
+        upload = [step for step in sentry["steps"] if step["name"] == "Upload dSYMs to Sentry"]
+        self.assertEqual(len(upload), 1)
+        self.assertEqual(upload[0]["env"]["SENTRY_AUTH_TOKEN"], "${{ secrets.SENTRY_AUTH_TOKEN }}")
+        self.assertIn("./scripts/upload-sentry-dsyms.sh", upload[0]["run"])
+        self.assertIn("needs.build-nightly-app.outputs.sentry_difs == 'success'", sentry["if"])
+        self.assertIn("needs.decide.outputs.build_only != 'true'", sentry["if"])
+        # Nothing downstream waits on either job: signing and publishing read only what they read before.
+        for name, job in jobs.items():
+            wanted = job.get("needs") or []
+            wanted = [wanted] if isinstance(wanted, str) else wanted
+            self.assertFalse({"save-nightly-app-caches", "upload-nightly-dsyms"} & set(wanted), name)
+            if name not in ("save-nightly-app-caches", "upload-nightly-dsyms"):
+                self.assertNotIn("SENTRY_AUTH_TOKEN", json.dumps(job), name)
+                self.assertNotIn("CI_CACHE_R2_PLATFORM", json.dumps(job), name)
 
     def test_the_secret_detector_and_matrix_check(self) -> None:
         for held in ("${{ secrets.R2_KEY }}", "${{ SECRETS.Vercel_Token }}", "${{ secrets['X'] }}",
