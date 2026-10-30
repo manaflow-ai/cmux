@@ -200,8 +200,9 @@ impl Supervisor {
         let old = spare.join(format!("old-{namespace}-{}", super::calls::mint_key()));
         let had_old = target.exists();
         std::fs::create_dir_all(&root).map_err(io)?;
-        if had_old {
-            std::fs::rename(&target, &old).map_err(io)?;
+        if had_old && let Err(e) = std::fs::rename(&target, &old) {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(io(e));
         }
         if let Err(e) = std::fs::rename(&staging, &target) {
             if had_old {
@@ -209,9 +210,6 @@ impl Supervisor {
             }
             let _ = std::fs::remove_dir_all(&staging);
             return Err(io(e));
-        }
-        if had_old {
-            let _ = std::fs::remove_dir_all(&old);
         }
         self.reload_catalog_for(&p.app, "registry-put");
         // First source wins in the catalog: a bundled or extra folder with the
@@ -224,12 +222,23 @@ impl Supervisor {
             .packages
             .get(&p.app)
             .map(|p| p.source);
-        match source {
-            Some(Source::Registry) => {}
-            Some(_) => {
-                return Err(bad("apps.registry.shadowed", "another copy of this app is installed"));
+        let refused = match source {
+            Some(Source::Registry) => None,
+            Some(_) => Some(bad("apps.registry.shadowed", "another copy of this app is installed")),
+            None => Some(bad("apps.registry.invalid", "the app did not load")),
+        };
+        if let Some(error) = refused {
+            // Put the previous copy back (or nothing), so a refused put leaves
+            // the registry folder as it found it.
+            let _ = std::fs::remove_dir_all(&target);
+            if had_old {
+                let _ = std::fs::rename(&old, &target);
             }
-            None => return Err(bad("apps.registry.invalid", "the app did not load")),
+            self.reload_catalog_for(&p.app, "registry-put");
+            return Err(error);
+        }
+        if had_old {
+            let _ = std::fs::remove_dir_all(&old);
         }
         Ok(json!({ "app": p.app, "version": p.version, "sha256": p.sha256.to_ascii_lowercase() }))
     }

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use super::actions::{self, ActionDecision};
 use super::calls::mint_key;
 use super::egress;
-use super::grants::{Decision, Grant, OpClass, ScopeTable, needs_gesture};
+use super::grants::{Decision, OpClass, ScopeTable, needs_gesture};
 use super::mirror::Origin;
 use super::supervisor::{ApiError, HostKey, Inner, Responder, Supervisor};
 
@@ -51,7 +51,6 @@ pub(super) struct Admitted {
     op: String,
     params: Value,
     idempotency_key: Option<String>,
-    grant: Grant,
 }
 
 /// One in-flight web call of `app` (`Supervisor::web_slot`).
@@ -209,19 +208,26 @@ impl Supervisor {
             let own = idempotency_key.filter(|k| !k.is_empty()).unwrap_or_else(mint_key);
             format!("app:{app}:web:{own}")
         });
-        Ok(Admitted { app: app.to_string(), op, params, idempotency_key, grant })
+        Ok(Admitted { app: app.to_string(), op, params, idempotency_key })
     }
 
     pub(super) fn execute_web(&self, call: Admitted) -> Result<Value, Value> {
-        let Admitted { app, op, params, idempotency_key, grant } = call;
+        let Admitted { app, op, params, idempotency_key } = call;
         let error = |code: &str, message: &str| json!({ "code": code, "message": message, "retryable": false });
+        // The grant is read again under the supervisor lock: a revoke, an
+        // uninstall or a switch to sandboxed between admission and now
+        // refuses the call (the app host's calls check the same in calls.rs).
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed && r.enabled) {
+            return Err(error("scope.missing", "the app is not installed"));
+        }
+        let grant = Self::grant_for(&inner, &HostKey { app: app.clone(), preview: false });
+        if !matches!(ScopeTable::get().check(&op, &params, &grant), Decision::Allow(_)) {
+            return Err(error("scope.missing", "the app's grant no longer covers this call"));
+        }
         if op.starts_with("app.storage.") {
-            // Under the supervisor lock: an uninstall (which drops the table
-            // under the same lock) cannot interleave with this write.
-            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed && r.enabled) {
-                return Err(error("scope.missing", "the app is not installed"));
-            }
+            // Still under the lock: an uninstall (which drops the table under
+            // the same lock) cannot interleave with this write.
             let storage = self.storage();
             let storage = storage
                 .as_ref()
@@ -231,6 +237,7 @@ impl Supervisor {
                 .map(|value| json!({ "value": value }))
                 .map_err(|e| error(e.code, &e.message));
         }
+        drop(inner);
         if op == "net.fetch" {
             let request = egress::admit(&params, &grant.scopes, grant.sandboxed)
                 .map_err(|e| error(e.code, &e.message))?;
