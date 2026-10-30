@@ -4741,15 +4741,21 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
              LEFT JOIN resource_workspaces rw
                ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
              WHERE w.tombstoned = 0 AND rw.public_id IS NULL
-               AND NOT EXISTS (
-                 SELECT 1
+               AND w.workspace_key NOT IN (
+                 -- One list, read once: a correlated NOT EXISTS reread every
+                 -- receipt per live workspace (876 x 3,723: 2 s at each open
+                 -- of a nightly registry, Lawrence 2026-10-29).
+                 SELECT json_extract(
+                          creation.intent_json,
+                          '$.workspace_reservation.workspace_key'
+                        )
                  FROM resource_creation_receipts creation
                  WHERE creation.execution_kind = 'effect'
                    AND creation.state = 'executing'
                    AND json_extract(
                          creation.intent_json,
                          '$.workspace_reservation.workspace_key'
-                       ) = w.workspace_key
+                       ) IS NOT NULL
                )
              LIMIT 1",
             [],

@@ -211,6 +211,14 @@ export const Speaker = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A rounded square in a ring: Stop reading, on the Read aloud button while it reads. */
+export const StopReading = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <rect x="5.9" y="5.9" width="4.2" height="4.2" rx="0.8" fill="currentColor" stroke="none" data-glyph="stop" />
+  </Svg>
+);
+
 /** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
  * agent's current step to end (PendingSteer.tsx). */
 export const Clock = (p: CvIconProps) => (

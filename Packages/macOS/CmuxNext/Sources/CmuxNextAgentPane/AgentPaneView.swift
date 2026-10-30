@@ -405,6 +405,7 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
+        model.readAloud?.stop(owner: model)
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil
