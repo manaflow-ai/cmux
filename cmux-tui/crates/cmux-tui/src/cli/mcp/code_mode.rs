@@ -156,7 +156,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              two terminals \"side by side\" (split the workspace's pane, then use the new \
              value.pane_id). \"Next to my logs\", \"beside X\" or \"on the right\" means a \
              new tab in that pane: tab_create_terminal {{pane}}, or no pane for the column \
-             right of this chat.\n\
+             right of this chat (pane: \"current\" is this chat's own pane, not the right).\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
              pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
              typed command is on the screen too, so match the output line: pattern \
