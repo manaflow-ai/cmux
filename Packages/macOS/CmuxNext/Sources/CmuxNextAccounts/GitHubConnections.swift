@@ -40,7 +40,11 @@ public final class GitHubConnections {
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
-    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map { authorizations[$0] != nil } == true) }
+    public var canConnect: Bool { ready && !busy && !connected && (!pending || scope().map(resumable) == true) }
+
+    /// A pending flow this launch can resume: its cached browser URL, or the idempotency key of a
+    /// connect whose response was lost (replaying it returns the same pending connection's URL).
+    private func resumable(_ bound: Scope) -> Bool { authorizations[bound] != nil || connectKeys[bound] != nil }
 
     public func canDisconnect(_ row: JSONValue) -> Bool {
         scope() != nil && row["created_by"]?.stringValue == scope()?.user
@@ -65,9 +69,9 @@ public final class GitHubConnections {
         do {
             switch action {
             case "githubConnect":
-                // A pending flow from another launch has no resumable URL here.
+                // A pending flow from another launch has no resumable URL or key here.
                 // Keep it pending until refresh or disconnect resolves that flow.
-                guard ready, !connected, !pending || authorizations[bound] != nil else { return }
+                guard ready, !connected, !pending || resumable(bound) else { return }
                 if let authorization = authorizations[bound], authorization.expires <= now() {
                     authorizations[bound] = nil
                     connectKeys[bound] = nil

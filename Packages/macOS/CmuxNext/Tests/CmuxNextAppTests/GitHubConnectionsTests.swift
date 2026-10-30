@@ -129,6 +129,30 @@ import Testing
         #expect(keys[0] == keys[1])
     }
 
+    @Test func aLostConnectResponseWithAServerPendingRowRetriesUnderItsKey() async {
+        var keys: [String?] = []
+        var opened: [URL] = []
+        var created = false
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(key)
+                created = true
+                if keys.count == 1 { throw URLError(.networkConnectionLost) }
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            // The lost connect did create the server's pending row.
+            let rows: [JSONValue] = created ? [["id": "sample", "provider": "github", "created_by": "user", "status": "pending"]] : []
+            return ["connections": .array(rows), "providers": [["provider": "github", "configured": true]]]
+        }, open: { opened.append($0) })
+        await model.connect()
+        #expect(model.error)
+        #expect(model.canConnect, "the held key makes the pending flow resumable")
+        await model.connect()
+        #expect(keys.count == 2)
+        #expect(keys[0] != nil && keys[0] == keys[1])
+        #expect(opened.count == 1)
+    }
+
     @Test func policyRejectionDoesNotReplayAfterPolicyChanges() async throws {
         var keys: [String] = []
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
