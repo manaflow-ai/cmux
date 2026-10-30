@@ -1074,7 +1074,7 @@ impl Peer {
                 let _ = child.start_kill();
             }
             return match outcome {
-                Ok(()) => Ok(()),
+                Ok(end) => Ok(end),
                 Err(error) => Err(ssh_errors::describe(error, errors.finish().await)),
             };
         }
