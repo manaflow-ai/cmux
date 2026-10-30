@@ -56,7 +56,10 @@ def serve_localhost():
         def log_message(self, *args):
             pass
 
-    server = socketserver.TCPServer(("127.0.0.1", 0), Page)
+    # One thread per connection: the Mac's browser keeps a connection open
+    # (keep-alive, preconnect), which blocked a one-thread server's shutdown.
+    socketserver.ThreadingTCPServer.daemon_threads = True
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Page)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
