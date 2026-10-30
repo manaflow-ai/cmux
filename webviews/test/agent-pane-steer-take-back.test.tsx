@@ -72,10 +72,10 @@ const takeBackButtons = () =>
   );
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/// A chat whose steer `promptId` waits; `refuses` makes acpmux answer the X's withdraw false (the
-/// agent took the steer already, or its harness cannot drop one); `lost` makes the withdraw fail on
-/// the way, unanswered.
-async function waitingSteer({ promptId = "p-steer", refuses = false, lost = false } = {}) {
+/// A chat whose steer `promptId` waits; acpmux answers the X's first `refuses` withdraws false (the
+/// agent took the steer already, or acpmux has not registered it yet while it prepares its images);
+/// `lost` makes the withdraw fail on the way, unanswered.
+async function waitingSteer({ promptId = "p-steer", refuses = 0, lost = false } = {}) {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { promptId: "p-turn", text: "Add retries" }],
@@ -84,13 +84,16 @@ async function waitingSteer({ promptId = "p-steer", refuses = false, lost = fals
   );
   const { client, rows } = await connect(daemon);
   const restored: string[] = [];
+  let refusals = refuses;
   const actions = {
     unsteer: (row: Parameters<typeof takeBackSteer>[0]) =>
       takeBackSteer(row, {
         withdraw: (promptId) =>
           lost
             ? Promise.reject(new Error("socket closed"))
-            : client.editQueued(promptId, { op: "withdraw" }).then((reply) => !refuses && reply?.ok === true),
+            : client
+                .editQueued(promptId, { op: "withdraw" })
+                .then((reply) => (refusals > 0 ? (refusals--, false) : reply?.ok === true)),
         attachments: (rowId) => client.promptAttachments(rowId),
         restore: (text) => restored.push(text),
       }),
@@ -196,34 +199,42 @@ const sendNow = () =>
   );
 
 // Leo, 2026-10-29: "Plus this fucking edit message thing. It doesn't even fucking work. And it fucking
-// blinks with the fucking send now text." The X (its tooltip "Edit message") that acpmux refuses never
-// sits there doing nothing: the row says the agent reads it after this step, and Send now beside it is
-// the same element throughout, enabled again.
-test("an X acpmux refuses gives way to Read after this step; Send now stays the same element", async () => {
-  const { daemon, restored, root, render } = await waitingSteer({ promptId: "p-refused", refuses: true });
+// blinks with the fucking send now text." An X (its tooltip "Edit message") that acpmux refuses never
+// does nothing: the row says the agent reads it after this step. acpmux also refuses for a moment
+// right after a steer is sent (it registers the steer once its images are prepared), so the X stays,
+// and a later click takes the steer back. Send now beside it is the same element throughout.
+test("an X acpmux refuses says Read after this step and stays; a later click takes the steer back", async () => {
+  const { daemon, restored, root, render } = await waitingSteer({ promptId: "p-refused", refuses: 1 });
   try {
     await render();
     const [before] = sendNow();
-    const [x] = takeBackButtons();
     expect(before).toBeDefined();
-    await act(async () => {
-      x!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-      await settle();
-    });
+    const click = async () => {
+      const [x] = takeBackButtons();
+      await act(async () => {
+        x!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+        await settle();
+      });
+    };
+    await click();
     expect(daemon.requests.filter((request) => request.method === "_acpmux/queue_edit")).toHaveLength(1);
     expect(restored).toEqual([]);
-    // Compared as counts and identities, not elements: a failing match prints no jsdom tree.
-    expect(takeBackButtons().length).toBe(0);
     const pending = dom.window.document.querySelector(".cv-user__pending")!;
     expect(pending.querySelector(".cv-user__kept")?.textContent ?? null).toBe(translate("message.readAfterStep"));
+    // Compared as counts and identities, not elements: a failing match prints no jsdom tree.
+    expect(takeBackButtons().length).toBe(1);
+    expect(takeBackButtons()[0]!.disabled).toBe(false);
     const [after] = sendNow();
     expect(after === before).toBe(true);
     expect(after?.disabled).toBe(false);
-    // Drawn again (scrolled away and back) while acpmux still says it waits: still no dead X.
+    // Drawn again (scrolled away and back) while acpmux still says it waits: the X is still offered.
     await act(async () => root.render(<></>));
     await render();
-    expect(takeBackButtons().length).toBe(0);
-    expect(dom.window.document.querySelector(".cv-user__kept") !== null).toBe(true);
+    expect(takeBackButtons().length).toBe(1);
+    // acpmux has registered the steer now: the next click takes it back into the composer.
+    await click();
+    expect(daemon.requests.filter((request) => request.method === "_acpmux/queue_edit")).toHaveLength(2);
+    expect(restored).toEqual(["Also keep the old flag working"]);
   } finally {
     await act(async () => root.unmount());
   }

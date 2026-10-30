@@ -143,11 +143,9 @@ public struct CodeRouterClient: Sendable {
     static func failure(status: Int, data: Data) -> CodeRouterError {
         if status == 401 { return .notSignedIn }
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        // `{error: "code", message}` (CodeRouter, billing) or `{error: {code, message}}` (`/api/teams/*`).
-        let nested = object?["error"] as? [String: Any]
-        let code = ((object?["error"] as? String) ?? (nested?["code"] as? String)).map(EmailRedaction.redactEmails(in:))
+        let code = (object?["error"] as? String).map(EmailRedaction.redactEmails(in:))
         // Redact the whole message first: a cut could split an email so the redactor misses it.
-        let message = ((object?["message"] as? String) ?? (nested?["message"] as? String)).flatMap { $0.isEmpty ? nil : String(EmailRedaction.redactEmails(in: $0).prefix(300)) }
+        let message = (object?["message"] as? String).flatMap { $0.isEmpty ? nil : String(EmailRedaction.redactEmails(in: $0).prefix(300)) }
         return .http(status: status, code: code, message: message)
     }
 
