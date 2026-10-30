@@ -2334,6 +2334,8 @@ export class AcpmuxDirectClient {
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
+    this.turnId = typeof this.summary?.turn?.turnId === "string" ? this.summary.turn.turnId : undefined;
+    this.turnStartedAtMs = typeof this.summary?.turn?.startedAt === "number" ? this.summary.turn.startedAt : undefined;
     // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
     // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
     // attach replays the page, as they do on a page whose decision it does not hold either.
@@ -6962,6 +6964,8 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      turnId: this.turnId,
+      turnStartedAtMs: this.turnStartedAtMs,
       // The running turn's prompt is the held events', never an older page's.
       turnPrompt: this.turnPrompt,
       silentTurn: this.silentTurn,
@@ -6995,6 +6999,8 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.turnId = undefined;
+    this.turnStartedAtMs = undefined;
     this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
