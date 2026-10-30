@@ -2823,8 +2823,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         }
     }
 
-    /// The sideways pan of a full-screen app wider than the phone: a drag
-    /// that is more horizontal than vertical (the app's own drag scrolls it).
+    /// A tap on the shell notes whether it landed on a moving scroll (that tap only stops it).
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === shellTap {
             tapStoppedScroll = fling != nil || scrollView.isDecelerating
@@ -2832,6 +2831,8 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         return true
     }
 
+    /// The sideways pan of a full-screen app wider than the phone: a drag
+    /// that is more horizontal than vertical (the app's own drag scrolls it).
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === tuiHorizontalPan, let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
         guard model.isTUI, hostLayout.maxPanX > 0 else { return false }

@@ -52,17 +52,17 @@ extension TerminalSurfaceView {
         ghostty_surface_mouse_scroll(surface, 0, Double(deltaY * scale), ghostty_input_scroll_mods_t(TerminalTUIScroll.mods(momentum)))
     }
 
-    /// A tap at `point` (this view's points) as a left click, press then
-    /// release, when the app asked for the mouse (TUI capability F1: vim
-    /// `mouse=a`, htop's header, mc, tmux panes). Ghostty encodes it in the
-    /// app's mouse mode. Returns false, sending nothing, when no app
-    /// captures the mouse.
     /// An app on the screen asked for the mouse (a tap is its click, not a link's).
     var capturesMouse: Bool {
         guard let surface else { return false }
         return ghostty_surface_mouse_captured(surface)
     }
 
+    /// A tap at `point` (this view's points) as a left click, press then
+    /// release, when the app asked for the mouse (TUI capability F1: vim
+    /// `mouse=a`, htop's header, mc, tmux panes). Ghostty encodes it in the
+    /// app's mouse mode. Returns false, sending nothing, when no app
+    /// captures the mouse.
     @discardableResult
     func click(at point: CGPoint) -> Bool {
         guard let surface, ghostty_surface_mouse_captured(surface) else { return false }

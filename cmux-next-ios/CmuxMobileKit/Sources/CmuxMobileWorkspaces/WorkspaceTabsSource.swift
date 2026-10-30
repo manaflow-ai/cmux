@@ -784,8 +784,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// A web link tapped in a terminal tab (the Mac's Cmd-click): a cmux browser tab at `url`
     /// beside the terminal on the Mac, shown here once the Mac lists it.
     public func openLink(_ url: URL, fromTab id: TabsKitTab.ID) async {
-        // No Mac to open it on (the workspace went away): Safari, never nothing.
-        guard let workspace, let creator, let tab = workspaceTab(id) else {
+        // No Mac to open it on (the workspace went away, the Mac is offline or doesn't let
+        // this iPhone open tabs): Safari, never nothing.
+        guard canEditTabs, let workspace, let creator, let tab = workspaceTab(id) else {
             await UIApplication.shared.open(url)
             return
         }
@@ -1386,7 +1387,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ? [TabsKitMenuItem(title: Self.restartShellTitle, systemImage: "arrow.counterclockwise") { [weak self] in
                     Task { await self?.restartShell(tab.id) }
                 }] : []
-            // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
+            // Files and Links, Paste, Find, Clear, Scroll to Bottom | Copy Directory | chats,
+            // Panes and Screens, edit rows | the close rows: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
             return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
         case .browser:

@@ -75,6 +75,9 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// The search running off the main thread, superseded by the next.
     private var searchTask: Task<Void, Never>?
     private var searchGeneration = 0
+    /// Rows Ghostty dropped since the bar opened: a search that finishes after a drop
+    /// moves its matches by the rows dropped while it ran.
+    private var droppedRows = 0
     /// The query the bar asked for last (the results may still be for an older one).
     private var query = ""
 
@@ -92,6 +95,7 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         searchTask?.cancel()
         searchGeneration += 1
         let generation = searchGeneration
+        let droppedAtStart = droppedRows
         guard let rows = snapshot, !query.isEmpty else {
             results = TerminalFindResults()
             interaction?.updateResultCount()
@@ -105,6 +109,8 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
             }.value
             guard let self, !Task.isCancelled, generation == self.searchGeneration else { return }
             self.results = found
+            // The snapshot's rows are numbered as before any drop that happened meanwhile.
+            if self.droppedRows != droppedAtStart { self.results.shiftRows(by: self.droppedRows - droppedAtStart) }
             if let nearRow { self.results.select(nearestRow: nearRow) }
             findLog.notice("find: \(found.matches.count, privacy: .public) matches in \(rows.rows.count, privacy: .public) rows")
             if revealing, let match = self.results.selectedMatch { self.reveal(match) }
@@ -139,6 +145,7 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
 
     /// Ghostty dropped its oldest rows: the matches keep their text.
     func shiftRows(by delta: Int) {
+        droppedRows += delta
         guard !results.matches.isEmpty else { return }
         results.shiftRows(by: delta)
         interaction?.updateResultCount()
