@@ -18,8 +18,10 @@ public actor ChiefHomeDirectory {
     struct OwnAcpmux: Sendable {
         /// The Chief home the tab names: its brain host's lock says whether the daemon has an owner.
         let home: ChiefHome
-        /// The `ACPMUX_HOME` that runs its sessions: its own, or its home's for a named Chief.
-        let sessionsHome: URL
+        /// The Chief home whose acpmux runs its sessions: `home` itself, or a named Chief's home.
+        let owner: ChiefHome
+        /// The `ACPMUX_HOME` that runs its sessions (`owner`'s).
+        var sessionsHome: URL { owner.acpmuxHome }
         let environment: AcpmuxEnvironment?
         let starting: any AgentPaneHostProviding
         let attaching: any AgentPaneHostProviding
@@ -73,8 +75,8 @@ public actor ChiefHomeDirectory {
     /// that build may open or quit while this app runs.
     func router(for host: String, fallback: any AgentPaneHostProviding) async -> (any AgentPaneHostProviding)? {
         guard let own = await ownAcpmux(of: host) else { return nil }
-        let home = own.home
-        guard let owned = try? await work.run(.userVisible, mayBlock: .files, { home.hostRuns }) else { return nil }
+        let home = own.home, owner = own.owner
+        guard let owned = try? await work.run(.userVisible, mayBlock: .files, { Self.owned(home: home, owner: owner) }) else { return nil }
         let tag = "optchat-chief:" + host.dropFirst(ChiefHome.tabHostPrefix.count)
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
                                         sessionsHome: own.sessionsHome, parentTag: tag)
@@ -107,8 +109,18 @@ public actor ChiefHomeDirectory {
         } catch {
             return nil // cut short: asked again later
         }
-        return OwnAcpmux(home: home, sessionsHome: owner.acpmuxHome, environment: resolved,
+        return OwnAcpmux(home: home, owner: owner, environment: resolved,
                          starting: ownHost(resolved, true), attaching: ownHost(resolved, false))
+    }
+
+    /// Whether a live brain host owns the acpmux that runs `home`'s sessions, so a tab only attaches
+    /// to it (cx-ebm.54): `home`'s own host, or for a named Chief also its home's (`owner`) host while
+    /// that one runs on `<owner>/acpmux`, not on the app's acpmux (its launch mark,
+    /// ``ChiefAppAcpmuxMove/readMark(_:)``, names another). It reads the disk.
+    nonisolated static func owned(home: ChiefHome, owner: ChiefHome) -> Bool {
+        if home.hostRuns { return true }
+        guard owner.root != home.root, owner.hostRuns else { return false }
+        return ChiefAppAcpmuxMove.readMark(owner).home.map { $0 == owner.acpmuxHome.path } ?? true
     }
 
     /// Every directory under `parents` by its `chief:<home id>`, each with the named Chiefs' homes

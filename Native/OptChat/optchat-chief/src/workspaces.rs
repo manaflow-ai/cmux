@@ -258,11 +258,22 @@ fn clip(s: &str) -> String {
 pub const AGENTS_GROUP_NAME: &str = "Chief agents";
 
 /// The group a spawn task asks for: ``AGENTS_GROUP_NAME`` when its `Group:` line names it (any
-/// case), else empty (ungrouped). Any other `Group:` value is ignored.
+/// case; a line that runs on after a full stop, "Chief agents. Repo ~/fun/…", still does), else
+/// empty (ungrouped). Any other `Group:` value is ignored.
 pub fn spawn_group(task: &str) -> &'static str {
-    match header(task, "group") {
-        Some(g) if g.trim().eq_ignore_ascii_case(AGENTS_GROUP_NAME) => AGENTS_GROUP_NAME,
-        _ => "",
+    let Some(group) = header(task, "group") else {
+        return "";
+    };
+    let named = group
+        .split(". ")
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('.');
+    if named.trim().eq_ignore_ascii_case(AGENTS_GROUP_NAME) {
+        AGENTS_GROUP_NAME
+    } else {
+        ""
     }
 }
 

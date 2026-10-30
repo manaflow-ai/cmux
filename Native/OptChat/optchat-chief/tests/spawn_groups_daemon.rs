@@ -199,7 +199,17 @@ impl Daemon {
     }
 
     fn make_shared_group(&self, name: &str) -> String {
-        let id = format!("test-{}", name.to_lowercase().replace(' ', "-"));
+        let slug: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let id = format!("test-{slug}");
         self.request(json!({"cmd": "create-workspace-group", "group": id, "name": name}));
         id
     }

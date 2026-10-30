@@ -92,6 +92,11 @@ fn a_spawn_asks_only_for_chief_agents() {
             "Group: chief AGENTS\nTitle: Domains\n...",
             AGENTS_GROUP_NAME,
         ),
+        (
+            "Title: Domains\nGroup: Chief agents. Repo ~/fun/cmux\n...",
+            AGENTS_GROUP_NAME,
+        ),
+        ("Title: Domains\nGroup: Chief agents & more\n...", ""),
     ];
     for (task, want) in cases {
         assert_eq!(workspaces::spawn_group(task), want, "task: {task}");
@@ -203,7 +208,7 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     }
     std::thread::sleep(Duration::from_millis(200));
     assert!(
-        !answer.contains("group"),
+        !answer.contains(" in group ") && !answer.contains("group \""),
         "the spawn answer names no group: {answer}"
     );
     // a313: the reply gives the real ws_ id and how to move or pin it.

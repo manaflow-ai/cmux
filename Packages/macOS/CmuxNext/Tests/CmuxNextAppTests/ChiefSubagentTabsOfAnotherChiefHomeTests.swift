@@ -145,6 +145,15 @@ import CmuxNextWakeups
         let lock = try #require(ChiefMigration.HostLock(path: lockPath))
         #expect(await reached(pane, session: kept) == "home acpmux")
         lock.release()
+        // The home's own host on its own acpmux owns that daemon too: the tab only attaches.
+        let homeLockPath = current.root.appendingPathComponent("state/host.lock")
+        let homeLock = try #require(ChiefMigration.HostLock(path: homeLockPath))
+        #expect(await reached(pane, session: kept) == "home acpmux")
+        // That host runs on the app's acpmux (its launch mark names another home): it owns nothing
+        // here, so the tab may start the home's acpmux again.
+        try "1\n/tmp/app-acpmux\n".write(to: ChiefAppAcpmuxMove.markFile(current), atomically: true, encoding: .utf8)
+        #expect(await reached(pane, session: kept) == "home acpmux, started")
+        homeLock.release()
         // A session the home's acpmux does not keep is this Mac's.
         #expect(await reached(pane, session: "01a1610c-24e0-75a3-8440-e4bcf537a4ba") == "app")
     }
