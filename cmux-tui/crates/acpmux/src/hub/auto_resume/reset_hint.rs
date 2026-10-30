@@ -13,7 +13,11 @@ fn duration_ms(s: &str) -> Option<u64> {
     let s = s.trim();
     let split = match s.find(|c: char| !c.is_ascii_digit() && c != '.') {
         Some(split) => split,
-        None => return s.parse::<u64>().ok().map(|seconds| seconds.saturating_mul(1000)),
+        None => {
+            let seconds = s.parse::<u64>().ok()?;
+            let ms = seconds.checked_mul(1000)?;
+            return (ms <= MAX_HINT_DELAY_MS).then_some(ms);
+        }
     };
     let n = s[..split].parse::<f64>().ok()?;
     if !n.is_finite() || n <= 0.0 {
@@ -40,7 +44,7 @@ fn fixed_offset(zone: &str) -> Option<time::UtcOffset> {
     let digits = zone.trim_start_matches(['+', '-']);
     let (h, m) = if let Some((h, m)) = digits.split_once(':') {
         (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?)
-    } else if digits.len() == 4 {
+    } else if digits.len() == 4 && digits.bytes().all(|byte| byte.is_ascii_digit()) {
         (digits[..2].parse::<i32>().ok()?, digits[2..].parse::<i32>().ok()?)
     } else {
         (digits.parse::<i32>().ok()?, 0)
@@ -135,14 +139,19 @@ fn clock_reset(error: &str, now_ms: u64) -> Option<u64> {
     Some(deadline)
 }
 
-fn as_deadline(v: u64, now_ms: u64) -> u64 {
-    if v >= 10_000_000_000 {
+fn bounded_deadline(deadline: u64, now_ms: u64) -> Option<u64> {
+    deadline.checked_sub(now_ms).filter(|delay| *delay <= MAX_HINT_DELAY_MS).map(|_| deadline)
+}
+
+fn as_deadline(v: u64, now_ms: u64) -> Option<u64> {
+    let deadline = if v >= 10_000_000_000 {
         v
     } else if v >= 1_000_000_000 {
         v.saturating_mul(1000)
     } else {
         now_ms.saturating_add(v.saturating_mul(1000))
-    }
+    };
+    bounded_deadline(deadline, now_ms)
 }
 
 /// Parse an IMF-fixdate without adding a date crate to the daemon.
@@ -194,18 +203,20 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
             end += 1;
         }
         if end == 0 {
-            if let Some(deadline) = http_date_ms(tail) {
+            if let Some(deadline) =
+                http_date_ms(tail).and_then(|deadline| bounded_deadline(deadline, now_ms))
+            {
                 return Some(deadline);
             }
             continue;
         }
         let ms = duration_ms(tail)?;
-        return Some(now_ms.saturating_add(ms));
+        return bounded_deadline(now_ms.saturating_add(ms), now_ms);
     }
     if let Some(pipe) = text.rfind('|')
         && let Some(v) = seconds(&text[pipe + 1..])
     {
-        return Some(as_deadline(v, now_ms));
+        return as_deadline(v, now_ms);
     }
     None
 }
@@ -218,7 +229,7 @@ pub(super) fn reset_at(error: &str, usage_limits: Option<&Value>, now_ms: u64) -
             lower.find("resets at ").and_then(|at| {
                 let n: String =
                     lower[at + 10..].chars().take_while(|c| c.is_ascii_digit()).collect();
-                seconds(&n).map(|v| as_deadline(v, now_ms))
+                seconds(&n).and_then(|v| as_deadline(v, now_ms))
             })
         })
         .or_else(|| clock_reset(error, now_ms))
@@ -253,18 +264,20 @@ pub(in crate::hub) fn error_reset_at(data: Option<&Value>, now_ms: u64) -> Optio
             let lower = key.to_ascii_lowercase();
             if lower == "retryafterms" || lower == "retry_after_ms" {
                 if let Some(n) = value.as_u64() {
-                    return Some(now_ms.saturating_add(n));
+                    return bounded_deadline(now_ms.saturating_add(n), now_ms);
                 }
             } else if lower == "retryafter" || lower == "retry_after" || lower == "retry-after" {
                 if let Some(n) = value.as_u64() {
-                    return Some(now_ms.saturating_add(n.saturating_mul(1000)));
+                    return n
+                        .checked_mul(1000)
+                        .and_then(|ms| bounded_deadline(now_ms.saturating_add(ms), now_ms));
                 }
                 if let Some(s) = value.as_str() {
                     if let Some(ms) = duration_ms(s) {
-                        return Some(now_ms.saturating_add(ms));
+                        return bounded_deadline(now_ms.saturating_add(ms), now_ms);
                     }
                     if let Some(n) = http_date_ms(s) {
-                        return Some(n);
+                        return bounded_deadline(n, now_ms);
                     }
                 }
             }
@@ -283,9 +296,13 @@ mod tests {
     #[test]
     fn parses_router_claude_and_http_hints() {
         assert_eq!(reset_at("503 retry after 2401s", None, 1000), Some(2_402_000));
-        assert_eq!(reset_at("usage limit|1760000000", None, 0), Some(1_760_000_000_000));
+        assert_eq!(
+            reset_at("usage limit|1760000000", None, 1_759_999_500_000),
+            Some(1_760_000_000_000)
+        );
         assert_eq!(reset_at("Retry-After: 2m", None, 1000), Some(121_000));
         assert_eq!(reset_at("Retry-After: 999999999999999999d", None, 1000), None);
+        assert_eq!(reset_at("Retry-After: 999999999999", None, 1000), None);
         assert_eq!(
             reset_at("You've hit your limit · resets 3pm", None, 12 * 3_600_000),
             Some(15 * 3_600_000)
@@ -335,6 +352,7 @@ mod tests {
             reset_at("You've hit your limit · resets 3pm (Europe/Berlin)", None, now,),
             Some(now + 2 * 3_600_000)
         );
+        assert_eq!(reset_at("You've hit your limit · resets 3pm (€a)", None, now), None);
         let usage = serde_json::json!({
             "windows": [
                 {"usedPercent": 100, "resetsAt": 1},
@@ -350,6 +368,10 @@ mod tests {
         assert_eq!(
             error_reset_at(Some(&serde_json::json!({"Retry-After":"500ms"})), 1000),
             Some(1500)
+        );
+        assert_eq!(
+            error_reset_at(Some(&serde_json::json!({"Retry-After":999999999999u64})), 1000),
+            None
         );
         assert_eq!(
             error_reset_at(Some(&serde_json::json!({"details":{"Retry-After":"120"}})), 1000),
