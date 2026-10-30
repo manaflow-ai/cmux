@@ -74,7 +74,12 @@ public struct ProcessRunner {
                             continuation.resume(returning: process.terminationStatus)
                         }
                         do {
-                            try box.process.run()
+                            // Launch and cancel exclude each other: a cancel that lands first means no child.
+                            guard try box.launch() else {
+                                box.process.terminationHandler = nil
+                                continuation.resume(returning: nil)
+                                return
+                            }
                             if Task.isCancelled { box.kill() }
                         } catch {
                             box.process.terminationHandler = nil
@@ -104,6 +109,7 @@ public struct ProcessRunner {
                 defer { group.cancelAll() }
                 guard let first = try await group.next() else { return Int32.min }
                 guard let status = first else {
+                    try Task.checkCancellation()
                     throw DaemonError.launchFailed("could not start \(executable.path)")
                 }
                 if status == Int32.min {
@@ -115,7 +121,7 @@ public struct ProcessRunner {
                 return status
             }
         } onCancel: {
-            box.kill()
+            box.cancel()
         }
         return ProcessResult(status: status, stdout: stdoutFile.contents(), stderr: stderrFile.contents())
     }
@@ -130,6 +136,26 @@ final class ProcessBox: @unchecked Sendable {
     init(_ process: Process, signal: @escaping @Sendable (pid_t, Int32) -> Void = { _ = Darwin.kill($0, $1) }) {
         self.process = process
         self.signal = signal
+    }
+
+    /// Set under the lock by `cancel()`; `launch()` reads it under the same lock.
+    private let cancelled = Mutex<Bool>(false)
+
+    /// Starts the child unless `cancel()` already ran; false when it did (the child never starts).
+    func launch() throws -> Bool {
+        try cancelled.withLock { cancelled in
+            if cancelled { return false }
+            try process.run()
+            return true
+        }
+    }
+
+    /// A cancelled caller: no child starts after this, and one that already started is killed.
+    func cancel() {
+        cancelled.withLock { cancelled in
+            cancelled = true
+            kill()
+        }
     }
 
     /// SIGKILL to this child only, and only while it runs: never before launch
