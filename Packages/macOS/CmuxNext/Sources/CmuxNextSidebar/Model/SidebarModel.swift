@@ -446,8 +446,8 @@ public final class SidebarModel {
             guard !movesRows(from: old, to: row) else { return false }
             // A rename into or out of the name of a group it is the one member of changes the group's rows: one row in
             // the header's place, or a header over a member row (`SidebarLayout+SoleMember`).
-            guard old.title == row.title || !paths.contains(where: { renamesSoleMember(at: $0, from: old.title, to: row.title) })
-            else { return false }
+            // Each listed copy against its own title (a workspace may be listed twice).
+            guard !paths.contains(where: { renamesSoleMember(at: $0, to: row.title) }) else { return false }
             for path in paths {
                 // Each listed copy keeps its own row state (a saved stale row beside the live one).
                 var copy = row
@@ -461,10 +461,11 @@ public final class SidebarModel {
         return true
     }
 
-    private func renamesSoleMember(at path: SidebarRowIndex.Path, from old: String, to new: String) -> Bool {
+    private func renamesSoleMember(at path: SidebarRowIndex.Path, to new: String) -> Bool {
         guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node],
               group.members.count == 1 else { return false }
-        return SidebarLayout.names(group, old) != SidebarLayout.names(group, new)
+        let old = SidebarRowIndex.workspace(at: path, in: storedSections).title
+        return old != new && SidebarLayout.names(group, old) != SidebarLayout.names(group, new)
     }
 
     /// Whether these sections list workspace `id`: O(1) through `rowIndex`

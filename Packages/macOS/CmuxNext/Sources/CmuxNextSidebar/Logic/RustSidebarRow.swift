@@ -122,6 +122,7 @@ nonisolated struct RustRow: Codable {
         var itemTops: [String: Double] = [:] // per group, the lowest link, tab or app row still shown (no drop target, but open)
         var nesting: [(group: String, depth: Int, section: SectionID)] = [] // the group headers above this row, outermost first
         var parents: Set<String> = [] // groups that draw a subgroup (only an open group does)
+        var sole: SidebarRow? // the last one row read as its header, until its tab rows have their workspace
         for row in rows {
             // A group's one row stands in its header's place, one level in: its parent still draws a subgroup.
             let header = row.standsForGroup ? row.depth - 1 : row.depth
@@ -150,9 +151,17 @@ nonisolated struct RustRow: Codable {
                 if case .custom = row.section { continue } // the older resolver knows Pinned and machines only
                 if soleRowsAsHeaders, row.standsForGroup, let group = row.group {
                     resolvable.append(RustRow(header: group, standingIn: row))
-                } else {
-                    resolvable.append(RustRow(row))
+                    sole = row
+                    continue
                 }
+                // The one row's tab rows drop after it in its group, as a member's do: the resolver finds their
+                // workspace's row, so it gets one with no height right before them (the tab row is hit, never it).
+                if case let .tab(id, _) = row.key, var parent = sole, parent.key == .workspace(id) {
+                    (parent.y, parent.height) = (row.y, 0)
+                    resolvable.append(RustRow(parent))
+                }
+                sole = nil
+                resolvable.append(RustRow(row))
             }
         }
         if !preservesTabRows {
