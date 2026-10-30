@@ -1,6 +1,6 @@
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
-import { decodeBase64, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, validPath } from "../src/cloud-machine-guest.ts"
+import { decodeBase64, execCommand, execTimeout, FILE_MAX_BYTES, FS_PROGRAM, fsCommand, OUTPUT_MAX_BYTES, validPath } from "../src/cloud-machine-guest.ts"
 import { bindBody, bindFile, cloudStub, createdAndBound, frame, person, post, reply, sessionToken, SIZE, worker } from "./cloud-bind-support.ts"
 import { SHARED_TEAM } from "./setup/cloud-teams.ts"
 
@@ -26,7 +26,8 @@ describe("the route's checks", () => {
     expect(execTimeout(-1)).toBe(30_000)
     expect(execTimeout("5")).toBe(30_000)
     expect(execTimeout(5_000)).toBe(5_000)
-    expect(execTimeout(99 * 60_000)).toBe(15 * 60_000)
+    // The provider answers inline for at most 5 minutes: a longer ask is cut there, never a provider refusal.
+    expect(execTimeout(99 * 60_000)).toBe(5 * 60_000)
   })
 
   it("quotes the path as one argument of the file program", () => {
@@ -34,6 +35,9 @@ describe("the route's checks", () => {
     expect(cmd.startsWith("python3 -c '")).toBe(true)
     expect(cmd.endsWith(` write '/tmp/it'"'"'s here' 384`) || cmd.endsWith(` write '/tmp/it'\\''s here' 384`)).toBe(true)
     expect(FS_PROGRAM).toContain(`M=${FILE_MAX_BYTES}`)
+    // A new file without a mode is the owner's only (classic's 0600), never readable by the work user.
+    expect(FS_PROGRAM).toContain("else 0o600)")
+    expect(FS_PROGRAM).not.toContain("0o644")
   })
 })
 
@@ -120,12 +124,15 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
     const exec = await call("POST", `${base}/exec`, t, { command: ECHO, timeoutMs: 5_000 })
     expect(exec).toMatchObject({ status: 200, cache: "no-store", body: { exitCode: 3, stdout: "out", stderr: "err" } })
     const sent = (await stub.fakeControl({})).guest_calls.at(-1)
+    // As the work user, with its output capped on the machine.
+    expect(sent.command).toBe(execCommand(ECHO))
     expect(sent.command).toContain("runuser")
-    expect(sent.command).toContain("cmux-guest-test")
+    expect(sent.command).toContain(` ${OUTPUT_MAX_BYTES} `)
 
     const stat = { path: "/home/cmux/a.json", kind: "file", size: 2, mode: 384, modifiedAt: 1_700_000_000_000 }
     await stub.fakeControl({ guest_reply: { exitCode: 0, stdout: JSON.stringify(stat), stderr: "" } })
-    expect((await call("GET", `${base}/fs/stat?path=${encodeURIComponent(stat.path)}`, t)).body).toEqual(stat)
+    // The path is trimmed first, as classic's.
+    expect((await call("GET", `${base}/fs/stat?path=${encodeURIComponent(` ${stat.path} `)}`, t)).body).toEqual(stat)
     const statCall = (await stub.fakeControl({})).guest_calls.at(-1)
     expect(statCall.command).toBe(fsCommand("stat", stat.path))
     expect(statCall.command).not.toContain("runuser")

@@ -3,6 +3,7 @@ import type { MachineExecReply } from "./automation-machine.ts"
 import { readBody } from "./cloud-acpmux.ts"
 import { callerFor } from "./cloud-client-session.ts"
 import { asWorkUser } from "./cloud-env-sandbox.ts"
+import { PLATFORM_EXEC_MAX_MS } from "./cloud-platform.ts"
 import type { Env } from "./env.ts"
 
 /**
@@ -12,6 +13,8 @@ import type { Env } from "./env.ts"
  * code (cmux-platform#89, piece B):
  *
  *   POST   /v1/cloud/machines/{machine}/exec              {command, timeoutMs?} -> {exitCode, stdout, stderr}
+ *          (30 s default; at most 5 min, the provider's inline exec limit, where classic allows 15; at
+ *          most OUTPUT_MAX_BYTES of each stream, then a truncation note on stderr)
  *   GET    /v1/cloud/machines/{machine}/fs/dir?path=      -> {entries: [{name, kind, size, mode, modifiedAt}]}
  *   GET    /v1/cloud/machines/{machine}/fs/read?path=     -> {path, dataBase64, size}
  *   GET    /v1/cloud/machines/{machine}/fs/stat?path=     -> {path, kind, size, mode, modifiedAt}
@@ -33,10 +36,13 @@ export const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/
 type Op = "exec" | "fs/dir" | "fs/read" | "fs/stat" | "fs/write" | "fs/mkdir" | "fs/remove"
 const METHOD: Readonly<Record<Op, string>> = { exec: "POST", "fs/dir": "GET", "fs/read": "GET", "fs/stat": "GET", "fs/write": "POST", "fs/mkdir": "POST", "fs/remove": "DELETE" }
 
-/** Classic's limits: a 64 KiB command, 30 s default and 15 min longest exec, a 4096 byte absolute path. */
+/** Classic's limits: a 64 KiB command, a 30 s default exec, a 4096 byte absolute path. */
 export const COMMAND_MAX_BYTES = 64 * 1024
 export const EXEC_DEFAULT_MS = 30_000
-export const EXEC_MAX_MS = 15 * 60_000
+/** The provider answers an exec inline for at most 5 minutes (classic's 15 needs its own background exec). */
+export const EXEC_MAX_MS = PLATFORM_EXEC_MAX_MS
+/** Each of an exec's stdout and stderr, kept on the machine: the rest is read and dropped there. */
+export const OUTPUT_MAX_BYTES = 1024 * 1024
 const PATH_MAX_BYTES = 4096
 /** One file read or write (classic allows 16 MiB; this one crosses the provider's exec as stdin or stdout). */
 export const FILE_MAX_BYTES = 8 * 1024 * 1024
@@ -56,7 +62,8 @@ const TOO_LARGE = 46
 /**
  * The file operations, run with python3 as root on the machine (the image has it: the machine-config
  * applier and the credential installer use it). argv: op, path, and for a write its mode. A write
- * replaces the file atomically (a temporary file in the same folder, then rename).
+ * replaces the file atomically (a temporary file in the same folder, then rename); a new file without
+ * a mode is 0600, as classic's.
  */
 export const FS_PROGRAM = `import base64,json,os,shutil,stat,sys,tempfile
 op,p=sys.argv[1],sys.argv[2]
@@ -85,7 +92,7 @@ try:
   try:old=os.stat(p)
   except FileNotFoundError:pass
   if old and stat.S_ISDIR(old.st_mode):sys.exit(${WRONG_KIND})
-  m=int(sys.argv[3]) if len(sys.argv)>3 else (stat.S_IMODE(old.st_mode) if old else 0o644)
+  m=int(sys.argv[3]) if len(sys.argv)>3 else (stat.S_IMODE(old.st_mode) if old else 0o600)
   fd,t=tempfile.mkstemp(dir=os.path.dirname(p),prefix=".cmux-write-")
   try:
    with os.fdopen(fd,"wb") as f:
@@ -112,11 +119,42 @@ except (NotADirectoryError,IsADirectoryError,FileExistsError):sys.exit(${WRONG_K
 sys.stdout.write(json.dumps(o))
 `
 
+/**
+ * Runs `bash -c argv[2]` with no stdin and keeps at most argv[1] bytes of each of its stdout and stderr:
+ * it reads both to the end (the command runs to its own exit, not to a full pipe) and drops the rest,
+ * so a command that writes without end costs the machine's CPU until its timeout, never memory, disk
+ * or the answer's size. Answers the command's own exit code (128 + n for signal n).
+ */
+export const OUTPUT_CAP_PROGRAM = `import os,selectors,subprocess,sys
+n=int(sys.argv[1])
+p=subprocess.Popen(["bash","-c",sys.argv[2]],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+b={p.stdout:bytearray(),p.stderr:bytearray()}
+cut=False
+s=selectors.DefaultSelector()
+for f in b:s.register(f,selectors.EVENT_READ)
+while s.get_map():
+ for k,_ in s.select():
+  d=os.read(k.fd,65536)
+  if not d:
+   s.unregister(k.fileobj);continue
+  x=b[k.fileobj]
+  if len(x)+len(d)>n:cut=True
+  if len(x)<n:x+=d[:n-len(x)]
+r=p.wait()
+sys.stdout.buffer.write(b[p.stdout])
+sys.stderr.buffer.write(b[p.stderr])
+if cut:sys.stderr.write("\\ncmux: output cut at %d bytes per stream\\n"%n)
+sys.exit(r if r>=0 else 128-r)
+`
+
+/** An exec's command as the work user, with its output capped on the machine. */
+export const execCommand = (command: string): string => asWorkUser(["python3", "-c", shellQuote(OUTPUT_CAP_PROGRAM), String(OUTPUT_MAX_BYTES), shellQuote(command)].join(" "))
+
 /** The root command for one file operation. */
 export const fsCommand = (op: "dir" | "read" | "stat" | "write" | "mkdir" | "remove", path: string, mode?: number): string =>
   ["python3", "-c", shellQuote(FS_PROGRAM), op, shellQuote(path), ...(mode === undefined ? [] : [String(mode)])].join(" ")
 
-/** Classic's path rule: absolute, no NUL, no `..` segment, at most 4096 bytes. */
+/** Classic's path rule, after its trim: absolute, no NUL, no `..` segment, at most 4096 bytes. */
 export const validPath = (path: unknown): path is string =>
   typeof path === "string" && path.startsWith("/") && !path.includes("\0") && !path.split("/").includes("..") && new TextEncoder().encode(path).byteLength <= PATH_MAX_BYTES
 
@@ -130,7 +168,7 @@ export const decodeBase64 = (s: unknown): Uint8Array | null => {
   }
 }
 
-/** The timeout an exec asks for: absent, not a number or not positive is classic's 30 s; longer than 15 min is 15 min. */
+/** The timeout an exec asks for: absent, not a number or not positive is classic's 30 s; longer than EXEC_MAX_MS is EXEC_MAX_MS. */
 export const execTimeout = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.min(Math.floor(v), EXEC_MAX_MS) || 1 : EXEC_DEFAULT_MS)
 
 type Stub = { ownerExec(entity: string, user: string, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> }
@@ -179,7 +217,7 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
     const command = body.command
     if (typeof command !== "string" || command.trim() === "") return refuse(400, "vm_invalid_command", "command must be a non-empty string")
     if (new TextEncoder().encode(command).byteLength > COMMAND_MAX_BYTES) return refuse(413, "vm_command_too_large", `the command is over ${COMMAND_MAX_BYTES} bytes`)
-    const r = await run(asWorkUser(command), null, execTimeout(body.timeoutMs))
+    const r = await run(execCommand(command), null, execTimeout(body.timeoutMs))
     return r instanceof Response ? r : ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
   }
 
@@ -190,7 +228,7 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
   if (request.method === "POST") {
     const body = await jsonBody(request)
     if (body instanceof Response) return body
-    path = body.path
+    path = typeof body.path === "string" ? body.path.trim() : body.path
     if (fsOp === "write") {
       if (body.mode !== undefined && !(typeof body.mode === "number" && Number.isInteger(body.mode) && body.mode >= 0 && body.mode <= 0o7777)) return refuse(400, "vm_invalid_file_mode", "mode must be an integer from 0 to 4095")
       mode = body.mode as number | undefined
@@ -198,7 +236,7 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
       if (stdin === null) return refuse(400, "vm_invalid_file_body", "dataBase64 must be standard base64")
       if (stdin.byteLength > FILE_MAX_BYTES) return refuse(413, "vm_file_too_large", `the file is over ${FILE_MAX_BYTES} bytes`)
     }
-  } else path = url.searchParams.get("path")
+  } else path = url.searchParams.get("path")?.trim()
   if (!validPath(path) || (fsOp === "remove" && path.replace(/\/+$/, "") === "")) return refuse(400, "vm_invalid_path", "path must be absolute, without a .. segment, at most 4096 bytes")
   const r = await run(fsCommand(fsOp, path, mode), stdin, FS_TIMEOUT_MS)
   stdin?.fill(0)
