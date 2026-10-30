@@ -21,7 +21,7 @@
 #   Key v1 also hashed the classic `ghostty` gitlink, which no cmux-tui binary
 #   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,
 #   fetch and resolve-commit take the v2 publication, else the compatibility
-#   publication of the same commit (`key --version v2-legacy`).
+#   publications of the same commit (v2-legacy, then v1).
 #   The `cmux-tui artifacts` workflow runs on every trusted push to
 #   feat-cmux-next and feat-cmux-next-acpmux that changes a runtime input.
 #   GitHub filters pushes containing only cmux-tui/docs prose, so consumers
@@ -103,7 +103,7 @@
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
-# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
+# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2|v2-legacy] [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
@@ -206,6 +206,7 @@ tree_key() {
 # published before docs-only filtering may exist only under this key.
 legacy_tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2-legacy "${1:-HEAD}" 2>/dev/null || true
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v1 "${1:-HEAD}" 2>/dev/null || true
 }
 # The tree this checkout fetches and bundles: its own, or CMUX_TUI_TREE_KEY.
 # cmux-next path routing sets that for a pull request that changes no
@@ -219,7 +220,7 @@ checkout_tree_key() {
     tree_key HEAD
   fi
 }
-# The checkout's v1 key; none for a CMUX_TUI_TREE_KEY tree (always v2).
+# The checkout's compatibility keys; none for an explicit CMUX_TUI_TREE_KEY.
 checkout_legacy_tree_key() {
   [[ -n "${CMUX_TUI_TREE_KEY:-}" ]] || legacy_tree_key HEAD
 }
@@ -301,10 +302,10 @@ require_target_in_tree() {
 }
 
 # B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or
-# "<key> (v2-legacy fallback)" for the compatibility publication actually read.
+# "<key> (compatibility fallback)" for the compatibility publication actually read.
 # for the publication actually read. <key> is published_key, <v2 key> the
 # checkout's key.
-tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v2-legacy fallback)"; }
+tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (compatibility fallback)"; }
 
 # Refuses a checkout whose cmux-tui source differs from the committed tree:
 # the published binary would not contain those edits.
@@ -686,6 +687,22 @@ report_tree_miss() {
   echo "no published cmux-tui tree for $key (head ${head:0:12}); nearest published tree: ${nearest:-none in the last $limit commits}" >&2
 }
 
+# Read the preferred key, then the exact historical keys of this commit.
+# The compatibility list contains only git-produced hex object IDs.
+read_tree_digest() {
+  local key="$1" out="$2" legacy="${3:-}" candidate url
+  for candidate in "$key" $legacy; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || return 1
+    url="$BASE/tree/$candidate/$(tree_asset).sha256"
+    if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$url?t=$(date +%s)" 2>/dev/null; then
+      published_key="$candidate"
+      sha_url="$url"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Downloads the published sha256 file of tree <key> to <file>, waiting up to
 # CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it. With
 # CMUX_TUI_TREE_PUBLISHER_SHA and GH_TOKEN set, it fails fast when two run
@@ -694,11 +711,9 @@ report_tree_miss() {
 # published, writes its sha256 file to <out>, and sets published_key to the
 # key that was found and published to its sha256.
 wait_for_tree() {
-  local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
+  local key="$1" out="$2" legacy="${3:-}" sha_url wait_seconds poll_seconds started elapsed
   local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state="" active_cap extended=false
   sha_url="$BASE/tree/$key/$(tree_asset).sha256"
-  legacy_url=""
-  [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/$(tree_asset).sha256"
   published_key="$key"
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
@@ -738,10 +753,7 @@ wait_for_tree() {
   started="$(date +%s)"
   local dispatched=false reported=false dispatch_sha
   # The query string bypasses a cached 404 at the CDN edge.
-  until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$sha_url?t=$(date +%s)" 2>/dev/null \
-    || { [[ -n "$legacy_url" ]] \
-      && curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$legacy_url?t=$(date +%s)" 2>/dev/null \
-      && published_key="$legacy" && sha_url="$legacy_url"; }; do
+  until read_tree_digest "$key" "$out" "$legacy"; do
     elapsed=$(( $(date +%s) - started ))
     if [[ "$reported" == false ]]; then
       reported=true
@@ -1048,7 +1060,7 @@ fetch_tree() {
   require_target_in_tree "$wait_key" "$(checkout_legacy_tree_key)"
   wait_for_tree "$wait_key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
   if [[ "$published_key" != "$key" ]]; then
-    echo "same-tree cmux-tui $key: using its v2-legacy publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
+    echo "same-tree cmux-tui $key: using its compatibility publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
     url="$BASE/tree/$published_key/$(tree_asset)"
   fi
   download "$url" "$temp_dir/$file" || { echo "error: could not download $url" >&2; exit 1; }
@@ -1060,7 +1072,7 @@ fetch_tree() {
   mv -f "$temp_dir/source.json" "$dir/source.json"
   mv -f "$temp_dir/$file" "$binary"
   printf '%s\n' "$published" > "$dir/$file.sha256"
-  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v2-legacy"; fi > "$dir/fetched-key"
+  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key compatibility"; fi > "$dir/fetched-key"
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
@@ -1138,12 +1150,13 @@ wait_for_checkout_tree() {
   return 0
 }
 
-# Prints whether tree <key> (v2) or <legacy> (v1 of the same commit) is
+# Prints whether tree <key> (v2) or <legacy> (historical keys of the same commit) is
 # published now: one request each, no wait.
 tree_published() {
-  local key="$1" legacy="${2:-}" url
-  for url in "$BASE/tree/$key/$(tree_asset).sha256" \
-             ${legacy:+"$BASE/tree/$legacy/$(tree_asset).sha256"}; do
+  local key="$1" legacy="${2:-}" url candidate
+  for candidate in "$key" $legacy; do
+    [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || return 1
+    url="$BASE/tree/$candidate/$(tree_asset).sha256"
     # The query string bypasses a cached 404 at the CDN edge.
     if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 "$url?t=$(date +%s)" 2>/dev/null \
         | awk 'NR==1 && $1 ~ /^[0-9a-f]{64}$/ { found=1 } END { exit !found }'; then

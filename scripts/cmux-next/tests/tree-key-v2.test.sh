@@ -42,7 +42,7 @@ legacy=$(key --version v2-legacy)
 
 # Docs-only commits do not start the artifact publisher, so their consumers
 # must reuse the already-published runtime tree instead of fetching a key that
-# can never be published. The v2 key inherits the parent for this case, while
+# can never be published. The v2 key excludes docs for this case, while
 # v1 retains its historical full-tree behavior.
 mkdir -p "$src/cmux-tui/docs"
 echo prose > "$src/cmux-tui/docs/README.md"
@@ -52,6 +52,27 @@ git_q -C "$src" commit -m docs
 [[ "$(key --version v1)" != "$v1" ]] || fail "v1 unexpectedly ignored a docs-only commit"
 [[ "$(key --version v2-legacy)" != "$legacy" ]] || fail "v2-legacy unexpectedly ignored a docs-only commit"
 [[ "$(key --version v2-legacy)" != "$(key --version v1)" ]] || fail "v2-legacy included the classic gitlink"
+# The same key survives a docs-only merge and a depth-one checkout.
+docs_parent=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -b docs-side
+echo side > "$src/cmux-tui/docs/side.md"
+git_q -C "$src" add cmux-tui/docs/side.md
+git_q -C "$src" commit -m side
+git_q -C "$src" checkout -b docs-main "$docs_parent"
+echo main > "$src/cmux-tui/docs/main.md"
+git_q -C "$src" add cmux-tui/docs/main.md
+git_q -C "$src" commit -m main
+git_q -C "$src" merge --no-ff docs-side -m merge-docs
+[[ "$(key --version v2)" == "$v2" ]] || fail "docs-only merge changed v2"
+git_q clone --depth=1 "file://$src" "$TMP/shallow"
+[[ "$(cd "$TMP/shallow" && python3 scripts/ci/cmux_tui_tree_key.py)" == "$v2" ]] || fail "depth-one key changed"
+# A mixed code/docs change must still invalidate the runtime key.
+echo code >> "$src/cmux-tui/a"
+echo mixed >> "$src/cmux-tui/docs/README.md"
+git_q -C "$src" add cmux-tui
+git_q -C "$src" commit -m mixed
+[[ "$(key --version v2)" != "$v2" ]] || fail "mixed code/docs reused old key"
+v2=$(key --version v2)
 status=0; key --version v3 >/dev/null 2>&1 || status=$?
 [[ "$status" == 2 ]] || fail "an unknown key version did not exit 2 (exit $status)"
 
@@ -107,18 +128,27 @@ fetch() {
     bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1)
 }
 out=$(fetch) || fail "fetch through the compatibility publication failed:" "$out"
-grep -q "using its v2-legacy publication $legacy" <<<"$out" || fail "fetch did not report the v2-legacy publication:" "$out"
+grep -q "using its compatibility publication $legacy" <<<"$out" || fail "fetch did not report the v2-legacy publication:" "$out"
 dir="$src/cmux-tui/target/hosted/tree/$v2"
 [[ "$(cat "$dir/cmux-tui")" == "daemon published under v2-legacy" ]] || fail "fetch did not store the compatibility daemon under the v2 tree dir"
 python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["key"] == sys.argv[2]' "$dir/source.json" "$legacy" \
   || fail "the stored source.json does not name the compatibility key it came from"
 # B2 evidence: the log names the key actually fetched, and the cache dir (named
 # by the v2 key) records it, so a cached compatibility fallback cannot pass for v2.
-grep -qxF "fetched cmux-tui tree $legacy (v2-legacy fallback)" <<<"$out" || fail "fetch did not name the compatibility fallback key it fetched:" "$out"
-[[ "$(cat "$dir/fetched-key" 2>/dev/null)" == "$legacy v2-legacy" ]] || fail "the cache dir does not record the compatibility key it was fetched from"
+grep -qxF "fetched cmux-tui tree $legacy (compatibility fallback)" <<<"$out" || fail "fetch did not name the compatibility fallback key it fetched:" "$out"
+[[ "$(cat "$dir/fetched-key" 2>/dev/null)" == "$legacy compatibility" ]] || fail "the cache dir does not record the compatibility key it was fetched from"
 out=$(fetch) || fail "the cached fetch failed:" "$out"
-grep -qxF "cmux-tui tree $v2 already present, fetched from $legacy (v2-legacy fallback)" <<<"$out" \
+grep -qxF "cmux-tui tree $v2 already present, fetched from $legacy (compatibility fallback)" <<<"$out" \
   || fail "a cache hit hid that the binary came from the compatibility fallback:" "$out"
+
+# An immutable publication predating v2 must remain readable as well.
+rm -rf "$dir" "$cdn/tree/$legacy"
+publish "$v1" "daemon published under v1"
+out=$(fetch) || fail "fetch through the v1 publication failed:" "$out"
+[[ "$(cat "$dir/cmux-tui")" == "daemon published under v1" ]] || fail "lost v1 fallback"
+[[ "$(cat "$dir/fetched-key")" == "$v1 compatibility" ]] || fail "v1 source was hidden"
+rm -rf "$cdn/tree/$v1"
+publish "$legacy" "daemon published under v2-legacy"
 
 # With a v2 publication, fetch takes it and never the v1 one.
 rm -rf "$dir"
@@ -157,7 +187,7 @@ rm -rf "$cdn/tree/$v2"
 sha=$(awk '{print $1}' "$cdn/tree/$legacy/cmux-tui-aarch64-apple-darwin.sha256")
 printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"
 commit=$(resolve) || fail "resolve-commit through v1 failed:" "$(cat "$TMP/resolve.err")"
-grep -qxF "resolved cmux-tui tree $legacy (v2-legacy fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the compatibility fallback:" "$(cat "$TMP/resolve.err")"
+grep -qxF "resolved cmux-tui tree $legacy (compatibility fallback)" "$TMP/resolve.err" || fail "resolve-commit did not name the compatibility fallback:" "$(cat "$TMP/resolve.err")"
 
 # MACOS-CROSS-COMPILE-ON-LINUX: the Mac and the Linux builder give
 # byte-different macOS binaries, so the builder switch and the Linux recipe
