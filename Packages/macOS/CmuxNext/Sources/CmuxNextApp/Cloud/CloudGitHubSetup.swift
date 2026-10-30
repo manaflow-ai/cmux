@@ -182,11 +182,17 @@ nonisolated enum CloudGitHubSetup {
     /// The Cloud agent's socket on the machine, which `cmux github` asks for each token.
     static let agentSocket = "/run/cmux-vm-agent/agent.sock"
 
+    /// A token ask for a repo no team has: an agent not yet bound answers `vm.unbound` and mints
+    /// nothing; a bound one passes it to the API, which refuses it. An unbound agent's helper would
+    /// fail every git call, so the device flow runs instead.
+    static let unboundProbe = "printf 'protocol=https\\nhost=github.com\\npath=cmux-setup-probe/none.git\\n\\n' | cmux github credential get 2>&1 >/dev/null | grep -q 'vm\\.unbound'"
+
     static func appCommand(at socket: String) -> String {
         [
             "if [ -S \(shellQuote(socket)) ] && command -v cmux >/dev/null 2>&1; then",
-            "  if cmux github setup >/dev/null 2>&1; then echo 'cmux-gh: app'; exit 0; fi",
-            "  echo 'cmux-app: failed'",
+            "  if \(unboundProbe); then echo 'cmux-app: unavailable'",
+            "  elif cmux github setup >/dev/null 2>&1; then echo 'cmux-gh: app'; exit 0",
+            "  else echo 'cmux-app: failed'; fi",
             "else",
             "  echo 'cmux-app: unavailable'",
             "fi",

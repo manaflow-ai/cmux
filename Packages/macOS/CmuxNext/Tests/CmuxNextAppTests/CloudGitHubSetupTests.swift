@@ -181,7 +181,27 @@ struct CloudGitHubSetupTests {
         let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
         #expect(ran.output == expected + (expected.hasPrefix("cmux-app:") ? "cmux-gh: logged_in\n" : ""))
         let called = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
-        #expect(called == (socket ? "github setup\n" : ""))
+        // A bound agent's probe answer names no vm.unbound, so the helper goes in.
+        #expect(called == (socket ? "github credential get\ngithub setup\n" : ""))
+    }
+
+    /// An agent not yet bound answers the probe with `vm.unbound`: no helper goes in, and the device flow follows.
+    @Test func anUnboundAgentGetsNoHelper() throws {
+        let root = URL(fileURLWithPath: "/tmp/cn-gh-unbound-\(UUID().uuidString.prefix(8))")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = root.appendingPathComponent("seen")
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && echo 'cmux-setup-probe/none: vm.unbound: this machine is not bound to cmux Cloud yet' >&2\nexit 0\n"
+        try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
+        let path = root.appendingPathComponent("a.sock").path
+        let listener = try Self.listen(at: path)
+        defer { Darwin.close(listener) }
+        let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
+        let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
+        #expect(ran.output == "cmux-app: unavailable\ncmux-gh: logged_in\n")
+        #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on an unbound agent")
     }
 
     @Test func theAppOutcomeIsOkAndNamesItsMethod() {
