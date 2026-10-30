@@ -128,7 +128,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
     const page = await open("claude-many-harnesses-inline-effort", 320, 560);
     try {
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor({ state: "attached" });
       const menu = await bounds(page, ".acpmux-quick-menu");
       const rail = await bounds(page, ".acpmux-quick-rail");
       await page.getByRole("button", { name: "Codex", exact: true }).click();
@@ -136,7 +136,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         () =>
           document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor({ state: "attached" });
       const switched = await bounds(page, ".acpmux-quick-menu");
       const switchedRail = await bounds(page, ".acpmux-quick-rail");
       expect(switched.width).toBeLessThanOrEqual(296);
@@ -235,6 +235,45 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
     } finally {
       await page.close();
+    }
+  });
+
+  test("one row per model; effort is a vertical side dropdown beside the model, never a row of words", async () => {
+    // The P0 wall (#26521 put every level under every model). Leo 2026-10-30: "we dont like
+    // horizontal text for effort. just make it vertical. hell, why not do a vertical slider?".
+    for (const [entry, variant] of [
+      ["new-tab.quick-model-menu", "claude-many-harnesses-inline-effort"],
+      ["agent-pane.inline-model-effort", "chat"],
+    ] as const) {
+      const page = await open(variant, 640, 560, entry);
+      try {
+        await page.locator(".acpmux-quick-model-effort").first().waitFor();
+        // Every model one 28 px row, and no level shows until a row is pointed at.
+        const rows = await page
+          .locator(".acpmux-quick-model-effort")
+          .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+        expect(rows.length).toBeGreaterThan(1);
+        expect(rows.every((height) => height === 28), `row heights ${rows.join(",")}`).toBe(true);
+        expect(await page.locator(".acpmux-quick-effort-segment:visible").count()).toBe(0);
+        // Pointing at the running model opens its levels beside it, one under another.
+        const row = page.locator(".acpmux-quick-model-effort[data-running]").first();
+        await row.locator("> .acpmux-quick-item").hover();
+        const levels = row.locator(".acpmux-quick-effort-segment");
+        await levels.first().waitFor();
+        const boxes = await levels.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
+        expect(boxes.length).toBeGreaterThan(1);
+        for (let index = 1; index < boxes.length; index++) {
+          expect(boxes[index].y).toBeGreaterThanOrEqual(boxes[index - 1].y + boxes[index - 1].height - 0.5);
+          expect(Math.abs(boxes[index].x - boxes[0].x)).toBeLessThan(1);
+        }
+        // At the row's trailing side, beside the model's name.
+        const name = await row.locator("> .acpmux-quick-item").boundingBox();
+        expect(boxes[0].x).toBeGreaterThan(name!.x + name!.width / 2);
+        // Only that row's levels show.
+        expect(await page.locator(".acpmux-quick-efforts:visible").count()).toBe(1);
+      } finally {
+        await page.close();
+      }
     }
   });
 
