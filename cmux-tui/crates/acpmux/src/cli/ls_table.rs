@@ -79,7 +79,8 @@ fn named(row: &Value) -> bool {
     if name.trim().is_empty() {
         return false;
     }
-    if text(row, "titleSource") == "named" {
+    // Started under a name (`launched`, until its first prompt) or renamed (`named`).
+    if matches!(text(row, "titleSource"), "named" | "launched") {
         return true;
     }
     let harness = text(row, "harness");

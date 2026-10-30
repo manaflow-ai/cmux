@@ -56,9 +56,11 @@ fn all_lists_the_hidden_rows_and_a_filter_hides_none() {
 
 #[test]
 fn a_named_session_whose_name_looks_generated_is_kept() {
-    // Someone ran `acpmux new -n codex-2`: the daemon marks it named.
-    let named = with(lane("codex-2"), json!({"harness": "codex"}));
-    assert!(compact(&[named]).contains("codex-2"));
+    // Someone ran `acpmux new -n codex-2`: the daemon marks it launched, or named once renamed.
+    for source in ["launched", "named"] {
+        let named = with(lane("codex-2"), json!({"harness": "codex", "titleSource": source}));
+        assert!(compact(&[named]).contains("codex-2"), "{source}");
+    }
     // A lane named after its harness and more is someone's name too.
     let lane_name =
         with(lane("codex-review"), json!({"harness": "codex", "titleSource": "harness"}));
@@ -188,4 +190,16 @@ fn a_short_or_empty_row_pads_without_panicking() {
     );
     // A row longer than the header: its extra cells are padded to no width.
     assert_eq!(table(vec![s(&["A", "B"]), s(&["x", "y", "z"])]), "A  B\nx  yz\n");
+}
+
+#[test]
+fn a_lane_keeps_its_row_once_its_chat_is_titled() {
+    // A lane started under a name gets a generated title after its first prompt (`titles.rs`);
+    // ls lists it by its name, as before.
+    for source in ["launched", "prompt", "asked", "generated", "harness"] {
+        let row = with(lane("p0m-as-p2"), json!({"titleSource": source, "title": "Fix the rail"}));
+        let out = compact(&[row]);
+        assert!(out.lines().nth(1).is_some_and(|l| l.starts_with("p0m-as-p2 ")), "{source}: {out}");
+        assert!(!out.contains("hidden"), "{source}: {out}");
+    }
 }

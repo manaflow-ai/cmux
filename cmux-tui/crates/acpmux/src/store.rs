@@ -185,7 +185,9 @@ pub struct SessionMeta {
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
     /// `harness` (its own `session_info_update`), `asked` (a generated title
-    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated` or `adopted`.
+    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated`,
+    /// `adopted`, `named` (renamed before a title settled: none is generated) or `launched`
+    /// (started under a name, not yet prompted).
     /// None: a chat titled before acpmux generated titles; kept as is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_source: Option<String>,
