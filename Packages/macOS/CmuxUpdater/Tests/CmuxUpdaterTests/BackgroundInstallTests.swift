@@ -237,6 +237,24 @@ import Testing
         #expect(harness.controller.stagedUpdate == nil, "the installing update still reads as staged")
     }
 
+    /// A silent Sparkle installer can already be in the installing state when the running build
+    /// is pulled. Restart to Update must take that installer back before asking Sparkle for the
+    /// newest build; otherwise ``checkForUpdates()`` is ignored forever while the stale installer
+    /// remains held.
+    @Test func aManualCheckReplacesSparkleSilentInstall() async {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
+        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+
+        harness.controller.checkForUpdates()
+        await waitUntil("the replacement check") { harness.updater.checkForUpdatesCallCount == 1 }
+        #expect(harness.controller.stagedUpdate == nil, "the stale silent installer was not released")
+        if case .installing = harness.model.state {
+            Issue.record("the controller stayed in the stale installing state")
+        }
+    }
+
     @Test func backgroundModeWritesNothingToDefaults() {
         let harness = Harness()
         let before = persisted(harness)
