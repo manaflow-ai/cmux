@@ -31,6 +31,11 @@ import { clipMessagePreview as clip } from "./clipMessagePreview";
 /// beside it.
 export type IncomingRelation = "parent" | "subsession" | "ancestor" | "descendant";
 const RELATIONS: readonly string[] = ["parent", "subsession", "ancestor", "descendant"];
+/// A Chief's participant id (acpmux `fromChief`): `agent_mux`, `agent_…`.
+const CHIEF_ID = /^agent_[A-Za-z0-9_-]{1,58}$/;
+/// The Chief whose turn sent a message (acpmux `prompt_provenance::stamp_chief`).
+const chiefOf = (provenance: Record<string, unknown>): string | undefined =>
+  typeof provenance.fromChief === "string" && CHIEF_ID.test(provenance.fromChief) ? provenance.fromChief : undefined;
 
 export type IncomingMessage = {
   /// The sender's name, or its address when it gives none.
@@ -39,6 +44,9 @@ export type IncomingMessage = {
   sessionId?: string;
   /// Who the sender is to this chat, for a sub-session family's message.
   relation?: IncomingRelation;
+  /// The Chief whose turn sent it (acpmux `fromChief`, its participant id): the line shows that
+  /// Chief's name and avatar (chiefFace.ts), not the turn's session name (manaflow-ai/cmux#27914).
+  chief?: string;
   /// The message's id and its thread's (the `agent_message` provenance), which a reply names
   /// (IncomingMessageCard.tsx's Reply); a Claude Code envelope has neither.
   msgId?: string;
@@ -248,9 +256,11 @@ export function incomingPrompt(
     provenance?.kind === "session_message" ||
     provenance?.kind === "task_result";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
+    // A Chief's turn: the Chief, whose turn session is its own and is no chat to open.
+    const chief = chiefOf(provenance);
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
     // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).
-    const sessionId = provenance.from.replace(/^acp:/, "") || undefined;
+    const sessionId = chief ? undefined : provenance.from.replace(/^acp:/, "") || undefined;
     const name = trimmed(provenance.fromShortName) ?? trimmed(provenance.fromName) ?? provenance.from;
     const relation =
       typeof provenance.fromRole === "string" && RELATIONS.includes(provenance.fromRole)
@@ -264,6 +274,7 @@ export function incomingPrompt(
       message: {
         name: signed?.name ?? name,
         ...(sessionId && { sessionId }),
+        ...(chief && { chief }),
         ...(relation && { relation }),
         ...remote,
         text: signed?.text ?? text.trim(),
@@ -300,6 +311,8 @@ export function incomingPrompt(
     // here, which the card opens; a terminal agent (`term_…`) or a person at a shell (`cli`) is not
     // one.
     const sessionId = provenance.from.startsWith("acp:") ? provenance.from.slice(4) || undefined : undefined;
+    // A Chief's turn (`agents_chat_send`): the line names the Chief; Reply still answers its turn.
+    const chief = chiefOf(provenance);
     const body = (renderedBody(text, provenance.msgId) ?? text).trim();
     const signed = agentSigned(body, [provenance.fromName]);
     const id = (key: string) =>
@@ -309,6 +322,7 @@ export function incomingPrompt(
       message: {
         name: signed?.name ?? name,
         ...(sessionId && { sessionId }),
+        ...(chief && { chief }),
         ...id("msgId"),
         ...id("threadId"),
         ...remote,

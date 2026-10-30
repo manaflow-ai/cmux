@@ -303,6 +303,9 @@ acpmux session deny NAME                                      # an allow is the 
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session turn-cap NAME [--minutes N | --off | --clear]  # past it, other agents' messages wait for the next turn
+acpmux session queue list NAME                                # one row per queued prompt: id, sender, age, first line (--json: whole text)
+acpmux session queue remove NAME PROMPT_ID...                 # take those out; each reported removed or not found
+acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
@@ -1081,8 +1084,13 @@ An offline peer's row gives its link state and the next command (`acpmux host do
 A peer on an older build that lacks the method shows as reachable, and names
 `acpmux host update HOST` (or the target-specific `--binary-dir DIR` form when
 its OS or architecture differs). A remote session's `--cwd` and worktrees are on the peer's disk
-(`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
-`session export HOST/name` and `session import DIR` bring a session here.
+(`~/.cmux/worktrees/<project>/<name>` there). `session export HOST/name` and `session import DIR`
+bring a copy of a session here; `session move SESSION... --host PEER|auto` moves chats from this
+machine to an ssh peer for good (`src/cli/run/session_move.rs`): a chat's worktree branch is pushed
+and checked out there as a fresh worktree (a plain folder under the home maps to the same path
+under the peer's home), the chat is moved with its history, queue and draft through the peer
+daemon's own socket (an `ssh -L` forward), and the copy here records `movedTo`, never runs again,
+and `resolve` and agent links lead to the peer. `auto` never picks a reserved host.
 
 **Peer snapshots: a paused or offline peer's chat paints at once.** The daemon keeps a bounded,
 durable copy of each peer session's events as it saw them (its clients' `_acpmux/attach` and
@@ -1342,6 +1350,7 @@ Extensions:
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
+| `_acpmux/queue_text {promptId}` | One queued prompt read whole: `{promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`. The queue list carries a 200-character `prompt` preview per row; this reads one on demand. A read for whoever may read the log; `queue.not_found` once it left the queue. Capability `queue-text-v1`. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |

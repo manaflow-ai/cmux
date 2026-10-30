@@ -24,6 +24,8 @@ struct ChatComposer: View {
     var placeholderOverride: String?
     /// Sending answers the pending permission with a denial plus this message.
     var denyingPermission = false
+    /// A Retry uses the same send path, including queue/steer and draft clearing.
+    var retryCount = 0
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -32,6 +34,9 @@ struct ChatComposer: View {
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
     @State private var planMode = false
+    #if DEBUG
+    @State private var ranOfflineSendDemo = false
+    #endif
     /// Set by a tap on the collapsed capsule: the text field only exists
     /// when expanded, so focus can only move into it after it is built.
     @State private var expandRequested = false
@@ -83,10 +88,22 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .onChange(of: retryCount) { _, _ in sendFromKeyboard() }
         .onChange(of: focus.wrappedValue) { _, focused in
             if focused { expandRequested = false }
         }
         .onAppear { if expandOnAppear { expand() } }
+        #if DEBUG
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
+                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  !ranOfflineSendDemo else { return }
+            ranOfflineSendDemo = true
+            text = "Run the tests and summarize the results."
+            send(steer: false)
+        }
+        #endif
         // A returned prompt the Mac turned out to have run: out of the composer again,
         // unless the person already changed it.
         .onChange(of: store.withdrawnDraft) { _, draft in
@@ -559,10 +576,13 @@ struct ChatComposer: View {
 
 /// Messages waiting for the current turn to end, above the composer or the
 /// permission bar (so a queued message stays visible when the bar takes the
-/// composer's place). The X takes a message back into the composer.
+/// composer's place). The X takes a message back into an empty composer; with a
+/// draft there it asks first, and never replaces the draft.
 struct QueuedPromptsView: View {
     let store: AgentChatStore
     @Binding var text: String
+    /// The X on a message while the composer holds a draft: which one to confirm removing.
+    @State private var confirmingRemoval: QueuedPrompt?
     /// Edit queued prompt: which one, and its text while editing.
     @State private var editing: QueuedPrompt?
     @State private var editText = ""
@@ -606,6 +626,20 @@ struct QueuedPromptsView: View {
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
+        // The X while a draft is in the composer: the draft stays, so the message is not
+        // put back there; it is removed only on a choice here, and can be copied first.
+        .confirmationDialog("Remove queued message?",
+                            isPresented: Binding(get: { confirmingRemoval != nil }, set: { if !$0 { confirmingRemoval = nil } }),
+                            titleVisibility: .visible, presenting: confirmingRemoval) { item in
+            Button("Copy and Remove") {
+                UIPasteboard.general.string = item.text
+                store.removeQueued(item.id)
+            }
+            Button("Remove", role: .destructive) { store.removeQueued(item.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Your draft stays in the composer.")
+        }
     }
 
     private func row(_ item: QueuedPrompt) -> some View {
@@ -615,8 +649,11 @@ struct QueuedPromptsView: View {
                     Text(item.text).font(.subheadline).lineLimit(1)
                     Spacer()
                     Button {
-                        store.removeQueued(item.id)
-                        text = item.text
+                        if let restored = store.takeBackQueued(item.id, draft: text) {
+                            text = restored
+                        } else if store.queue.contains(where: { $0.id == item.id }) {
+                            confirmingRemoval = item
+                        }
                     } label: {
                         Image(systemName: "xmark").font(.footnote.weight(.semibold))
                             .frame(width: 44, height: 44)
