@@ -169,7 +169,8 @@ import Testing
     }
 
     @Test func aRefusalThatMadeNoMachineGivesTheRetryANewKey() {
-        for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked"] {
+        for code in ["cmux.cloud.quota_exceeded", "cloud.quota.exceeded", CloudAppOpFailure.planRequired, "cmux.cloud.size_locked",
+                     "cmux.cloud.approval_denied", "cmux.cloud.approval_expired", "approval.expired"] {
             #expect(CloudService.isDefinitiveRefusal(CloudAppOpFailure(code: code, message: "")), "\(code)")
         }
         for code in [CloudAppOpFailure.approvalPending, "cmux.cloud.relay_unavailable", "cmux.cloud.bad_response", "cmux.cloud.failed"] {

@@ -105,10 +105,12 @@ extension CloudService {
     }
 
     /// The server refused the create before making anything (no plan, the plan's machine limit or
-    /// size), an answer a same-key Retry would only replay. A lost answer, a timeout or a relay that
-    /// is down is uncertain, so it keeps the key.
+    /// size, an approval denied or expired, which the contract asks again with a new key), an answer
+    /// a same-key Retry would only replay. A lost answer, a timeout or a relay that is down is
+    /// uncertain, so it keeps the key.
     nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
-        ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked"]
+        ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked",
+         "approval_denied", "approval.denied", "approval_expired", "approval.expired"]
             .contains { failure.code.hasSuffix($0) }
     }
 
