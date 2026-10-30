@@ -227,7 +227,7 @@ test("a signed-out harness offers Log In and Add Credits, never an API key it ca
     signIn: {
       signedOut: { codex: "codex login" },
       logIn: () => undefined,
-      access: { addKey: (harness) => asked.push(`key:${harness}`), addCredits: () => asked.push("credits") },
+      access: { addCredits: () => asked.push("credits") },
     },
   });
   const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;

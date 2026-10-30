@@ -1,11 +1,13 @@
 // Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
-// their own api key". The cmux model router refuses a caller with no plan and no credits (402
-// `inference.plan_required`, or `credits.insufficient`), and its Messages endpoint passes on only the
-// text. The failed turn names the way out and offers Add Credits… and Add API Key…, never a dead end.
+// their own api key". This PR ships the Add Credits half: the cmux model router refuses a caller with
+// no paid plan and no credits (402 `inference.plan_required`) or a credit-funded caller, still without
+// a paid plan, whose credits do not cover the call (`credits.insufficient`; backend inference/route.ts
+// resolveCaller). Both are lifted by a paid plan, so both offer Add Credits… (the paid-plan path). Add
+// API Key… waits for key plumbing (no placement makes a saved key usable yet), so no card offers it.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { failureCopy, failureKind, failureRecovery } from "../src/agent-session/acpmux/failureCopy";
-import { ACCESS_ACTIONS, addKeyParams, keyProvider } from "../src/agent-session/acpmux/accessOffer";
+import { ACCESS_ACTIONS } from "../src/agent-session/acpmux/accessOffer";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 
 const t = translatorFor("en");
@@ -26,19 +28,15 @@ test("the router's credit refusals read as needs-credits, not a key, quota or ge
   // The router's code alone, typed, with no words.
   expect(failureKind(undefined, router, "inference.plan_required")).toBe("needs-credits");
   expect(failureKind("agent process closed", router, "credits.insufficient")).toBe("needs-credits");
-  expect(failureCopy(t, noCredits, router)).toBe(
-    "cmux model router needs cmux credits or your own API key for this model.",
-  );
-  expect(failureCopy(t, undefined, router, "inference.plan_required")).toBe(
-    "cmux model router needs cmux credits or your own API key for this model.",
-  );
-  // On a plan but out of credits: no web page or app action sells a top-up yet, so the line says so.
-  expect(failureCopy(t, undefined, router, "credits.insufficient")).toBe(
-    "cmux model router ran out of cmux credits. Top-ups aren't available in the app yet: use your own API key or switch model.",
-  );
-  expect(failureCopy(t, lowCredits, router)).toBe(
-    "cmux model router ran out of cmux credits. Top-ups aren't available in the app yet: use your own API key or switch model.",
-  );
+  for (const [message, code] of [
+    [noCredits, undefined],
+    [lowCredits, undefined],
+    [undefined, "inference.plan_required"],
+    [undefined, "credits.insufficient"],
+  ] as const)
+    expect(failureCopy(t, message, router, code)).toBe(
+      "cmux model router needs cmux credits or your own API key for this model.",
+    );
   // After credits land, the same prompt goes again.
   expect(failureRecovery("needs-credits")).toBe("retry");
   // Other text that only mentions cmux credits is not the router's refusal.
@@ -49,17 +47,8 @@ test("the router's credit refusals read as needs-credits, not a key, quota or ge
   expect(failureKind("API Error: 429 rate_limit_error", router)).toBe("rate-limited");
 });
 
-test("Add API Key… opens the Accounts row of the harness's provider, else Accounts itself", () => {
-  expect(keyProvider("claude")).toBe("anthropic");
-  expect(keyProvider("claude-sr")).toBe("anthropic");
-  expect(keyProvider("codex")).toBe("openai");
-  expect(keyProvider("gemini")).toBe("gemini");
-  expect(keyProvider("cmux")).toBeUndefined();
-  expect(keyProvider("constructor")).toBeUndefined();
-  expect(keyProvider(undefined)).toBeUndefined();
-  expect(addKeyParams("codex")).toEqual({ id: ACCESS_ACTIONS.addKey, provider: "openai" });
-  expect(addKeyParams("cmux")).toEqual({ id: ACCESS_ACTIONS.addKey });
-  expect(ACCESS_ACTIONS).toEqual({ addKey: "accounts.show", addCredits: "palette.pro.upgrade" });
+test("Add Credits… is the paid-plan path, the only access action", () => {
+  expect(ACCESS_ACTIONS).toEqual({ addCredits: "palette.pro.upgrade" });
 });
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -94,7 +83,6 @@ for (const key of Object.getOwnPropertyNames(dom.window))
   )
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
-const savedExperiments = globalThis.cmuxExperiments;
 Object.assign(scope, replacements);
 
 const { act } = await import("react");
@@ -108,7 +96,6 @@ const root = createRoot(host);
 afterAll(() => {
   act(() => root.unmount());
   dom.window.close();
-  globalThis.cmuxExperiments = savedExperiments;
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -133,21 +120,13 @@ const actionLabels = () =>
 const button = (label: string) =>
   [...card().querySelectorAll("button")].find((element) => element.textContent === label);
 
-async function render(error: string, arm?: string, access = true) {
-  globalThis.cmuxExperiments = arm ? { "access-offer": arm } : {};
+async function render(error: string, access = true) {
   const calls: string[] = [];
   const actions = {
     route: router,
     retry: () => calls.push("retry"),
     switchModel: () => calls.push("switch"),
-    ...(access
-      ? {
-          access: {
-            addKey: (harness?: string) => calls.push(`key:${harness}`),
-            addCredits: () => calls.push("credits"),
-          },
-        }
-      : {}),
+    ...(access ? { access: { addCredits: () => calls.push("credits") } } : {}),
   };
   await act(async () =>
     root.render(
@@ -159,56 +138,24 @@ async function render(error: string, arm?: string, access = true) {
   return calls;
 }
 
-test("a refused turn leads with Add Credits…, Add API Key… beside it, then Retry and Switch model", async () => {
-  const calls = await render(noCredits);
-  expect(card().getAttribute("data-failure-kind")).toBe("needs-credits");
-  expect(actionLabels()).toEqual(["Add Credits…", "Add API Key…", "Retry", "Switch model"]);
-  // The card keeps one filled button: Add Credits….
-  expect([...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
-    "Add Credits…",
-  ]);
-  await act(async () => button("Add Credits…")!.click());
-  await act(async () => button("Add API Key…")!.click());
-  await act(async () => button("Retry")!.click());
-  expect(calls).toEqual(["credits", "key:cmux", "retry"]);
-});
-
-test("the key-first arm fills Add API Key…; the link arm leaves Retry filled", async () => {
-  await render(noCredits, "key-first");
-  expect(actionLabels().slice(0, 2)).toEqual(["Add API Key…", "Add Credits…"]);
-  expect(button("Add API Key…")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  const calls = await render(noCredits, "link");
-  expect(actionLabels()).toEqual(["Retry", "Switch model"]);
-  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  const links = [...card().querySelectorAll(".cv-turn-error__cause .cv-turn-error__offer-link")];
-  expect(links.map((element) => element.textContent)).toEqual(["Add Credits…", "Add API Key…"]);
-  await act(async () => (links[1] as HTMLButtonElement).click());
-  expect(calls).toEqual(["key:cmux"]);
-});
-
-// `credits.insufficient`: the caller has a plan but too few credits for this call. The app has no
-// credit top-up (the paid-plan path sells a plan they already have), so Add Credits… would not fix
-// the turn: the card offers their own key, Retry and Switch model.
-test("a turn short of credits on a paid plan offers Add API Key…, never the plan upgrade", async () => {
-  for (const arm of [undefined, "key-first"]) {
-    const calls = await render(lowCredits, arm);
+test("a refused turn leads with Add Credits…, then Retry and Switch model, on both refusals", async () => {
+  for (const error of [noCredits, lowCredits, '{"error":{"code":"credits.insufficient"}}']) {
+    const calls = await render(error);
     expect(card().getAttribute("data-failure-kind")).toBe("needs-credits");
-    expect(actionLabels()).toEqual(["Add API Key…", "Retry", "Switch model"]);
+    expect(actionLabels()).toEqual(["Add Credits…", "Retry", "Switch model"]);
+    // The card keeps one filled button: Add Credits….
     expect([...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
-      "Add API Key…",
+      "Add Credits…",
     ]);
-    await act(async () => button("Add API Key…")!.click());
-    expect(calls).toEqual(["key:cmux"]);
+    expect(button("Add API Key…")).toBeUndefined();
+    await act(async () => button("Add Credits…")!.click());
+    await act(async () => button("Retry")!.click());
+    expect(calls).toEqual(["credits", "retry"]);
   }
-  await render('{"error":{"code":"credits.insufficient"}}');
-  expect(button("Add Credits…")).toBeUndefined();
-  await render(lowCredits, "link");
-  const links = [...card().querySelectorAll(".cv-turn-error__cause .cv-turn-error__offer-link")];
-  expect(links.map((element) => element.textContent)).toEqual(["Add API Key…"]);
 });
 
 test("a pane that cannot run the app's actions still names the way out, with no dead buttons", async () => {
-  await render(noCredits, undefined, false);
+  await render(noCredits, false);
   expect(card().querySelector(".cv-turn-error__cause")!.textContent).toContain(
     "needs cmux credits or your own API key",
   );
