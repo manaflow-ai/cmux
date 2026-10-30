@@ -291,46 +291,95 @@ else
       return found;
     };
 
-    /** Disables (or restores) the n-th `:has()` rule, or every one when n is -1. */
+    /** Disables (or restores) the n-th `:has()` rule (listHasRules' order), or every one when n is
+     *  -1. Each rule keeps its slot, so a rule goes back where it was among the rules still there. */
     const toggleHasRule = ({ n, off }: { n: number; off: boolean }) => {
+      type Slot = { parent: any; siblings: CSSRule[]; rule: CSSRule; text: string; present: boolean };
       const w = window as any;
-      w.__hasStash ??= new Map<
-        number,
-        { parent: CSSStyleSheet | CSSGroupingRule; index: number; text: string }
-      >();
-      const stash = w.__hasStash as Map<number, { parent: any; index: number; text: string }>;
-      if (!off) {
-        for (const [key, entry] of [...stash.entries()].sort((a, b) => a[0] - b[0])) {
-          if (n !== -1 && key !== n) continue;
-          entry.parent.insertRule(entry.text, entry.index);
-          stash.delete(key);
-        }
-        return;
-      }
-      let seen = 0;
-      const hits: { parent: any; index: number; key: number; text: string }[] = [];
-      const walk = (parent: any) => {
-        const rules = Array.from(parent.cssRules as CSSRuleList);
-        rules.forEach((rule, index) => {
-          if (rule instanceof CSSStyleRule && rule.selectorText.includes(":has(")) {
-            const key = seen++;
-            if (n === -1 || key === n) hits.push({ parent, index, key, text: rule.cssText });
+      if (!w.__hasRules) {
+        const slots: Slot[] = [];
+        const walk = (parent: any) => {
+          const siblings = Array.from(parent.cssRules as CSSRuleList);
+          for (const rule of siblings) {
+            if (rule instanceof CSSStyleRule && rule.selectorText.includes(":has("))
+              slots.push({ parent, siblings, rule, text: rule.cssText, present: true });
+            if ("cssRules" in rule && (rule as CSSGroupingRule).cssRules) walk(rule);
           }
-          if ("cssRules" in rule && (rule as CSSGroupingRule).cssRules) walk(rule);
-        });
-      };
-      for (const sheet of Array.from(document.styleSheets)) {
-        try {
-          walk(sheet);
-        } catch {
-          // unreadable
+        };
+        for (const sheet of Array.from(document.styleSheets)) {
+          try {
+            walk(sheet);
+          } catch {
+            // A cross-origin sheet has no readable rules.
+          }
         }
+        w.__hasRules = slots;
       }
-      for (const hit of hits.sort((a, b) => b.index - a.index)) {
-        hit.parent.deleteRule(hit.index);
-        stash.set(hit.key, { parent: hit.parent, index: hit.index, text: hit.text });
+      const slots = w.__hasRules as Slot[];
+      for (const slot of n === -1 ? slots : [slots[n]!]) {
+        if (off && slot.present) {
+          slot.parent.deleteRule(Array.from(slot.parent.cssRules as CSSRuleList).indexOf(slot.rule));
+          slot.present = false;
+        } else if (!off && !slot.present) {
+          const live = new Set(Array.from(slot.parent.cssRules as CSSRuleList));
+          const at = slot.siblings.indexOf(slot.rule);
+          const index = slot.siblings.slice(0, at).filter((rule) => live.has(rule)).length;
+          slot.parent.insertRule(slot.text, index);
+          slot.rule = slot.parent.cssRules[index];
+          slot.siblings[at] = slot.rule;
+          slot.present = true;
+        }
       }
     };
+
+    /** Why one inserted button restyles what it does: Chromium's invalidation tracking, grouped. */
+    async function why(page: Page) {
+      await page.evaluate(twoFrames);
+      await browser!.startTracing(page, {
+        categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
+      });
+      await page.evaluate(
+        async ({ frames }) => {
+          const rows = document.querySelectorAll(".acpmux-scroll .acpmux-row");
+          const row = rows[rows.length - 1]!;
+          const node = document.createElement("button");
+          node.type = "button";
+          node.textContent = "probe";
+          node.setAttribute("data-has-probe", "");
+          (row.querySelector(".cv-md") ?? row).append(node);
+          await new Function(`return ${frames}`)();
+        },
+        { frames: twoFrames },
+      );
+      const raw = JSON.parse((await browser!.stopTracing()).toString()) as {
+        traceEvents: { name: string; cat: string; args?: any }[];
+      };
+      await page.evaluate(() => document.querySelectorAll("[data-has-probe]").forEach((node) => node.remove()));
+      const kinds = new Map<string, number>();
+      const nodes = new Map<string, number>();
+      for (const event of raw.traceEvents) {
+        if (!event.cat.includes("invalidationTracking")) continue;
+        const data = event.args?.data ?? {};
+        const key = [
+          event.name,
+          data.reason,
+          data.changedPseudo && `pseudo ${data.changedPseudo}`,
+          data.changedAttribute && `attr ${data.changedAttribute}`,
+          data.changedClass && `class ${data.changedClass}`,
+          data.invalidationList && JSON.stringify(data.invalidationList).slice(0, 160),
+        ]
+          .filter(Boolean)
+          .join(" | ");
+        kinds.set(key, (kinds.get(key) ?? 0) + 1);
+        if (event.name === "StyleRecalcInvalidationTracking") {
+          const name = `${data.nodeName ?? "?"}`;
+          nodes.set(name, (nodes.get(name) ?? 0) + 1);
+        }
+      }
+      const top = (map: Map<string, number>) =>
+        [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+      return { kinds: top(kinds), nodes: top(nodes) };
+    }
 
     for (const [name, query] of [
       ["flows", "mock&recents=demo"],
@@ -346,36 +395,32 @@ else
           report(name, "stream", await stream(page));
 
           if (process.env.PANE_HAS_ABLATION === "1") {
-            const rules = (await page.evaluate(listHasRules)) as {
-              selector: string;
-              sheet: string;
-            }[];
+            report(name, "why", await why(page));
+            const rules = (await page.evaluate(listHasRules)) as { selector: string; sheet: string }[];
             const before = await insertion(page, "button", 3);
             await page.evaluate(toggleHasRule, { n: -1, off: true });
             const none = await insertion(page, "button", 3);
-            await page.evaluate(toggleHasRule, { n: -1, off: false });
             report(name, "ablation-all", { rules: rules.length, before, none });
-            for (let n = 0; n < rules.length; n += 1) {
-              await page.evaluate(toggleHasRule, { n, off: true });
-              const without = await insertion(page, "button", 3);
-              await page.evaluate(toggleHasRule, { n, off: false });
-              if (before.elements - without.elements > 50)
-                report(name, "ablation-rule", {
-                  n,
-                  ...rules[n],
-                  before: before.elements,
-                  without: without.elements,
-                });
-            }
             // Every :has() rule off but one: what that rule alone costs an insertion.
-            await page.evaluate(toggleHasRule, { n: -1, off: true });
+            const costly: number[] = [];
             for (let n = 0; n < rules.length; n += 1) {
               await page.evaluate(toggleHasRule, { n, off: false });
               const alone = await insertion(page, "button", 3);
               await page.evaluate(toggleHasRule, { n, off: true });
-              if (alone.elements - none.elements > 50)
+              if (alone.elements - none.elements > 20) {
+                costly.push(n);
                 report(name, "alone-rule", { n, ...rules[n], none: none.elements, alone: alone.elements });
+              }
             }
+            for (const n of costly.slice(0, 3)) {
+              await page.evaluate(toggleHasRule, { n, off: false });
+              report(name, "why-alone", { n, ...(await why(page)) });
+              await page.evaluate(toggleHasRule, { n, off: true });
+            }
+            // Every rule back but the costly ones: what is left.
+            await page.evaluate(toggleHasRule, { n: -1, off: false });
+            for (const n of costly) await page.evaluate(toggleHasRule, { n, off: true });
+            report(name, "without-costly", { costly: costly.length, ...(await insertion(page, "button", 3)) });
             await page.evaluate(toggleHasRule, { n: -1, off: false });
           }
           expect(true).toBe(true);
