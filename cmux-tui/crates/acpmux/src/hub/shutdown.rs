@@ -37,8 +37,9 @@ impl Hub {
     /// here on, or it would outlive the daemon with nothing to end it.
     /// Whether a shutdown began that hands `session`'s agent to the next daemon (no `endAgents`
     /// for it): a turn its agent's end cuts from now on is that daemon's to continue
-    /// (`restart_resume.rs`). Agents are ended only after `started` is set, so an end read after
-    /// this is false was not the shutdown's.
+    /// (`restart_resume.rs`). The shutdown ends or detaches agents only after `started` is set, so
+    /// an end it caused reads this true. One read true may also have come on its own just before:
+    /// that turn was cut too, and the next daemon continues it as this one would have.
     pub(super) fn hands_off(&self, session: &Session) -> bool {
         let plan = self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         plan.started && !(plan.end_agents && !plan.keep.contains(&session.id))

@@ -195,7 +195,9 @@ impl Hub {
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {
         session.route_switch.store(false, Ordering::SeqCst);
-        if session.child.lock().await.is_none() {
+        // A shutdown began: the agent it left running is the next daemon's to adopt, and no
+        // agent starts here any more (`shutdown.rs`).
+        if self.shutting_down() || session.child.lock().await.is_none() {
             return Ok(());
         }
         self.detach_child(session).await;
