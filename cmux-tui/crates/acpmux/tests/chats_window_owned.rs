@@ -147,6 +147,45 @@ async fn a_window_task_ends_with_its_last_window_and_with_its_connection() {
     tasks_reach_zero("the connection closed").await;
 }
 
+/// Port review P1 (#28055 on perf): a unix-socket client that hangs up ends its reads, but the
+/// daemon's writer learns of it only at its next write. The window task must end when the
+/// connection's reads end, not wait for a write that may never come.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_window_task_ends_when_the_client_stops_sending() {
+    const N: usize = 10;
+    let base = PathBuf::from("/tmp").join(format!("acpmux-window-hangup-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record(i, i, &format!("chat {i}")))).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+    c.ok("_acpmux/chats_window", json!({"window": "a", "limit": 3})).await;
+    assert_eq!(c.next_window().await["window"], "a");
+    assert!(acpmux::server::live_chat_window_tasks() >= 1);
+    // The client stops sending; its read side (out_rx) stays open, as a unix writer's does.
+    let Client(in_tx, out_rx, ..) = c;
+    drop(in_tx);
+    tasks_reach_zero("the client stopped sending").await;
+    drop(out_rx);
+}
+
 /// Waits (bounded) for the task count to reach 0: the task ends on its own executor turn.
 async fn tasks_reach_zero(after: &str) {
     let ended = tokio::time::timeout(Duration::from_secs(10), async {
