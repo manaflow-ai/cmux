@@ -3454,7 +3454,141 @@ class InFlightRunListingTests(unittest.TestCase):
         self.assertEqual([page for status, page in asked if status == "queued"], [1, 2])
         pages = {page: [{"id": page * 1000 + index} for index in range(100)] for page in range(1, 5)}
         ids, asked = self.listing({"queued": pages})
-        self.assertEqual(len(ids), 100 * janitor.MAX_RUN_PAGES)
+        self.assertEqual(len(ids), 400)  # four full pages, then the empty fifth: no cap at three
+
+
+def github_listing(runs, *, result_pages=10):
+    """A janitor client whose run listing answers like GitHub: newest first, 100 a page, `status` and
+    `created<=` filters, and nothing past `result_pages` pages (its 1,000-result cap). Returns (client, asked)."""
+    github = janitor.GitHub("token", "manaflow-ai/cmux")
+    asked = []
+    ordered = sorted(runs, key=lambda run: (run["created_at"], run["id"]), reverse=True)
+
+    def request(method, path, body=None):
+        query = urllib.parse.parse_qs(path.split("?", 1)[1])
+        status, page = query["status"][0], int(query["page"][0])
+        created = query.get("created", [""])[0]
+        asked.append((status, page, created))
+        rows = [run for run in ordered if run["status"] == status
+                and (not created or run["created_at"] <= created.removeprefix("<="))]
+        batch = rows[(page - 1) * 100:page * 100] if page <= result_pages else []
+        return {"workflow_runs": batch, "total_count": len(rows)}
+
+    github.request = request
+    return github, asked
+
+
+def queued_runs(count, *, status="queued"):
+    """`count` runs a second apart, newest first in time."""
+    start = dt.datetime(2026, 10, 30, 14, 0, tzinfo=dt.timezone.utc)
+    return [{"id": 10_000 + index, "status": status,
+             "created_at": (start - dt.timedelta(seconds=index)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+            for index in range(count)]
+
+
+class FullQueueListingTests(unittest.TestCase):
+    """2026-10-30: 1,138 runs queued, and the sweep listed 300 of them (three pages a status)."""
+
+    def test_every_queued_run_of_a_1138_run_queue_is_listed(self):
+        runs = queued_runs(1138)
+        github, asked = github_listing(runs)
+        ids = {run["id"] for run in github.in_flight_runs()}
+        self.assertEqual(ids, {run["id"] for run in runs})
+        state = janitor.listing_state(github, set())
+        self.assertEqual((state["truncated"], state["listed"], state["total"]), (False, 1138, 1138))
+        self.assertEqual(state["statuses"]["queued"]["listed"], 1138)
+        # Past GitHub's ten pages the listing goes on from the oldest run seen, not from page eleven.
+        self.assertNotIn(("queued", 11, ""), asked)
+        self.assertTrue(any(created.startswith("<=") for status, _, created in asked if status == "queued"))
+
+    def test_a_listing_past_its_ceiling_says_truncated_with_counts(self):
+        runs = queued_runs(500)
+        github, asked = github_listing(runs)
+        with mock.patch.object(janitor, "MAX_RUN_PAGES", 2):
+            ids = github.in_flight_runs()
+        self.assertEqual(len(ids), 200)
+        self.assertEqual(len([entry for entry in asked if entry[0] == "queued"]), 2)
+        state = janitor.listing_state(github, set())
+        self.assertIs(state["truncated"], True)
+        self.assertEqual((state["listed"], state["total"]), (200, 500))
+        self.assertIs(state["statuses"]["queued"]["truncated"], True)
+
+    def test_runs_left_past_the_job_listing_cap_truncate_the_listing(self):
+        runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in (5, 10, 15)]
+        fake = FakeGitHub({run["id"]: dict(run) for run in runs}, {run["id"]: mac_jobs(queued=1) for run in runs})
+        jobs, unread, unlisted = janitor.read_run_jobs(fake, runs, frozenset(), NOW, cap=2)
+        # The newest two are listed; the oldest is left, and the snapshot says so.
+        self.assertEqual(set(jobs), {runs[0]["id"], runs[1]["id"]})
+        self.assertEqual((unread, unlisted), (set(), {runs[2]["id"]}))
+        state = janitor.listing_state(fake, unlisted)
+        self.assertIs(state["truncated"], True)
+        self.assertEqual(state["jobs_unlisted"], 1)
+
+    def test_parallel_job_listings_match_one_at_a_time(self):
+        runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in range(1, 40)]
+        job_map = {run["id"]: mac_jobs(queued=run["id"] % 3 + 1) for run in runs}
+        fake = FakeGitHub({run["id"]: dict(run) for run in runs}, job_map)
+        fake.unreadable_jobs = {runs[7]["id"]}
+        with mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+            parallel = janitor.read_run_jobs(fake, runs, frozenset(), NOW, workers=6)
+            serial = janitor.read_run_jobs(fake, runs, frozenset(), NOW, workers=1)
+        self.assertEqual(parallel, serial)
+        self.assertEqual(list(parallel[0]), [run["id"] for run in runs if run["id"] != runs[7]["id"]])
+        self.assertEqual(parallel[1], {runs[7]["id"]})
+
+    def test_a_rate_limit_in_a_parallel_listing_ends_the_sweep(self):
+        runs = [make_run(status="queued", age=age, branch=f"b{age}") for age in range(1, 10)]
+
+        class Limited(FakeGitHub):
+            def jobs(self, run_id):
+                if run_id == runs[4]["id"]:
+                    raise janitor.RateLimited("GET /jobs failed (403: rate limit)")
+                return []
+
+        with self.assertRaises(janitor.RateLimited):
+            janitor.read_run_jobs(Limited({}, {}), runs, frozenset(), NOW, workers=4)
+
+
+class TruncatedSweepTests(unittest.TestCase):
+    """A sweep that saw part of the queue says so in the snapshot and decides nothing."""
+
+    def sweep(self, **patches):
+        stuck = make_run(status="queued", age=340, branch="ci/macos26-app-host-repair")
+        busy = make_run(status="in_progress", age=20, branch="busy")
+        runs = {r["id"]: dict(r) for r in (stuck, busy)}
+        jobs = {stuck["id"]: [linux_job(age=330), orphan_job(age=220)], busy["id"]: [served_job(age=15)]}
+        fake = FakeGitHub(runs, jobs)
+        with tempfile.TemporaryDirectory() as temp:
+            load, summary = Path(temp) / "load.json", Path(temp) / "summary.md"
+            argv = ["--repo", "manaflow-ai/cmux", "--summary", str(summary), "--pool-load", str(load),
+                    "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch.multiple(janitor, MAX_JOB_LISTINGS=patches.get("MAX_JOB_LISTINGS", janitor.MAX_JOB_LISTINGS)), \
+                    mock.patch("builtins.print"):
+                code = janitor.main(argv)
+            return code, fake, json.loads(load.read_text()), summary.read_text()
+
+    def test_a_complete_sweep_says_so_and_acts(self):
+        code, fake, snapshot, text = self.sweep()
+        self.assertEqual(code, 0)
+        self.assertIs(snapshot["truncated"], False)
+        self.assertEqual(snapshot["listed"], 2)
+        self.assertIn("queued", snapshot["listing"]["statuses"])
+        self.assertNotIn("starved_incomplete", snapshot)
+        self.assertTrue(fake.posts())  # the orphan is cancelled
+        self.assertIn("Listed 2 of", text)
+
+    def test_a_truncated_sweep_marks_the_snapshot_and_cancels_nothing(self):
+        code, fake, snapshot, text = self.sweep(MAX_JOB_LISTINGS=1)
+        self.assertEqual(code, 0)
+        self.assertIs(snapshot["truncated"], True)
+        self.assertEqual(snapshot["listing"]["jobs_unlisted"], 1)
+        self.assertIs(snapshot["starved_incomplete"], True)
+        self.assertEqual(fake.posts(), [])
+        self.assertIn("this sweep decided nothing", text)
 
 
 class OpenHeadNeverCancelledTests(unittest.TestCase):
