@@ -202,4 +202,42 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions.isEmpty, "the late release asked for \(harness.actions)")
         #expect(panel.panel.entries.map(\.id) == entries.map(\.id))
     }
+
+    /// A feed update gives the held chat a preview mid-drag: its row takes the taller layout's height,
+    /// the press stays under the still pointer, and the drop takes the slot that row's middle shows.
+    @Test func aHeldRowGrowingMidDragTakesTheNewHeightUnderThePointer() throws {
+        let ids = ["a", "b", "c", "d"]
+        let harness = Harness(entries: ids.map { SidebarPriorityEntry(id: $0, title: $0, state: .idle) })
+        let panel = harness.panel
+        let row = try #require(panel.rows["a"])
+        let document = try #require(row.superview)
+        let height = row.frame.height
+        let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+        let grab = row.bounds.midY
+        let held = NSPoint(x: start.x, y: start.y - height * 2.1)
+        row.mouseDown(with: try harness.event(.leftMouseDown, at: start))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: NSPoint(x: start.x, y: start.y - height * 0.4)))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: held))
+
+        let grown = ids.map { SidebarPriorityEntry(id: $0, title: $0, preview: $0 == "a" ? "a longer message" : nil, state: .idle) }
+        panel.show(SidebarPriorityPanel(entries: grown))
+        let tall = SidebarPriorityRowView.height(hasPreview: true)
+        try #require(tall > height)
+        #expect(abs(row.frame.height - tall) < 0.5, "the held row kept height \(row.frame.height), not \(tall)")
+        #expect(abs(document.convert(held, from: nil).y - row.frame.minY - grab) < 0.5, "the press left the pointer: \(row.frame)")
+
+        // The drop takes the slot of the row's middle as it shows, over the new heights.
+        let heights = grown.map { SidebarPriorityRowView.height(hasPreview: $0.preview != nil) }
+        var slot = 0, y: CGFloat = 0
+        for (index, rowHeight) in heights.enumerated() {
+            if index != 0, y + rowHeight / 2 < row.frame.midY { slot += 1 }
+            y += rowHeight
+        }
+        try #require(slot > 0, "the held row did not pass a row")
+        row.mouseUp(with: try harness.event(.leftMouseUp, at: held))
+        var order = ids
+        order.remove(at: 0)
+        order.insert("a", at: slot)
+        #expect(harness.actions == [.place("a", order: order)])
+    }
 }

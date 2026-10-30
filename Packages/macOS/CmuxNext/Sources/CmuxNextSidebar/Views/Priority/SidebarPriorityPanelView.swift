@@ -265,13 +265,18 @@ final class SidebarPriorityPanelView: NSView {
         return slot
     }
 
+    /// The dragged row's frame: its top under the pointer (the press keeps its place in the row), its size
+    /// from the current layout, so a feed update that adds or drops its preview mid-drag resizes it as the
+    /// drop math (`dropSlot`) already counts it.
     private func moveDraggedRow(from: Int) {
         guard let drag = rowDrag, let top = draggedTop() else { return }
         let heights = rowHeights
         let total = heights.reduce(0, +)
+        let frame = NSRect(x: 0, y: min(max(0, top), max(0, total - heights[from])),
+                           width: scroll.contentView.bounds.width, height: heights[from])
         Motion.withoutAnimation {
             drag.row.layer?.zPosition = 1
-            drag.row.animator().frame.origin.y = min(max(0, top), max(0, total - heights[from]))
+            drag.row.animator().frame = frame
         }
     }
 
