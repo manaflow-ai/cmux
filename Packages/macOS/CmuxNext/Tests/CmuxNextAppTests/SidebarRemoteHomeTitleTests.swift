@@ -10,9 +10,11 @@ import Testing
 /// home folder's name, on every machine. It reads as its computer instead; this Mac's rows keep their names.
 @MainActor struct SidebarRemoteHomeTitleTests {
     /// A workspace with the daemon's default name and one idle shell in `cwd`.
-    private static func store(cwd: String, name: String = "workspace-1") -> DaemonStore {
+    /// `tabName`: the person's own name for the tab; `tabTitle`, its title; `kind`, a chat or a terminal.
+    private static func store(cwd: String, name: String = "workspace-1", tabName: String? = nil, tabTitle: String = "",
+                              kind: TabKind = .pty) -> DaemonStore {
         let store = DaemonStore()
-        let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, title: "", cwd: cwd)])
+        let pane = PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, kind: kind, name: tabName, title: tabTitle, cwd: cwd)])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: name, screens: [screen])]))
         return store
@@ -20,12 +22,16 @@ import Testing
 
     /// The front tab's label as the auto name gives an idle shell: its folder's last component, only while nobody named
     /// the workspace (`WorkspaceAutoName.label`).
+    /// A tab the person named, or a chat with its own title, gives that instead (`NewWorkspaceName.forTab`).
     private static func folderLabel(_ workspace: WorkspaceModel, _ tab: TabModel, _: TabModel?) -> SidebarMapping.PageFace? {
-        .init(title: workspace.isUnnamed ? tab.cwd.map { String($0.split(separator: "/").last ?? "") } : nil, favicon: nil)
+        let own = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.kind == .conversation ? tab.displayTitle : nil)
+        return .init(title: workspace.isUnnamed ? own ?? tab.cwd.map { String($0.split(separator: "/").last ?? "") } : nil, favicon: nil)
     }
 
-    private static func title(cwd: String, machine: SidebarMachine, name: String = "workspace-1") throws -> String {
-        let section = try #require(SidebarMapping.shared.sections(store(cwd: cwd, name: name).sidebarSections, machine: machine,
+    private static func title(cwd: String, machine: SidebarMachine, name: String = "workspace-1", tabName: String? = nil,
+                              tabTitle: String = "", kind: TabKind = .pty) throws -> String {
+        let store = store(cwd: cwd, name: name, tabName: tabName, tabTitle: tabTitle, kind: kind)
+        let section = try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine,
                                                                    pageFace: folderLabel).first)
         return try #require(section.workspaces.first).title
     }
@@ -39,6 +45,13 @@ import Testing
 
     @Test func aCloudShellInAProjectKeepsTheProjectName() throws {
         #expect(try Self.title(cwd: "/home/cmux/app", machine: Self.cloud) == "app")
+    }
+
+    /// Only an idle shell's folder is no name: a tab the person named, or a chat titled, the same word as the home
+    /// folder keeps it.
+    @Test func aTabNamedLikeTheHomeFolderKeepsItsName() throws {
+        #expect(try Self.title(cwd: "/home/dev", machine: Self.cloud, tabName: "dev") == "dev")
+        #expect(try Self.title(cwd: "/home/dev", machine: Self.cloud, tabTitle: "dev", kind: .conversation) == "dev")
     }
 
     @Test func aNamedCloudWorkspaceKeepsItsName() throws {
