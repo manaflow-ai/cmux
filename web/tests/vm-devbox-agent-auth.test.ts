@@ -568,8 +568,9 @@ describe("Codex hook trust in the shared team CODEX_HOME", () => {
     const [revoked] = Object.keys(trusted);
     breakEntry(m, trusted, revoked, "enabled = true");
     expect(await launchLogged(m)).toContain(`skipping Codex hook trust entry ${JSON.stringify(revoked)}`);
-    const { [revoked]: _revoked, ...stillTrusted } = trusted;
-    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(stillTrusted);
+    expect(await teamTrust(path.join(codexTeam(m), "config.toml"))).toEqual(
+      Object.fromEntries(Object.entries(trusted).filter(([key]) => key !== revoked)),
+    );
   });
 });
 
