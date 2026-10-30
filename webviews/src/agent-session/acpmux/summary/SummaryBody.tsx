@@ -137,12 +137,7 @@ export function SummaryBody({
     summary.scheduled.length === 0;
   return (
     <>
-      <SummaryTasks
-        commands={tasks}
-        onStop={onStopCommand}
-        onFollow={onFollow}
-        onOpenInPane={onOpenTasksInPane}
-      />
+      <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} onOpenInPane={onOpenTasksInPane} />
       <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
       <WorkflowSummaries
         key={workflows?.[0]?.sessionId}
