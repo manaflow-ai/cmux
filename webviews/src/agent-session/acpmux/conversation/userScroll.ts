@@ -57,6 +57,14 @@ function createIntent() {
       pressed = value;
       scheduleQuiet();
     },
+    /// A drag that ended without its pointerup (no buttons on the next move, or the window lost
+    /// focus): the quiet interval starts now, as at a release. Not new input, so explicit
+    /// requests made since the drag stay valid.
+    release() {
+      pressed = false;
+      at = performance.now();
+      scheduleQuiet();
+    },
     subscribe(listener: Listener) {
       listeners.add(listener);
       return () => {
@@ -115,7 +123,7 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
     // buttons=0; clear the drag before ordinary hovering can keep invalidating motion.
     if ((event as PointerEvent).buttons === 0) {
       pressed = false;
-      intent.press(false);
+      intent.release();
       return;
     }
     mark(event);
@@ -129,7 +137,7 @@ export function attachUserScrollIntent(node: HTMLElement): () => void {
   const blur = () => {
     if (!pressed) return;
     pressed = false;
-    intent.press(false);
+    intent.release();
   };
   const key = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
