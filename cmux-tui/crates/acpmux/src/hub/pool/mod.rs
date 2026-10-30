@@ -792,6 +792,10 @@ impl Hub {
         session: &Arc<Session>,
         mut p: Pooled,
     ) -> anyhow::Result<(Arc<ChildAgent>, bool)> {
+        // As in `start_hosted`: the session's old host is gone, so a host this build could not
+        // speak to no longer counts, cleared before the pooled record goes live so no off push in
+        // between ends the pooled agent for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
             tokio::spawn(end_pooled(p));
             return Err(e);
@@ -812,7 +816,6 @@ impl Hub {
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         session.floor.full_access_end_pending.store(false, Ordering::SeqCst);
-        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
         #[cfg(debug_assertions)]
         self.adopt_report(&p);
