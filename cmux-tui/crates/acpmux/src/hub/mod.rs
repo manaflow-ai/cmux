@@ -57,6 +57,7 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
 pub(crate) mod subagent_transcript;
+pub(crate) mod native_history;
 mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
