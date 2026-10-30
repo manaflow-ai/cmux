@@ -101,6 +101,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_turn_cap::run(&client, &session, change, json_out).await
         }
+        Command::QueueCmd(q) => {
+            let client = connect(true).await?;
+            crate::cli::session_queue::run(&client, q, json_out).await
+        }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;
@@ -131,6 +135,33 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 println!("resumed");
             } else {
                 println!("nothing is held");
+            }
+            Ok(())
+        }
+        Command::InboxDigest { session, dry_run } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_INBOX_DIGEST, json!({"sessionId": id, "dryRun": dry_run}))
+                .await?;
+            let field = |key: &str| v.get(key).unwrap_or(&Value::Null);
+            let digested = field("digested").as_u64().unwrap_or(0);
+            if json_out {
+                print_json(&v);
+            } else if digested == 0 {
+                println!("no agent message waits in its queue");
+            } else if dry_run {
+                println!("{}", field("text").as_str().unwrap_or_default());
+                println!("\n(dry run: nothing changed; --digest sends it)");
+            } else {
+                let how = match field("delivery").as_str() {
+                    Some("steer") => "steered into its running turn".to_owned(),
+                    _ => format!("queued at position {}", field("position")),
+                };
+                println!(
+                    "{digested} messages went into digest {}, {how}",
+                    field("promptId").as_str().unwrap_or_default()
+                );
             }
             Ok(())
         }
@@ -295,6 +326,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 println!("{}", out.get("path").and_then(Value::as_str).unwrap_or(""))
             }
             Ok(())
+        }
+        Command::MoveSessions {
+            sessions,
+            host,
+            all_idle,
+            interrupt,
+            leave_dirty,
+            cwd,
+            dry_run,
+        } => {
+            let args = super::session_move::MoveArgs {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+            };
+            super::session_move::run(args, json_out).await
         }
         Command::Transfer { session, to, cwd, name, interrupt } => {
             super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await

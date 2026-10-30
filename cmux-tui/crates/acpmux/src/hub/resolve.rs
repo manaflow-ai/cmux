@@ -339,6 +339,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         unread: false,
         claude_unstored: false,
         hibernated_ms: 0,
+        moved_to: None,
         claude_profile: None,
         last_turn: None,
         harness_failures: Default::default(),

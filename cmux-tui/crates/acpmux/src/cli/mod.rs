@@ -5,6 +5,7 @@
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
 pub mod beads;
+pub(crate) mod bounded_child;
 pub mod chats;
 pub mod cli_agent;
 pub mod cloud_join;
@@ -49,11 +50,14 @@ pub mod sender;
 pub mod session_folder;
 pub mod session_inbox;
 pub mod session_limits;
+pub(crate) mod session_move_plan;
+pub mod session_queue;
 pub mod session_turn_cap;
 pub mod shutdown;
 pub mod stdio;
 pub(crate) mod steer_reply;
 pub mod task;
 pub mod uniichat_agent;
+pub(crate) mod unknown_command;
 pub(crate) mod unknown_flag;
 pub mod worktree;

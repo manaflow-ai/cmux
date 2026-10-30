@@ -4,6 +4,7 @@ use crate::client::Client;
 use crate::rpc::{Message, method};
 use crate::transcript::{Item, Transcript};
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -160,7 +161,7 @@ impl PromptId {
             mux["supersede"] = json!(key);
         }
         if let Some(class) = &self.class {
-            mux["class"] = json!(class);
+            mux.set("class", json!(class));
         }
         if let Some(pr) = self.pr {
             mux["pr"] = json!(pr);

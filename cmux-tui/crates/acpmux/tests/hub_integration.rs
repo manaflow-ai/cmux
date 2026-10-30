@@ -29,6 +29,8 @@ mod agent_inbox;
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/carried_turns.rs"]
+mod carried_turns;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
@@ -37,6 +39,8 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/held_queue.rs"]
 mod held_queue;
+#[path = "hub_integration/inbox_digest.rs"]
+mod inbox_digest;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
@@ -1594,6 +1598,8 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
+#[path = "hub_integration/adopt_profile.rs"]
+mod adopt_profile;
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;

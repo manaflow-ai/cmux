@@ -24,6 +24,12 @@ async fn busy(c: &mut TestClient) -> String {
     id
 }
 
+/// Ends the busy turn with an agent's Stop (`Hub::cancel`), so the agent messages queued behind
+/// it go in next. The person's Stop holds them (`hub/cancel.rs`, `stop.rs`).
+async fn end_busy(hub: &Arc<Hub>, id: &str) {
+    hub.cancel(&hub.resolve(id).unwrap()).await.unwrap();
+}
+
 /// Sends `params` on `c` and waits until it is queued; returns its request id.
 async fn queue(c: &mut TestClient, params: Value) -> i64 {
     let prompt_id = params["_meta"]["acpmux"]["promptId"].as_str().unwrap().to_owned();
@@ -159,16 +165,16 @@ async fn agent_messages_waiting_go_in_together_as_one_turn_after_the_persons() {
 
 #[tokio::test]
 async fn one_agent_message_waiting_runs_as_it_was_sent() {
-    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "only one")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     assert_eq!(echoes_until(&mut c, "only one").await, ["echo: only one"]);
 }
 
 #[tokio::test]
 async fn a_persons_prompt_between_agent_messages_ends_their_turn() {
-    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
@@ -183,7 +189,7 @@ async fn a_persons_prompt_between_agent_messages_ends_their_turn() {
         .unwrap();
     assert_eq!(moved["ok"], true, "{moved}");
     assert_eq!(queue_order(&mut c, &id).await, ["p-a", "p-me", "p-b"]);
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     assert_eq!(
         echoes_until(&mut c, "from b").await,
         ["echo: from a", "echo: mine", "echo: from b"]
@@ -205,7 +211,9 @@ async fn from_agent_must_be_one_short_line() {
 /// closed", 2026-10-21, behind every newer message).
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
-    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    // Their own retry (10 s by default) must not come first on a loaded machine.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![120_000]);
     let id = busy(&mut c).await;
     queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
@@ -247,7 +255,7 @@ async fn a_failed_turn_of_agent_messages_puts_the_joined_ones_back() {
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
     let b = queue(&mut agents, from_agent(&id, "p-b", "lane-b", "[fail-digest-once] from b")).await;
     let d = queue(&mut agents, from_agent(&id, "p-c", "lane-c", "from c")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     // The head's sender hears the failure, as for any failed prompt.
     let failed = agents.response(a).await.0;
     assert!(failed.is_err(), "{failed:?}");
@@ -292,7 +300,7 @@ async fn a_message_a_failed_turn_put_back_keeps_its_pasted_ranges() {
         .unwrap()
         .push(json!({"type": "text", "text": "a log", "_meta": {"cmux": {"pasted": true}}}));
     queue(&mut agents, pasted).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     assert!(agents.response(a).await.0.is_err());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let requeued = loop {
@@ -324,7 +332,7 @@ async fn a_new_agent_message_goes_in_behind_the_ones_a_failed_turn_put_back() {
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut agents, from_agent(&id, "p-b", "lane-b", "[fail-digest-once] from b")).await;
     queue(&mut agents, from_agent(&id, "p-c", "lane-c", "from c")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     assert!(agents.response(a).await.0.is_err());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -367,7 +375,7 @@ async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
     };
     queue(&mut c, message("p-0", "msg-0", "first")).await;
     queue(&mut c, message("p-1", "msg-1", "second")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     let echoes = echoes_until(&mut c, "second").await;
     assert!(echoes.last().unwrap().contains("[agent message 2 of 2] from builder"), "{echoes:?}");
 
@@ -390,13 +398,13 @@ async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
 /// and the agent messages around it go in together before and after it.
 #[tokio::test]
 async fn an_agent_slash_command_goes_in_alone() {
-    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
     queue(&mut c, from_agent(&id, "p-cmd", "lane-a", "/compact")).await;
     queue(&mut c, from_agent(&id, "p-c", "lane-c", "from c")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     let echoes = echoes_until(&mut c, "from c").await;
     assert_eq!(echoes.len(), 3, "{echoes:?}");
     assert!(echoes[0].contains("[agent message 2 of 2] from lane-b"), "{echoes:?}");
@@ -416,7 +424,7 @@ async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "held from b")).await;
     queue(&mut c, person(&id, "p-me", "mine")).await;
-    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    end_busy(&hub, &id).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
 
     // Nobody sends anything: the held agent messages go in together.

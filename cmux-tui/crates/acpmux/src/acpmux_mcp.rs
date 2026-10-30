@@ -166,7 +166,7 @@ pub async fn run() -> Result<()> {
         tools(),
         Some(BG_STEER.to_owned()),
         |daemon, session, params| async move {
-            let name = params["name"].as_str().unwrap_or_default();
+            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
             let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             if bg::TOOLS.contains(&name) {
                 return bg::call(&daemon, &session, name, &args).await;

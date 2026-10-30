@@ -193,6 +193,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
         untyped(method::MUX_MESH_CONTROL, Request),
