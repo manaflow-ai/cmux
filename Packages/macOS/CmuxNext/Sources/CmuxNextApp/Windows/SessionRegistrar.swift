@@ -1,8 +1,6 @@
-import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextDesign
-import CmuxNextWakeups
+import CmuxNextDaemonService
 import Foundation
 import Observation
 
@@ -17,11 +15,9 @@ import Observation
 final class SessionRegistrar {
     private unowned let machines: MachineRegistry
     private var observation: Task<Void, Never>?
-    /// What was sent for each session and its answer (`SessionRegistrationLedger`): a refusal is
-    /// shown once and not sent again unchanged; a failure with no answer backs off.
-    private var ledger = SessionRegistrationLedger<SessionSnapshot>()
-    /// One-shot backoff deadlines of failed sends with no answer, per session.
-    private var retries: [String: DemandTimer] = [:]
+    /// Sends each record and acts on the answer (`SessionRegistration`): a refusal is shown once
+    /// through `notice` and not sent again unchanged; a failure with no answer backs off.
+    private let registration: SessionRegistration<SessionSnapshot>
     private var importing: Set<String> = []
     /// This Mac's name, resolved off the main actor (`MacName`).
     private var computerName: String?
@@ -32,8 +28,10 @@ final class SessionRegistrar {
         var transport: JSONValue
     }
 
-    init(machines: MachineRegistry) {
+    init(machines: MachineRegistry, notice: @escaping @MainActor (String) -> Void) {
         self.machines = machines
+        registration = SessionRegistration(notice: notice)
+        registration.onRetryDue = { [weak self] in self?.sync() }
     }
 
     func start() {
@@ -60,8 +58,7 @@ final class SessionRegistrar {
 
     func stop() {
         observation?.cancel()
-        for retry in retries.values { retry.cancel() }
-        retries.removeAll()
+        registration.stop()
     }
 
     private func sync() {
@@ -71,22 +68,10 @@ final class SessionRegistrar {
             guard let session = daemon.store.registryID, let identity = daemon.store.identity else { continue }
             let snapshot = SessionSnapshot(sessionName: identity.session, capabilities: identity.capabilities.sorted(),
                                            transport: transport(daemon))
-            if ledger.shouldSend(session: session, record: snapshot, connection: ObjectIdentifier(connection)) {
-                let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
-                                                transport: snapshot.transport, capabilities: snapshot.capabilities)
-                let machine = machineName(daemon) ?? identity.session
-                // task-owner: one put-session; its answer goes to the ledger on the main actor
-                Task { [weak self] in
-                    do {
-                        _ = try await connection.putSession(request)
-                        self?.ledger.succeeded(session: session, record: snapshot)
-                    } catch {
-                        home.logger.error("put-session \(session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                        self?.notRecorded(session, snapshot, machine: machine,
-                                          failure: SessionRegistrationLedger<SessionSnapshot>.classify(error))
-                    }
-                }
-            }
+            let request = PutSessionRequest(sessionID: session, machineName: machineName(daemon), sessionName: identity.session,
+                                            transport: snapshot.transport, capabilities: snapshot.capabilities)
+            registration.submit(session: session, record: snapshot, machine: machineName(daemon) ?? identity.session,
+                                connection: connection) { _ = try await $0.putSession(request) }
             let record = home.store.personal.session(session)
             if daemon !== home, record?.migrated == false, !importing.contains(session) {
                 importing.insert(session)
@@ -97,29 +82,6 @@ final class SessionRegistrar {
                 }
             }
         }
-    }
-
-    /// A `put-session` the daemon did not record: a refusal is shown once (the machine is not saved
-    /// for restore); a failure with no answer is sent again after the ledger's backoff.
-    private func notRecorded(_ session: String, _ snapshot: SessionSnapshot, machine: String?,
-                             failure: SessionRegistrationLedger<SessionSnapshot>.Failure) {
-        let outcome = ledger.failed(session: session, record: snapshot, failure: failure)
-        if let reason = outcome.refusal { Self.showNotSaved(machine: machine, reason: reason) }
-        guard let delay = outcome.retryAfter else { return }
-        let timer = retries[session] ?? DemandTimer(owner: "SessionRegistrar.retry")
-        retries[session] = timer
-        timer.schedule(after: delay) { @MainActor [weak self] in
-            self?.ledger.retryDue(session: session)
-            self?.sync()
-        }
-    }
-
-    /// The machine is left out of the session registry, so the next launch does not restore it.
-    private static func showNotSaved(machine: String?, reason: String) {
-        let message = WindowStrings.machineNotSavedForRestore(machine: machine, reason: reason)
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        CmuxToastCenter.shared.show(CmuxToast(id: "session-registrar.not-saved", message: message, duration: .seconds(12)),
-                                    in: window)
     }
 
     /// A remote daemon's shared groups and sidebar order, as the one-time

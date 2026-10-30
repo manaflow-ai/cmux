@@ -41,7 +41,11 @@ final class WindowManager {
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
-    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines)
+    /// A refused record shows once as a toast on the front window (the machine is not saved for restore).
+    private(set) lazy var sessionRegistrar = SessionRegistrar(machines: services.machines) { [weak self] message in
+        guard let window = self?.active?.window ?? NSApp.mainWindow else { return }
+        CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved", message: message, duration: .seconds(12)), in: window)
+    }
     /// New workspaces a window asked for before the daemon reported them:
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
