@@ -427,7 +427,8 @@ button.cv-subagent > :last-child {
    No padding: a line's hover fills it to the tray's own edges, which round it (one inset, never a
    pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
-  --acpmux-tray-time-width: 52px;
+  /* Longest rendered duration is `12h 59m 59s`; keep one stable track for every row. */
+  --acpmux-tray-time-width: 80px;
   --acpmux-tray-status-width: 96px;
   --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
@@ -489,7 +490,9 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   flex: 0 0 var(--acpmux-tray-time-width);
   min-width: var(--acpmux-tray-time-width);
+  overflow: hidden;
   text-align: right;
+  white-space: nowrap;
 }
 .acpmux-running-tray__status,
 .acpmux-running-tray .acpmux-agent-line__status {
