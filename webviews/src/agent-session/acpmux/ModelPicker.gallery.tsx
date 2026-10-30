@@ -256,7 +256,7 @@ const numericSearch: Play = async (ctx) => {
 };
 
 /// The compact model menu, the one menu every composer's model button opens (Leo 2026-10-20):
-/// numbered top models, then Effort, More models and Provider beside their rows, then Fast mode.
+/// numbered top models, then Effort, More models and Account beside their rows, then Fast mode.
 const accounts: ChatAccounts = {
   list: async () => ({
     accounts: [
@@ -325,7 +325,7 @@ const canonicalVariants: ModelPickerProps = {
 };
 
 /// A short New Tab/chat pane with 48 installed accounts: the menu must cap to its window and
-/// let the Provider list scroll to its last row without an empty spacer.
+/// let the Account list scroll to its last row without an empty spacer.
 const manyProfiles: ModelPickerProps = {
   ...quick,
   catalog: startedFork.catalog,
@@ -622,14 +622,14 @@ export default componentEntry<GalleryProps>({
       props: { ...canonicalVariants, harnessFixed: false, fork: undefined, onHarness: () => undefined },
       play: openQuick,
     },
-    // Its Provider row contains signed-in routes, separate from named launch harnesses.
+    // Its Account row contains signed-in routes, separate from named launch harnesses.
     "started-chat-accounts": {
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
         // Keyboard activation is stable on a started chat even when the pointer-hover timer races
         // the async account list. Keep checking the real signed-in routes, not just a popup count.
-        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
         await ctx.press("Enter");
         await ctx.waitFor(() =>
           Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
@@ -645,14 +645,14 @@ export default componentEntry<GalleryProps>({
     "relevant-many": { props: relevantMany, play: openQuick },
     "reported-claude-menu": { props: reportedClaude, play: openQuick },
     "reported-codex-menu": { props: reportedCodex, play: openQuick },
-    // A short window with many accounts (Lawrence: "model picker too tall"): the Provider submenu
+    // A short window with many accounts (Lawrence: "model picker too tall"): the Account submenu
     // remains inside the window and scrolls to the final row.
     "quick-menu-many-profiles": {
       props: { ...manyProfiles, update },
       height: 360,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Provider/ });
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
@@ -676,11 +676,11 @@ export default componentEntry<GalleryProps>({
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Provider/ });
+        await ctx.hover({ role: "menuitem", name: /^Account/ });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
       },
     },
-    // The rail's Codex tab: Codex's models in place; Effort and Provider stay with the chat's harness.
+    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
       props: quick,
       play: async (ctx) => {

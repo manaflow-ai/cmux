@@ -173,14 +173,7 @@ fn input_prefix(update: &Value) -> Option<String> {
             let text = String::from_utf8(bytes).unwrap_or_default();
             let masked = safe_tool_text(&text, truncated, MAX_TOOL_INPUT_CHARS);
             // The input budget is also a byte budget, including multibyte characters.
-            let end = masked
-                .char_indices()
-                .map(|(at, _)| at)
-                .chain([masked.len()])
-                .take_while(|at| *at <= MAX_TOOL_INPUT_CHARS)
-                .last()
-                .unwrap_or(0);
-            masked[..end].to_owned()
+            char_prefix(&masked, MAX_TOOL_INPUT_CHARS).to_owned()
         })
     })
 }
@@ -252,7 +245,7 @@ struct BoundedJsonWriter<'a> {
 impl std::io::Write for BoundedJsonWriter<'_> {
     fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
         let remaining = self.limit.saturating_sub(self.bytes.len());
-        self.bytes.extend_from_slice(&input[..input.len().min(remaining)]);
+        self.bytes.extend(input.iter().take(remaining));
         if input.len() > remaining {
             // Stop serialization immediately, rather than visiting the rest of a large input.
             Err(std::io::Error::other("restart input prefix is full"))
@@ -285,29 +278,37 @@ fn mask_input_assignments(text: &str) -> String {
     for captures in assignment_pattern.captures_iter(text) {
         let Some(assignment) = captures.get(0) else { continue };
         if sensitive_key(&captures[1]) {
-            return format!("{}[secret]", &text[..assignment.end()]);
+            return format!("{}[secret]", text.get(..assignment.end()).unwrap_or_default());
         }
     }
     text.to_owned()
 }
 
 fn masked_scan(value: &str) -> String {
-    let end = value
+    let head = char_prefix(value, MAX_TOOL_SCAN_BYTES);
+    let masked = mask_input_assignments(head);
+    safe_tool_text(&masked, head.len() < value.len(), MAX_TOOL_SCAN_BYTES)
+}
+
+/// The longest prefix of `text` that is at most `max` bytes and ends on a char boundary.
+fn char_prefix(text: &str, max: usize) -> &str {
+    let end = text
         .char_indices()
         .map(|(at, _)| at)
-        .chain([value.len()])
-        .take_while(|at| *at <= MAX_TOOL_SCAN_BYTES)
+        .chain([text.len()])
+        .take_while(|at| *at <= max)
         .last()
         .unwrap_or(0);
-    let masked = mask_input_assignments(&value[..end]);
-    safe_tool_text(&masked, end < value.len(), MAX_TOOL_SCAN_BYTES)
+    text.get(..end).unwrap_or_default()
 }
 
 /// Like the hand-off preview, discard the word crossing the scan boundary: its partial
 /// secret may not match a scanner rule. Mask before the much smaller display cut.
 fn safe_tool_text(text: &str, truncated: bool, max: usize) -> String {
     let head = if truncated {
-        text.rfind(|c: char| c.is_whitespace() || c.is_control()).map_or("", |at| &text[..at])
+        text.rfind(|c: char| c.is_whitespace() || c.is_control())
+            .and_then(|at| text.get(..at))
+            .unwrap_or_default()
     } else {
         text
     };
@@ -413,6 +414,7 @@ impl Hub {
         let mut carried_ids: Vec<String> = Vec::new();
         let mut control_ended = false;
         let mut floor_cancelled = false;
+        let mut stopped = false;
         let mut tool_start = None;
         let mut tool_end = None;
         let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
@@ -428,6 +430,7 @@ impl Hub {
                     | "remote_control_restored"
                     | "remote_floor_cancel"
                     | "turn_result"
+                    | "turn_stop_requested"
             );
             if !needs_record {
                 return true;
@@ -468,6 +471,7 @@ impl Hub {
                         steered.insert(id, (text, named.cloned().unwrap_or_default()));
                     }
                 }
+                "turn_stop_requested" if is_turn => stopped = true,
                 "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -501,6 +505,9 @@ impl Hub {
         let prompts = carried_prompts;
         carried_images.append(&mut images);
         let images = carried_images;
+        if stopped {
+            return None;
+        }
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let own_session_id = session.meta().agent_session_id;
         let (unfinished, omitted_tools) = collect_unfinished(|page| {
@@ -549,8 +556,10 @@ impl Hub {
             return None;
         }
         let id = format!("{root}{SUFFIX}{attempt}");
-        // Logged by a daemon that crashed before it settled the turn: once is enough.
-        if self.logged_prompt(session, &id).is_some() {
+        // Logged by a daemon that crashed before it settled the turn: once is enough. Its
+        // `queued` record counts though it never started (`logged_prompt` leaves such a prompt
+        // to recovery): the restored queue runs it.
+        if self.logged_prompt(session, &id).is_some() || self.queued_logged(session, &id) {
             return Some(id);
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
@@ -579,6 +588,18 @@ impl Hub {
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         Some(id)
+    }
+}
+
+impl Hub {
+    /// Whether the chat's log holds a `queued` record of prompt `id`.
+    fn queued_logged(&self, session: &Session, id: &str) -> bool {
+        let mut found = false;
+        let _ = self.store.scan_kinds(&session.id, &["queued"], &mut |e: EventRecord| {
+            found = e.msg.get("promptId").and_then(Value::as_str) == Some(id);
+            !found
+        });
+        found
     }
 }
 
@@ -635,6 +656,22 @@ mod tests {
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&root);
         (id, gave_up)
+    }
+
+    /// A daemon that crashed after it queued the continuation and before it settled the cut turn
+    /// finds the turn open again: the next one queues the continuation once, not twice.
+    #[tokio::test]
+    async fn a_crash_before_the_cut_turn_settles_queues_its_continuation_once() {
+        let (root, hub, session) = cut_turn(Some(vec![10_000]), 0);
+        let first = hub.log_restart_continuation(&session, "t1");
+        let again = hub.log_restart_continuation(&session, "t1");
+        assert_eq!(first, Some(format!("p1{SUFFIX}1")));
+        assert_eq!(again, first);
+        let events = hub.events("c1", 0, 10_000).unwrap();
+        let queued = events.iter().filter(|e| e.kind == "queued").count();
+        assert_eq!(queued, 1, "{events:?}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// One continuation per configured wait, for a chain of restarts as for a transport cut:
@@ -1205,6 +1242,22 @@ mod tests {
         let prefix = input_prefix(&json!({"rawInput": "世".repeat(10_000)})).unwrap();
         assert!(prefix.len() <= MAX_TOOL_INPUT_CHARS);
         assert!(!prefix.contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn multibyte_text_is_cut_on_char_boundaries() {
+        // "世" is 3 bytes: a 4-byte budget keeps one, never half of the second.
+        assert_eq!(char_prefix("世世", 4), "世");
+        assert_eq!(char_prefix("世世", 6), "世世");
+        assert_eq!(char_prefix("世", 2), "");
+        // 7-byte units: the scan cut (4096 = 7 * 585 + 1) lands inside a 3-byte char, and the
+        // word crossing it is dropped back to the last space.
+        let long = "世世 ".repeat(MAX_TOOL_SCAN_BYTES);
+        assert_eq!(masked_scan(&long), "世世 ".repeat(585).trim_end());
+        // The truncated tail is cut at a multibyte space (U+3000), not a byte inside it.
+        assert_eq!(safe_tool_text("世\u{3000}世世", true, 100), "世");
+        // Multibyte text before a sensitive assignment keeps its prefix whole.
+        assert_eq!(mask_input_assignments("世 PASSWORD=世世"), "世 PASSWORD=[secret]");
     }
 
     #[tokio::test]

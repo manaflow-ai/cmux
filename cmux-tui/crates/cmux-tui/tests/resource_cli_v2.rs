@@ -1001,7 +1001,12 @@ fn pre_ready_resource_reload_uses_selected_locale() {
     let server = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap();
         let mut line = String::new();
-        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        read_public_line(
+            &mut BufReader::new(stream.try_clone_box().unwrap()),
+            &mut stream,
+            &mut line,
+        )
+        .unwrap();
         let request: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["operation"], "session.reload_config");
         let response = json!({
@@ -1052,7 +1057,12 @@ fn pre_ready_resource_reload_json_preserves_server_message() {
     let server = std::thread::spawn(move || {
         let mut stream = listener.accept().unwrap();
         let mut line = String::new();
-        BufReader::new(stream.try_clone_box().unwrap()).read_line(&mut line).unwrap();
+        read_public_line(
+            &mut BufReader::new(stream.try_clone_box().unwrap()),
+            &mut stream,
+            &mut line,
+        )
+        .unwrap();
         let request: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(request["operation"], "session.reload_config");
         let response = json!({

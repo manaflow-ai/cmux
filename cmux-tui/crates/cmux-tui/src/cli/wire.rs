@@ -113,12 +113,15 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Err(exit_code) => return exit_code,
         }
     }
-    if let Err(failure) = super::tab_capabilities::negotiate(&mut reader) {
+    // Raw operation requests intentionally keep their private wire contract:
+    // the first frame is the caller's request, so they cannot opt into the
+    // public conversation-tab projection.
+    if matches!(&plan.operation, WireOperation::Typed(_))
+        && let Err(failure) = super::tab_capabilities::negotiate(&mut reader)
+    {
         let reason = match &failure {
             super::resolve::Failure::Transport(message) => retry::Failure::from_read_error(message),
-            super::resolve::Failure::Resource(error) if error["code"] == "session.busy" => {
-                retry::Failure::Dropped
-            }
+            super::resolve::Failure::Refused => retry::Failure::Dropped,
             _ => retry::Failure::Other,
         };
         if tries.may_retry_before_send(reason) {
@@ -130,6 +133,9 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
                     localize_operation_error(&plan, &mut error);
                 }
                 print_operation_error(&error, global.output)
+            }
+            super::resolve::Failure::Refused => {
+                transport_failure(global.output, "session.busy", hints::session_busy(), true)
             }
             failure => failure.report(global.output),
         };
@@ -392,6 +398,9 @@ fn require_server_capability(
                 true,
             )
         })?;
+    if response.get("type").and_then(Value::as_str) == Some("refused") {
+        return Err(transport_failure(global.output, "session.busy", hints::session_busy(), true));
+    }
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -759,7 +768,7 @@ fn run_response(
 /// Whether a write that failed because the session closed the socket met
 /// the refusal line a session at its connection limit sends before closing
 /// (`type: "refused"`), so the error says "busy", not "broken pipe".
-fn refused_at_connect(
+pub(super) fn refused_at_connect(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     error: &io::Error,
 ) -> bool {

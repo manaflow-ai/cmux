@@ -15,7 +15,7 @@ pub(super) fn negotiate(
         "conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1","closed-conversation-tabs-v1"
     ]});
     let bytes = resolve::encode_request_bytes(&request).map_err(resolve::Failure::Transport)?;
-    resolve::send(reader, &bytes).map_err(resolve::Failure::Transport)?;
+    resolve::send_request(reader, &bytes)?;
     let response = wire::read_envelope(reader, false)
         .map_err(resolve::Failure::Transport)?
         .ok_or_else(|| {
@@ -23,13 +23,12 @@ pub(super) fn negotiate(
                 "transport closed before client capabilities response".into(),
             )
         })?;
-    if response["type"] == "refused" {
-        return Err(resolve::Failure::Resource(json!({"code":"session.busy",
-            "message":"session is busy","details":{},"retryable":true})));
+    if response.get("type").and_then(Value::as_str) == Some("refused") {
+        return Err(resolve::Failure::Refused);
     }
     // A daemon that is not ready can refuse every frame with the normal v2
     // resource error. Preserve that error; it is not an unsupported hello.
-    if response["protocol"] == cmux_tui_core::resource::PROTOCOL {
+    if response.get("protocol").and_then(Value::as_str) == Some(cmux_tui_core::resource::PROTOCOL) {
         let reply: cmux_tui_core::resource::ResponseEnvelope = serde_json::from_value(response)
             .map_err(|error| resolve::Failure::Transport(format!("protocol error: {error}")))?;
         reply.validate().map_err(|error| resolve::Failure::Transport(error.message))?;
@@ -47,7 +46,9 @@ pub(super) fn negotiate(
             "protocol error: expected raw client capabilities response".into(),
         ));
     }
-    if response["id"] != id || !response["ok"].is_boolean() {
+    if response.get("id").and_then(Value::as_str) != Some(id.as_str())
+        || !response.get("ok").is_some_and(Value::is_boolean)
+    {
         return Err(resolve::Failure::Transport(
             "protocol error: invalid client capabilities response".into(),
         ));
