@@ -83,9 +83,10 @@ struct State {
     /// background turn). A session is listed at most once ([`State::listed`]); an entry whose
     /// lines a batch wrote stays in its place, and the writer skips it if nothing is queued then.
     order: VecDeque<String>,
-    /// The sessions `order` lists. A session written in a batch and queued again keeps its one
-    /// entry: the list never grows past the sessions it names, so a chat that only streams waits
-    /// for at most one turn of each other chat (review of 69d858ce9764, finding 1).
+    /// The sessions `order` lists, each once: the list never grows past the sessions it names. A
+    /// batch write takes the session off the list (it had its turn), so a chat nobody waits for is
+    /// written in the background turn after each batch, not after a turn of every waited-for chat
+    /// (review of 69d858ce9764, finding 1).
     listed: HashSet<String>,
     /// Sessions a request or a read waits for, in the order the first waiter of each came, not in
     /// the batch being written: the next batch.
@@ -144,6 +145,14 @@ impl State {
         loop {
             while let Some(id) = self.batch.pop_front() {
                 if self.queued.contains_key(&id) {
+                    // A batch write is the session's turn: it leaves the background list (lines it
+                    // queues later list it again, at the back), so a session nobody waits for is
+                    // not held behind a background turn of every waited-for session.
+                    if self.listed.remove(&id)
+                        && let Some(at) = self.order.iter().position(|o| *o == id)
+                    {
+                        self.order.remove(at);
+                    }
                     return Some(id);
                 }
             }
