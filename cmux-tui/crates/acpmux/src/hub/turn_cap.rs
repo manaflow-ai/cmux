@@ -193,6 +193,7 @@ impl Hub {
     }
 }
 
-#[cfg(test)]
+// The tests gate turns with a named pipe (`libc::mkfifo`), which only Unix has.
+#[cfg(all(test, unix))]
 #[path = "turn_cap_tests.rs"]
 mod tests;

@@ -130,6 +130,8 @@ public final class SidebarModel {
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
     @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
+    /// Every workspace a selection can hold, as drawn: the pinned tiles too (`SidebarListView.selectionOrder`).
+    @ObservationIgnored public var drawnSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
@@ -351,7 +353,13 @@ public final class SidebarModel {
     public func section(_ id: SectionID) -> SidebarSection? { sections.first { $0.id == id } }
 
     /// Selected ids in visual order.
-    public var orderedSelection: [WorkspaceID] { SidebarEdits.treeOrder(selection, in: sections) }
+    /// A pinned workspace drawn only as a tile is no section node: such ones come first, in drawn order (#27701).
+    public var orderedSelection: [WorkspaceID] {
+        let listed = SidebarEdits.treeOrder(selection, in: sections)
+        guard listed.count < selection.count else { return listed }
+        let tiles = selection.subtracting(listed)
+        return drawnSelectionOrder().filter(tiles.contains) + listed
+    }
 
     /// What a row verb on `id` (Close, Pin, Duplicate, Move Up/Down, from its menu or a key) acts
     /// on: the whole selection, in row order, when `id` is one of two or more selected rows;
