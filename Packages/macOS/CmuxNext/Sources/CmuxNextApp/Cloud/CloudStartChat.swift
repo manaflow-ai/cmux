@@ -76,7 +76,7 @@ struct CloudStartChat {
         let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
-        let seed = AgentPaneSeed(cwd: remote.chat, prompt: start.task, promptBy: .person, harness: start.harness)
+        let seed = start.seed(cwd: remote.chat)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed))
         let opened = try await pending.value()
         CloudHandlers.show(anchor.id, context)

@@ -84,6 +84,20 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.isEmpty)
     }
 
+    @Test func theMachinesSeedKeepsTheRequestedHarnessAndModel() throws {
+        let start = try #require(AgentPaneCloudStart(params: Self.good))
+        let seed = start.seed(cwd: "/home/cloud/src/paint")
+        #expect(seed.cwd == "/home/cloud/src/paint")
+        #expect(seed.prompt == "fix the build")
+        #expect(seed.promptBy == .person)
+        #expect(seed.harness == "codex")
+        #expect(seed.model == "gpt-6-astra")
+        // No model picked: the harness's own default on the machine.
+        let plain = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
+        #expect(plain.seed(cwd: "/a").model == nil)
+        #expect(plain.seed(cwd: "/a").harness == nil)
+    }
+
     @Test func withoutARunnerTheMethodIsUnsupported() async {
         let model = AgentPaneModel(host: NoHost())
         model.transport.gestures.record()

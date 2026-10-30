@@ -33,6 +33,12 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key)
     }
+
+    /// The new chat's seed on the Cloud machine: the person's prompt, sent once with the Send's
+    /// gesture, in `cwd` (the copied folder there), on the harness and model the page asked for.
+    public func seed(cwd: String) -> AgentPaneSeed {
+        AgentPaneSeed(cwd: cwd, prompt: task, promptBy: .person, harness: harness, model: model)
+    }
 }
 
 /// A new chat's first send that runs somewhere other than this Mac's chat: a Sandboxed send
