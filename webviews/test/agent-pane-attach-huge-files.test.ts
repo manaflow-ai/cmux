@@ -172,7 +172,8 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   /// After the ×, the page's heap (after a GC) is back within this of where it started.
   const HEAP_BACK = 64 * MB;
   const TYPED = "hello while loading!";
-  const PROMPT = ".acpmux-composer-prompt [contenteditable]";
+  // The editor itself, not an attachment atom placed in it (contenteditable="false").
+  const PROMPT = '.acpmux-composer-prompt [contenteditable="true"]';
   setDefaultTimeout(900_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -1075,6 +1076,9 @@ os.replace(path + ".part", path)
       const { port } = vite!.httpServer!.address() as { port: number };
       await page.goto(`http://127.0.0.1:${port}/`);
       await page.locator(PROMPT).waitFor();
+      // These cases measure the strip's tiles (loading, ×, the prompt's typed words): the strip view
+      // (Settings), as inline placement became the default (#26545).
+      await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
       await page.waitForFunction(() => (window as unknown as BigWindow).__big.sendReady, undefined, {
         timeout: 30_000,
       });
