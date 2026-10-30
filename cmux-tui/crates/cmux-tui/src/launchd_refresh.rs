@@ -199,9 +199,9 @@ impl Agent {
         // launchd stops this process; the caller exits on its own if it does not.
         let _ = cmux_process::Command::new("/bin/launchctl")
             .args(["bootout", job.as_str()])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
             .spawn();
     }
 }
