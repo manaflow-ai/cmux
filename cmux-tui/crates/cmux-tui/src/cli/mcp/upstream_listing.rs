@@ -38,7 +38,7 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 /// then starts to be listed, as before). It names the file `PATH` resolves
 /// the command to, so another `PATH` is another entry.
 pub(super) fn key(spec: &Spec) -> Option<String> {
-    let program = resolve(&spec.command)?.canonicalize().ok()?;
+    let program = resolve(spec)?.canonicalize().ok()?;
     let meta = std::fs::metadata(&program).ok()?;
     let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
     let mut env: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
@@ -58,14 +58,29 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
     Some(digest.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// The file `command` runs: itself when it names a path, else the first
-/// executable of that name on `PATH`.
-fn resolve(command: &Path) -> Option<PathBuf> {
+/// The file `spec`'s command runs: itself when it names a path, else the
+/// first executable of that name on the `PATH` the server starts with (its
+/// own env's, else this process's), as `Command` picks it.
+fn resolve(spec: &Spec) -> Option<PathBuf> {
+    let command = &spec.command;
     if command.components().count() > 1 {
-        return Some(command.to_path_buf());
+        return Some(command.clone());
     }
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|dir| dir.join(command)).find(|at| at.is_file())
+    let path = match spec.env.iter().rev().find(|(k, _)| k == "PATH") {
+        Some((_, value)) => std::ffi::OsString::from(value),
+        None => std::env::var_os("PATH")?,
+    };
+    std::env::split_paths(&path).map(|dir| dir.join(command)).find(|at| executable(at))
+}
+
+/// Whether `path` is a file someone may run.
+fn executable(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    #[cfg(unix)]
+    let runs = std::os::unix::fs::PermissionsExt::mode(&meta.permissions()) & 0o111 != 0;
+    #[cfg(not(unix))]
+    let runs = true;
+    meta.is_file() && runs
 }
 
 /// Whether `path` is this user's own and not a symlink: a folder only they
@@ -152,6 +167,32 @@ mod tests {
             env: vec![("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), token.into())],
             call_timeout: std::time::Duration::from_secs(1),
         }
+    }
+
+    /// The key names the program `PATH` runs: a same-named file that is not
+    /// executable, earlier on `PATH`, is skipped, and the server's own `PATH`
+    /// wins over this process's.
+    #[cfg(unix)]
+    #[test]
+    fn the_key_follows_the_program_the_server_runs() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let home = tempfile::tempdir().unwrap();
+        let (early, late) = (home.path().join("early"), home.path().join("late"));
+        for dir in [&early, &late] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(early.join("srv"), "not a program").unwrap();
+        std::fs::set_permissions(early.join("srv"), std::fs::Permissions::from_mode(0o644))
+            .unwrap();
+        std::fs::write(late.join("srv"), "#!/bin/sh").unwrap();
+        std::fs::set_permissions(late.join("srv"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = std::env::join_paths([&early, &late]).unwrap().into_string().unwrap();
+        let mut named = spec(Path::new("srv"), "t");
+        named.env.push(("PATH".into(), path));
+        assert_eq!(resolve(&named), Some(late.join("srv")));
+        assert!(key(&named).is_some());
+        // Without the servers own PATH entry, this processs PATH (no `srv`) finds nothing.
+        assert_eq!(resolve(&spec(Path::new("srv-not-on-any-path"), "t")), None);
     }
 
     #[test]
