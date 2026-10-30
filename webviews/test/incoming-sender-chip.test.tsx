@@ -1,8 +1,10 @@
-// Open chat on another agent's message line (conversation/IncomingMessageCard.tsx, the shared
-// DisclosureRow's `.cv-disclosure__open`) goes to the sender's chat (Leo, ask-7325396234: "I THINK I
-// WANNA BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"): a click opens the sender by its acpmux
-// id, a lane on a peer found by its bare name too. The sender's name is plain text on the line's
-// toggle, never a button of its own; a sender no list names has no Open chat.
+// Another agent's message line (conversation/IncomingMessageCard.tsx, the shared DisclosureRow's
+// `.cv-disclosure__open`) goes to the sender's chat (Leo, ask-7325396234: "I THINK I WANNA BE ABLE TO
+// CLICK ON THESE TO ACTUALLY GO TO THEM"): a click on the line opens the sender by its acpmux id, a
+// lane on a peer found by its bare name too, and its chevron alone opens the message. No "Open chat"
+// word sits beside it (Leo, 2026-10-29: "Nobody asked for open chat. We can just click."). The
+// sender's name is plain text on the line, never a button of its own; a sender no list names has a
+// line that only opens the message.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";

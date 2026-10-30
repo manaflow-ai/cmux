@@ -2,8 +2,8 @@
 // (conversation/IncomingMessageCard.tsx; Leo 2026-10-24: "we could just have the first line be the
 // thing that's there, and then you can expand that", and 2026-10-29: "why the fuck did you guys
 // ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"): the sender's name, then
-// the message's first line, with no "Received message from" lead. The line is the shared
-// DisclosureRow's toggle, which opens the whole message in place and closes it again.
+// the message's first line, with no "Received message from" lead. The line opens the sender's chat;
+// its chevron, the shared DisclosureRow's toggle, opens the whole message in place and closes it again.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -90,7 +90,7 @@ test("Minimal Mode follows only cmux's own Minimal Mode switch", () => {
 });
 
 for (const minimal of [false, true])
-  test(`with Minimal Mode ${minimal ? "on" : "off"} the message is one line: its name, then its first line, which opens and closes it`, async () => {
+  test(`with Minimal Mode ${minimal ? "on" : "off"} the message is one line: its name, then its first line; its chevron opens and closes it`, async () => {
     if (minimal) setChatDisplay({ [MINIMAL_MODE_KEY]: true });
     const { open, opened, toggle } = await line(`line-${minimal}`);
     // The name and the first line of text, as it reads, and nothing under the line.
