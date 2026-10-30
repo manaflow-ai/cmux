@@ -91,6 +91,11 @@ public final class PreviewImageCache {
     public private(set) var refusedCaptures = 0
     public private(set) var failedCaptures = 0
 
+    /// The cache's numbers for a debug report: its pictures, their bytes, and the refused and failed captures.
+    public var debugCounts: [String: Double] {
+        ["count": Double(count), "bytes": Double(totalBytes), "refused": Double(refusedCaptures), "failed": Double(failedCaptures)]
+    }
+
     /// Runs one engine capture for this cache, counting a refused or failed one (``refusedCaptures``, ``failedCaptures``).
     ///
     /// - Parameters:
