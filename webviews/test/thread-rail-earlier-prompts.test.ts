@@ -702,6 +702,51 @@ test("cap cost stays linear and releases payloads after state becomes known", as
   console.info("prompt index cap cost", JSON.stringify(measurements));
 });
 
+for (const end of ["queue_removed", "prompt_refused"] as const)
+  test(`a prompt sent now at the unread boundary and then ${end === "queue_removed" ? "removed" : "refused"} leaves the next prompt a new turn`, async () => {
+    // Older history never arrives (read failure): whether a turn ran at seq 400 is unknown, but a
+    // prompt sent now then is either the interrupter or nothing, so the result's continuation is
+    // that prompt or nothing, and its removal settles both.
+    const idle = manualIdle();
+    let reads = 0;
+    const earlier = new EarlierPrompts(
+      async () => {
+        reads++;
+        if (reads === 1)
+          return {
+            events: [
+              { seq: 400, dir: "mux", kind: "queue_order", msg: { next: true, promptId: "gone" } },
+              { seq: 401, dir: "mux", kind: "turn_result", msg: { status: "cancelled" } },
+              { seq: 402, dir: "mux", kind: end, msg: { promptId: "gone" } },
+              { seq: 403, dir: "mux", kind: "user_message", msg: { promptId: "next", text: "Next" } },
+            ],
+            hasMore: true,
+          };
+        throw new Error("offline");
+      },
+      toRow,
+      () => {},
+      idle,
+    );
+    earlier.start("s", 500);
+    while (idle.queue.length) {
+      idle.queue.shift()!();
+      await flush();
+    }
+    expect(earlier.loading).toBe(false);
+    expect(earlier.shown(500).map((row) => row.id)).toEqual(["user-403"]);
+  });
+
+test("a prompt sent now at the unread boundary hides only that same prompt, not another", () => {
+  const starts = new TurnStarts(false);
+  const record = (seq: number, kind: string, msg: Record<string, unknown>): PromptRecord => ({ seq, kind, dir: "mux", msg });
+  expect(starts.opens(record(1, "queue_order", { next: true, promptId: "p" }))).toBe(false);
+  expect(starts.opens(record(2, "turn_result", { status: "cancelled" }))).toBe(false);
+  // Another prompt opens a turn for certain; the same one still waits on older history.
+  expect(starts.copy().opens(record(3, "user_message", { promptId: "q", text: "Q" }))).toBe(true);
+  expect(starts.copy().opens(record(3, "user_message", { promptId: "p", text: "P" }))).toBeUndefined();
+});
+
 for (const stop of ["read failure", "page cap"] as const) {
   test(`a failed result clears unknown continuation before ${stop}`, async () => {
     const idle = manualIdle();

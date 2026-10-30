@@ -61,7 +61,24 @@ const idle: Idle = {
 /// older page. Copy and compare the complete state at page boundaries so adding older context
 /// re-evaluates newer records until their state converges.
 const UNKNOWN = Symbol("older history not read");
-type PromptId = string | undefined | typeof UNKNOWN;
+/// A prompt sent now (`queue_order` with `next`) while older history has not said whether a turn
+/// ran: it interrupts that turn if one ran, and is nothing otherwise (no turn running means nothing
+/// is interrupted). So the field is that prompt or nothing, never another: its removal or refusal,
+/// or a prompt with another id, settles it without older history.
+type Maybe = { readonly maybe: string };
+type PromptId = string | undefined | typeof UNKNOWN | Maybe;
+const isMaybe = (id: PromptId): id is Maybe => typeof id === "object";
+const sameId = (a: PromptId, b: PromptId) => a === b || (isMaybe(a) && isMaybe(b) && a.maybe === b.maybe);
+/// Whether `id` names `promptId`: yes, no, or undefined while older history decides it.
+const names = (id: PromptId, promptId: string | undefined): boolean | undefined => {
+  if (promptId === undefined) return false;
+  if (id === UNKNOWN) return undefined;
+  if (isMaybe(id)) return id.maybe === promptId ? undefined : false;
+  return id === promptId;
+};
+/// The field once `promptId` is gone (removed, refused, or run): nothing where it named that prompt.
+const without = (id: PromptId, promptId: string | undefined): PromptId =>
+  promptId !== undefined && (id === promptId || (isMaybe(id) && id.maybe === promptId)) ? undefined : id;
 
 export class TurnStarts {
   private open: boolean | typeof UNKNOWN;
@@ -74,7 +91,13 @@ export class TurnStarts {
   }
 
   get known(): boolean {
-    return this.open !== UNKNOWN && this.interrupting !== UNKNOWN && this.continued !== UNKNOWN;
+    return (
+      this.open !== UNKNOWN &&
+      this.interrupting !== UNKNOWN &&
+      this.continued !== UNKNOWN &&
+      !isMaybe(this.interrupting) &&
+      !isMaybe(this.continued)
+    );
   }
 
   copy(): TurnStarts {
@@ -89,8 +112,8 @@ export class TurnStarts {
     return (
       !!other &&
       this.open === other.open &&
-      this.interrupting === other.interrupting &&
-      this.continued === other.continued
+      sameId(this.interrupting, other.interrupting) &&
+      sameId(this.continued, other.continued)
     );
   }
 
@@ -101,25 +124,23 @@ export class TurnStarts {
     switch (record.kind) {
       case "user_message": {
         if (record.dir !== "mux" || msg.steer === true) return false;
-        const continues =
-          promptId !== undefined && this.continued === UNKNOWN
-            ? undefined
-            : promptId !== undefined && promptId === this.continued;
+        const continues = names(this.continued, promptId);
         this.continued = undefined;
-        if (promptId !== undefined && promptId === this.interrupting) this.interrupting = undefined;
+        this.interrupting = without(this.interrupting, promptId);
         this.open = true;
         return continues === undefined ? undefined : !continues;
       }
       case "queue_order":
         if (msg.next === true && promptId) {
           if (this.open === true) this.interrupting = promptId;
-          else if (this.open === UNKNOWN && this.interrupting !== promptId) this.interrupting = UNKNOWN;
+          // No turn running interrupts nothing (`turn_result` clears it), so it is this prompt or nothing.
+          else if (this.open === UNKNOWN && this.interrupting !== promptId) this.interrupting = { maybe: promptId };
         }
         return false;
       case "queue_removed":
       case "prompt_refused":
-        if (promptId === this.interrupting) this.interrupting = undefined;
-        if (promptId === this.continued) this.continued = undefined;
+        this.interrupting = without(this.interrupting, promptId);
+        this.continued = without(this.continued, promptId);
         return false;
       case "turn_result":
         this.open = false;
@@ -292,8 +313,9 @@ export class EarlierPrompts {
       this.chunks.push({ pending: records.map(boundaryRecord), records: [], rows: [] });
     }
     // Until actual exhaustion the oldest boundary is unknown, including at the safety cap.
-    // Refinement is monotone: each of three state fields changes from unknown to known at most
-    // once. A record runs initially and at most once per incoming-field refinement (4N total).
+    // Refinement is monotone: `open` changes from unknown to known at most once, and each prompt
+    // field at most twice (unknown, then "this prompt or nothing", then known). A record runs
+    // initially and at most once per incoming-field refinement (6N total).
     const starts = new TurnStarts(!page.hasMore || this.before <= 1);
     for (let index = this.chunks.length - 1; index >= 0; index -= 1) {
       const chunk = this.chunks[index]!;
