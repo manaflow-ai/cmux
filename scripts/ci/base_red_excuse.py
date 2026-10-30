@@ -49,6 +49,12 @@ class GitHub(_evidence.GitHub):
         # endpoint serves a finished job while sibling jobs remain queued.
         # gh refuses to print a log holding escape sequences (ANSI colours) unless asked.
         return self.run(["api", "--allow-escape-sequences", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+
+    def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
+        # A run's job list carries every job's steps; see JOBS_PAGE.
+        if paginate and "/jobs?" in route:
+            per_page = min(per_page, JOBS_PAGE)
+        return super().json(route, paginate=paginate, per_page=per_page)
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
@@ -67,6 +73,9 @@ VERDICTS = frozenset({"success", "failure"})
 # for the job stays bounded.
 BASE_RUNS_PAGE = 100
 BASE_JOB_READS = 40
+# A run's job list carries every job's steps. GitHub answered the 34-job web run 41098664586's list with
+# HTTP 502 at 100 and 50 per page, every time, and at 30 it answered (2026-10-30).
+JOBS_PAGE = 30
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
