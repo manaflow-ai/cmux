@@ -108,7 +108,9 @@ jobs:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
           sparse-checkout: |
+            .xcode-version
             scripts/ci/cua_signed_host_check.py
+            scripts/ci/xcode-pins.txt
             scripts/select-ci-xcode.sh
           sparse-checkout-cone-mode: false
 
