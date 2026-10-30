@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
@@ -166,6 +167,10 @@ extension AgentPaneModel {
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()
+        case .tabRowToolsSet(let tools):
+            guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
+            setTabRowTools(tools)
+            return AgentPaneReply.success()
         case .tabState(let refresh):
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
@@ -218,8 +223,11 @@ extension AgentPaneModel {
 enum AgentPaneSideChat {
     /// True when the pane of chat `chat` may open `session` beside it.
     static func holds(_ session: String, chat: String, in model: AgentPaneModel) -> Bool {
-        model.transport.sessions.contains(session)
-            || (model.remoteChat && RemoteAgentSessionLinks.shared.descends(session, from: chat))
+        if model.transport.sessions.contains(session) { return true }
+        // A route with no host (an older or test route) noted its daemon's links in the hostless map,
+        // which a nil host reads.
+        guard model.remoteChat else { return false }
+        return RemoteAgentSessionLinks.shared.descends(session, from: chat, host: model.transport.remoteHostID)
     }
 
     static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {

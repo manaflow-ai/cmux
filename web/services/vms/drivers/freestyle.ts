@@ -15,6 +15,7 @@ import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgr
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { freestyleCustomer } from "./freestyleCustomer";
 import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
@@ -1308,6 +1309,7 @@ export class FreestyleProvider implements VMProvider {
               ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
               : {}),
             metadata: { cmux: "cloud" },
+            ...freestyleCustomer(options.customerId),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -1804,6 +1806,7 @@ export class FreestyleProvider implements VMProvider {
             automaticRestart: true,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
+            ...freestyleCustomer(options?.customerId),
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options?.network?.memberIngress ? networkId : undefined, networkRules: options?.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),

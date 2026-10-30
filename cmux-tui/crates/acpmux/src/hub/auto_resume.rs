@@ -233,7 +233,7 @@ pub(super) fn superseded() -> RpcError {
 }
 
 /// The refusal of a continuation Stop or close overtook after it fired.
-fn stopped() -> RpcError {
+pub(super) fn stopped() -> RpcError {
     RpcError::invalid_params("auto_resume.stopped: Stop or close came before the continuation ran")
         .with_data(json!({"reason": "auto_resume.stopped"}))
 }
