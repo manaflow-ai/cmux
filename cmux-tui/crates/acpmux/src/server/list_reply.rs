@@ -11,6 +11,7 @@
 
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
 use crate::hub::list_guard::Snapshot;
+use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
 use std::sync::Arc;
@@ -181,8 +182,13 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         if cursor.is_none() && full.bytes() <= ACP_PAGE_BYTES {
             let whole = list.made(if raw { "acp" } else { "acp masked" }, |list| {
                 let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
-                let sessions: Vec<Value> =
-                    full["sessions"].as_array().into_iter().flatten().map(acp_row).collect();
+                let sessions: Vec<Value> = full
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .map(acp_row)
+                    .collect();
                 let result = json!({"sessions": sessions});
                 if raw { result.to_string() } else { masked(result) }
             });
@@ -196,7 +202,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
                 crate::hub::session_pages::byte_page(full.keys(), cursor, budget, row)?;
             let mut result = json!({"sessions": sessions});
             if let Some(next) = next {
-                result["nextCursor"] = Value::String(next);
+                result.set("nextCursor", Value::String(next));
             }
             Ok(if raw { result.to_string() } else { masked(result) })
         };
@@ -235,7 +241,7 @@ fn acp_row_within(s: &Value, budget: usize) -> Value {
         "sessionId": id,
         "cwd": short("cwd").cloned().unwrap_or(Value::Null),
         "title": Value::Null,
-        "updatedAt": row["updatedAt"],
+        "updatedAt": row.get("updatedAt").cloned().unwrap_or_default(),
         "_meta": {"acpmux": {"sessionId": id, "omitted": {"bytes": bytes, "reason": "too_large"}}},
     })
 }

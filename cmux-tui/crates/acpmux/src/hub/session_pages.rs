@@ -126,7 +126,7 @@ pub(crate) fn byte_page(
                 })?,
         ),
     };
-    let pair = |at: usize| (session_id(&keys[at]), peer(&keys[at]));
+    let pair = |at: usize| keys.get(at).map(|key| (session_id(key), peer(key)));
     let mut order: Vec<(u128, usize)> = keys
         .iter()
         .enumerate()
