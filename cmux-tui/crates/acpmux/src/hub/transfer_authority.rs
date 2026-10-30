@@ -163,50 +163,6 @@ mod tests {
         assert_eq!(session.transfer_blocked(), None);
     }
 
-    /// An import copies the source's log, its move included, before its own `imported`
-    /// receipt: until that receipt is logged the chat's transfer state is unknown, never
-    /// local, so a failed receipt cannot leave it open here.
-    #[tokio::test]
-    async fn an_import_is_unknown_until_its_own_receipt_is_logged() {
-        let dir =
-            std::env::temp_dir().join(format!("acpmux-import-authority-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let hub_with = |refuse: Option<&'static str>| {
-            let mut config: Config = serde_json::from_value(json!({
-                "harnesses": {"fake": {"argv": ["python3", fake]}},
-                "defaultHarness": "fake",
-            }))
-            .unwrap();
-            config.store.mode = crate::config::StoreMode::Memory;
-            let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
-            let store = CountingStore {
-                inner,
-                scans: Arc::new(AtomicU64::new(0)),
-                fail: Arc::new(AtomicBool::new(false)),
-                refuse,
-            };
-            Hub::new(config, Box::new(store))
-        };
-        let source = hub_with(None);
-        let meta: SessionMeta = serde_json::from_value(json!({
-            "schema": crate::store::META_SCHEMA, "id": "import-authority", "name": "moved",
-            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
-        }))
-        .unwrap();
-        source.store.save(&meta).unwrap();
-        let session = source.make_session(meta);
-        source.append(&session, "mux", "transfer_out", json!({"transferId": "xfer"}));
-        source.append(&session, "mux", "transferred", json!({"transferId": "xfer"}));
-        let bundle = source.export(&session, &dir).unwrap();
-
-        let here = hub_with(Some("imported"));
-        let imported = here.import(&bundle, None).await.unwrap();
-        assert_eq!(imported.transfer_blocked(), None, "the copied move read as local");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// A move whose `transfer_out` never reached the log does not begin: the cache would
     /// still read the chat as local while its bundle is out.
     #[tokio::test]
@@ -355,5 +311,118 @@ mod tests {
         );
         assert_eq!(session.transfer_blocked(), Some(false));
         assert!(session.moving().is_none());
+    }
+
+    /// An agent's update named like a move decides neither the queue's freeze after a restart
+    /// nor whether a closed chat moved away.
+    #[test]
+    fn an_agent_record_named_like_a_move_freezes_or_moves_nothing() {
+        let mut config = Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Hub::new(config, store);
+        let chat = |id: &str| {
+            let meta: SessionMeta = serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+            }))
+            .unwrap();
+            hub.store.save(&meta).unwrap();
+            hub.make_session(meta)
+        };
+        let frozen = chat("agent-unfreeze");
+        hub.append(&frozen, "mux", "transfer_out", json!({"transferId": "xfer"}));
+        hub.append(&frozen, "in", "transfer_aborted", json!({}));
+        hub.restore_queue(&frozen);
+        assert_eq!(frozen.moving().as_deref(), Some("xfer"), "an agent's record unfroze it");
+
+        let closed = chat("agent-moved");
+        hub.append(&closed, "in", "transferred", json!({}));
+        closed.meta.lock().unwrap().status = SessionStatus::Closed;
+        assert!(!hub.moved_away(&closed), "an agent's record moved it away");
+        assert!(!hub.moved_on(&closed.id).unwrap(), "an agent's record moved its tasks on");
+    }
+
+    /// An abort whose record never reached the log leaves the chat frozen: it may not take
+    /// prompts while its durable `transfer_out` says it is leaving.
+    #[tokio::test]
+    async fn an_abort_whose_record_is_not_logged_keeps_the_chat_frozen() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let store = CountingStore {
+            inner,
+            scans: Arc::new(AtomicU64::new(0)),
+            fail: Arc::new(AtomicBool::new(false)),
+            refuse: Some("transfer_aborted"),
+        };
+        let hub = Arc::new(Hub::new(config, Box::new(store)));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "abort-unlogged", "name": "abort",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let begun = hub
+            .transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id}))
+            .await
+            .unwrap();
+        let transfer = begun["transferId"].as_str().unwrap().to_owned();
+        let params = json!({"sessionId": session.id, "transferId": transfer});
+        let aborted = hub.transfer_request("_acpmux/transfer_abort", &params).await;
+        let _ = std::fs::remove_dir_all(super::transfer_out::transfers_dir().join(&transfer));
+        assert!(aborted.is_err(), "an abort reported done without its record: {aborted:?}");
+        assert_eq!(session.moving().as_deref(), Some(transfer.as_str()), "it unfroze");
+        assert_eq!(session.transfer_blocked(), Some(true));
+    }
+
+    /// An import whose own `imported` receipt never reached the log fails and leaves no chat:
+    /// otherwise its copied records would decide its transfer state after a restart.
+    #[tokio::test]
+    async fn an_import_whose_receipt_is_not_logged_fails() {
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-import-receipt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let hub_with = |refuse: Option<&'static str>| {
+            let mut config: Config = serde_json::from_value(json!({
+                "harnesses": {"fake": {"argv": ["python3", fake]}},
+                "defaultHarness": "fake",
+            }))
+            .unwrap();
+            config.store.mode = crate::config::StoreMode::Memory;
+            let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+            let store = CountingStore {
+                inner,
+                scans: Arc::new(AtomicU64::new(0)),
+                fail: Arc::new(AtomicBool::new(false)),
+                refuse,
+            };
+            Hub::new(config, Box::new(store))
+        };
+        let source = hub_with(None);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "import-receipt", "name": "receipt",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        source.store.save(&meta).unwrap();
+        let session = source.make_session(meta);
+        source.append(&session, "mux", "transfer_aborted", json!({"transferId": "xfer"}));
+        let bundle = source.export(&session, &dir).unwrap();
+
+        let here = Arc::new(hub_with(Some("imported")));
+        let imported = here.import(&bundle, None).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(imported.is_err(), "an import stood without its receipt");
+        assert!(here.resolve("import-receipt").is_err(), "the failed import left its chat");
     }
 }

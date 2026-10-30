@@ -266,7 +266,7 @@ impl Hub {
     /// Whether chat `id` moved to another daemon: its log's latest move record is its commit
     /// here (`transferred`), not an arrival (`transferred_in`). Read from the log, so it holds
     /// after a restart, when `moving` is gone.
-    fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
+    pub(super) fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
         let mut away = false;
         let kinds = ["transferred", "transferred_in"];
         self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
