@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4112891057101",
+  "notes": "notes/4112891057101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28486,
+      "title": "fix(home): keep changing ages and inbox counts stable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28194,
+      "title": "carry of #25965: repair OptChat Chief cache invalid entries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28519,
+      "title": "ci(base-red): derive the rollups' jobs and routes from the workflows' needs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28483,
+      "title": "test(next): keep consecutive agent group launches together",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27993,
+      "title": "cmux NEXT composer: Search chats and Search pages from + (re-land of #26568)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27962,
+      "title": "cmux NEXT: a tab an agent needs you in shows the blue dot, the ring and why (carries #24311)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27899,
+      "title": "Warn on runaway agent sessions: sidebar badge and acpmux ls WARN column",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
