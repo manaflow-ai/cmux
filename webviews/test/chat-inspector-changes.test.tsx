@@ -156,6 +156,14 @@ test("the title leads, then repo #N, the line counts, the comments, and the fail
   expect(third!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
 });
 
+test("a long repository reference gives way before counts and check status", () => {
+  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  expect(css).toMatch(
+    /\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+  );
+  expect(css).not.toMatch(/\.acpmux-chat-inspector-pr__ref \{[^}]*flex: 0 0 auto;/s);
+});
+
 test("five rows show, then Show more opens the rest and Show less folds them again", async () => {
   const container = installDom();
   const all = Array.from({ length: 8 }, (_, index) => pr("manaflow-ai/cmux", 100 + index));
