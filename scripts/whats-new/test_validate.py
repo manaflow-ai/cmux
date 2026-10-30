@@ -102,6 +102,17 @@ class ValidateTests(unittest.TestCase):
         document["entries"][0]["summary"]["en"] = "'One.' 'Two.' 'Three.'"
         self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document), "more than 2 sentences")
 
+    def test_sentence_ending_no_and_etc_do_not_hide_three_sentences(self):
+        for text in (
+            "Choose yes or no. Tabs restore. Panes remain.",
+            "Restore tabs, panes, etc. Keep your layout. Resume work.",
+        ):
+            with self.subTest(text=text):
+                document = nightly_document()
+                document["entries"][0]["summary"]["en"] = text
+                self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document),
+                                    "more than 2 sentences")
+
     def test_length_limits(self):
         document = nightly_document()
         document["entries"][0]["title"]["en"] = "x" * 61

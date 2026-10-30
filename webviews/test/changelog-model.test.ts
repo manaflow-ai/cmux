@@ -49,6 +49,39 @@ test("a summary that says more than its title is kept", () => {
   expect(summaries(view)).toEqual({ tabs: "Colored labels, icons, and pins that keep a group." });
 });
 
+test("a shortened digest title and its full summary title appear as one change", () => {
+  const title = "Tabs keep their position, even after restarting with several windows open";
+  const description = "Your workspace comes back where you left it.";
+  const source = notes([entry("summary-0", "Tabs keep their position", description)]);
+  source.summary = [{ group: "new", title, description }];
+
+  const view = releaseView(source, "en");
+  expect(view.count).toBe(1);
+  expect(view.groups.flatMap((group) => group.items).map((item) => [item.id, item.title, item.summary])).toEqual([
+    ["summary-0", "Tabs keep their position", description],
+  ]);
+});
+
+test("summary entries missing from the digest remain visible beside deduplicated entries", () => {
+  const description = "Your workspace comes back where you left it.";
+  const source = notes([entry("summary-1", "Tabs keep their position", description)]);
+  source.summary = [
+    { group: "new", title: "Search open tabs", description: "Find a tab by its name." },
+    {
+      group: "new",
+      title: "Tabs keep their position, even after restarting with several windows open",
+      description,
+    },
+  ];
+
+  const view = releaseView(source, "en");
+  expect(view.count).toBe(2);
+  expect(view.groups.flatMap((group) => group.items).map((item) => [item.id, item.title])).toEqual([
+    ["summary-1", "Tabs keep their position"],
+    ["summary-0", "Search open tabs"],
+  ]);
+});
+
 // An older pipeline cut long titles with "…" and carried the whole line as the summary: the row
 // shows the whole line once, as its title (Leo 2026-10-18: never cut a title mid-sentence).
 test("a title cut with an ellipsis is made whole from its summary", () => {

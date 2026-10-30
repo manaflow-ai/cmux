@@ -155,8 +155,16 @@ test("backend and provider plumbing stays under the hood", () => {
     expect(readableChange(subject).internal).toBe(true);
   expect(readableChange("fix: tabs keep their position after restart").internal).toBe(false);
   const rows = readableChanges([
-    { title: "fix: tabs keep their position after restart (#123)", pr: 123, description: "They stay put after restart." },
-    { title: "fix: encode snapshot cutoff for Postgres (#124)", pr: 124, description: "Database snapshots use the cutoff." },
+    {
+      title: "fix: tabs keep their position after restart (#123)",
+      pr: 123,
+      description: "They stay put after restart.",
+    },
+    {
+      title: "fix: encode snapshot cutoff for Postgres (#124)",
+      pr: 124,
+      description: "Database snapshots use the cutoff.",
+    },
   ]);
   expect(rows.changes[0]?.description).toBe("They stay put after restart.");
   expect(rows.hidden[0]?.description).toBe("Database snapshots use the cutoff.");

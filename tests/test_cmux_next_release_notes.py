@@ -122,6 +122,19 @@ class ReleaseNotesTests(unittest.TestCase):
                 with self.subTest(text=text, prefix=prefix):
                     self.assertEqual(notes.pr_description(prefix + text, "Tabs stay put"), "Tabs stay put.")
 
+    def test_sentence_ending_no_and_etc_stop_description_extraction(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        for text, first in (
+            ("Choose yes or no. Tabs restore. Panes remain.", "Choose yes or no."),
+            ("Restore tabs, panes, etc. Keep your layout. Resume work.", "Restore tabs, panes, etc."),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(notes.pr_description("## Summary\n" + text), first)
+                self.assertEqual(notes.pr_description("## Summary\n" + first), first)
+
     def test_public_links_remain_allowed(self):
         import importlib.util
         spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
