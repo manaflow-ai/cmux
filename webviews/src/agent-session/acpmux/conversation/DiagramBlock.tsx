@@ -72,31 +72,33 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     <div className="cv-diagram" data-language={mode} ref={setFrame}>
       <div className="cv-diagram__bar">
         <span className="cv-diagram__lang">{mode}</span>
-        {!failure && (
-          <button type="button" className="cv-diagram__toggle" onClick={() => setShowCode((shown) => !shown)}>
-            {showCode ? t("diagram.chart") : t("diagram.code")}
-          </button>
-        )}
-        {drawn && !failure && !showCode && (
-          <button
-            type="button"
-            className="cv-diagram__toggle"
-            aria-label={saved ? t("artifact.saved") : t("artifact.save")}
-            title={saved ? t("artifact.saved") : t("artifact.save")}
-            onClick={() => {
-              const svg = chart.current?.querySelector("svg");
-              if (!svg) return;
-              const text = new XMLSerializer().serializeToString(svg);
-              // The host's save panel (`pane.saveFile`, as the side panel's Save); a host that has none, or
-              // failed to write, is as good as none: copy the SVG instead.
-              void postNative<boolean>("pane.saveFile", { text, suggestedName: mode, kind: "svg" })
-                .then((done) => setSaved(done === true))
-                .catch(() => void copyText(text));
-            }}
-          >
-            {saved ? <Check size={14} /> : <SaveTray size={14} />}
-          </button>
-        )}
+        <span className="cv-diagram__tools">
+          {!failure && (
+            <button type="button" className="cv-diagram__toggle" onClick={() => setShowCode((shown) => !shown)}>
+              {showCode ? t("diagram.chart") : t("diagram.code")}
+            </button>
+          )}
+          {drawn && !failure && !showCode && (
+            <button
+              type="button"
+              className="cv-diagram__toggle"
+              aria-label={saved ? t("artifact.saved") : t("artifact.save")}
+              title={saved ? t("artifact.saved") : t("artifact.save")}
+              onClick={() => {
+                const svg = chart.current?.querySelector("svg");
+                if (!svg) return;
+                const text = new XMLSerializer().serializeToString(svg);
+                // The host's save panel (`pane.saveFile`, as the side panel's Save); a host that has none, or
+                // failed to write, is as good as none: copy the SVG instead.
+                void postNative<boolean>("pane.saveFile", { text, suggestedName: mode, kind: "svg" })
+                  .then((done) => setSaved(done === true))
+                  .catch(() => void copyText(text));
+              }}
+            >
+              {saved ? <Check size={14} /> : <SaveTray size={14} />}
+            </button>
+          )}
+        </span>
         {actions}
       </div>
       {failure && <div className="cv-diagram__error">{t("diagram.failed", { reason: failure })}</div>}

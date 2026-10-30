@@ -3860,6 +3860,12 @@ a.cv-sha:focus-visible {
 .cv-diagram__lang {
   opacity: 0.7;
 }
+/* The Code toggle and Save stay together at the bar's end; the bar spaces its direct children apart. */
+.cv-diagram__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 .cv-diagram__toggle {
   border: 0;
   border-radius: 4px;
