@@ -56,8 +56,10 @@ import Testing
                         return AsyncThrowingStream { continuation in
                             self.live = continuation
                             continuation.onTermination = { @Sendable _ in
-                                self.termination?.resume()
-                                self.termination = nil
+                                Task { @MainActor in
+                                    self.termination?.resume()
+                                    self.termination = nil
+                                }
                             }
                         }
                     }
