@@ -198,10 +198,11 @@ impl State {
 
     /// A list read at `seen` says the create of `name` is over (made or
     /// failed): its reservation goes and its key moves on, unless the
-    /// reservation is newer than the list, which then cannot speak for it.
-    fn settle(&mut self, name: &str, base: &str, seen: u64) {
+    /// reservation is newer than the list, which then cannot speak for it
+    /// (false).
+    fn settle(&mut self, name: &str, base: &str, seen: u64) -> bool {
         let attempt = match self.creating.get(name).copied() {
-            Some(r) if r.seq > seen => return,
+            Some(r) if r.seq > seen => return false,
             Some(r) => {
                 self.creating.remove(name);
                 r.attempt
@@ -209,6 +210,7 @@ impl State {
             None => *self.attempts.entry(base.to_owned()).or_default(),
         };
         self.advance(base, attempt);
+        true
     }
 
     /// Moves `base` on past `attempt`, unless another call already did.
@@ -231,6 +233,23 @@ impl State {
     }
 }
 
+/// A start no other Chief shares: microseconds since the epoch, moved past
+/// this process's last one, then this process's id; digits only.
+fn epoch() -> u128 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_micros() as u64);
+    let prev = LAST
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+            Some(now.max(last + 1))
+        })
+        .unwrap_or_default();
+    let micros = now.max(prev + 1);
+    u128::from(micros) * 10_000_000_000 + u128::from(std::process::id())
+}
+
 /// The key base of a machine create of `name`.
 fn machine_key_base(name: &str) -> String {
     format!("optchat-cloud-machine-{name}")
@@ -240,7 +259,7 @@ fn machine_key_base(name: &str) -> String {
 pub struct CloudWorkspaces {
     app: Arc<dyn AppActions>,
     state: Mutex<State>,
-    /// This Chief's start (ms since the epoch), in every machine create's
+    /// This Chief's start ([`epoch`]), in every machine create's
     /// key: the app keeps finished runs' replies past a Chief restart, and
     /// the attempts restart at 0, so without it a create after a restart
     /// would replay the reply of an old one (a machine since deleted).
@@ -260,9 +279,7 @@ impl CloudWorkspaces {
         CloudWorkspaces {
             app,
             state: Mutex::new(State::default()),
-            epoch: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis()),
+            epoch: epoch(),
             now,
         }
     }
@@ -402,6 +419,7 @@ impl CloudWorkspaces {
             // A listed machine is a finished create: a later create of the
             // name (once this one is deleted or renamed) is a new action,
             // never a replay of this one.
+            // A create newer than the list keeps its reservation and key.
             self.state
                 .lock()
                 .expect("state")
@@ -423,9 +441,10 @@ impl CloudWorkspaces {
             // decides. An app that does not: the names this host asked for.
             if let Some(creates) = list["creating"].as_array() {
                 if let Some(create) = creates.iter().find(|c| named(c, "name")) {
-                    if create["status"] == "failed" {
-                        // That create is over: a later one is a new action.
-                        state.settle(&name, &base_key, seen);
+                    // A failed create is over: a later one is a new action.
+                    // A list older than this host's create of the name speaks
+                    // for an earlier one: the newer create is still being made.
+                    if create["status"] == "failed" && state.settle(&name, &base_key, seen) {
                         let reason = create["reason"].as_str().unwrap_or("no reason given");
                         return Err(format!(
                             "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
@@ -1231,6 +1250,46 @@ mod tests {
             assert!(first.starts_with("outcome: queued."), "{first}");
         });
         assert!(answer.contains("already exists"), "{answer}");
+    }
+
+    /// A failed row in a list read before this host's newer create of the
+    /// name speaks for an earlier create: the newer one is still being made.
+    #[test]
+    fn a_stale_failed_row_never_reports_a_newer_create_failed() {
+        let app = FakeApp::new(vec![
+            (
+                "cloudListMachines",
+                Ok(
+                    json!({"loaded": true, "machines": [], "creating": [{"name": "fix-login-bug", "status": "failed", "reason": "quota"}], "account": {"signed_in": true}}),
+                ),
+            ),
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"pending": true, "status": "creating"})),
+            ),
+        ]);
+        let answer = with_a_stale_list(&app, |tool| {
+            let first = tool.call(&request("Fix login bug")).unwrap();
+            assert!(first.starts_with("outcome: queued."), "{first}");
+        });
+        assert!(
+            answer.starts_with("outcome: noop.") && answer.contains("still being made"),
+            "{answer}"
+        );
+    }
+
+    /// Two Chiefs never share a start, however close: a create of one never
+    /// replays the other's under the same key.
+    #[test]
+    fn every_chief_start_is_its_own() {
+        let starts: Vec<u128> = (0..1000).map(|_| epoch()).collect();
+        assert!(starts.windows(2).all(|w| w[0] < w[1]));
+        assert!(
+            starts
+                .iter()
+                .all(|e| e % 10_000_000_000 == u128::from(std::process::id()))
+        );
     }
 
     /// A done create whose machine a list read after the answer no longer
