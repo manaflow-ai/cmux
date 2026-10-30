@@ -70,6 +70,16 @@ const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> =
   if (bucket) {
     await bucket.delete(due.flatMap(store.slotKeys))
     for (const slot of due) {
+      // A multipart slot whose upload was never recorded (the owner was unreachable when the intent made it): the slot
+      // is the record. A bucket that can list its open uploads (self-hosted) aborts every one under the slot's own key;
+      // R2's binding cannot list them, and its lifecycle rule ends them.
+      if (slot.mode === "multipart" && !slot.multipart_upload_id && abortsByPrefix(bucket)) {
+        await bucket.abortMultipartUploads(slot.object_key).catch((e: unknown) => {
+          console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(e).slice(0, 200) }))
+          retry.add(slot.id)
+        })
+        continue
+      }
       if (!slot.multipart_upload_id) continue
       try {
         await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort()
@@ -82,11 +92,14 @@ const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> =
   }
   for (const slot of due) {
     if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
-    // Queued in the same synchronous step that forgets the slot: the upload id is never lost.
-    if (retry.has(slot.id)) store.queueAbort(deps.sql, { upload_id: slot.multipart_upload_id!, object_key: slot.object_key }, now)
+    // Queued in the same synchronous step that forgets the slot: the upload id (or, for an unrecorded one, its key prefix) is never lost.
+    if (retry.has(slot.id)) store.queueAbort(deps.sql, { upload_id: slot.multipart_upload_id ?? `${PREFIX_ABORT}${slot.object_key}`, object_key: slot.object_key }, now)
     store.removeSlot(deps.sql, slot.id)
   }
 }
+
+/** A queued abort of every open upload under a slot's key (an upload the owner never recorded): no upload id is known. */
+const PREFIX_ABORT = "prefix:"
 
 /** Retries the queued aborts that are due; an upload R2 no longer knows is done, any other failure backs off. */
 const drainAborts = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
@@ -94,7 +107,9 @@ const drainAborts = async (deps: AttachmentGcDeps, now: number): Promise<void> =
   if (!bucket) return
   for (const upload of store.dueAborts(deps.sql, now)) {
     try {
-      await bucket.resumeMultipartUpload(upload.object_key, upload.upload_id).abort()
+      if (upload.upload_id.startsWith(PREFIX_ABORT)) {
+        if (abortsByPrefix(bucket)) await bucket.abortMultipartUploads(upload.object_key)
+      } else await bucket.resumeMultipartUpload(upload.object_key, upload.upload_id).abort()
     } catch (e) {
       if (completionFailure(e) !== "closed") {
         if (store.failAbort(deps.sql, upload.upload_id, now)) console.error(JSON.stringify({ event: "attachment.abort.dead_letter", object_key: upload.object_key }))

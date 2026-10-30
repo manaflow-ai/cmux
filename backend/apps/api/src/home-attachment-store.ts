@@ -547,7 +547,9 @@ export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`D
  */
 export const setMultipartUpload = (sql: Sql, id: string, uploadId: string, now: number, objectKey?: string): boolean => {
   ensure(sql)
-  if (!slotIn(sql, id, "open")) {
+  const slot = slotIn(sql, id, "open")
+  // A slot past its time takes no upload: every part request would be refused, so it is queued for an abort instead.
+  if (!slot || slot.expires_at <= now) {
     // An older caller that does not name the key aborts it itself.
     if (objectKey) queueAbort(sql, { upload_id: uploadId, object_key: objectKey }, now, 0)
     return false
