@@ -9986,6 +9986,20 @@ function AcpmuxPane() {
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
   // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  const continueWithoutFolder = useCallback(() => {
+    // Move the unsent composer state before starting the private no-project chat. The old chat
+    // remains untouched if creation fails; the user can retry or undo the trust decision.
+    const held = composerHandle.current?.draftState();
+    const start = callNative("chat.new", { noProject: true });
+    void start.then(
+      () => {
+        setProjectDraft(undefined);
+        if (held && (held.text || held.attachments.length > 0))
+          composerHandle.current?.restore(held.text, held.attachments);
+      },
+      () => undefined,
+    );
+  }, []);
   const trustPending = trustAsk.holdsAsks;
   // A secret is the one ask held while the trust read is in flight: a value typed into it must
   // never go before the folder is known to need no trust answer first.
@@ -10067,6 +10081,11 @@ function AcpmuxPane() {
           onTrustRepo={trustAsk.trustRepo}
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
+          onContinueWithoutFolder={
+            trustAsk.ask?.state === "decided" && trustAsk.ask.level === "untrusted"
+              ? continueWithoutFolder
+              : undefined
+          }
           answers={answersTrust}
         />
       )}

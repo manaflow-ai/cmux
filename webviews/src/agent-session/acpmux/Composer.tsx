@@ -196,6 +196,8 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
+  /// Reads the current unsent draft and attachments before moving this composer to another chat.
+  draftState(): { text: string; attachments: ComposerAttachment[] };
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -671,6 +673,9 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
+      draftState() {
+        return { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
+      },
       restore(restoredText, restoredAttachments) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();

@@ -44,6 +44,7 @@ export function TrustAsk({
   onTrustRepo,
   onDistrust,
   onUndo,
+  onContinueWithoutFolder,
   answers = true,
 }: {
   ask: FolderTrustAsk;
@@ -58,6 +59,8 @@ export function TrustAsk({
   onTrustRepo?(): void;
   onDistrust(): void;
   onUndo(): void;
+  /// Continue in the private no-project chat after explicitly declining this folder.
+  onContinueWithoutFolder?(): void;
 }) {
   const t = useT();
   // A workspace's new chat starts in its private folder under Application Support: named in words.
@@ -95,9 +98,16 @@ export function TrustAsk({
               </button>
             )}
             {answers && (
-              <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
-                {t("trust.undo")}
-              </button>
+              <>
+                {onContinueWithoutFolder && (
+                  <button type="button" className="acpmux-trust-ask-action" onClick={onContinueWithoutFolder}>
+                    {t("trust.continueWithoutFolder")}
+                  </button>
+                )}
+                <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
+                  {t("trust.undo")}
+                </button>
+              </>
             )}
           </span>
         </>

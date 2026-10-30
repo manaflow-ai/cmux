@@ -212573,6 +212573,18 @@
         }
       }
     },
+    "trust.continueWithoutFolder": {
+      "comment": "Folder trust: continue after declining access",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue without folder context: project hooks and config won't load"
+          }
+        }
+      }
+    },
     "trust.notNow": {
       "comment": "Agent pane: the folder trust question above the composer (scope: repo or folder; what trusting allows; Not now)",
       "extractionState": "manual",

@@ -89,3 +89,26 @@ test("a project folder keeps its name", async () => {
   );
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust atlas-web?");
 });
+
+
+test("a declined folder offers continuation without folder context", async () => {
+  let continued = 0;
+  await act(async () => {
+    root.render(
+      <TrustAsk
+        ask={{ state: "decided", level: "untrusted", cwd: "/Users/you/src/atlas-web" }}
+        agent="The agent"
+        onTrust={() => undefined}
+        onDistrust={() => undefined}
+        onUndo={() => undefined}
+        onContinueWithoutFolder={() => { continued += 1; }}
+      />,
+    );
+  });
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
+    item.textContent?.includes("Continue without folder context"),
+  );
+  expect(button).toBeDefined();
+  await act(async () => button!.click());
+  expect(continued).toBe(1);
+});
