@@ -107,6 +107,25 @@ struct CloudSpaceTests {
         #expect(state.profileID == .defaultProfile, "the window went into another Cloud space's wait: \(state.profileID)")
     }
 
+    /// A Cloud space's first New Tab page is the machine's: its folders, never this Mac's home or projects, and
+    /// not warmed in this Mac's acpmux (its chats start on the machine).
+    @Test func aCloudWorkspacesFirstPageShowsTheMachineNotThisMac() {
+        let services = Self.services()
+        let machine = Self.cloudMachine(services, id: "vm-space")
+        let context = NewTabPageMachine(services, selected: nil, machine: machine.daemon)
+        #expect(context.home == nil, "a Cloud page offered this Mac's home")
+        #expect(context.remoteFolders != nil, "a Cloud page listed this Mac's projects")
+        #expect(NewTabPageMachine(services, selected: nil).home == NSHomeDirectory(), "this Mac's page lost its home")
+    }
+
+    /// A machine whose daemon cannot start chats there (an older cmux-tui, not connected) keeps the terminal.
+    @Test func aCloudMachineThatCannotStartChatsOpensATerminal() {
+        let services = Self.services()
+        let machine = Self.cloudMachine(services, id: "vm-space")
+        #expect(!services.agentTabs.opensRemotePage(machine.daemon))
+        #expect(!services.agentTabs.opensRemotePage(services.machines.local))
+    }
+
     @Test func aBrowserProfileCreateStaysOnTheMac() {
         let services = Self.services()
         _ = Self.cloudMachine(services, id: "vm-space")

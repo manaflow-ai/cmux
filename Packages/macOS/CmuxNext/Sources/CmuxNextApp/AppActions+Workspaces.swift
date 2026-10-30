@@ -159,7 +159,9 @@ extension AppActions {
         let input = services.keyRouter.newTabInputCoordinator
         let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? spaceDaemon)
-        let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
+        // A Cloud space's machine still waking would hold the keys for its whole resume: only a connected one holds them.
+        let keys = opensPage && target == windows.active?.state.id && (daemon ?? spaceDaemon).connection != nil
+            ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
         let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
