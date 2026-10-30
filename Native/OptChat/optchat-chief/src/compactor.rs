@@ -52,8 +52,8 @@ pub const POLICY: &str = "deny-all";
 /// Longest one compactor prompt may take, the session's start included.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Days Claude Code keeps a compactor transcript that `end` could not
-/// delete (a crash); its minimum.
+/// Days the host keeps a compactor transcript that `end` could not delete
+/// (a crash): TurnRetention prunes the slot projects past it.
 pub const TRANSCRIPT_DAYS: u64 = 1;
 
 /// Claude Code's built-in tools, denied in each compactor slot's project
@@ -2090,7 +2090,10 @@ pub fn compactor_settings_with(ttl: CacheTtl, ours: bool) -> Value {
         "disableBundledSkills": true,
         "promptCacheTtl": ttl.as_str(),
         "enableAllProjectMcpServers": false,
-        "cleanupPeriodDays": TRANSCRIPT_DAYS,
+        // No `cleanupPeriodDays`: the slot runs on the user's Claude home,
+        // whose every project the retention sweep would reach
+        // (session_dir::PROJECT_SETTINGS_STORE_WIDE_KEYS). `end` deletes the
+        // node's transcript; TurnRetention prunes what a crash left.
     });
     let mut env = serde_json::Map::new();
     if ttl == CacheTtl::FiveMinutes {
@@ -2309,6 +2312,12 @@ pub fn is_model_unavailable(message: &str) -> bool {
         || (lower.contains("not_found_error") && lower.contains("model"))
 }
 
+/// The compactor's working directory for `home` (its slot directories
+/// are under it): `optchat-compact-<home id>` in the system temp dir.
+pub fn compactor_work(home: &Path) -> PathBuf {
+    std::env::temp_dir().join(format!("optchat-compact-{}", home_id(home)))
+}
+
 /// How the compactor's sessions start for `home`.
 pub fn compactor_spec(
     paths: &Paths,
@@ -2319,7 +2328,7 @@ pub fn compactor_spec(
 ) -> CompactorSpec {
     let name = format!("optchat-compact-{}", home_id(home));
     CompactorSpec {
-        work: std::env::temp_dir().join(&name),
+        work: compactor_work(home),
         transcript_dirs: vec![paths.compactor_config.clone(), user_claude_home()],
         preset: name.clone(),
         name,
