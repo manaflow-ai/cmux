@@ -223,14 +223,11 @@ pub struct Peer {
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
     health_asking: AtomicBool,
-    /// The pending key of the handshake's `_acpmux/watch`, or of the `_acpmux/sessions` page
-    /// after it (`watch_paging`). The reader publishes that reply's list itself, before it reads
-    /// the next frame, so a `session_changed` the peer sent after the reply reaches the hub after
+    /// The pending key of the handshake's `_acpmux/watch`, or of a page of its list
+    /// (`watch_request_on`). The reader publishes that reply's list itself, before it reads the
+    /// next frame, so a `session_changed` the peer sent after the reply reaches the hub after
     /// the list, never before it. A list in pages is published once, whole, after its last.
     watch_key: StdMutex<Option<String>>,
-    /// The handshake is reading the pages of its watch list: its `_acpmux/sessions` replies go
-    /// to the reader's list like the watch's own.
-    watch_paging: AtomicBool,
 }
 
 impl Peer {
@@ -299,7 +296,6 @@ impl Peer {
             health: StdMutex::new(None),
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
-            watch_paging: AtomicBool::new(false),
         })
     }
 
@@ -779,6 +775,22 @@ impl Peer {
         params: Value,
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
+        self.send_request(m, params, epoch, false).await
+    }
+
+    /// [`Self::link_request_on`] for the handshake's watch list on link `link`, its
+    /// `_acpmux/watch` or a page after it: the reader takes the reply's rows (`watch_key`).
+    async fn watch_request_on(&self, m: &str, params: Value, link: u64) -> Result<Value, RpcError> {
+        self.send_request(m, params, Some(link), true).await
+    }
+
+    async fn send_request(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+        watch: bool,
+    ) -> Result<Value, RpcError> {
         // One deadline from here: a request that waits for room in the queue (a stalled link,
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
@@ -788,11 +800,6 @@ impl Peer {
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
-        if m == method::MUX_WATCH
-            || (m == method::MUX_SESSIONS && self.watch_paging.load(Ordering::SeqCst))
-        {
-            *self.watch_key.lock_or_recover() = Some(key.clone());
-        }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending {
@@ -805,6 +812,11 @@ impl Peer {
         // prompt (which has no deadline) would wait for good.
         if epoch.is_some_and(|e| e != self.link_epoch() || !self.open.load(Ordering::SeqCst)) {
             return Err(self.unreachable_error());
+        }
+        // Only on its own link, checked just above with no await between: a request of a link
+        // gone down never takes the key of the next link's list.
+        if watch {
+            *self.watch_key.lock_or_recover() = Some(key.clone());
         }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
@@ -1213,7 +1225,7 @@ impl Peer {
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             let watch = |tools| json!({"enabled": true, "withTools": tools});
             let (first, tools) = match me
-                .link_request_on(method::MUX_WATCH, watch(true), Some(link))
+                .watch_request_on(method::MUX_WATCH, watch(true), link)
                 .await
             {
                 // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
@@ -1222,7 +1234,7 @@ impl Peer {
                 // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
                 Err(e) if too_large(&e) => {
                     tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                    (me.link_request_on(method::MUX_WATCH, watch(false), Some(link)).await?, false)
+                    (me.watch_request_on(method::MUX_WATCH, watch(false), link).await?, false)
                 }
                 answer => (answer?, true),
             };
@@ -1541,22 +1553,16 @@ impl Peer {
     /// not a string, is an error that ends the handshake, never a loop or a short list.
     async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
         let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
-        self.watch_paging.store(next.is_some(), Ordering::SeqCst);
-        let read = async {
-            while let Some(cursor) = next {
-                if !seen.insert(cursor.clone()) {
-                    let why = format!("the peer gave the watch page cursor {cursor:?} twice");
-                    return Err(RpcError::internal(why));
-                }
-                let params = json!({"withTools": tools, "cursor": cursor});
-                let page = self.link_request_on(method::MUX_SESSIONS, params, Some(link)).await?;
-                next = page_cursor(&page)?;
+        while let Some(cursor) = next {
+            if !seen.insert(cursor.clone()) {
+                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
+                return Err(RpcError::internal(why));
             }
-            Ok(())
-        };
-        let read = read.await;
-        self.watch_paging.store(false, Ordering::SeqCst);
-        read
+            let params = json!({"withTools": tools, "cursor": cursor});
+            let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
+            next = page_cursor(&page)?;
+        }
+        Ok(())
     }
 }
 
