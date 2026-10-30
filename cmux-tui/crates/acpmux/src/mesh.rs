@@ -279,6 +279,10 @@ pub struct HubError {
     pub retry_after: Option<Duration>,
     /// The HTTP status the hub answered, when it answered one.
     pub status: Option<u16>,
+    /// Whether the hub surely kept nothing: it refused, or the request never reached it (no
+    /// connection, a rate limit). False when it may have stored a message before the error: an
+    /// answer that timed out or was cut off, a 5xx.
+    pub unsent: bool,
 }
 
 impl HubError {
@@ -290,7 +294,7 @@ impl HubError {
     }
 
     pub fn unavailable(message: impl Into<String>) -> Self {
-        Self { refused: false, ..Self::refused(message) }
+        Self { refused: false, unsent: false, ..Self::refused(message) }
     }
 
     pub fn refused(message: impl Into<String>) -> Self {
@@ -302,6 +306,7 @@ impl HubError {
             candidates: None,
             retry_after: None,
             status: None,
+            unsent: true,
         }
     }
 }

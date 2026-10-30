@@ -16,11 +16,15 @@ use tokio::sync::mpsc;
 enum Answer {
     Take,
     Unknown,
+    /// No connection: the request never reached the hub.
     Down,
+    /// The answer was lost after the request went out: the hub may have taken it.
+    Lost,
 }
 
+/// A hub that answers its sends in turn, the last answer again once the list runs out.
 struct FakeHub {
-    answer: Answer,
+    answers: Vec<Answer>,
     sent: Mutex<Vec<OutMessage>>,
 }
 
@@ -41,8 +45,10 @@ impl MeshHub for FakeHub {
     }
 
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
-        self.sent.lock().unwrap().push(message.clone());
-        let answer = self.answer;
+        let mut sent = self.sent.lock().unwrap();
+        sent.push(message.clone());
+        let answer = self.answers[(sent.len() - 1).min(self.answers.len() - 1)];
+        drop(sent);
         Box::pin(async move {
             match answer {
                 Answer::Take => Ok(serde_json::from_value(json!({
@@ -55,7 +61,8 @@ impl MeshHub for FakeHub {
                     e.code = Some("mesh.unknown_recipient".into());
                     Err(e)
                 }
-                Answer::Down => Err(HubError::unavailable("the hub is down")),
+                Answer::Down => Err(HubError { unsent: true, ..HubError::unavailable("no route") }),
+                Answer::Lost => Err(HubError::unavailable("the answer timed out")),
             }
         })
     }
@@ -66,14 +73,14 @@ impl MeshHub for FakeHub {
 }
 
 /// A daemon with the relay on and peer `box` down, whose last list had session `m1`, "lane".
-fn setup(answer: Answer) -> (Arc<Hub>, Arc<FakeHub>) {
+fn setup(answers: &[Answer]) -> (Arc<Hub>, Arc<FakeHub>) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(config, store);
     let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "turnCount": 1, "updatedAt": 5});
     hub.seed_down_peer("box", vec![row]);
-    let fake = Arc::new(FakeHub { answer, sent: Mutex::new(Vec::new()) });
+    let fake = Arc::new(FakeHub { answers: answers.to_vec(), sent: Mutex::new(Vec::new()) });
     assert!(hub.mesh.set(fake.clone()).is_ok());
     (hub, fake)
 }
@@ -111,23 +118,22 @@ fn delivery(reply: &Value) -> &str {
 }
 
 #[tokio::test]
-async fn a_text_send_to_a_down_peer_goes_through_the_relay_by_the_sessions_name() {
-    let (hub, fake) = setup(Answer::Take);
+async fn a_text_send_to_a_down_peer_goes_through_the_relay_only_by_the_sessions_name() {
+    let (hub, fake) = setup(&[Answer::Take]);
     let by_name = send_queue(&hub, text("box/lane", "prompt-0001")).await;
     assert!(delivery(&by_name).starts_with("mesh:"), "{by_name}");
-    // By id: the relay addresses sessions by name, so the id the cached row knows is turned into
-    // that row's name, never sent as one.
+    // By id: the relay addresses sessions by name, and a name can pass to another session while
+    // the link is down, so a send that named one session by its id waits for the link.
     let by_id = send_queue(&hub, text("box/m1", "prompt-0002")).await;
-    assert!(delivery(&by_id).starts_with("mesh:"), "{by_id}");
+    assert!(!delivery(&by_id).starts_with("mesh:"), "{by_id}");
     let to: Vec<_> =
         fake.sent.lock().unwrap().iter().map(|m| (m.to.host.clone(), m.to.name.clone())).collect();
-    let lane = (Some("box".to_owned()), Some("lane".to_owned()));
-    assert_eq!(to, vec![lane.clone(), lane]);
+    assert_eq!(to, vec![(Some("box".to_owned()), Some("lane".to_owned()))]);
 }
 
 #[tokio::test]
 async fn what_the_relay_cannot_carry_stays_in_the_local_outbox() {
-    let (hub, fake) = setup(Answer::Take);
+    let (hub, fake) = setup(&[Answer::Take]);
     let mut attached = text("box/lane", "prompt-0003");
     attached["prompt"]
         .as_array_mut()
@@ -147,9 +153,39 @@ async fn what_the_relay_cannot_carry_stays_in_the_local_outbox() {
 #[tokio::test]
 async fn a_relay_that_refuses_or_is_down_leaves_the_send_in_the_local_outbox() {
     for answer in [Answer::Unknown, Answer::Down] {
-        let (hub, fake) = setup(answer);
+        let (hub, fake) = setup(&[answer]);
         let reply = send_queue(&hub, text("box/lane", "prompt-0006")).await;
         assert!(!delivery(&reply).starts_with("mesh:"), "{reply}");
         assert_eq!(fake.sent.lock().unwrap().len(), 1, "the relay was tried first");
     }
+}
+
+#[tokio::test]
+async fn a_send_the_hub_may_have_taken_is_asked_again_under_its_key_and_never_kept_here() {
+    // The answer was lost, then the hub answers the same key: that one message, no second copy.
+    let (hub, fake) = setup(&[Answer::Lost, Answer::Take]);
+    let reply = send_queue(&hub, text("box/lane", "prompt-0007")).await;
+    assert!(delivery(&reply).starts_with("mesh:"), "{reply}");
+    let keys: Vec<_> =
+        fake.sent.lock().unwrap().iter().map(|m| m.idempotency_key.clone()).collect();
+    assert_eq!(keys, vec!["prompt-0007".to_owned(); 2]);
+    // With no prompt id, both asks still carry one key.
+    let (hub, fake) = setup(&[Answer::Lost, Answer::Take]);
+    let mut unnamed = text("box/lane", "");
+    unnamed["_meta"]["acpmux"].as_object_mut().unwrap().remove("promptId");
+    let reply = send_queue(&hub, unnamed).await;
+    assert!(delivery(&reply).starts_with("mesh:"), "{reply}");
+    let keys: Vec<_> =
+        fake.sent.lock().unwrap().iter().map(|m| m.idempotency_key.clone()).collect();
+    assert!(keys.len() == 2 && keys[0] == keys[1], "{keys:?}");
+    // Lost twice: an error the caller sees, never a local copy that would run it a second time.
+    let (hub, fake) = setup(&[Answer::Lost]);
+    let reply = send_queue(&hub, text("box/lane", "prompt-0008")).await;
+    assert!(reply.get("result").is_none(), "{reply}");
+    assert_eq!(
+        reply.pointer("/error/data/reason"),
+        Some(&json!("mesh.unknown_outcome")),
+        "{reply}"
+    );
+    assert_eq!(fake.sent.lock().unwrap().len(), 2);
 }
