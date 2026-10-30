@@ -61,6 +61,7 @@ enum AgentTeamsLaunch: CaseIterable {
                     if reveal { context.window(showing: key.rawValue) }
                 } catch {
                     logger.error("launch-agent-teams failed: \(String(describing: error), privacy: .public)")
+                    context.services.windows.abandonPendingPlacement(key.rawValue)
                 }
             }
             return

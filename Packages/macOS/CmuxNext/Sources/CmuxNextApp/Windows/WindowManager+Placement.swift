@@ -28,6 +28,12 @@ struct PendingPlacement {
 // personal order in the home session, else `move-workspace-to-group` on the
 // owning daemon.
 extension WindowManager {
+    /// Cancels an explicit placement when its create operation fails before
+    /// the daemon can report the workspace.
+    func abandonPendingPlacement(_ id: String) {
+        pendingPlacements[id] = nil
+    }
+
     /// Revisit creates whose daemon row arrived before the sidebar projection
     /// did. SidebarBridge calls this after each rendered projection pass, so a
     /// delayed document/order update can complete the original action without
