@@ -214,11 +214,15 @@ impl Rows {
     }
 
     fn finish(mut self) -> Built {
-        // Stable ties keep the original local-before-remote order, including duplicate IDs.
+        // The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
+        // the order their cursors (`session_pages.rs`) read them in.
         self.keys.sort_by(|a, b| {
-            b.updated_at.cmp(&a.updated_at).then_with(|| {
-                a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
-            })
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| {
+                    a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
+                })
+                .then_with(|| a.peer.cmp(&b.peer))
         });
         let prefix = br#"{"sessions":["#;
         let mut whole = Vec::with_capacity(
@@ -432,6 +436,7 @@ mod tests {
             json!({"sessionId": "z", "updatedAt": 1, "status": "closed", "tools": [{"id": "tool", "description": "雪\n\""}]}),
             json!({"sessionId": "same", "updatedAt": 9, "origin": "local"}),
             json!({"sessionId": "same", "updatedAt": 9, "peer": "remote", "origin": "remote"}),
+            json!({"sessionId": "same", "updatedAt": 9, "peer": "other", "origin": "other"}),
             json!({"sessionId": "a", "updatedAt": 9, "unknown": {"array": [null, false, 42]}}),
             json!({"sessionId": null, "updatedAt": "invalid", "status": "closed"}),
             json!({"updatedAt": -1, "opaque": "preserved"}),
@@ -452,7 +457,8 @@ mod tests {
             );
         }
         assert_eq!(rows[1]["origin"], "local");
-        assert_eq!(rows[2]["origin"], "remote");
+        assert_eq!(rows[2]["origin"], "other");
+        assert_eq!(rows[3]["origin"], "remote");
     }
 
     #[test]
