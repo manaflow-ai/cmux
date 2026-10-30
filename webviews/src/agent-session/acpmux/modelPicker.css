@@ -382,9 +382,11 @@
 .acpmux-quick-newtab {
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
 }
+/* Contain only the rail's width: its tabs count toward the menu's height, so a short model list
+   never squeezes the rail into a scroller that hides the selected harness. */
 .acpmux-quick-rail {
   flex: 0 0 36%;
-  contain: size;
+  contain: inline-size;
   display: flex;
   flex-direction: column;
   align-items: stretch;

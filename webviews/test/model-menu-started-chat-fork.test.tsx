@@ -215,6 +215,16 @@ async function open() {
   await settle();
 }
 
+/// The Account submenu: the chat's routes, then its harness's other launch accounts (Fork to, or
+/// a named launch on a new chat). Launch accounts are never rows of the model list.
+async function accountMenu() {
+  const row = itemsOf(menu()!).find((item) => item.textContent?.startsWith("Account"));
+  expect(row, `Account row in ${itemsOf(menu()!).map((item) => item.textContent).join(", ")}`).toBeDefined();
+  await act(async () => row!.click());
+  await settle();
+  return [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")].at(-1)!;
+}
+
 async function showTab(name: string) {
   const tab = railTabs().find((candidate) => candidate.getAttribute("aria-label") === name);
   expect(
@@ -268,7 +278,9 @@ test("launch configurations stay inside one Claude and one Codex rail entry", as
   const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
   expect(labels.filter((name) => name?.startsWith("Claude"))).toEqual(["Claude Code"]);
   expect(labels.filter((name) => name?.startsWith("Codex"))).toEqual(["Codex"]);
-  const launch = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Claude (work)");
+  // The model list itself carries no launch rows.
+  expect(itemsOf(menu()!).map(labelOf)).not.toContain("Fork to Claude (work)");
+  const launch = itemsOf(await accountMenu()).find((item) => labelOf(item) === "Fork to Claude (work)");
   expect(launch).toBeDefined();
   await act(async () => launch!.click());
   await settle();
@@ -293,8 +305,9 @@ for (const [id, name, family] of [
     await open();
     expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Claude Code"]);
     expect(forked).toEqual([]);
-    expect(itemsOf(menu()!).map(labelOf)).toContain(`Fork to ${name}`);
-    const variant = itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${name}`)!;
+    const account = await accountMenu();
+    expect(itemsOf(account).map(labelOf)).toContain(`Fork to ${name}`);
+    const variant = itemsOf(account).find((item) => labelOf(item) === `Fork to ${name}`)!;
     await act(async () => variant.focus());
     expect(doc().activeElement).toBe(variant);
     await act(async () =>
@@ -320,7 +333,7 @@ test("a new chat launches a named variant inside the canonical harness", async (
   const { switched } = await mount(0);
   await open();
   expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
-  const launch = itemsOf(menu()!).find((item) => labelOf(item) === "Claude (work)");
+  const launch = itemsOf(await accountMenu()).find((item) => labelOf(item) === "Claude (work)");
   expect(launch).toBeDefined();
   await act(async () => launch!.click());
   await settle();
@@ -385,7 +398,7 @@ for (const [id, label] of [
     const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
     await open();
     expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
-    const variant = itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${label}`);
+    const variant = itemsOf(await accountMenu()).find((item) => labelOf(item) === `Fork to ${label}`);
     expect(variant).toBeDefined();
     await act(async () => variant!.click());
     await settle();
@@ -412,9 +425,10 @@ for (const [first, second, firstLabel, secondLabel] of [
     ] as Snapshot["catalog"];
     const { switched } = await mount(0, undefined, "claude", catalog);
     await open();
-    expect(itemsOf(menu()!).map(labelOf)).toEqual(expect.arrayContaining([firstLabel, secondLabel]));
+    const account = await accountMenu();
+    expect(itemsOf(account).map(labelOf)).toEqual(expect.arrayContaining([firstLabel, secondLabel]));
     await act(async () =>
-      itemsOf(menu()!)
+      itemsOf(account)
         .find((item) => labelOf(item) === secondLabel)!
         .click(),
     );
@@ -431,7 +445,7 @@ test("a configured suffix collision keeps every launch profile readable", async 
   ] as Snapshot["catalog"];
   await mount(0, undefined, "claude", catalog);
   await open();
-  const labels = itemsOf(menu()!).map(labelOf);
+  const labels = itemsOf(await accountMenu()).map(labelOf);
   expect(labels).toEqual(expect.arrayContaining(["Work (work)", "Work (personal)", "Work (work) (travel)"]));
 });
 
