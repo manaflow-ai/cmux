@@ -178,7 +178,7 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
+                let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 var listed = SidebarTab(id: TabID(tab.id), title: title,
                                         kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
                                         brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
@@ -431,6 +431,16 @@ public struct SidebarMapping {
         })
         guard kinds.count <= 1 else { return .mixed }
         return kinds.first ?? .terminal
+    }
+
+    /// A terminal tab titled by a raw folder (an untitled shell shows its folder, `TabItemMapping.title`, and some
+    /// shells title it so) reads as its prompt writes it: this Mac's home and another computer's home both as `~`.
+    /// Another computer's folder never matched this Mac's home, so a Cloud shell's tab read `/home/cmux` (Leo
+    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar"); as `~`, the tab line then names
+    /// it "Terminal" (`SidebarTabLine.cleanName`), the workspace row already saying the machine and the folder.
+    static func shortenedPath(_ title: String, of tab: TabModel, shorten: (String) -> String) -> String {
+        guard tab.agentSession == nil, tab.kind == .pty || tab.kind == .remoteTerminal, title.hasPrefix("/") else { return title }
+        return shorten(title)
     }
 
     /// A folder of another computer (SSH, Cloud) as its shell prompt writes it: its account's
