@@ -86,128 +86,12 @@ use std::sync::OnceLock;
 
 pub(super) mod hint;
 mod peer_folder;
+pub(super) use hint::POLICY_REFUSED;
 pub(super) use hint::check;
-use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
-
-/// Metadata carried only on a policy change forwarded by a local connection
-/// that already proved the person. The peer token authenticates the daemon
-/// hop; a per-link random value signs the marker, binding it to the exact
-/// target session, policy, and source host so a peer cannot mint it.
-const OWNER_POLICY_GRANT: &str = "ownerPolicyGrant";
-const OWNER_POLICY_HOST: &str = "ownerPolicyHost";
-const OWNER_POLICY_PROOF: &str = "ownerPolicyProof";
-const OWNER_POLICY_NONCE: &str = "ownerPolicyNonce";
-
-#[derive(Clone, Debug)]
-pub(super) struct OwnerPolicyGrant {
-    pub host: String,
-    pub nonce: String,
-}
-
-fn owner_policy_meta(params: &Value) -> Option<&serde_json::Map<String, Value>> {
-    params.pointer("/_meta/acpmux").and_then(Value::as_object)
-}
-
-fn valid_owner_host(host: &str) -> bool {
-    (1..=128).contains(&host.len())
-        && host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
-}
-
-/// Whether this request carries the owner grant for a remote policy raise.
-/// This reuses the VM-boundary owner proof: only a peer-token connection
-/// serving itself, never a Web or paired-device forwarding, may consume it.
-/// The HMAC is checked with the receiving daemon's existing person credential.
-pub(super) fn owner_policy_grant(
-    hub: &crate::hub::Hub,
-    conn: &super::Conn,
-    params: &Value,
-) -> bool {
-    owner_policy_context(hub, conn, params).is_some()
-}
-
-pub(super) fn owner_policy_context(
-    hub: &crate::hub::Hub,
-    conn: &super::Conn,
-    params: &Value,
-) -> Option<OwnerPolicyGrant> {
-    if conn.origin != super::Origin::Peer
-        || !crate::hub::vm_boundary::owner(
-            conn.auth,
-            control_of(conn.origin, conn.auth, params),
-            params,
-        )
-    {
-        return None;
-    }
-    let meta = owner_policy_meta(params)?;
-    if meta.get(OWNER_POLICY_GRANT) != Some(&Value::Bool(true)) {
-        return None;
-    }
-    let host = meta.get(OWNER_POLICY_HOST).and_then(Value::as_str)?;
-    let proof = meta.get(OWNER_POLICY_PROOF).and_then(Value::as_str)?;
-    let nonce = meta.get(OWNER_POLICY_NONCE).and_then(Value::as_str)?;
-    let session = params.get("sessionId").and_then(Value::as_str)?;
-    let policy = params.get("policy").and_then(Value::as_str)?;
-    (valid_owner_host(host)
-        && nonce.len() == 64
-        && nonce.bytes().all(|b| b.is_ascii_hexdigit())
-        && !hub.owner_policy_nonces.lock().unwrap_or_else(|e| e.into_inner()).contains(nonce)
-        && conn.owner_policy_link().is_some_and(|secret| {
-            let expected = crate::hub::person::owner_policy_proof_for_secret(
-                secret, session, policy, host, nonce,
-            );
-            cmux_local_auth::tokens_match(proof, &expected)
-        }))
-    .then(|| OwnerPolicyGrant { host: host.to_owned(), nonce: nonce.to_owned() })
-}
-
-/// Mark a policy request forwarded from a local person connection. Any
-/// caller-supplied grant is removed first, so a remote client cannot smuggle
-/// the marker through the forwarding daemon. The per-link value signs the
-/// exact session, policy, and source host that the peer will receive.
-pub(super) fn mark_policy_forwarded(
-    peer: &crate::peer::Peer,
-    origin: super::Origin,
-    auth: super::ConnAuth,
-    person: bool,
-    params: &Value,
-    forwarded: &mut Value,
-) {
-    mark_forwarded(origin, auth, params, forwarded);
-    if let Some(meta) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
-        meta.remove(OWNER_POLICY_GRANT);
-        meta.remove(OWNER_POLICY_HOST);
-        meta.remove(OWNER_POLICY_PROOF);
-        meta.remove(OWNER_POLICY_NONCE);
-    }
-    if person && matches!(origin, super::Origin::Local | super::Origin::LocalApp) {
-        let session = forwarded.get("sessionId").and_then(Value::as_str);
-        let policy = params.get("policy").and_then(Value::as_str);
-        let host = crate::hub::host_label();
-        let nonce = crate::hub::person::new_nonce();
-        if let (Some(session), Some(policy)) = (session, policy) {
-            let proof = crate::hub::person::owner_policy_proof_for_secret(
-                peer.owner_link_secret(),
-                session,
-                policy,
-                host,
-                &nonce,
-            );
-            crate::hub::merge_mux_meta(
-                forwarded,
-                serde_json::json!({
-                    OWNER_POLICY_GRANT: true,
-                    OWNER_POLICY_HOST: host,
-                    OWNER_POLICY_PROOF: proof,
-                    OWNER_POLICY_NONCE: nonce,
-                }),
-            );
-        }
-    }
-}
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -300,13 +184,13 @@ fn refused(what: &str) -> RpcError {
 /// connection that is not the unix socket (`hint::check` adds `servedAs`).
 async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
-    conn: &super::Conn,
+    origin: super::Origin,
+    auth: super::ConnAuth,
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
-    let origin = conn.origin;
-    let auth = conn.auth;
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
@@ -434,7 +318,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer, owner_policy_grant(hub, conn, params)) {
+        match web_only(m, params, peer, policy_proved) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -789,8 +673,9 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
-/// skips asking.
-fn web_only(m: &str, params: &Value, peer: bool, owner_grant: bool) -> Result<(), RpcError> {
+/// skips asking. `policy_proved`: a policy raise the person proved for this
+/// one chat (`hub/person/policy_grant.rs`), whoever relays it.
+fn web_only(m: &str, params: &Value, peer: bool, policy_proved: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -842,7 +727,7 @@ fn web_only(m: &str, params: &Value, peer: bool, owner_grant: bool) -> Result<()
         {
             Err(policy_refused())
         }
-        method::MUX_SET_POLICY if peer && owner_grant => Ok(()),
+        method::MUX_SET_POLICY if policy_proved => Ok(()),
         method::MUX_SET_POLICY | "_acpmux/set_default_policy"
             if !policy_ok(params.get("policy")) =>
         {

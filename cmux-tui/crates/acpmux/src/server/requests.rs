@@ -133,8 +133,16 @@ pub(super) async fn handle_notification(
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
-                && let Err(e) =
-                    super::remote_guard::check(hub, conn, device.as_deref(), m, &mut params).await
+                && let Err(e) = super::remote_guard::check(
+                    hub,
+                    conn.origin,
+                    conn.auth,
+                    device.as_deref(),
+                    m,
+                    &mut params,
+                    false,
+                )
+                .await
             {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
@@ -420,7 +428,16 @@ async fn dispatch_brief(
         }
     }
     if conn.origin != Origin::Local {
-        super::remote_guard::check(hub, conn, None, method::SESSION_NEW, &mut new_params).await?;
+        super::remote_guard::check(
+            hub,
+            conn.origin,
+            conn.auth,
+            None,
+            method::SESSION_NEW,
+            &mut new_params,
+            false,
+        )
+        .await?;
     }
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &new_params)
@@ -430,7 +447,6 @@ async fn dispatch_brief(
         remote_authenticated,
         conn.caller(),
         !conn.origin.web_class(),
-        false,
         method::SESSION_NEW,
         &new_params,
     )
@@ -443,9 +459,7 @@ async fn dispatch_brief(
         );
     }
     let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None, None))
-            .await
-        {
+        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
             Ok(created) => created,
             Err(error) => {
                 hub.briefs.release(&id);
@@ -590,7 +604,6 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
-    conn.capture_owner_policy_link(m, &params);
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
@@ -598,10 +611,32 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
+    // A policy raise the person proved in another machine's app, for a chat here: counted and
+    // its challenge spent once, before any check reads it (`hub/person/policy_grant.rs`).
+    let policy_proved = hub.take_person_policy(m, &mut params);
+    // A refused raise of a chat here carries a challenge the person's app can prove.
+    let challenge = |e: RpcError, params: &Value| {
+        hub.with_policy_challenge(
+            m,
+            params,
+            &[super::remote_guard::POLICY_REFUSED, crate::hub::person::REASON],
+            e,
+        )
+    };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
-        super::remote_guard::check(hub, conn, device.as_deref(), m, &mut params).await?;
+        super::remote_guard::check(
+            hub,
+            conn.origin,
+            conn.auth,
+            device.as_deref(),
+            m,
+            &mut params,
+            policy_proved,
+        )
+        .await
+        .map_err(|e| challenge(e, &params))?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
@@ -611,18 +646,17 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
-    let owner_policy_grant = super::remote_guard::owner_policy_context(hub, conn, &params);
     let verdict = hub
         .person_check(
-            conn.is_person(),
+            conn.is_person() || policy_proved,
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
-            owner_policy_grant.is_some(),
             m,
             &params,
         )
-        .await?;
+        .await
+        .map_err(|e| challenge(e, &params))?;
     // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
@@ -652,7 +686,7 @@ pub(super) async fn handle_request(
             )),
         }
     } else {
-        dispatch_request(hub, conn, m, params, resolved, owner_policy_grant).await
+        dispatch_request(hub, conn, m, params, resolved).await
     };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
@@ -676,7 +710,6 @@ async fn dispatch_request(
     m: &str,
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
-    owner_policy_grant: Option<super::remote_guard::OwnerPolicyGrant>,
 ) -> Result<Value, RpcError> {
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
@@ -2078,12 +2111,7 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
-            if let Some(grant) = owner_policy_grant {
-                hub.set_policy_unless_moving_from_owner(&s, policy, &grant.host, &grant.nonce)
-                    .await?;
-            } else {
-                hub.set_policy_unless_moving(&s, policy).await?;
-            }
+            hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {
