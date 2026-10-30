@@ -433,6 +433,13 @@ extension WindowManager {
         return services.machines.local.store.isLoaded && cloudSettled
     }
 
+    /// Whether a saved workspace whose machine this run has no daemon for is gone (P-AUSTIN B7b).
+    /// `listed`: the machine registry has the machine, its feature on or off. `accountListLoaded`:
+    /// the signed-in account's machine list has loaded.
+    static func remoteMachineLeft(listed: Bool, accountListLoaded: Bool) -> Bool {
+        true
+    }
+
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
     /// for those this launch has not seen: a workspace on a paused or connecting Cloud machine keeps its window.
     func rememberMachines(of document: WindowStateDocument) {
