@@ -467,7 +467,10 @@ impl<I: Io> Reporter<I> {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
-            (Step::RetryRestored { turn: _, .. }, Now::Retrying { turn: current, why, .. }) => {
+            // Only the held turn's own marker renews its wait.
+            (Step::RetryRestored { turn, .. }, Now::Retrying { turn: current, why, .. })
+                if turn == current =>
+            {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn: current, why, until });
             }
@@ -526,6 +529,12 @@ impl<I: Io> Reporter<I> {
         status: &'static str,
         note: Option<String>,
     ) {
+        // An older turn's end than one reported here is stale: the store keeps one turn, and a
+        // newer end waiting to be sent again stays.
+        let newest = self.tracks.get(session).and_then(|t| t.ended);
+        if newest.max(self.later.get(session).map(|l| l.turn)) > Some(turn) {
+            return;
+        }
         // A newer end of the session replaces one still waiting (the store keeps one turn).
         self.later.remove(session);
         if let Some(track) = self.tracks.get_mut(session) {
