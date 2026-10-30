@@ -106,6 +106,10 @@ _GUARD = re.compile(r"\bif\b")
 # The names a module's feature route lists (server/routes.rs).
 _ROUTE_EXACT = re.compile(rf"\bRouteName::Exact\(\s*({_VALUE})\s*\)")
 _ROUTE_ONE_OF = re.compile(rf"\bRouteName::OneOf\(\s*&\s*\[([^\]]*)\]\s*\)")
+# `RouteName::OneOf(&NAME)`: NAME is a `const NAME: [&str; N] = [...]` array of the same module
+# (server/energy_op.rs, agent_cli_intents.rs). A path (`&crate::fs_ops::FS_COMMANDS`) is NAME_LISTS's.
+_ROUTE_ONE_OF_CONST = re.compile(r"\bRouteName::OneOf\(\s*&\s*([A-Z][A-Z0-9_]*)\s*\)")
+_STR_ARRAY = re.compile(r"\bconst\s+([A-Z][A-Z0-9_]*)\s*:\s*\[\s*&(?:'static\s+)?str\s*;\s*[^\]]+\]\s*=\s*\[([^\]]*)\]\s*;")
 
 
 class SnifferNameError(ValueError):
@@ -283,6 +287,15 @@ def literal_names(
         names.add(found.group(1))
     for found in _ROUTE_ONE_OF.finditer(code):
         names.add_all(found.group(1))
+    arrays = dict(_STR_ARRAY.findall(code))
+    for found in _ROUTE_ONE_OF_CONST.finditer(code):
+        values = arrays.get(found.group(1))
+        if values is None:
+            raise SnifferNameError(
+                f"{label}: cannot read RouteName::OneOf(&{found.group(1)}): no "
+                f"`const {found.group(1)}: [&str; N] = [...]` in this module"
+            )
+        names.add_all(values)
     for found in _MATCH.finditer(code):
         scrutinee = found.group(1)
         if not _CMD_SCRUTINEE.fullmatch(scrutinee) and '"cmd"' not in scrutinee:
