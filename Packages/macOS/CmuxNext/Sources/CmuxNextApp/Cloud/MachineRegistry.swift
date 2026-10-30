@@ -228,3 +228,34 @@ nonisolated struct MachineRoutingRefusal: Error, Equatable {
     /// The machine whose tree lists the tab.
     let machineID: String
 }
+
+// Where a space's new workspaces go (plans/cmux-next/data-model.md 4 rule 3): a space with a default session
+// creates there. A Cloud space follows one Cloud machine's session and creates on it, so the window shows that
+// machine's own workspaces, terminals and browser tabs. The session is the stable key; the machine is found
+// through the daemon that serves it now, else through the home registry's record of how to reach it, so a
+// paused machine (no daemon identity yet this launch) still resolves to its Cloud session and wakes.
+extension MachineRegistry {
+    /// The space's default session (nil: the local daemon, or the space's machine is gone).
+    func creationDaemon(for profile: ProfileID) -> DaemonService? {
+        guard let session = local.store.profile(profile)?.defaultSessionID else { return nil }
+        return daemon(forSession: session)
+    }
+
+    /// The daemon serving `sessionID` now, else the Cloud machine the home registry recorded for it.
+    func daemon(forSession sessionID: String) -> DaemonService? {
+        if let live = daemon(session: sessionID) { return live }
+        let record = local.store.personal.session(sessionID.lowercased()) ?? local.store.personal.session(sessionID)
+        return record.flatMap(Self.cloudMachineID(of:)).flatMap(self.session)?.daemon
+    }
+
+    /// The Cloud machine id a session record's transport names (`SessionRegistrar.transport`), nil for any other.
+    nonisolated static func cloudMachineID(of record: SessionRecord) -> String? {
+        guard case let .object(fields)? = record.transport, fields["kind"]?.stringValue == "cloud" else { return nil }
+        return fields["machine"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The Cloud machine behind `daemon`, if it is one.
+    func cloudSession(of daemon: DaemonService) -> CloudMachineSession? {
+        daemon.isLocal ? nil : session(daemon.machineID)
+    }
+}

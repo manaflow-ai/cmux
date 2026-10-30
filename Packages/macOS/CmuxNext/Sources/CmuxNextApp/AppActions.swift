@@ -51,6 +51,7 @@ enum AppActions {
         AutoArchiveActions(coordinator: services.autoArchive, host: services).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
+        RoomHandlers.bindCloudSpace(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
         RemoteLocalhostHandlers.bind(into: registry, context: context)

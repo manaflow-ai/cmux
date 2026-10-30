@@ -21,7 +21,25 @@ extension WindowManager {
                         frame: CGRect? = nil) -> () async throws -> String {
         var spawn = spawn
         spawn.followClassicMode(services)
+        if daemon == nil, let space = spaceDaemon(spawn, into: windowID) {
+            // A Cloud space creates on its machine. A paused machine or an ended link wakes on this create, and the
+            // workspace is made once the machine connects, never on the Mac instead.
+            if space.connection == nil, let machine = services.machines.cloudSession(of: space) {
+                return { [self] in
+                    try await machine.connectedForSpace()
+                    return try await WorkspaceSpawner(windows: self, spawn: spawn, daemon: space, windowID: windowID, frame: frame).start()()
+                }
+            }
+            return WorkspaceSpawner(windows: self, spawn: spawn, daemon: space, windowID: windowID, frame: frame).start()
+        }
         return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+    }
+
+    /// The daemon a create with no machine asked for goes to: the default session of the space it is born in
+    /// (`spawn.profile`, else its window's, else the active window's), nil for the local daemon.
+    private func spaceDaemon(_ spawn: WorkspaceSpawn, into windowID: String?) -> DaemonService? {
+        let profile = spawn.profile ?? windowID.flatMap { states[$0]?.profileID } ?? active?.state.profileID
+        return profile.flatMap(services.machines.creationDaemon(for:))
     }
 }
 

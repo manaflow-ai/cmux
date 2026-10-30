@@ -22,9 +22,14 @@ public struct CreateProfileRequest: DaemonRequest {
     public var index: Int?
     public var browserProfileID: BrowserProfileKey?
     public var defaults: ProfileDefaults?
+    /// The session New Workspace creates in (a Cloud space's machine); nil for the local daemon.
+    public var defaultSessionID: String?
+    /// Sessions whose unpinned workspaces this profile shows (data-model.md 3.2).
+    public var follows: [String]?
 
     public init(name: String, profile: ProfileID? = nil, color: String? = nil, icon: String? = nil, theme: String? = nil,
-                index: Int? = nil, browserProfileID: BrowserProfileKey? = nil, defaults: ProfileDefaults? = nil) {
+                index: Int? = nil, browserProfileID: BrowserProfileKey? = nil, defaults: ProfileDefaults? = nil,
+                defaultSessionID: String? = nil, follows: [String]? = nil) {
         self.name = name
         self.profile = profile
         self.color = color
@@ -33,5 +38,7 @@ public struct CreateProfileRequest: DaemonRequest {
         self.index = index
         self.browserProfileID = browserProfileID
         self.defaults = defaults
+        self.defaultSessionID = defaultSessionID
+        self.follows = follows
     }
 }
