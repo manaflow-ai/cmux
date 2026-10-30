@@ -86,6 +86,7 @@ public struct DiffFileScreen: View {
         .onChange(of: fileID) {
             hunkLine = nil
             matchIndex = 0
+            scrollTarget = nil
         }
         .onChange(of: state.hideWhitespace) { wasHidden, hides in
             // `hunkLine` indexes the shown lines; keep it on the same line of the file.
