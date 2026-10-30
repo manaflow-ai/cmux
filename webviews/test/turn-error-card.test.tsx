@@ -606,7 +606,8 @@ test("a sign-in card in the CodeRouter primary arm still leads with Sign in agai
         ),
       );
       const filled = [...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent);
-      expect([error, actionLabels()]).toEqual([error, ["Sign in again", "Retry", "Switch model", "Use cmux CodeRouter"]]);
+      const order = ["Sign in again", "Retry", "Switch model", "Use cmux CodeRouter"];
+      expect([error, actionLabels()]).toEqual([error, order]);
       expect([error, filled]).toEqual([error, ["Sign in again"]]);
       await act(async () => button("Sign in again")!.click());
       expect([error, done]).toEqual([error, ["sign-in"]]);
