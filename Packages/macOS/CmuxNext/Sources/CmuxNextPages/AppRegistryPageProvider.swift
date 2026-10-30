@@ -137,8 +137,8 @@ public final class AppRegistryPageProvider: PageProvider {
 
 /// The native sheets of the community ops: sending an app for review publishes its files, and a
 /// reviewer's decision lists or refuses another person's app.
-public nonisolated enum AppRegistryPageConfirmations {
-    public static func confirmation(op: String, params: JSONValue) -> PageConfirmation? {
+public nonisolated extension PageConfirmation {
+    static func appRegistry(op: String, params: JSONValue) -> PageConfirmation? {
         switch op {
         case "cmux.registry.submit":
             let app = params["app"]?.stringValue ?? ""

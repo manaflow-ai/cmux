@@ -74,7 +74,7 @@ struct PageFactory {
         })
         let community = PolicyGatedPageProvider(inner: provider) { [weak apps = services.apps] in apps?.transport.turnedOff }
         let registry = ConfirmingPageProvider(inner: community, presenter: DialogPageConfirmationPresenter()) { op, params in
-            AppRegistryPageConfirmations.confirmation(op: op, params: params)
+            PageConfirmation.appRegistry(op: op, params: params)
         }
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: AppRegistryPageProvider.prefix, provider: registry),
                       PageRoute(prefix: "cmux.app.", provider: native)]

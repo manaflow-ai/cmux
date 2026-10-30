@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Component, Path};
+use std::sync::PoisonError;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -153,13 +154,13 @@ impl Supervisor {
                 bad("apps.registry.unavailable", "this daemon has no state folder")
             })?;
         let files = decoded(&p)?;
-        let _one_put = self.registry_puts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one_put = self.registry_puts.lock().unwrap_or_else(PoisonError::into_inner);
         // First source wins in the catalog: a bundled or extra folder with the
         // same id would shadow the copy, so nothing is written for it.
         let shadowed = self
             .inner
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .catalog
             .packages
             .get(&p.app)
@@ -215,7 +216,14 @@ impl Supervisor {
         self.reload_catalog_for(&p.app, "registry-put");
         // First source wins in the catalog: a bundled or extra folder with the
         // same id would shadow the copy just written.
-        let source = self.inner.lock().unwrap().catalog.packages.get(&p.app).map(|p| p.source);
+        let source = self
+            .inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .catalog
+            .packages
+            .get(&p.app)
+            .map(|p| p.source);
         match source {
             Some(Source::Registry) => {}
             Some(_) => {
@@ -231,7 +239,7 @@ impl Supervisor {
     fn reload_catalog_for(&self, app: &str, transaction: &str) {
         let catalog = catalog::load(&self.config.sources);
         let outs: Vec<Out> = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.catalog = catalog;
             let mut outs = self.regrant_locked(&mut inner, app);
             outs.push(Out::Broadcast(json!({

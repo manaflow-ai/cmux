@@ -13,6 +13,8 @@
 //! `gesture.required`, and `focus` is never passed to an owner. Ops the Mac
 //! app's provider owns are not open to web panes yet.
 
+use std::sync::PoisonError;
+
 use serde_json::{Value, json};
 
 use super::actions::{self, ActionDecision};
@@ -61,7 +63,7 @@ struct WebSlot {
 impl Drop for WebSlot {
     fn drop(&mut self) {
         let Some(supervisor) = self.supervisor.upgrade() else { return };
-        let mut inflight = supervisor.web_inflight.lock().unwrap();
+        let mut inflight = supervisor.web_inflight.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(count) = inflight.get_mut(&self.app) {
             *count = count.saturating_sub(1);
             if *count == 0 {
@@ -83,7 +85,7 @@ impl Supervisor {
         respond: Responder,
     ) {
         let admitted = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             Self::admit_web_call(&inner, app, op, params, idempotency_key)
         };
         let admitted = match admitted {
@@ -135,7 +137,7 @@ impl Supervisor {
     /// slot is given back when the guard drops (the call answered, or the
     /// worker never started).
     fn web_slot(&self, app: &str) -> Option<WebSlot> {
-        let mut inflight = self.web_inflight.lock().unwrap();
+        let mut inflight = self.web_inflight.lock().unwrap_or_else(PoisonError::into_inner);
         let count = inflight.entry(app.to_string()).or_default();
         if *count >= MAX_WEB_INFLIGHT {
             return None;
@@ -216,7 +218,7 @@ impl Supervisor {
         if op.starts_with("app.storage.") {
             // Under the supervisor lock: an uninstall (which drops the table
             // under the same lock) cannot interleave with this write.
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             if !inner.mirror.apps.get(&app).is_some_and(|r| r.installed && r.enabled) {
                 return Err(error("scope.missing", "the app is not installed"));
             }
@@ -251,7 +253,7 @@ impl Supervisor {
             message.push('…');
         }
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             let web = inner.catalog.packages.get(app).is_some_and(|p| has_web_pane(&p.manifest));
             if !web {
                 return Err(api("apps.web.none", "the app has no web pane"));
