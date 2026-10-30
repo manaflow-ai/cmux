@@ -31,6 +31,9 @@ enum DebugUpdater {
     static func run(_ params: [String: JSONValue], _ services: AppServices,
                     terminate: @escaping @MainActor () -> Void = DebugUpdater.terminate) throws -> JSONValue {
         switch params["action"]?.stringValue {
+        case "pulled-capture":
+            services.updater.pulledWatch.debugShowPulledCard()
+            return .object(["shown": true])
         case "relaunch":
             // What Sparkle does: the relaunch hook (the quit keeps every
             // session), then NSApp.terminate through applicationShouldTerminate.

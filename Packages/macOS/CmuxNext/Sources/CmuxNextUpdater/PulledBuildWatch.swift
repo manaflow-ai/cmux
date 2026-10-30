@@ -195,6 +195,14 @@ public final class PulledBuildWatch {
         }
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Capture-only fixture of this revision's actual pulled card; no product behavior changes.
+    public func debugShowPulledCard() {
+        pulled = PulledBuild(build: build, reason: "crashes at launch", serve: "100")
+        waitingBuild = nil
+    }
+    #endif
+
     /// `pulled.json` over HTTPS, never from a cache; nil on any failure (a missing list is the
     /// normal case: nothing was ever pulled).
     nonisolated static func download(_ url: URL) async -> Data? {

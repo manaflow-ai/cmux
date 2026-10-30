@@ -1,0 +1,1 @@
+{"title":"Before: the pulled-build card on base","steps":[{"title":"Launch","wait":2},{"title":"The base pulled-build card, rendered by the real app","cmux":["app","call","debug.updater","{\"action\":\"pulled-capture\"}"],"wait":2}]}
