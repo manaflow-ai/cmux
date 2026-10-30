@@ -164,9 +164,11 @@ extension DaemonStore {
         ProvisionalSplit.daemonHandle(showing: handle, in: self)
     }
 
-    /// The pane a command about `handle` sends (rule: a stand-in id never leaves for the daemon): `handle` for a daemon
-    /// pane; for a pending create's stand-in, the daemon's pane that took it over. The caller sends after that create
-    /// (the workspace's create chain), so a stand-in still unresolved here was never made: ``PendingPaneNotCreated``.
+    /// The pane a create about `handle` sends (rule b: a stand-in id never leaves for the daemon): `handle` for a daemon
+    /// pane; for a pending create's stand-in, the daemon's pane that took it over. The terminal creates call it after the
+    /// workspace's create chain (`pendingCreate`), so a stand-in of Cmd-D, New Column, New Row or New Terminal Tab still
+    /// unresolved here was never made: ``PendingPaneNotCreated``. A stand-in outside that chain (Cmd-N's first pane, a
+    /// pending New Tab page split) also throws it here, though it may still be made (follow-up: one seam for every verb).
     public func daemonTarget(_ handle: PaneID) throws -> PaneID {
         guard handle.rawValue >= ProvisionalPane.firstHandle else { return handle }
         guard let daemon = daemonHandle(showing: handle) else { throw PendingPaneNotCreated() }
