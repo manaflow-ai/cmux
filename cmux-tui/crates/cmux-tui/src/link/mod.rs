@@ -494,6 +494,7 @@ async fn serve(
         served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
+        outcome = launchd_agent_outcome() => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
@@ -519,6 +520,32 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     let listener = tokio::net::UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(listener)
+}
+
+/// When launchd runs this serve as `com.cmuxterm.link`: resolves once an
+/// update replaced its binary (an error, so launchd starts the new one) or
+/// its app was deleted (the agent removed itself; `launchd_refresh.rs`).
+/// Never resolves otherwise.
+async fn launchd_agent_outcome() -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = launchd::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(launchd::LABEL, plist))
+    {
+        // A thread of its own: a blocking task would hold the runtime's shutdown.
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(agent.wait());
+        });
+        return match receiver.await {
+            Ok(crate::launchd_refresh::Outcome::Replaced) => {
+                Err(anyhow!("an update replaced this cmux; launchd starts the new build"))
+            }
+            Ok(crate::launchd_refresh::Outcome::Removed) => Ok(()),
+            Err(_) => std::future::pending().await,
+        };
+    }
+    std::future::pending().await
 }
 
 async fn shutdown_signal() -> anyhow::Result<()> {

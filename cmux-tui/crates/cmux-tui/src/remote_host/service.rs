@@ -289,6 +289,37 @@ pub(crate) fn installed() -> bool {
     imp::installed().is_some()
 }
 
+/// Why the launchd agent's serve ends (`launchd_refresh.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) enum AgentExit {
+    /// An update replaced the binary: exit unsuccessfully, launchd starts the new one.
+    Replaced,
+    /// The app was deleted; the agent removed itself.
+    Removed,
+}
+
+/// When launchd runs this serve as its agent: a watch on its program, sent to
+/// `done` once an update replaced the binary or the app was deleted. Nothing
+/// is ever sent otherwise.
+pub(crate) fn follow_app_updates(done: mpsc::Sender<Option<AgentExit>>) {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = imp::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(LAUNCHD_LABEL, plist))
+    {
+        std::thread::spawn(move || {
+            let exit = match agent.wait() {
+                crate::launchd_refresh::Outcome::Replaced => AgentExit::Replaced,
+                crate::launchd_refresh::Outcome::Removed => AgentExit::Removed,
+            };
+            let _ = done.send(Some(exit));
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    drop(done);
+}
+
 /// Replaces any running `serve` (the service's or a detached one) with a
 /// fresh one: through the service manager when `with_service` and one is
 /// installed, else detached. Returns a note for `status`.
@@ -330,7 +361,7 @@ fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
 mod imp {
     use super::*;
 
-    fn plist_path() -> anyhow::Result<PathBuf> {
+    pub(super) fn plist_path() -> anyhow::Result<PathBuf> {
         let home = cmux_tui_core::platform::home_dir()
             .ok_or_else(|| anyhow!("cannot find the home directory"))?;
         Ok(home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")))

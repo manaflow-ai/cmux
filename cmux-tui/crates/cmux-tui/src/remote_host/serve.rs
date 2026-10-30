@@ -181,13 +181,29 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         );
     }
     ready("ready");
-    let mut threads = Vec::new();
+    // `None` when a listener stopped; the launchd agent's outcome otherwise.
+    let (done, events) = std::sync::mpsc::channel();
+    super::service::follow_app_updates(done.clone());
+    let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);
-        threads.push(std::thread::spawn(move || accept_loop(&host, &listener)));
+        let done = done.clone();
+        std::thread::spawn(move || {
+            accept_loop(&host, &listener);
+            let _ = done.send(None);
+        });
     }
-    for thread in threads {
-        let _ = thread.join();
+    drop(done);
+    while running > 0 {
+        match events.recv() {
+            Ok(None) => running -= 1,
+            // KeepAlive restarts only an unsuccessful exit: launchd starts the new build.
+            Ok(Some(super::service::AgentExit::Replaced)) => {
+                bail!("an update replaced this cmux; launchd starts the new build")
+            }
+            Ok(Some(super::service::AgentExit::Removed)) => return Ok(()),
+            Err(_) => break,
+        }
     }
     Err(anyhow!("every listener stopped"))
 }
