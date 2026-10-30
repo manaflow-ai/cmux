@@ -872,6 +872,24 @@ describe("an authoritative spawnAgent parent repairs agents already recorded", (
     ).toContain("worker");
   });
 
+  test("a worker moved out of a parent view that was already drawn leaves that view", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "lead", parent: null }] });
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "worker", parent: "lead" }] });
+    const ids = (rows: { subagents?: { id: string }[] }[] | undefined) =>
+      rows?.flatMap((row) => row.subagents ?? []).map(({ id }) => id) ?? [];
+    // The lead's view is drawn (and cached) with the worker nested in it.
+    expect(ids(fold.views().lead)).toEqual(["worker"]);
+    fold.takeRows();
+    spawnFrom(fold, "root-native", { subagents: [{ id: "worker", parent: null }] });
+
+    expect(ids(fold.views().lead)).toEqual([]);
+    expect(ids(fold.takeRows())).toContain("worker");
+    // What the lead spawns after the move still draws in its view.
+    spawnFrom(fold, "lead", { subagents: [{ id: "helper", parent: "lead" }] });
+    expect(ids(fold.views().lead)).toEqual(["helper"]);
+  });
+
   test("a parent that arrives late takes the worker recorded before it", () => {
     const fold = new SubagentFold();
     // The sender's own spawn has not arrived yet: the worker is left parentless.
