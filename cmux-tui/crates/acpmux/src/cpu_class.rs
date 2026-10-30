@@ -89,9 +89,13 @@ impl CpuClass {
         #[cfg(target_os = "macos")]
         if self == Self::Background {
             match ClampedExec::new(cmd.as_std(), env) {
-                // SAFETY: the hook runs in the child between fork and exec. It makes one
-                // posix_spawn(2) call with arguments built before the fork (no allocation, no
-                // lock) and returns only its error.
+                // SAFETY: the hook runs in the child between fork and exec, where std would call
+                // execvp next; it calls posix_spawn with SETEXEC in its place, with every
+                // argument built before the fork. libsystem's posix_spawn (xnu
+                // libsyscall/wrappers/spawn/posix_spawn.c) fills a stack descriptor and makes the
+                // __posix_spawn syscall: no allocation, no lock, the same as its execve wrapper
+                // (both consult only a filter hook that is NULL on customer installs). It
+                // returns only the call's error.
                 Some(exec) => unsafe {
                     cmd.pre_exec(move || Err(exec.exec()));
                 },
