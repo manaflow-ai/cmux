@@ -1916,6 +1916,10 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_base_autofix_pushed_exports.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_tip_swift_suite.py"
 lane = "linux-guard"
 

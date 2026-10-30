@@ -229,6 +229,9 @@ on:
       - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_base_autofix_pushed_exports.py
+      - scripts/cmux-next/base_autofix_pushed_exports.py
+      - scripts/cmux-next/base-autofix-exports-pack.sh
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
@@ -297,6 +300,9 @@ on:
       - scripts/cmux-next/check-generator-inputs.sh
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_base_autofix_pushed_exports.py
+      - scripts/cmux-next/base_autofix_pushed_exports.py
+      - scripts/cmux-next/base-autofix-exports-pack.sh
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
@@ -2005,6 +2011,7 @@ jobs:
           python3 tests/test_next_batch.py
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
+          python3 tests/test_base_autofix_pushed_exports.py
           python3 tests/test_cmux_next_pr_autofix_settings.py
           python3 tests/test_cmux_next_pr_changed_paths.py
           python3 tests/test_pr_capture_check_paths.py
@@ -3864,6 +3871,29 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-settings-exports.sh
 
+      # The base autofix's exports, on a push whose generated files this job checks (the
+      # generated-files job's step of the same name, which this push skips).
+      - name: Pack the exports for the base autofix
+        id: base-exports
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the base autofix
+        if: ${{ steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.base-exports.outputs.name }}
+          path: ${{ runner.temp }}/base-exports
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
@@ -4050,7 +4080,7 @@ jobs:
       # The reuse lookup lists artifacts.
       actions: read
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: 40
     outputs:
       patch: ${{ steps.regenerate.outputs.patch }}
     env:
@@ -4287,6 +4317,34 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         run: scripts/cmux-next/check-settings-exports.sh
+
+      # The base autofix's action and settings exports, made on this build instead of a second Mac
+      # build of the same push (cmuxterm-hq#5424): every export regenerated, packed under this commit's
+      # tree (scripts/cmux-next/base_autofix_pushed_exports.py), and uploaded for
+      # cmux-next-base-autofix.yml's pushed-exports job. Pushes of feat-cmux-next only, so a pack is
+      # only ever this repository's merged code. It puts the checkout's exports back as they were, so
+      # the steps below see what the checks left; a failure makes no pack (the autofix's Mac job then
+      # regenerates them) and never fails this job. vars.CMUX_NEXT_BASE_EXPORTS_PACK=0 turns it off.
+      - name: Pack the exports for the base autofix
+        id: base-exports
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.reuse.outputs.hit != 'true' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the base autofix
+        if: ${{ steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.base-exports.outputs.name }}
+          path: ${{ runner.temp }}/base-exports
+          if-no-files-found: error
+          retention-days: 1
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
