@@ -126,6 +126,15 @@ test("streaming tokens never redraw an answered or skipped question or the todo 
   expect(cards).toBe(3);
 });
 
+test("the live ask's card keeps still while the pane streams, given one reply handler per ask", async () => {
+  const pending: AgentQuestion = { ...answered, id: "perm_live", state: { kind: "pending" } };
+  // App.tsx PermissionAsk keeps one handler per ask (useMemo on the permission).
+  const onReply = () => {};
+  const { cards } = await stream(() => <QuestionCard question={pending} onReply={onReply} />);
+  // PendingAsk and PendingQuestion each read the strings once, on mount only.
+  expect(cards).toBe(2);
+});
+
 test("a plan update or the turn's end still redraws the list", async () => {
   let setEntries: (entries: AcpmuxPlanEntry[]) => void = () => {};
   let setEnded: (ended: boolean) => void = () => {};

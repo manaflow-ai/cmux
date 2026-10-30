@@ -4278,6 +4278,8 @@ function PermissionAsk({
   waiting?: number;
 }) {
   const t = useT();
+  // One reply handler per ask, so the memoized question card skips the pane's other updates.
+  const onReply = useMemo(() => replyToQuestion(permission), [permission]);
   if (!permission.question)
     return (
       <PermissionCard
@@ -4293,7 +4295,7 @@ function PermissionAsk({
   return (
     <>
       {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
-      <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
+      <QuestionCard question={permission.question} onReply={onReply} />
     </>
   );
 }
