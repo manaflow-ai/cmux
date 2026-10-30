@@ -28,6 +28,9 @@ extension PageWebView {
         scripts.releaseOffMain(on: sink)
     }
 
+    /// Whether the page's script pipeline frees its large runs off the main thread (``releaseScriptsOffMain(on:)``).
+    package var releasesScriptsOffMain: Bool { scripts.releasesOffMain }
+
     /// Holds the router while the page is hidden and releases it when it shows, on frames only.
     /// Chrome throttles a hidden page's timers (third_party/blink/renderer/platform/scheduler/
     /// main_thread/page_scheduler_impl.cc) but still runs a WebUI's IPC; cmux holds the events too,

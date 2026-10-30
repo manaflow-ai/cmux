@@ -161,11 +161,26 @@ public final class WebUIHost {
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         if let scriptReleaseSink { view.releaseScriptsOffMain(on: scriptReleaseSink) }
         opened.add(view)
+        #if DEBUG
+        // Checked, not assumed: in a host with a release sink (the app's), every page its registry lists, also one
+        // made with `PageWebView(...)` outside this host, frees its large runs off the main thread (P-MAIN S3).
+        let freeingOnMain = pagesFreeingScriptsOnMain()
+        assert(freeingOnMain.isEmpty, "pages that free script runs on the main thread: \(freeingOnMain.map(\.pageID))")
+        #endif
         #if DEBUG || CMUX_BENCH_HOOKS
         view.censusState.engineClosed = { [weak self] in self?.noteEngineClose() }
         #endif
         return view
     }
+
+    #if DEBUG
+    /// The pages ``registry`` lists whose script pipeline has no release sink, when this host has one
+    /// (``scriptReleaseSink``); none otherwise. ``open(_:)`` asserts it is empty.
+    package func pagesFreeingScriptsOnMain() -> [PageWebView] {
+        guard scriptReleaseSink != nil else { return [] }
+        return registry.pages().filter { !$0.releasesScriptsOffMain }
+    }
+    #endif
 
     /// Ends `view`. Now: it leaves the view tree, the host's lists and its own crash budget, and its
     /// routes, subscriptions and bridge end, so nothing serves a page no tab shows. At the

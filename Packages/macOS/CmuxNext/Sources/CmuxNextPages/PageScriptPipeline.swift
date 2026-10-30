@@ -184,6 +184,9 @@ final class PageScriptPipeline {
         releaseSink = sink
     }
 
+    /// Whether the runs the drain task sends or drops are freed off the main thread (``releaseOffMain(on:)``).
+    var releasesOffMain: Bool { releaseSink != nil }
+
     /// True when nothing is queued or running, so a script may be evaluated at once.
     private var isIdle: Bool { drain == nil && head == queue.count }
 
