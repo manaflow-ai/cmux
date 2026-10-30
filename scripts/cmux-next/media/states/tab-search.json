@@ -1,5 +1,5 @@
 {
-  "title": "Search Tabs",
+  "title": "Search Tabs palette capture",
   "windows": [{"name": "tab-search", "class": "PalettePanel"}],
   "steps": [
     {"title": "Launch", "wait": 2},
