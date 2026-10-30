@@ -46,6 +46,7 @@ import Testing
         #expect(!sent.resend)
     }
 
+    #if os(iOS)
     /// The bubble's path: the composer gets the message, focused, and nothing is sent.
     @Test func bubbleEditFillsAndFocusesTheComposer() {
         let (source, store, turn) = lastTurn()
@@ -89,4 +90,5 @@ import Testing
         #expect(!surface.replyInsteadOfPermission)
         #expect(surface.permissionBarHidden)
     }
+    #endif
 }
