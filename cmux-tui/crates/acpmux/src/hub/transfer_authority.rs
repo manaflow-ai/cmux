@@ -70,8 +70,9 @@ mod tests {
         inner: Box<dyn Store>,
         scans: Arc<AtomicU64>,
         fail: Arc<AtomicBool>,
-        /// An event kind whose appends fail while every other append is kept.
-        refuse: Option<&'static str>,
+        /// Event kinds whose appends fail while every other append is kept; `"events"` fails
+        /// event reads (an export).
+        refuse: &'static [&'static str],
     }
 
     impl Store for CountingStore {
@@ -86,10 +87,11 @@ mod tests {
         }
         fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
             anyhow::ensure!(!self.fail.load(Ordering::SeqCst), "store failed");
-            anyhow::ensure!(self.refuse != Some(record.kind.as_str()), "store refused");
+            anyhow::ensure!(!self.refuse.contains(&record.kind.as_str()), "store refused");
             self.inner.append(id, record)
         }
         fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            anyhow::ensure!(!self.refuse.contains(&"events"), "store refused reads");
             self.inner.events(id, after, limit)
         }
         fn scan_strict(
@@ -120,7 +122,7 @@ mod tests {
                 inner,
                 scans: scans.clone(),
                 fail: fail.clone(),
-                refuse: None,
+                refuse: &[],
             }),
         );
         let meta: SessionMeta = serde_json::from_value(json!({
@@ -179,7 +181,7 @@ mod tests {
             inner,
             scans: Arc::new(AtomicU64::new(0)),
             fail: Arc::new(AtomicBool::new(false)),
-            refuse: Some("transfer_out"),
+            refuse: &["transfer_out"],
         };
         let hub = Arc::new(Hub::new(config, Box::new(store)));
         let meta: SessionMeta = serde_json::from_value(json!({
@@ -359,7 +361,7 @@ mod tests {
             inner,
             scans: Arc::new(AtomicU64::new(0)),
             fail: Arc::new(AtomicBool::new(false)),
-            refuse: Some("transfer_aborted"),
+            refuse: &["transfer_aborted"],
         };
         let hub = Arc::new(Hub::new(config, Box::new(store)));
         let meta: SessionMeta = serde_json::from_value(json!({
@@ -392,7 +394,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let hub_with = |refuse: Option<&'static str>| {
+        let hub_with = |refuse: &'static [&'static str]| {
             let mut config: Config = serde_json::from_value(json!({
                 "harnesses": {"fake": {"argv": ["python3", fake]}},
                 "defaultHarness": "fake",
@@ -408,7 +410,7 @@ mod tests {
             };
             Hub::new(config, Box::new(store))
         };
-        let source = hub_with(None);
+        let source = hub_with(&[]);
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "import-receipt", "name": "receipt",
             "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
@@ -419,10 +421,44 @@ mod tests {
         source.append(&session, "mux", "transfer_aborted", json!({"transferId": "xfer"}));
         let bundle = source.export(&session, &dir).unwrap();
 
-        let here = Arc::new(hub_with(Some("imported")));
+        let here = Arc::new(hub_with(&["imported"]));
         let imported = here.import(&bundle, None).await;
         let _ = std::fs::remove_dir_all(&dir);
         assert!(imported.is_err(), "an import stood without its receipt");
         assert!(here.resolve("import-receipt").is_err(), "the failed import left its chat");
+    }
+
+    /// A begin whose bundle fails ends its move only once that end is logged: otherwise the
+    /// chat stays frozen, as its durable `transfer_out` says.
+    #[tokio::test]
+    async fn a_failed_bundle_whose_abort_is_not_logged_keeps_the_chat_frozen() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let store = CountingStore {
+            inner,
+            scans: Arc::new(AtomicU64::new(0)),
+            fail: Arc::new(AtomicBool::new(false)),
+            refuse: &["transfer_aborted", "events"],
+        };
+        let hub = Arc::new(Hub::new(config, Box::new(store)));
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "bundle-failed", "name": "bundle",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        let begun =
+            hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session.id})).await;
+        assert!(begun.is_err(), "the bundle was made: {begun:?}");
+        assert_eq!(session.transfer_blocked(), Some(true));
+        assert!(session.moving().is_some(), "it unfroze without a logged abort");
     }
 }
