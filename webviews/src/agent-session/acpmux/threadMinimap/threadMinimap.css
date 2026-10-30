@@ -30,24 +30,44 @@
   margin: 0;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
+.acpmux-minimap__strip {
+  position: absolute;
+  left: 0;
+  display: block;
+}
+/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+.acpmux-minimap__rail[data-occluded] {
+  opacity: 0;
+  pointer-events: none;
+}
 @keyframes acpmux-minimap-in {
   from {
     opacity: 0;
   }
 }
-/* The list moves only under the rail's own control (it keeps the band in view, a scrub reaches past
-   an edge, a focused row scrolls in), never by the wheel: `overflow: hidden` still scrolls from
-   script and focus but draws no scroller, so the transcript's shared one is the only one on screen
-   (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
+/* A list that fits its prompts is no scroll container (`overflow: hidden` still scrolls from script and
+   focus), so the wheel over it scrolls the transcript. One longer than its room scrolls itself
+   (data-rail-scrolls, railWheel.ts): the wheel over it moves only the list, never chaining to the
+   transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
+   the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  scrollbar-width: none;
   /* An ordered list (each prompt's place for assistive tech), with none of a list's own spacing. */
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.acpmux-minimap__list[data-rail-scrolls] {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-minimap__list::-webkit-scrollbar {
+  display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
    (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). */
@@ -70,7 +90,7 @@
   position: relative;
   flex: none;
   display: block;
-  width: 36px;
+  width: 100%;
   height: 10px;
   margin: 0;
   padding: 0;
@@ -81,6 +101,19 @@
   cursor: default;
   outline: none;
   contain: layout paint;
+}
+.acpmux-minimap__tick:focus-visible {
+  /* shared agent-session styles suppress generic button outlines with !important; this rail owns
+     its compact focus treatment and marks the control with data-focus-ring="tick". */
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+  outline-offset: -1.5px;
+  border-radius: var(--acpmux-inspector-row-radius, 4px);
+}
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick:focus-visible {
+    outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
+    outline-offset: 2px;
+  }
 }
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
@@ -95,17 +128,17 @@
   transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
 .acpmux-minimap__bar {
-  width: 26px;
+  width: min(26px, 100%);
   height: 2px;
 }
 /* The ticks' entrance (Leo 2026-10-25: "the animation ... those sort of lines pop up. There should
    be a little bit more easing"): each new tick grows out from the rail's edge on the hover's spring
    and fades in ease-out over the micro step, staggered down the rows on screen by their place in the
    rail's room (--acpmux-minimap-row from --acpmux-minimap-first, over --acpmux-minimap-rows), so the
-   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. It runs once per mounted
-   tick and stops at its end; it holds no timer and nothing to clean up. A scrolled-past row has a
-   negative place and starts at once. None under Reduce Motion (the system's, the app's motion gate,
-   or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
+   whole rail is in by the micro step plus TICK_STAGGER (72 ms), under 200 ms. Only the initial visible
+   ticks and newly appended prompts enter; virtualization remounts draw immediately. It stops at its
+   end; it holds no timer and nothing to clean up. A scrolled-past row has a negative place and starts
+   at once. None under Reduce Motion (the system's, the app's motion gate, or the rail's own check). The full-height map (ScrollMap.tsx) keeps its marks still. */
 .acpmux-minimap__tick {
   --acpmux-minimap-stagger: clamp(
     0ms,
@@ -117,11 +150,11 @@
    Motion on with the rail mounted stops the entrance for every tick added after (the rail's own
    `data-reduce` is read only at mount, hover and focus). */
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__bar {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__bar {
     animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
     animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
   }
-  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__dot {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) :where(.acpmux-minimap__tick[data-entering]) .acpmux-minimap__dot {
     animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
   }
 }

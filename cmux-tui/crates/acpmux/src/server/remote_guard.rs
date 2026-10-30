@@ -53,21 +53,20 @@
 //!   `_acpmux/peer_lease` (they change which machines this daemon reaches
 //!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
 //!   configured peer.
-//! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
-//!   of the caller's bytes on this machine (under acpmux's own `uploads`
-//!   folder, never a path of the caller's), for a file the person dropped
-//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
-//!   forwarding for either take it; a peer forwarding for its own Web client
-//!   does not. The app sends it over the unix socket after the person's
-//!   gesture, but a LocalApp page could send it itself with no gesture: that
-//!   is accepted, since the page can already prompt the agent, and it writes
-//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: the legacy `_acpmux/file_put` stays denied. Resumable prompt
+//!   uploads begin with a fresh daemon-issued capability; subsequent operations
+//!   and prompt references must prove ownership of an upload begun under Web
+//!   control. Neither a local upload id nor its token grants Web access. The
+//!   original bytes stay in that chat's owner-only uploads folder.
 //! - Web only: no `_acpmux/workflows` (`workflows.remote`): it names the
 //!   daemon's chats and their workflows' args.
 //! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
 //!   (`mediaRead.remote`). They read a chat's images and videos on this
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
 //!   app and a peer forwarding for either.
+//! - Web, LocalApp and Peer: no `_acpmux/github_action` (`github_broker.rs`), which an agent
+//!   session asks over the unix socket only, and no `_acpmux/github_app_lease`
+//!   (`github_app_token.rs`), which only the app's unix-socket call makes.
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
@@ -83,8 +82,9 @@ use std::sync::OnceLock;
 
 pub(super) mod hint;
 mod peer_folder;
+pub(super) use hint::POLICY_REFUSED;
 pub(super) use hint::check;
-use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
@@ -185,11 +185,17 @@ async fn check_inner(
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
+    // agent session of this daemon asks over the unix socket; no page, app or peer does.
+    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+        return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
     // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
@@ -252,6 +258,10 @@ async fn check_inner(
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
     }
+    // And so is draining a chat's inbox into a digest (`hub/inbox_digest.rs`).
+    if m == method::MUX_INBOX_DIGEST {
+        return Err(crate::hub::Hub::inbox_digest_origin_refused());
+    }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
     if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
         return Err(RpcError::invalid_params(
@@ -308,7 +318,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer) {
+        match web_only(m, params, peer, policy_proved) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -424,7 +434,9 @@ async fn check_inner(
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
-    // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
+    // Web may stage a prompt attachment. This is only the wire shape: the owning
+    // daemon verifies its private Web marker and capability in file_uploads::web.
+    // The legacy one-shot put remains app/unix-only.
     if matches!(
         m,
         method::MUX_FILE_PUT
@@ -434,6 +446,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CANCEL
             | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
+        && !crate::hub::file_uploads::web::request_shape(m, params)
     {
         return Err(RpcError::invalid_params(
             "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
@@ -583,6 +596,9 @@ pub(super) fn after(
         && let Ok(v) = reply
     {
         super::redact::redact_for_remote(m, v);
+        if origin == super::Origin::Peer {
+            super::redact::hide_peers_from_peer(v);
+        }
     }
 }
 
@@ -660,8 +676,9 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
-/// skips asking.
-fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
+/// skips asking. `policy_proved`: a policy raise the person proved for this
+/// one chat (`hub/person/policy_grant.rs`), whoever relays it.
+fn web_only(m: &str, params: &Value, peer: bool, policy_proved: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -713,6 +730,7 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
         {
             Err(policy_refused())
         }
+        method::MUX_SET_POLICY if policy_proved => Ok(()),
         method::MUX_SET_POLICY | "_acpmux/set_default_policy"
             if !policy_ok(params.get("policy")) =>
         {

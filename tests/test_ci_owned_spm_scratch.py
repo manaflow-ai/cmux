@@ -64,6 +64,26 @@ class Scratch(unittest.TestCase):
         self.assertEqual((build / "product").read_text(), "built")
         self.assertEqual(build.resolve(), (self.scratch / "xcode-a/Packages__Shared__A").resolve())
 
+    def test_a_kept_build_drops_its_resource_bundles_and_keeps_its_modules(self):
+        # SwiftPM never deletes a resource the tree no longer has from a kept bundle: cmux#26961's
+        # job compiled a MiscHandlers.xcstrings another branch's job on that runner had copied there.
+        scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a")
+        products = self.workspace / "Packages/macOS/B/.build/arm64-apple-macosx/debug"
+        bundle = products / "B_Pane.bundle"
+        bundle.mkdir(parents=True)
+        (bundle / "MiscHandlers.xcstrings").write_text("{}")
+        (products / "description.json").write_text("{}")
+        (products / "Pane.build").mkdir()
+        (products / "Pane.build" / "Pane.swift.o").write_text("object")
+        # A dependency checkout that ships a .bundle is not a build product.
+        shipped = self.workspace / "Packages/macOS/B/.build/checkouts/dep/Shipped.bundle"
+        shipped.mkdir(parents=True)
+        (self.workspace / "Packages/macOS/B/.build").unlink()  # the next job's checkout clean
+        scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a")
+        self.assertFalse(bundle.exists())
+        self.assertEqual((products / "Pane.build" / "Pane.swift.o").read_text(), "object")
+        self.assertTrue(shipped.is_dir())
+
     def test_another_toolchain_never_reuses_the_build(self):
         scratch.link(self.workspace, self.store, RUNNER, fingerprint="xcode-a")
         (self.workspace / "Packages/Shared/A/.build/product").write_text("built by a")

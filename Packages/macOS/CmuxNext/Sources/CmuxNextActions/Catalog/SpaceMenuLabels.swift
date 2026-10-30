@@ -8,7 +8,7 @@ nonisolated enum SpaceMenuLabels {
     static var setBrowserProfile: String { text("menu.space.setBrowserProfile", "Set Browser Profile…") }
     static var newGroup: String { text("menu.space.newGroup", "New Group") }
     static var newWorkspace: String { text("menu.space.newWorkspace", "New Workspace") }
-    static var newWindow: String { text("menu.space.newWindow", "New Window") }
+    static var openInNewWindow: String { text("menu.space.openInNewWindow", "Open in New Window") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "ProfileActions", bundle: .module)
