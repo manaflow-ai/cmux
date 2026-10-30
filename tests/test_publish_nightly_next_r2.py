@@ -254,5 +254,66 @@ class UploadTests(unittest.TestCase):
             self.assertEqual(sorted(seen), sorted(f.name for f in files))
 
 
+
+class _Served:
+    """A urlopen response that serves BODY with Content-Length LENGTH."""
+
+    def __init__(self, body: bytes, length: int | None = None) -> None:
+        import io
+        self._body = io.BytesIO(body)
+        self.headers = {"Content-Length": str(len(body) if length is None else length)}
+
+    def read(self, size: int = -1) -> bytes:
+        return self._body.read(size)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        return None
+
+
+class ReadbackTests(unittest.TestCase):
+    """upload_one reads the object back from the public base and compares the served bytes'
+    SHA-256 with the local file's, not only the length."""
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        for patcher in (mock.patch.dict(os.environ, ENV), mock.patch.object(r2, "guard_key", lambda key: None),
+                        mock.patch.object(r2, "_sleep", lambda seconds: None),
+                        mock.patch.object(r2.subprocess, "run",
+                                          lambda args, *rest, **kw: subprocess.CompletedProcess(args, 0))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.path = Path(self.dir.name) / "cmux-nightly-next-macos-arm64-200.dmg"
+        self.path.write_bytes(b"the built dmg")
+
+    def upload_serving(self, body: bytes) -> str:
+        with mock.patch.object(r2.urllib.request, "urlopen", lambda request, timeout=None: _Served(body)):
+            return r2.upload_one(self.path)
+
+    def test_the_same_bytes_pass_and_name_their_digest(self) -> None:
+        line = self.upload_serving(b"the built dmg")
+        self.assertIn(hashlib.sha256(b"the built dmg").hexdigest(), line)
+
+    def test_other_bytes_of_the_same_length_fail(self) -> None:
+        stale = b"a stale dmg!!"
+        self.assertEqual(len(stale), self.path.stat().st_size)
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            self.upload_serving(stale)
+
+    def test_a_short_read_fails(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.upload_serving(b"the built")
+
+    def test_an_object_that_never_answers_fails(self) -> None:
+        def refuse(request, timeout=None):
+            raise r2.urllib.error.URLError("404")
+
+        with mock.patch.object(r2.urllib.request, "urlopen", refuse), self.assertRaises(RuntimeError):
+            r2.upload_one(self.path)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
