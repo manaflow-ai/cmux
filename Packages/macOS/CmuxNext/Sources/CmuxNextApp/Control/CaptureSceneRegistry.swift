@@ -25,6 +25,8 @@ final class CaptureSceneRegistry {
     var blockedTerminal: String?
     /// The terminals `home-chief` opened, closed after its snapshot.
     var openedTerminals: [String] = []
+    /// The grouping setting before a cloud-agent-machines render turned it on; nil while none is shown.
+    var agentMachinesGroupedBefore: Bool?
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -280,7 +282,7 @@ extension CaptureSceneRegistry {
         // The capture driver takes its light and dark stills (debug.window_snapshot) after this
         // returns: the machines stay until the next render. A failure takes them away at once.
         endAgentCloudMachines()
-        Self.agentMachinesGroupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
+        agentMachinesGroupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
         var shown = false
         defer { if !shown { endAgentCloudMachines() } }
         DesignSettings.shared.sidebarSections.groupsByComputer = true
@@ -329,15 +331,12 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// The grouping setting before a cloud-agent-machines render turned it on; nil while none is shown.
-    static var agentMachinesGroupedBefore: Bool?
-
     /// Takes a shown cloud-agent-machines picture away: the machines, and the grouping setting it changed.
     func endAgentCloudMachines() {
         removeAgentCloudMachines()
-        if let grouped = Self.agentMachinesGroupedBefore {
+        if let grouped = agentMachinesGroupedBefore {
             DesignSettings.shared.sidebarSections.groupsByComputer = grouped
-            Self.agentMachinesGroupedBefore = nil
+            agentMachinesGroupedBefore = nil
         }
     }
 
