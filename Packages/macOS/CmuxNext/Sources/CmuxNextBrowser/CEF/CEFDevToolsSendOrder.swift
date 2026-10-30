@@ -59,6 +59,9 @@ final class CEFDevToolsSendOrder {
         return sent
     }
 
+    /// The calls of `browser` that did not post yet (tests: a call is still encoding).
+    func waiting(_ browser: Int32) -> Int { lines[browser]?.count ?? 0 }
+
     /// The head of `browser`'s line posted: the next call posts now if it is encoded, else when its encoding ends.
     private func leave(_ browser: Int32) {
         guard var line = lines[browser], !line.isEmpty else { return }

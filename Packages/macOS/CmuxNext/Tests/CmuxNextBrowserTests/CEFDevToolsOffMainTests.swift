@@ -82,6 +82,37 @@ import UniformTypeIdentifiers
         #expect(DevToolsSpy.calls.filter { $0.browser == 8 }.map(\.method) == ["Page.enable"])
     }
 
+    /// A one-way call made while an earlier call to the same browser still encodes reaches Chromium after it. For the
+    /// agent chat page that earlier call is a batch of chat frames: a freeze that overtook it left the batch's script
+    /// to run on a frozen page, where its wait ran out and the frames never showed.
+    @Test func aFreezeMadeWhileALargeCallEncodesReachesChromiumAfterIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        DevToolsSpy.calls = []
+        let evaluate = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
+        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
+        try #require(DevToolsSpy.calls.isEmpty, "the evaluate is still encoding")
+        #expect(tab.setFrozen(true))
+        _ = try await evaluate.value
+        await rig.until { DevToolsSpy.calls.count >= 2 }
+        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate", "Page.setWebLifecycleState"])
+    }
+
+    @Test func aCommandMadeWhileALargeCallEncodesReachesChromiumAfterIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        DevToolsSpy.calls = []
+        let evaluate = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
+        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
+        try #require(DevToolsSpy.calls.isEmpty, "the evaluate is still encoding")
+        #expect(tab.perform("document.execCommand('copy')", gesture: .agent))
+        _ = try await evaluate.value
+        await rig.until { DevToolsSpy.calls.count >= 2 }
+        #expect(DevToolsSpy.calls.map { $0.params.contains("execCommand") } == [false, true])
+    }
+
     // MARK: Fixtures
 
     /// About 300 KB of a page host script with non-ASCII text, as an agent chat's transport frames.
@@ -130,6 +161,11 @@ import UniformTypeIdentifiers
             runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
             try #require(tab.browserID == 7)
             return tab
+        }
+
+        /// Lets main-actor work run until `condition` (at most 500 turns).
+        func until(_ condition: () -> Bool) async {
+            for _ in 0..<500 where !condition() { await Task.yield() }
         }
 
         func close() {
