@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4113616106401",
+  "notes": "notes/4113616106401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28127,
+      "title": "carry of #27649: Home tab animation routing",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
