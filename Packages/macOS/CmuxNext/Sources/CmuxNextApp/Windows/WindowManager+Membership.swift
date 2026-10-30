@@ -372,12 +372,12 @@ extension WindowManager {
             let ids = Self.orderedIDs(of: daemon, machines: services.machines)
             for id in ids {
                 live.append(id)
-                seenMachine[id] = daemon.machineID
+                seenMachine[id, default: daemon.machineID] = daemon.machineID
             }
             // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
             // workspace keys, and a window holding the other machine's copy does not open this one.
             if services.machines.session(daemon.machineID) != nil {
-                cloud.append(ids.filter { daemon.store.workspace(id: $0) != nil })
+                cloud.append(ids.filter { seenMachine[$0] == daemon.machineID })
             }
         }
         var placements = pendingClaims
