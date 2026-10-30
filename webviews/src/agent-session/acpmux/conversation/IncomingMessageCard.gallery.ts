@@ -253,7 +253,7 @@ export default agentPaneEntry({
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
         avatarsChanged(ctx.document, ["parent-1"]);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__icon img.cv-agent-avatar"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-received__mark img.cv-agent-avatar"));
       },
     },
     links: {
@@ -366,7 +366,7 @@ export default agentPaneEntry({
       ]),
     },
     "sender-hover": {
-      note: "A lane on another machine (studio-mac) messages this chat. Hovering its line shows Open chat at the line's end; a click opens that chat beside this one, or focuses its tab when one shows it.",
+      note: "A lane on another machine (studio-mac) messages this chat. Hovering its name lights the name alone; a click opens that chat beside this one, or focuses its tab when one shows it.",
       snapshot: chat(
         [
           user("Ask chief-ui where the sidebar fix stands", 9),
@@ -390,8 +390,8 @@ export default agentPaneEntry({
         },
       ),
       play: async (ctx) => {
-        await ctx.hover({ selector: ".cv-received > .cv-disclosure__line" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received .cv-disclosure__open"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from--open"));
+        await ctx.hover({ selector: ".cv-received__from--open" });
       },
     },
     files: {
