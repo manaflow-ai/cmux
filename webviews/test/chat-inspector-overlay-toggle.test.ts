@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Inspector's toggle closes it (inspector/ChatInspector.tsx, inspector.css). Over the chat (the
 // overlay placement, the default) the panel used to run the pane's full height, over the chat
 // header too: the toggle at the header's end sat under the panel, so a click on it hit a

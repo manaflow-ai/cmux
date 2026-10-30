@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "../scripts/cloud-vm/canaryOutcome.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems, retryGuestEdgeRequest } from "../scripts/cloud-vm/canaryOutcome.mjs";
 
 describe("classifyCodexCanaryOutcome", () => {
   test("accepts the legacy no-account response", () => {
@@ -21,6 +21,61 @@ describe("classifyCodexCanaryOutcome", () => {
 
   test("does not treat a missing Codex binary as a passing no-account check", () => {
     expect(classifyCodexCanaryOutcome("codex-missing\n{\"error\":\"no_usable_account\"}", { zeroToken: true })).toBe("failed");
+  });
+});
+
+describe("retryGuestEdgeRequest", () => {
+  const host = "coderouter.cmux.internal";
+  const dnsMiss = { stdout: "000", stderr: `curl: (6) Could not resolve host: ${host}\n`, exitCode: 6 };
+
+  test("recovers a transient resolver miss", async () => {
+    const success = { stdout: "200", stderr: "", exitCode: 0 };
+    let calls = 0;
+    const result = await retryGuestEdgeRequest(async () => ++calls === 1 ? dnsMiss : success, host, { delayMs: 0 });
+    expect(result).toBe(success);
+    expect(calls).toBe(2);
+  });
+
+  test("returns the final DNS failure when the attempt budget is exhausted", async () => {
+    let calls = 0;
+    const result = await retryGuestEdgeRequest(async () => { calls += 1; return dnsMiss; }, host, { attempts: 3, delayMs: 0 });
+    expect(result).toBe(dnsMiss);
+    expect(calls).toBe(3);
+  });
+
+  test.each([
+    { stdout: "403", stderr: "", exitCode: 0 },
+    { stdout: "503", stderr: "", exitCode: 0 },
+    { stdout: "", stderr: `curl: (6) Could not resolve host: ${host}.other\n`, exitCode: 6 },
+    { stdout: "", stderr: `curl: (7) Failed to connect to ${host}`, exitCode: 7 },
+  ])("does not retry a different failure: %j", async (response) => {
+    let calls = 0;
+    expect(await retryGuestEdgeRequest(async () => { calls += 1; return response; }, host, { delayMs: 0 })).toBe(response);
+    expect(calls).toBe(1);
+  });
+
+  test("preserves an API or authentication exception", async () => {
+    const failure = new Error("POST exec expected 200, got 403");
+    let calls = 0;
+    await expect(retryGuestEdgeRequest(async () => { calls += 1; throw failure; }, host, { delayMs: 0 })).rejects.toBe(failure);
+    expect(calls).toBe(1);
+  });
+
+  test("cancellation interrupts the retry delay", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const pending = retryGuestEdgeRequest(async () => { calls += 1; return dnsMiss; }, host, { delayMs: 60_000, signal: controller.signal });
+    queueMicrotask(() => controller.abort());
+    await expect(pending).rejects.toBeTruthy();
+    expect(calls).toBe(1);
+  });
+
+  test("an already cancelled request never runs", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    await expect(retryGuestEdgeRequest(async () => { calls += 1; return dnsMiss; }, host, { signal: controller.signal })).rejects.toBeTruthy();
+    expect(calls).toBe(0);
   });
 });
 

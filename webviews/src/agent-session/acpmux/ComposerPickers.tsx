@@ -53,6 +53,7 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
+import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -83,6 +84,9 @@ export const PICKER_LABELS = {
   fullAccessWarning: "picker.fullAccessWarning",
   /// A full-access row while MDM or a team policy keeps full access off (#23322).
   fullAccessManaged: "picker.fullAccessManaged",
+  /// The chip of a chat whose acpmux policy answers every prompt (approve-all) in a mode that asks.
+  approvesAll: "picker.approvesAll",
+  approvesAllDetail: "picker.approvesAllDetail",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
 } as const satisfies Record<string, StringKey>;
@@ -263,6 +267,7 @@ export function ComposerPickers({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
             models: entry.models,
+            ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
             ...(entry.topModels ? { top: entry.topModels } : {}),
@@ -496,6 +501,10 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    const pickEffort = (value: string) => {
+      if (presession && harness) setHeldPick({ harness, value });
+      onEffort(effort?.id ?? HELD_EFFORT_ID, value);
+    };
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current =
@@ -503,13 +512,13 @@ export function ComposerPickers({
           ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
           : undefined;
       onModel(pickedModel);
-      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      if (pickedEffort && presession) pickEffort(pickedEffort);
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
       (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      pickEffort(pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
@@ -529,6 +538,10 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
+      // The chip's held level follows the pick to its harness: the combo's own, or none (a level an
+      // earlier pick held there would name an effort this combo does not send).
+      if (picked.effort) setHeldPick({ harness: picked.harness, value: picked.effort });
+      else setHeldPick((held) => (held?.harness === picked.harness ? undefined : held));
       // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
       // switch) runs its first turn on the whole combo; the effect below only fills in what the new
       // session still reports otherwise.
@@ -934,6 +947,9 @@ export function ComposerPickers({
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          sessionAuth={signIn?.sessionAuth}
+          onSessionLogin={signIn?.loginSession}
+          onSessionAuthRefresh={signIn?.recheckSession}
           {...(modelChip ? { chip: modelChip } : {})}
           switching={snapshot.switching?.phase === "failed" ? undefined : snapshot.switching}
           efforts={efforts}
@@ -1007,6 +1023,7 @@ export function ComposerPickers({
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
           permissionAccess={permissionAccess}
+          approvesAll={summary?.enforcement?.policy === "approve-all"}
           onMode={onMode}
           {...(pendingMenu
             ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
@@ -1103,6 +1120,7 @@ function AccessMenu({
   help,
   refusedReason,
   permissionAccess,
+  approvesAll = false,
   onMode,
   heading,
   numbered = true,
@@ -1118,6 +1136,9 @@ function AccessMenu({
   help: string;
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
+  /// acpmux's policy for the chat answers every permission prompt (approve-all, `enforcement`), so
+  /// the chat acts without asking whatever its harness mode is (cmux#27847).
+  approvesAll?: boolean;
   onMode(modeId: string): void | Promise<unknown>;
   /// The harness menu's mode supplies the icon layout even though its explanatory heading is not drawn.
   heading?: string;
@@ -1147,7 +1168,16 @@ function AccessMenu({
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
-  const currentMode = modes.find((choice) => choice.id === value);
+  const reportedMode = modes.find((choice) => choice.id === value);
+  // A harness mode that asks under a policy that answers every prompt (approve-all) acts without
+  // asking: the chip says full access, not the harness's Manual (cmux#27847). The menu still marks
+  // the harness's own mode, the one a pick changes.
+  // Plan stops edits in the harness itself, not by asking: it keeps its own name.
+  const answeredForYou = approvesAll && reportedMode !== undefined && !unrestricted(value) && !isPlan(value);
+  const currentMode: ModeChoice | undefined = answeredForYou
+    ? { id: value, name: t(PICKER_LABELS.approvesAll), icon: "shield-alert" }
+    : reportedMode;
+  const fullAccess = answeredForYou || unrestricted(value);
   const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
     if (blocked(next)) return;
@@ -1162,7 +1192,9 @@ function AccessMenu({
       }));
     });
   };
-  const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
+  const tooltip = answeredForYou
+    ? `${label}: ${currentMode?.name ?? label}\n${t(PICKER_LABELS.approvesAllDetail, { mode: reportedMode.name })}\n${help}`
+    : `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
@@ -1178,7 +1210,7 @@ function AccessMenu({
   ) {
     return (
       <span
-        className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+        className={`acpmux-mode acpmux-access acpmux-access-fixed${fullAccess ? " acpmux-unrestricted" : ""}`}
         data-fit-title={currentMode?.name ?? label}
         data-fit-title-unit="access"
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
@@ -1193,7 +1225,7 @@ function AccessMenu({
   }
   return (
     <span
-      className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+      className={`acpmux-mode acpmux-access${fullAccess ? " acpmux-unrestricted" : ""}`}
       // A narrow row shows the glyph alone; the row's fit names the mode in a tooltip then (composerRowFit.ts).
       data-fit-title={currentMode?.name ?? label}
       data-fit-title-unit="access"
@@ -1587,6 +1619,9 @@ export function Picker({
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  useEffect(() => {
+    if (open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
+  }, [open, rows.length, menuId, selected]);
 
   useEffect(() => {
     if (!open) return;

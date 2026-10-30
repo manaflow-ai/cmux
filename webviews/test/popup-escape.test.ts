@@ -2,7 +2,9 @@
 // stage, the agent pane runs on the gallery's stand-in for the app's pane bridge; this test wraps
 // that bridge so `popup.show/update/hide` are recorded and answered as the app's host does
 // (WebPopupHost), and sends the host's events back as the app does (the `cmux-popup` event).
-// In a 600x400 window the composer's commands list has no room above the prompt:
+// In a 600x360 window the composer's commands list has no room above the prompt (at 400px its
+// capped 296px list just fits over the prompt once the gallery's cascade matched the app's,
+// a5393bc0de6f, so it rightly stays in the page there):
 // - its rows go to the host, every one of them, and the page's list goes invisible without moving
 //   the transcript or the composer;
 // - the keyboard stays in the prompt: ArrowDown moves the host's highlight;
@@ -97,8 +99,8 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a 600x400 window sends the commands list past its edge, keyboard and pick intact", async () => {
-    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 400 });
+  test("a 600x360 window sends the commands list past its edge, keyboard and pick intact", async () => {
+    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 360 });
     // The variant's play opened the list before the recorder; clear the prompt and open it again.
     await page.click("[contenteditable='true']");
     await page.keyboard.press("Backspace");
@@ -205,10 +207,25 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     // Insert Mention picked in the host: its @ lands in the prompt, the panel ends.
     const mention = String(items.findIndex((item) => item.label === "Insert Mention"));
     expect(mention).not.toBe("-1");
-    await page.evaluate(
-      (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "pick", id } })),
-      mention,
-    );
+    const modifiers = await page.evaluate((id) => {
+      const picks: boolean[][] = [];
+      document.addEventListener(
+        "click",
+        (event) => {
+          if ((event.target as Element).closest('[role="menuitem"]')?.textContent?.includes("Insert Mention"))
+            picks.push([event.altKey, event.ctrlKey, event.metaKey, event.shiftKey]);
+        },
+        { capture: true, once: true },
+      );
+      // Native selection must preserve Option (Fork's destination chooser) and other modifiers.
+      window.dispatchEvent(
+        new CustomEvent("cmux-popup", {
+          detail: { type: "pick", id, altKey: true, ctrlKey: true, metaKey: true, shiftKey: true },
+        }),
+      );
+      return picks;
+    }, mention);
+    expect(modifiers).toEqual([[true, true, true, true]]);
     await page.waitForSelector(".ui-context-menu", { state: "detached" });
     expect(await page.locator("[contenteditable='true']").innerText()).toContain("@");
     expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);

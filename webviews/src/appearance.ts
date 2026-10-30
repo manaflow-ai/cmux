@@ -67,6 +67,7 @@ type HostTerminalTheme = {
   background?: string;
   foreground?: string;
   palette?: Record<string, string>;
+  selectionBackground?: string;
   fontFamily?: string | null;
 };
 
@@ -91,6 +92,9 @@ export function hostTerminalTheme(): DiffViewerTheme | null {
   if (typeof terminal.background === "string") theme.background = terminal.background;
   if (typeof terminal.foreground === "string") theme.foreground = terminal.foreground;
   if (terminal.palette && typeof terminal.palette === "object") theme.palette = terminal.palette;
+  // The app's one highlight color (WebTheme.swift `terminal.selectionBackground`), so code pages
+  // select in it rather than a fixed blue (user 2026-10-28).
+  if (typeof terminal.selectionBackground === "string") theme.selectionBackground = terminal.selectionBackground;
   return theme;
 }
 

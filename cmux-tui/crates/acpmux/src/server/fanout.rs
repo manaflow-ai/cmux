@@ -29,15 +29,15 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                     continue;
                 }
                 // A peer link's state, to watchers, through the same `watch_note` (`peer_states.rs`).
+                // Never to a peer daemon's connection: its handshake watches, and this host's
+                // peers, their states and their errors are this machine's, not that peer's.
                 note = peer_states.recv() => {
+                    let hears = conn.origin != super::Origin::Peer
+                        && conn.watch_all.load(Ordering::SeqCst);
                     match note {
-                        Ok(note) if conn.watch_all.load(Ordering::SeqCst) => {
-                            harness_admin::watch_note(&conn, note)
-                        }
+                        Ok(note) if hears => harness_admin::watch_note(&conn, note),
                         // Fell behind: a note carries one change, so each peer's last one again.
-                        Err(broadcast::error::RecvError::Lagged(_))
-                            if conn.watch_all.load(Ordering::SeqCst) =>
-                        {
+                        Err(broadcast::error::RecvError::Lagged(_)) if hears => {
                             for note in hub.peer_states().snapshot() {
                                 harness_admin::watch_note(&conn, note);
                             }

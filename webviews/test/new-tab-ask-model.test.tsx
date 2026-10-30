@@ -136,3 +136,56 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
     await act(async () => root.unmount());
   }
 });
+
+test("New Tab preflights its selected harness and keeps a refused draft", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
+  const queries: unknown[] = [];
+  const asks: unknown[] = [];
+  const readSessionAuth = async (query: unknown) => {
+    queries.push(query);
+    return { state: "expired", source: "authCheck", evidenceAt: 1, harness: "codex", host: null };
+  };
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <SignInContext.Provider value={{ signedOut: {}, logIn: noop, readSessionAuth }}>
+            <NewTabScreen
+              snapshot={noChat()}
+              lastAgent="codex"
+              cwd="/Users/you/src/app"
+              onAsk={(...args) => {
+                asks.push(args);
+              }}
+              onOpen={noop}
+              onSearch={noop}
+              onShell={noop}
+              onJump={noop}
+              onOpenSession={noop}
+              onShowAll={noop}
+            />
+          </SignInContext.Provider>
+        </QueryClientProvider>,
+      ),
+    );
+    expect(queries).toEqual([{ target: { harness: "codex" } }]);
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setter.call(field, "keep this draft");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+    );
+    expect(asks).toEqual([]);
+    expect(field.value).toBe("keep this draft");
+    expect(host.querySelector("[role=alert]")?.textContent).toContain("expired");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

@@ -218,7 +218,7 @@ impl App {
                 note: String::new(),
             });
             for s in &self.sessions {
-                let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                let id = session_route_id(s).unwrap_or_default();
                 let title = render::session_title(s);
                 let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("");
                 let project = match s.get("peer").and_then(Value::as_str) {
@@ -381,7 +381,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
                     if let Some(n) = args.first() {
-                        p["_meta"]["acpmux"]["name"] = json!(n);
+                        p.set_path(&["_meta", "acpmux", "name"], json!(n));
                     }
                     self.request_bg(method::SESSION_FORK, p, Some("forked".into()));
                 }
@@ -568,7 +568,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id});
                     if let Some(d) = args.first() {
-                        p["dest"] = json!(d);
+                        p.set("dest", json!(d));
                     }
                     self.request_bg(
                         method::MUX_EXPORT,

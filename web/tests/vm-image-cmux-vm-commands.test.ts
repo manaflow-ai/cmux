@@ -4,6 +4,7 @@ import path from "node:path";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
 import { programChecksCommand, programProblems, secretScanCommand } from "../scripts/cmux-vm-image/smoke";
+import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 
 const lock = readInputsLock();
@@ -39,7 +40,9 @@ describe("cmux VM image guest commands", () => {
   });
 
   test("program check parsing: exit code, store path and version", () => {
-    const ok = lock.programs.flatMap((p) => Object.keys(p.bin).map((c) => `${c} 0 ${CURRENT_BIN}/${c} :: ${p.expect ?? "x"} ok`)).join("\n");
+    // gh resolves to the GitHub shim, which runs the store's gh (3ebb4a8145d9, github-auth.ts).
+    const resolves = (command: string) => (command === "gh" ? GH_SHIM : `${CURRENT_BIN}/${command}`);
+    const ok = lock.programs.flatMap((p) => Object.keys(p.bin).map((c) => `${c} 0 ${resolves(c)} :: ${p.expect ?? "x"} ok`)).join("\n");
     expect(programProblems(lock, ok)).toEqual([]);
     const bad = ok.replace(`claude 0 ${CURRENT_BIN}/claude`, "claude 127 /usr/local/bin/claude");
     expect(programProblems(lock, bad)).toEqual([`claude: exit 127: ${lock.programs.find((p) => p.name === "claude")!.expect} ok`, `claude: resolves to /usr/local/bin/claude, expected ${CURRENT_BIN}/claude`]);

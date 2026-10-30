@@ -304,15 +304,14 @@ TabView(selection: $tab) {
     Tab("Settings", systemImage: "gearshape", value: .settings) { SettingsStack() }
     Tab(value: .search, role: .search) { SearchStack() }
 }
-.tabBarMinimizeBehavior(.onScrollDown)
+.tabBarMinimizeBehavior(.never)
 .tint(.primary)                               // neutral accent: selected tab is label, not blue
 ```
 
-- Minimize on scroll: on (iPhone only). Workspaces, Feed, Settings and Search lists collapse the
-  bar to the selected tab + search circle as you scroll down, and expand it on scroll up
-  (Apple: "tab bars ... can be configured to minimize on scroll, keeping the focus on your
-  content"). It only works when the list scrolls under the bar; do not put content in a
-  `VStack` with a footer below the list (Donny Wals' caveat).
+- Minimize on scroll: off. The bar stays fully visible on every tab and every list while
+  content scrolls (user decision, 2026-10-27); it never collapses to the selected tab's pill.
+  Full-screen detail screens (workspace, terminal, agent chat, diff, Chief) still hide it while
+  they are open.
 - Search role tab: sits apart at the trailing end. It is the single global search; screens do not
   add their own `.searchable` except the Feed filter chips and file browser filename filter.
   Justification: iOS 26 native placement, and each reference app has one search entry
@@ -323,8 +322,7 @@ TabView(selection: $tab) {
   composer is Home-only. Revisit for a "running agents" mini status.
 - Home root: the Chief composer is placed with `.safeAreaInset(edge: .bottom)` inside Home's
   content, 8 pt above the tab bar. When the composer is focused the keyboard covers the tab bar;
-  when the user scrolls the transcript down the tab bar minimizes and the composer follows the
-  safe area down (system-driven). When a Chief turn opens a workspace tab, it pushes with the tab
+  the tab bar stays in place while the transcript scrolls. When a Chief turn opens a workspace tab, it pushes with the tab
   bar hidden.
 
 ### 3.3 Team sidebar (push-aside drawer)
@@ -963,7 +961,7 @@ permission requests, errors, PR events.
   Errors (4.1 `Chip`). Chips mirror the filter menu.
 - `List(.plain)` with 0.5 pt separators from the text column (4.2.1), `bg`. New events above the
   viewport: glass capsule "↑ 3 new" centered under the toolbar; tap scrolls to top with `smooth`.
-- Tab bar minimizes on scroll (3.2).
+- Tab bar stays fully visible while the list scrolls (3.2).
 
 ### 8.2 Cell
 

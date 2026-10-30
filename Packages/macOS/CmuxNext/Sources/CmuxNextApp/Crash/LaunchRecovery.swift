@@ -1,3 +1,4 @@
+import CmuxNextCrashReporting
 import Foundation
 
 /// What the previous run left behind (`AppRunMarker`).
@@ -24,9 +25,16 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// `LaunchRecovery.quickCrashWindow` (`AppRunMarker.notePageStarted`). Nil in
     /// markers written before this field existed.
     var startedPages: [String]?
+    /// What the run was doing shortly before it ended (`CrashContextRecorder`).
+    /// Nil in markers written before this field existed, and before the first snapshot.
+    var context: CrashContext?
+    /// That run's version (`CFBundleShortVersionString CFBundleVersion`) and commit (`CMUXCommit`):
+    /// an update may install between the crash and the report. Nil in older markers.
+    var version: String?
+    var commit: String?
 
     private enum CodingKeys: String, CodingKey {
-        case pid, launched, recovery, survived, signal, quitting, startedPages
+        case pid, launched, recovery, survived, signal, quitting, startedPages, context, version, commit
     }
 
     /// The run ended because someone asked it to: a requested-quit signal

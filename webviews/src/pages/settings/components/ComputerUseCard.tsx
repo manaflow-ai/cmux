@@ -8,6 +8,7 @@ import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 
 function phaseText(state: ComputerUseState): string {
+  if (state.host_unverified) return t("settingsWindow.computerUse.hostUnverified");
   if (state.phase === "ready") {
     return state.accessibility && state.screen_recording
       ? t("settingsWindow.computerUse.phase.ready")

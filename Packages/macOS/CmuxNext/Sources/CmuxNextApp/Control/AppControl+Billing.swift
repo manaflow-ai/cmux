@@ -21,9 +21,11 @@ extension AppControl {
             ControlMethod.async("billing.checkout") { call in
                 let params = call.params
                 let request: BillingCheckoutRequest
+                // The success page's "Open cmux" returns to this build, not classic `cmux://`.
+                let scheme = await MainActor.run { services.cloud.configuration.callbackScheme }
                 do {
                     request = try BillingCheckoutRequest(plan: params["plan"]?.stringValue ?? "pro",
-                                                         team: (params["teamId"] ?? params["team_id"])?.stringValue)
+                                                         team: (params["teamId"] ?? params["team_id"])?.stringValue, scheme: scheme)
                 } catch let invalid as BillingCheckoutRequest.Invalid {
                     throw ControlError.invalidParams(invalid.description)
                 }

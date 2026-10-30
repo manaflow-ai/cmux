@@ -25,7 +25,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-pub use crate::route_probe::{ProbeStatus, auto_probe_allowed, classify, probe};
+pub use crate::route_probe::{
+    ProbeStatus, auto_probe_allowed, classify, probe, probes_for, reads_keychain,
+    recent as recent_probe,
+};
 
 /// Provider variables a bound route owns: removed before the route sets its
 /// own, so no other route's endpoint or key survives a switch.
@@ -291,7 +294,7 @@ fn uses_relay(file: &RouteFile) -> bool {
     }
 }
 
-fn is_anthropic_family(family: &str) -> bool {
+pub(crate) fn is_anthropic_family(family: &str) -> bool {
     family == "claude"
 }
 

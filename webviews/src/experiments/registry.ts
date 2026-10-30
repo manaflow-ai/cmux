@@ -14,6 +14,7 @@ import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.ex
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
@@ -35,6 +36,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapMark,
   chatMinimapPlaceholder,
   turnErrorCard,
+  pausedMachineResume,
   codeRouterOffer,
   chromiumGlassUnderlay,
   questionPreviewLayout,
