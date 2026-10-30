@@ -5,11 +5,12 @@ public import Observation
 
 /// The latest update state of each ``DaemonUpdateTarget``, as ``DaemonUpdatePolicy`` reports it:
 /// an ssh machine's sidebar tooltip shows its line (``detail(sshHost:)``), another surface looks a
-/// target up by id (``detail(id:)``), and Settings > Updates lists the machines that cannot update
-/// or failed to, in one row (``otherMachines``). Failed or rolled-back updates share one toast that
-/// stays until closed (``noticeToast(_:details:)``): one machine's reason, or the machines' names
-/// with each reason in its tooltip, and Details (Settings > Updates). Closed, it stays closed for
-/// that build, also across launches. A machine that cannot update in place never has a toast.
+/// target up by id (``detail(id:)``), and Settings > Updates lists the machines that cannot update,
+/// are offline or failed to, in one row (``otherMachines``). Failed or rolled-back updates share one
+/// toast that stays until closed (``noticeToast(_:details:)``): the machines' names in plain words,
+/// each reason (the CLI's raw text) in its tooltip and behind Details (Settings > Updates). Closed,
+/// it stays closed for that build, also across launches. A machine that cannot update in place or
+/// is offline never has a toast.
 @MainActor @Observable
 public final class DaemonUpdateBoard {
     // lint:allow one board per app process: the policy writes it, the sidebar of every window reads it
@@ -221,6 +222,8 @@ public final class DaemonUpdateBoard {
             switch event.state {
             case .cannotUpdate(let reason):
                 machines.append(OtherMachine(id: event.id, line: reason, canUpdate: true))
+            case .offline:
+                machines.append(OtherMachine(id: event.id, line: Self.offlineLine(event.displayName), canUpdate: false))
             case .updating where clicked.contains(event.id), .retrying where clicked.contains(event.id):
                 machines.append(OtherMachine(id: event.id, line: Self.updatingLine(event.displayName), canUpdate: false))
             default:
@@ -268,6 +271,12 @@ public final class DaemonUpdateBoard {
                               bundle: .module), name)
     }
 
+    /// The row's line of machine `name` while it is offline.
+    nonisolated static func offlineLine(_ name: String) -> String {
+        String(format: String(localized: "agentPane.daemonUpdate.machines.offline", defaultValue: "%@ is offline; it will update when it's back",
+                              bundle: .module), name)
+    }
+
     /// The tooltip line of target `id`, nil when it has no update state.
     public func detail(id: String) -> String? {
         targets[id].map { Self.line($0.state) }
@@ -291,6 +300,8 @@ public final class DaemonUpdateBoard {
             String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's build…", bundle: .module)
         case .retrying:
             String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .module)
+        case .offline:
+            String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .module)
         case .updated(let build):
             String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .module), build)
         case .failed(let reason, false):
@@ -309,21 +320,35 @@ public final class DaemonUpdateBoard {
     nonisolated static let noticeID = "daemon-update.failures"
 
     /// The one toast of `failures` (failed or rolled-back updates; other states are left out), nil
-    /// when none: one machine's notice, or "Couldn't update A and B" with each machine's notice in
-    /// its tooltip. `details`: a Details button (Settings > Updates).
+    /// when none: one machine's headline ("Couldn't update A", "A kept its previous build"), or
+    /// "Couldn't update A and B", with each machine's notice (its raw reason) in the tooltip, never
+    /// in the headline. `details`: a Details button (Settings > Updates).
     nonisolated static func noticeToast(_ failures: [DaemonUpdateEvent], details: Bool) -> CmuxToast? {
-        let shown = failures.compactMap { event in notice(event).map { (event.displayName, $0) } }
-            .sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }
+        let shown = failures.compactMap { event in notice(event).map { (event, $0) } }
+            .sorted { $0.0.displayName.localizedStandardCompare($1.0.displayName) == .orderedAscending }
         guard let first = shown.first else { return nil }
         let action = details
             ? CmuxToast.Action(title: String(localized: "agentPane.daemonUpdate.notice.details", defaultValue: "Details", bundle: .module))
             : nil
-        guard shown.count > 1 else { return CmuxToast(id: noticeID, message: first.1, action: action, duration: CmuxToast.untilClosed) }
-        let names = ListFormatter.localizedString(byJoining: shown.map(\.0))
+        guard shown.count > 1 else {
+            return CmuxToast(id: noticeID, message: headline(first.0), detail: first.1, action: action, duration: CmuxToast.untilClosed)
+        }
+        let names = ListFormatter.localizedString(byJoining: shown.map(\.0.displayName))
         let message = String(format: String(localized: "agentPane.daemonUpdate.notice.several", defaultValue: "Couldn't update %@",
                                             bundle: .module), names)
         return CmuxToast(id: noticeID, message: message, detail: shown.map(\.1).joined(separator: "\n"), action: action,
                          duration: CmuxToast.untilClosed)
+    }
+
+    /// The headline of one machine's failed or rolled-back update, with no reason: the CLI's text
+    /// (ssh's errors, addresses) stays in ``notice(_:)``.
+    nonisolated static func headline(_ event: DaemonUpdateEvent) -> String {
+        if case .failed(_, true) = event.state {
+            return String(format: String(localized: "agentPane.daemonUpdate.notice.rolledBackHeadline",
+                                         defaultValue: "%@ kept its previous build", bundle: .module), event.displayName)
+        }
+        return String(format: String(localized: "agentPane.daemonUpdate.notice.headline", defaultValue: "Couldn't update %@",
+                                     bundle: .module), event.displayName)
     }
 
     /// The text of a failed or rolled-back update's toast; nil for any other state.

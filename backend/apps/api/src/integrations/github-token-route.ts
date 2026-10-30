@@ -57,6 +57,7 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (p.kind !== "session" && !(p.kind === "install" && TOKEN_INSTALL_KINDS.has(p.install_kind ?? ""))) return no(403, "auth.forbidden", `a ${p.install_kind ?? p.kind} install cannot get GitHub tokens`)
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
+  // This live-machine ownership check gates the VM's existing vm-self read and write access.
   const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
   const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
   return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")

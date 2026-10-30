@@ -134,6 +134,8 @@ final class AppServices {
     /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
     /// grant made in a page. Started at launch.
     let personInput = PersonInputLedger()
+    /// Process-wide widening-switch gate shared by every Settings window.
+    let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
     let machineHealth = MachineHealthStore()

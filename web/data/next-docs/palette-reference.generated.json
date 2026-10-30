@@ -5656,6 +5656,12 @@
           "command": null
         },
         {
+          "id": "agentPane.continueAfterError",
+          "title": "Continue After Error",
+          "shortcut": null,
+          "command": "cmux agent continue-after-error"
+        },
+        {
           "id": "agentPane.continueIn",
           "title": "Continue In…",
           "shortcut": null,
@@ -6860,12 +6866,6 @@
           "title": "Installed Apps",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "team.invite",
-          "title": "Invite to Team…",
-          "shortcut": null,
-          "command": "cmux team invite"
         },
         {
           "id": "help.discord",
