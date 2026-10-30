@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             async let files: Void = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
             await files
-        }, armDeadline: armDeadline, deadlineEnd: services().map { $0.agentPaneStateLoss.deadlineEnd(files: $0.agentPaneStateFiles) }, end: end)
+        }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the

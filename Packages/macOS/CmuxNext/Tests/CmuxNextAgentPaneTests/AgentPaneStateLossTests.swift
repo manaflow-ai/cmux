@@ -24,7 +24,7 @@ struct AgentPaneStateLossTests {
         #expect(ended.withLock { $0 }, "the deadline's end did not end")
         let names = await loss.take()
         #expect(names == [AgentUnsentDrafts.fileName], "the record named \(names)")
-        #expect(AgentPaneStateLoss.notice(for: names) != nil, "a lost unsent draft shows no notice")
+        #expect(AgentPaneStateLoss.notices(for: names).count == 1, "a lost unsent draft shows no notice")
         #expect(await loss.take().isEmpty, "the next launch took the record twice")
     }
 
@@ -40,7 +40,19 @@ struct AgentPaneStateLossTests {
         #expect(await loss.take().isEmpty)
     }
 
+    /// The paired phones' list a deadline cut off (it failed closed) is named beside the agent panes'
+    /// files, and the next launch tells the person to pair again.
+    @Test func aCutOffPairedListIsRecordedAndTold() async throws {
+        let directory = try AgentPaneStateFileTests.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loss = AgentPaneStateLoss(directory: directory)
+        loss.deadlineEnd(files: AgentPaneStateFiles(), alsoCutOff: { [AgentPaneStateLoss.pairedPhonesFileName] }, end: {})()
+        let names = await loss.take()
+        #expect(names == [AgentPaneStateLoss.pairedPhonesFileName], "the record named \(names)")
+        #expect(AgentPaneStateLoss.notices(for: names).count == 1, "a cut-off paired list shows no notice")
+    }
+
     @Test func aLostScrollPlaceShowsNoNotice() {
-        #expect(AgentPaneStateLoss.notice(for: [AgentPaneScrollAnchors.fileName]) == nil)
+        #expect(AgentPaneStateLoss.notices(for: [AgentPaneScrollAnchors.fileName]).isEmpty)
     }
 }

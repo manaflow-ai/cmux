@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextMobile
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -81,6 +82,11 @@ struct QuitStateFilesTests {
         gate.releaseHeldSave()
         await quit.value
         #expect(written(), "the quit's wait returned before the queued draft save")
+    }
+
+    /// The loss record names the paired phones' list by the file's own name.
+    @Test func theLossRecordNamesThePairedListByItsFileName() {
+        #expect(AgentPaneStateLoss.pairedPhonesFileName == MobileHostPairedDevicesFile.fileName)
     }
 }
 

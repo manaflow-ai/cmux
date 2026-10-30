@@ -49,7 +49,7 @@ final class QuitCoordinator {
         self.services = services
         unsaved = services.quitUnsaved
         deadline = QuitDeadline(reason: "the engines began to stop (the agent panes' state files save around them)",
-                                end: services.agentPaneStateLoss.deadlineEnd(files: services.agentPaneStateFiles))
+                                end: services.quitDeadlineEnd())
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q

@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Darwin
 import os
 
-/// The agent panes' state files a quit ended without saving, so the next launch can say so (R9 review of
+/// The state files a quit ended without saving (the agent panes', the paired phones' list), so the next launch can say so (R9 review of
 /// cmux#28275). A quit awaits their queued saves with no limit of its own, after its deadline is armed;
 /// when that deadline ends the process first, its end (``deadlineEnd(files:end:)``) logs a fault naming
 /// the files still queued (names only, never content) and records them in `<state>/agent-state-lost.json`.
@@ -20,20 +20,21 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
     }
 
     /// A quit deadline's end (`QuitDeadline(end:)`), run on the deadline's own thread: names and records
-    /// the files of `files` still saving, then runs `end` (the process's end; tests pass their own).
-    public func deadlineEnd(files: AgentPaneStateFiles, end: (@Sendable () -> Void)? = nil) -> @Sendable () -> Void {
+    /// the files of `files` still saving and those `alsoCutOff` names (it may act on them first: the
+    /// paired phones' list fails closed), then runs `end` (the process's end; tests pass their own).
+    public func deadlineEnd(files: AgentPaneStateFiles, alsoCutOff: @escaping @Sendable () -> [String] = { [] },
+                            end: (@Sendable () -> Void)? = nil) -> @Sendable () -> Void {
         let end = end ?? { _exit(0) }
         return { [self] in
-            recordStillSaving(files)
+            keep(files.savingFileNames() + alsoCutOff())
             end()
         }
     }
 
-    /// Logs and records the files of `files` still saving; nothing when none is.
-    public func recordStillSaving(_ files: AgentPaneStateFiles) {
-        let names = files.savingFileNames()
+    /// Logs and records `names`; nothing when it is empty.
+    func keep(_ names: [String]) {
         guard !names.isEmpty else { return }
-        Self.logger.fault("quit ended with agent pane state files still saving: \(names.joined(separator: ", "), privacy: .public)")
+        Self.logger.fault("quit ended with state files still saving: \(names.joined(separator: ", "), privacy: .public)")
         guard let record, let data = try? JSONEncoder().encode(names) else { return }
         try? data.blockingWrite(to: record, options: .atomic)
     }
@@ -50,20 +51,33 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
         }
     }
 
-    /// The notice for `names`: only a new chat's unsent text is worth one (a scroll place comes back by
-    /// itself at the next scroll); nil otherwise.
+    /// The paired phones' list (`MobileHostPairedDevicesFile.fileName`; QuitStateFilesTests checks they match).
+    public static let pairedPhonesFileName = "paired-devices.json"
+
+    /// The notices for `names`: a new chat's unsent text, and a paired-phones change (that list failed
+    /// closed, so every phone pairs again). A scroll place comes back by itself at the next scroll.
     @MainActor
-    public static func notice(for names: [String]) -> String? {
-        guard names.contains(AgentUnsentDrafts.fileName) else { return nil }
-        return String(localized: "agentPane.stateLoss.unsentDraft",
-                      defaultValue: "Text typed in a new chat just before cmux quit was not saved.", bundle: .module)
+    public static func notices(for names: [String]) -> [String] {
+        var notices: [String] = []
+        if names.contains(AgentUnsentDrafts.fileName) {
+            notices.append(String(localized: "agentPane.stateLoss.unsentDraft",
+                                  defaultValue: "Text typed in a new chat just before cmux quit was not saved.", bundle: .module))
+        }
+        if names.contains(pairedPhonesFileName) {
+            logger.error("the last quit cut off a paired-phones save; no stored list counts, every phone pairs again")
+            notices.append(String(localized: "agentPane.stateLoss.pairedPhones",
+                                  defaultValue: "A change to your paired iPhones was cut off when cmux quit. Pair your iPhones again.",
+                                  bundle: .module))
+        }
+        return notices
     }
 
-    /// Takes the last quit's record and shows its notice in `window`, if it has one.
+    /// Takes the last quit's record and shows its notices in `window`.
     @MainActor
     public func showNotice(in window: NSWindow, toasts: CmuxToastCenter = .shared) async {
-        guard let message = Self.notice(for: await take()) else { return }
-        _ = toasts.show(CmuxToast(id: "agent-state-lost", message: message, duration: .seconds(12)), in: window)
+        for (index, message) in Self.notices(for: await take()).enumerated() {
+            _ = toasts.show(CmuxToast(id: "state-lost-\(index)", message: message, duration: .seconds(12)), in: window)
+        }
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.state-files")

@@ -175,11 +175,14 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 /// digest in `seal` (``MobileHostPairingSealStore``). The iPhone host owns one per state directory, so
 /// its reads, saves and this run's record of the list in force are those of one file.
 public final class MobileHostPairedDevicesFile: Sendable {
+    public static let fileName = "paired-devices.json"
     public let file: URL
     let seal: any MobileHostPairingSealStore
+    /// Saves and withdrawals queued or running.
+    private let saving = Mutex(0)
 
     public init(directory: URL, seal: any MobileHostPairingSealStore) {
-        file = directory.appendingPathComponent("paired-devices.json", isDirectory: false)
+        file = directory.appendingPathComponent(Self.fileName, isDirectory: false)
         self.seal = seal
     }
 
@@ -208,7 +211,9 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// caller's list is the one in force from the call on. A failure is logged. `done` (tests) gets
     /// whether the new list was written and recorded.
     public func saveInBackground(_ devices: MobileHostPairedDevices, then done: (@Sendable (Bool) -> Void)? = nil) {
+        saving.withLock { $0 += 1 }
         queue.async {
+            defer { self.saving.withLock { $0 -= 1 } }
             do {
                 try self.save(devices)
                 done?(true)
@@ -223,12 +228,35 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// on the queue, right after the read, the stored list stops counting, in this run and in the
     /// Keychain, so a quit's flush (or a crash) after this turn trusts no list with that phone.
     public func withdrawTrust() {
+        saving.withLock { $0 += 1 }
         queue.async { [self] in
+            defer { saving.withLock { $0 -= 1 } }
             inForce.withLock { $0 = Data() }
             if !seal.clearDigest(), !seal.clearDigest() {
                 Self.logger.fault("iPhone pairing: the Keychain refuses to clear the pairing seal; until it takes a write, the stored list can count again after a relaunch")
             }
         }
+    }
+
+    /// Whether a save or a withdrawal is queued or running.
+    public var isSaving: Bool {
+        saving.withLock { $0 > 0 }
+    }
+
+    /// A quit deadline's end, on its own thread, while a save may be cut off (a removal among them):
+    /// when one is queued or running, no list counts any more, in this run and after a relaunch (the
+    /// seal is cleared, so the stored list no longer matches it and every phone pairs again, the
+    /// digest rule of ``load(userID:)``), and true. A save that still finishes before the process
+    /// ends records its own new list.
+    public func failClosedIfSaving() -> Bool {
+        guard isSaving else { return false }
+        inForce.withLock { $0 = Data() }
+        if !seal.clearDigest(), !seal.clearDigest() {
+            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save and the Keychain refuses to clear the seal; the stored list can count again after a relaunch")
+        } else {
+            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save; no stored list counts, every phone pairs again")
+        }
+        return true
     }
 
     /// How many digests this run remembers for this file (tests).
@@ -327,5 +355,22 @@ public struct MobileHostPairedLoad: Sendable {
         let forgot = !forgotten.isEmpty
         forgotten = []
         return (trimmed, forgot)
+    }
+}
+
+/// The iPhone host's paired-phones file as a quit deadline sees it, from any thread: the host sets it
+/// on the main actor whenever its file changes, and the deadline's end asks it to fail closed.
+public final class MobileHostPairedQuitWatch: Sendable {
+    private let file = Mutex<MobileHostPairedDevicesFile?>(nil)
+
+    public init() {}
+
+    public func watch(_ file: MobileHostPairedDevicesFile?) {
+        self.file.withLock { $0 = file }
+    }
+
+    /// The names of the files a quit cut off (``MobileHostPairedDevicesFile/failClosedIfSaving()``).
+    public func failClosedIfSaving() -> [String] {
+        file.withLock { $0 }?.failClosedIfSaving() == true ? [MobileHostPairedDevicesFile.fileName] : []
     }
 }

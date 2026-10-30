@@ -351,6 +351,33 @@ import Testing
         #expect(relaunched.hostd.isEmpty, "hostd pins the forgotten phone after a relaunch: \(relaunched.hostd)")
     }
 
+    /// R9 review of #28275: a removal still saving when a quit deadline ends the process (its save held
+    /// before it cleared the old digest) is named, and the list from before it does not count after a
+    /// relaunch: the seal is cleared, so every phone pairs again. No clock decides it: the removal's save
+    /// waits at the seal until the test lets it go, after its checks.
+    @Test func aRemovalCutOffByAQuitDeadlineIsNotTrustedAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = HeldSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        devices.remove(Self.request.phoneDeviceID)
+        seal.holdNextClear()
+        file.saveInBackground(devices)
+        // concurrency-allow: test only; the removal's save reached the seal (a safety net of 10 s)
+        let started = seal.entered.wait(timeout: .now() + 10)
+        let watch = MobileHostPairedQuitWatch()
+        watch.watch(file)
+        let cutOff = watch.failClosedIfSaving()
+        let relaunched = Self.relaunched(directory, seal: seal)
+        seal.gate.signal()
+        await file.drained()
+        #expect(started == .success, "the removal's save never started")
+        #expect(cutOff == [MobileHostPairedDevicesFile.fileName], "the quit deadline named \(cutOff)")
+        #expect(relaunched.approvers.isEmpty, "the removed phone is an approver after a relaunch: \(relaunched.approvers)")
+        #expect(relaunched.hostd.isEmpty, "hostd pins the removed phone after a relaunch: \(relaunched.hostd)")
+    }
+
     /// Review 90 (2): a new hostd gets the newest paired list the app set, at once: a restart that
     /// runs before an update's hop reaches the supervisor never hands hostd an older list.
     @Test func aNewHostdGetsTheNewestPairedListAtOnce() throws {
@@ -504,6 +531,8 @@ final class SavedBox: @unchecked Sendable {
 /// queued before another holds the file's queue for a moment.
 final class HeldSeal: MobileHostPairingSealStore, Sendable {
     let gate = DispatchSemaphore(value: 0)
+    /// Signaled when a held clear begins to wait at `gate`.
+    let entered = DispatchSemaphore(value: 0)
     private let inner = MobileHostMemoryPairingSeal()
     /// One token per ``holdNextClear()``: the clear that takes it waits.
     private let held = DispatchSemaphore(value: 0)
@@ -515,7 +544,10 @@ final class HeldSeal: MobileHostPairingSealStore, Sendable {
     func digest() -> Data? { inner.digest() }
     func setDigest(_ digest: Data) -> Bool { inner.setDigest(digest) }
     func clearDigest() -> Bool {
-        if held.wait(timeout: .now()) == .success { gate.wait() }
+        if held.wait(timeout: .now()) == .success {
+            entered.signal()
+            gate.wait()
+        }
         return inner.clearDigest()
     }
 }

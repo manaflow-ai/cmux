@@ -130,10 +130,13 @@ public final class IPhoneHostService {
                   pairedFile?.file.deletingLastPathComponent().standardizedFileURL.path != directory.standardizedFileURL.path else { return }
             pairedFile = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(
                 bundleID: directory.deletingLastPathComponent().lastPathComponent))
+            pairedQuitWatch.watch(pairedFile)
         }
     }
     /// The paired list's one file for the state directory: its queue keeps this host's reads and saves in order.
     @ObservationIgnored private(set) var pairedFile: MobileHostPairedDevicesFile?
+    /// That file for a quit deadline's end, on its own thread: a save it cuts off fails closed.
+    @ObservationIgnored public let pairedQuitWatch = MobileHostPairedQuitWatch()
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
