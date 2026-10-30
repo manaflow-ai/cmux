@@ -852,13 +852,16 @@ fieldset.acpmux-question[hidden]{display:none}
    The field holds the focus the whole time the menu is open, so a ring here was a ring at rest. */
 .acpmux-palette-search input:focus{background:var(--acpmux-pill-hover)}
 .acpmux-palette-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
-/* Rows past the list's edge: that edge fades (summary/scrollEdges.ts), the Summary card's fade. */
-.acpmux-palette-list[data-fade-top],.acpmux-palette-list[data-fade-bottom]{--acpmux-palette-fade-top:0px;--acpmux-palette-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-palette-fade-top),#000 calc(100% - var(--acpmux-palette-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-palette-fade-top),#000 calc(100% - var(--acpmux-palette-fade-bottom)),transparent)}
-.acpmux-palette-list[data-fade-top]{--acpmux-palette-fade-top:14px}.acpmux-palette-list[data-fade-bottom]{--acpmux-palette-fade-bottom:22px}
-@media (prefers-reduced-transparency:reduce){.acpmux-palette-list[data-fade-top],.acpmux-palette-list[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
-:root[data-reduce-transparency] .acpmux-palette-list[data-fade-top],:root[data-reduce-transparency] .acpmux-palette-list[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
+/* Rows past the + menu's scroll edge: that edge fades (summary/scrollEdges.ts), the Summary card's
+   fade. The palette's list scrolls under its search field; the composer's + (Picker) scrolls itself. */
+:is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu):is([data-fade-top],[data-fade-bottom]){--acpmux-plus-fade-top:0px;--acpmux-plus-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-plus-fade-top),#000 calc(100% - var(--acpmux-plus-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-plus-fade-top),#000 calc(100% - var(--acpmux-plus-fade-bottom)),transparent)}
+:is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu)[data-fade-top]{--acpmux-plus-fade-top:14px}:is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu)[data-fade-bottom]{--acpmux-plus-fade-bottom:22px}
+@media (prefers-reduced-transparency:reduce){:is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu):is([data-fade-top],[data-fade-bottom]){-webkit-mask-image:none;mask-image:none}}
+:root[data-reduce-transparency] :is(.acpmux-palette-list,.acpmux-composer-plus .acpmux-menu):is([data-fade-top],[data-fade-bottom]){-webkit-mask-image:none;mask-image:none}
 /* The groups are split by the shared menu separator (PaletteMenu.tsx), in the pane's menu hairline. */
 .acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
+/* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
+.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */
