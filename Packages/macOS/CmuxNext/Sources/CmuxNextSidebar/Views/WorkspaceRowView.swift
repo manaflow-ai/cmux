@@ -20,6 +20,8 @@ final class WorkspaceRowView: SidebarRowView {
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
+    /// Last rendered title column sent to disclosed child rows.
+    var lastTabAnchorTitleX: CGFloat?
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
@@ -201,6 +203,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTree = nil
         onToggleAudio = nil
         title.stopMarquee()
+        lastTabAnchorTitleX = nil
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -290,9 +293,7 @@ final class WorkspaceRowView: SidebarRowView {
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
-        let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
-            : ws.agentIcon.flatMap { agentIconImage($0) }
-                ?? ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
+        let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
@@ -309,10 +310,7 @@ final class WorkspaceRowView: SidebarRowView {
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
         if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
             machineMarkSize = machineSize
-            machineMark.image = machine.map { mark in
-                if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
-                return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
-            }
+            machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
