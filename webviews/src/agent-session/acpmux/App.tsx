@@ -5273,11 +5273,11 @@ function AcpmuxPane() {
   // The open folds as the shown chat's transcript view draws them: Normal is `expanded` itself;
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
-  const shownView = useTranscriptView(shownSessionId);
-  const shownViewRef = useRef(shownView);
-  shownViewRef.current = shownView;
-  const viewToggled = viewToggles.get(shownView) ?? NO_FOLD_TOGGLES;
-  const folds = useMemo(() => viewFolds(shownView, expanded, viewToggled), [shownView, expanded, viewToggled]);
+  const chatView = useTranscriptView(shownSessionId);
+  const chatViewRef = useRef(chatView);
+  chatViewRef.current = chatView;
+  const viewToggled = viewToggles.get(chatView) ?? NO_FOLD_TOGGLES;
+  const folds = useMemo(() => viewFolds(chatView, expanded, viewToggled), [chatView, expanded, viewToggled]);
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -5686,7 +5686,7 @@ function AcpmuxPane() {
   const findRef = useRef<ChatFind | undefined>(undefined);
   const diffFindRef = useRef<DiffFindHandle | undefined>(undefined);
   const openFold = useCallback((fold: string) => {
-    const view = shownViewRef.current;
+    const view = chatViewRef.current;
     // Thinking and Verbose open a turn's fold unless the reader closed it there: forget that close.
     if (view !== "normal" && isWorkedFold(fold))
       setViewToggles((current) => {
@@ -9510,7 +9510,7 @@ function AcpmuxPane() {
   ]);
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string) => {
-    const view = shownViewRef.current;
+    const view = chatViewRef.current;
     const flip = (current: ReadonlySet<string>) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
