@@ -6,7 +6,7 @@
 // has no project row and no Save: only its machine. Every row does something: the project opens in
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -134,6 +134,9 @@ export function EnvironmentSection({
 }) {
   const t = useT();
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const pending = useRef(false);
   const machine = machineOf(summary, machineName, peerKinds);
   const branch = summary?.branch;
   const project = chatProject(summary, repository);
@@ -145,11 +148,21 @@ export function EnvironmentSection({
   // Save keeps a project: a chat in a scratch folder has nothing worth keeping.
   const save =
     onSave && project
-      ? () => {
-          void Promise.resolve(onSave()).then(
-            () => setSaved(true),
-            () => undefined,
-          );
+      ? async () => {
+          if (pending.current || saved) return;
+          pending.current = true;
+          setSaving(true);
+          setFailed(false);
+          try {
+            await onSave();
+            setSaved(true);
+          } catch {
+            // The host can return internal transport details; keep the visible failure display-safe.
+            setFailed(true);
+          } finally {
+            pending.current = false;
+            setSaving(false);
+          }
         }
       : undefined;
   const parent = project && homePath(project.path.slice(0, project.path.lastIndexOf("/")) || "/");
@@ -167,13 +180,19 @@ export function EnvironmentSection({
           <button
             type="button"
             className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end"
-            disabled={saved}
+            disabled={saved || saving}
+            aria-busy={saving}
             onClick={save}
           >
             {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
           </button>
         )}
       </li>
+      {failed && (
+        <li className="acpmux-chat-inspector-note" role="alert">
+          {t("environment.saveFailed", { reason: t("error.requestFailed") })}
+        </li>
+      )}
       {project && (
         <Row
           icon={project.worktree ? "git.worktree" : "folder"}
