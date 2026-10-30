@@ -445,7 +445,6 @@ it. `promote-devbox-image.ts` is the only sanctioned writer:
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,lgx,xl,2xl -> manifest
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
-FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake
 ```
 
 Snapshots are account-scoped: promote under the Freestyle account the

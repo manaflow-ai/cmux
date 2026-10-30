@@ -35,6 +35,6 @@ echo bubblewrap-install-and-sandbox-ok
 try:
     with tempfile.TemporaryDirectory(prefix="cmux-bubblewrap-") as context:
         subprocess.run(["docker", "build", "--tag", tag, "--file", "-", context], input=recipe, text=True, check=True)
-    subprocess.run(["docker", "run", "--rm", "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined", tag, "sh", "-c", probe], check=True)
+    subprocess.run(["docker", "run", "--rm", "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined", "--security-opt", "systempaths=unconfined", tag, "sh", "-c", probe], check=True)
 finally:
     subprocess.run(["docker", "image", "rm", tag], check=False)
