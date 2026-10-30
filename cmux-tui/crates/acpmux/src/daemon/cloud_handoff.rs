@@ -675,9 +675,10 @@ impl<I: Io> Reporter<I> {
             None => None,
         };
         let Some(track) = self.tracks.get_mut(session) else { return };
-        // A new attempt of an ended turn: its end is to come again.
-        if let Some(turn) = turn
-            && track.ended >= Some(turn)
+        // A new attempt of the newest ended turn, one the store may have taken: its end is to
+        // come again. A stale begin (refused) or one of an older turn reopens nothing.
+        if let Some((turn, Outcome::Accepted | Outcome::Unsent)) = answer
+            && track.ended == Some(turn)
         {
             track.ended = turn.checked_sub(1);
         }
