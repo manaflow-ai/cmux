@@ -927,7 +927,9 @@ jobs:
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    # A green run takes ~40 min on a 32 vCPU runner (the workspace test step alone
+    # 36.6 min, run 40976799846); 40 cancelled the first all-green run.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
