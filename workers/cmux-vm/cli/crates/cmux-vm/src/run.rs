@@ -40,8 +40,6 @@ use serde_json::{Value, json};
 use crate::error::CliError;
 use crate::{exit, fetch_body, new_idempotency_key, parse_key, request_body};
 
-/// Seconds without traffic before the VM pauses itself (`--idle-timeout`).
-const DEFAULT_IDLE_TIMEOUT_SECONDS: i64 = 300;
 /// A VM that is not kept is deleted once it has been this long without running.
 const AUTO_DELETE_SECONDS: i64 = 900;
 /// Raw bytes per upload or download chunk: 1 MB is 1,333,336 base64
@@ -108,10 +106,11 @@ pub struct RunArgs {
     /// Pause the VM at the end instead of deleting it (prints its id)
     #[arg(long)]
     keep: bool,
-    /// Seconds without network traffic before the VM pauses itself
-    #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_IDLE_TIMEOUT_SECONDS,
-          value_parser = clap::value_parser!(i64).range(60..=86_400))]
-    idle_timeout: i64,
+    /// Seconds without network traffic before the VM pauses itself, 60 to
+    /// 86400, or -1 never to pause (CPU and disk work do not count). Default:
+    /// the team's own (dev/test teams pause after 300 s, at most; others never)
+    #[arg(long, value_name = "SECONDS", allow_negative_numbers = true, value_parser = idle_seconds)]
+    idle_timeout: Option<i64>,
     /// Kill the command after this many seconds (0: no limit; at most 7 days)
     #[arg(long, value_name = "SECONDS", default_value_t = 3600,
           value_parser = clap::value_parser!(u64).range(0..=604_800))]
@@ -255,6 +254,13 @@ pub async fn run(
     // failed is said above with the command that finishes it.
     drop(ended);
     Ok(code)
+}
+
+fn idle_seconds(text: &str) -> Result<i64, String> {
+    match text.parse::<i64>() {
+        Ok(seconds) if seconds == -1 || (60..=86_400).contains(&seconds) => Ok(seconds),
+        _ => Err("takes 60 to 86400 seconds, or -1 never to pause".to_owned()),
+    }
 }
 
 async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String, CliError> {
@@ -505,7 +511,17 @@ async fn follow(
             let kill = format!(
                 "kill -TERM -- -$(cat {RUN_DIR}/pid) 2>/dev/null; sleep 2; kill -KILL -- -$(cat {RUN_DIR}/pid) 2>/dev/null; true"
             );
-            let _ = exec(client, vm_id, &kill, &[], 30_000).await;
+            match exec(client, vm_id, &kill, &[], 30_000).await {
+                Ok(killed) if killed.code == Some(0) => {}
+                Ok(killed) => note(
+                    stderr,
+                    &format!("could not kill the command: {}", killed.stderr.trim()),
+                ),
+                Err(error) => note(
+                    stderr,
+                    &format!("could not kill the command: {}", error.message()),
+                ),
+            }
             return Ok(Outcome::TimedOut);
         }
         let wait = poll_wait_tenths(deadline, Instant::now());
@@ -564,34 +580,71 @@ async fn pull(
     local: &Path,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
+    let result = pull_archive(client, vm_id, workdir, paths, local, stderr).await;
+    // The guest's copy never outlives the pull (a kept VM is billed for it).
+    let _ = exec(
+        client,
+        vm_id,
+        &format!("rm -f {PULL_ARCHIVE} {PULL_ARCHIVE}.rc"),
+        &[],
+        30_000,
+    )
+    .await;
+    result
+}
+
+/// The guest's archive for `--pull`.
+const PULL_ARCHIVE: &str = "/tmp/cmux-pull.tgz";
+
+/// Packs `paths` into `archive` on the guest and prints "SIZE TAR_STATUS".
+/// It writes at most one byte over `limit`, so an oversized pull stops there
+/// instead of filling the guest's disk; tar's own status is kept apart, since
+/// `head` ending the pipe early is the oversized case.
+fn pull_pack_script(workdir: &str, paths: &[String], archive: &str, limit: u64) -> String {
     let quoted: Vec<String> = paths.iter().map(|path| shell_quote(path)).collect();
-    let pack = format!(
-        "cd {} && tar -czf /tmp/cmux-pull.tgz -- {} && stat -c %s /tmp/cmux-pull.tgz",
+    format!(
+        "cd {} && {{ tar -czf - -- {}; echo $? >{archive}.rc; }} | head -c {} >{archive} && \
+         echo \"$(stat -c %s {archive}) $(cat {archive}.rc)\"",
         shell_quote(workdir),
-        quoted.join(" ")
-    );
+        quoted.join(" "),
+        limit + 1
+    )
+}
+
+async fn pull_archive(
+    client: &Client,
+    vm_id: &str,
+    workdir: &str,
+    paths: &[String],
+    local: &Path,
+    stderr: &mut dyn Write,
+) -> Result<(), CliError> {
+    let pack = pull_pack_script(workdir, paths, PULL_ARCHIVE, MAX_PULL_BYTES);
     let packed = exec(client, vm_id, &pack, &[], 300_000).await?;
-    if packed.code != Some(0) {
-        return Err(CliError::unexpected(format!(
-            "--pull failed on the VM: {}",
-            packed.stderr.trim()
-        )));
+    let answer = String::from_utf8_lossy(&packed.stdout).trim().to_owned();
+    let mut words = answer.split_whitespace();
+    let size: Option<u64> = words.next().and_then(|size| size.parse().ok());
+    let tar_ok = words.next() == Some("0");
+    match size {
+        Some(size) if size > MAX_PULL_BYTES => {
+            return Err(CliError::usage(format!(
+                "--pull would download more than {} MiB; pull less",
+                MAX_PULL_BYTES / (1024 * 1024)
+            )));
+        }
+        Some(_) if packed.code == Some(0) && tar_ok => {}
+        _ => {
+            return Err(CliError::unexpected(format!(
+                "--pull failed on the VM: {}",
+                packed.stderr.trim()
+            )));
+        }
     }
-    let size: u64 = String::from_utf8_lossy(&packed.stdout)
-        .trim()
-        .parse()
-        .map_err(|_| CliError::unexpected("--pull could not size its archive"))?;
-    if size > MAX_PULL_BYTES {
-        return Err(CliError::usage(format!(
-            "--pull would download {} MiB, over the {} MiB limit; pull less",
-            size / (1024 * 1024),
-            MAX_PULL_BYTES / (1024 * 1024)
-        )));
-    }
+    let size = size.unwrap_or_default();
     let mut bytes = Vec::with_capacity(usize::try_from(size.min(MAX_PULL_BYTES)).unwrap_or(0));
     while (bytes.len() as u64) < size {
         let read = format!(
-            "tail -c +{} /tmp/cmux-pull.tgz | head -c {CHUNK_BYTES} | base64 -w0",
+            "tail -c +{} {PULL_ARCHIVE} | head -c {CHUNK_BYTES} | base64 -w0",
             bytes.len() + 1
         );
         let chunk = decode(
@@ -1010,6 +1063,10 @@ fn walk(dir: &Path) -> Result<Vec<PathBuf>, CliError> {
 /// A gzip tarball of the sync list, the number of files in it and the
 /// credential-shaped files left out.
 fn archive(dir: &Path) -> Result<(Vec<u8>, SyncList), CliError> {
+    archive_within(dir, MAX_SYNC_BYTES)
+}
+
+fn archive_within(dir: &Path, limit: u64) -> Result<(Vec<u8>, SyncList), CliError> {
     let synced = sync_list(dir)?;
     let mut list = Vec::new();
     for file in &synced.files {
@@ -1039,25 +1096,48 @@ fn archive(dir: &Path) -> Result<(Vec<u8>, SyncList), CliError> {
         .take()
         .ok_or_else(|| CliError::unexpected("tar has no stdin"))?;
     let writer = std::thread::spawn(move || stdin.write_all(&list));
-    let output = child
-        .wait_with_output()
-        .map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
+    let mut errors = child
+        .stderr
+        .take()
+        .ok_or_else(|| CliError::unexpected("tar has no stderr"))?;
+    let error_reader = std::thread::spawn(move || {
+        let mut text = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut errors, &mut text);
+        text
+    });
+    let mut out = child
+        .stdout
+        .take()
+        .ok_or_else(|| CliError::unexpected("tar has no stdout"))?;
+    // Read at most one byte over the limit: a larger tree is refused without
+    // holding its whole archive in memory.
+    let mut archive = Vec::new();
+    let read =
+        std::io::Read::read_to_end(&mut std::io::Read::take(&mut out, limit + 1), &mut archive);
+    let oversized = archive.len() as u64 > limit;
+    if oversized {
+        let _ = child.kill();
+    }
+    drop(out);
+    let status = child.wait();
     let _ = writer.join();
-    if !output.status.success() {
+    let tar_errors = error_reader.join().unwrap_or_default();
+    if oversized {
+        return Err(CliError::usage(format!(
+            "the sync archive is over the {} MiB limit; sync a smaller directory with --dir",
+            limit / (1024 * 1024)
+        )));
+    }
+    read.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
+    let status = status.map_err(|e| CliError::unexpected(format!("tar failed: {e}")))?;
+    if !status.success() {
         return Err(CliError::unexpected(format!(
             "tar could not archive {}: {}",
             dir.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
+            String::from_utf8_lossy(&tar_errors).trim()
         )));
     }
-    if output.stdout.len() as u64 > MAX_SYNC_BYTES {
-        return Err(CliError::usage(format!(
-            "the sync archive is {} MiB, over the {} MiB limit; sync a smaller directory with --dir",
-            output.stdout.len() / (1024 * 1024),
-            MAX_SYNC_BYTES / (1024 * 1024)
-        )));
-    }
-    Ok((output.stdout, synced))
+    Ok((archive, synced))
 }
 
 /// Unpacks a pulled archive into `dir`, refusing entries that would land
@@ -1358,6 +1438,82 @@ mod tests {
             &dir,
             Path::new("../outside/secret.txt")
         ));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn idle_timeout_takes_a_range_or_never() {
+        assert_eq!(idle_seconds("-1"), Ok(-1));
+        assert_eq!(idle_seconds("60"), Ok(60));
+        assert_eq!(idle_seconds("86400"), Ok(86_400));
+        for bad in ["0", "59", "-2", "86401", "x"] {
+            assert!(idle_seconds(bad).is_err(), "{bad}");
+        }
+    }
+
+    /// Unpredictable bytes, so gzip cannot shrink them below a limit.
+    fn noise(len: usize) -> Vec<u8> {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state.to_le_bytes()[0]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_oversized_sync_is_refused_while_it_streams() {
+        let dir = std::env::temp_dir().join(format!("cmux-vm-run-sync-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("big.bin"), noise(256 * 1024)).unwrap();
+        let error = archive_within(&dir, 16 * 1024).unwrap_err();
+        assert!(error.message().contains("over the"), "{}", error.message());
+        let (bytes, synced) = archive_within(&dir, 1024 * 1024).unwrap();
+        assert!(!bytes.is_empty() && bytes.len() <= 1024 * 1024);
+        assert_eq!(synced.files, vec![PathBuf::from("big.bin")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // GNU stat, as on the guest.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_pull_pack_stops_one_byte_over_its_limit() {
+        let base =
+            std::env::temp_dir().join(format!("cmux-vm-run-pull-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let work = base.join("work");
+        std::fs::create_dir_all(work.join("dist")).unwrap();
+        std::fs::write(work.join("dist/big.bin"), noise(256 * 1024)).unwrap();
+        let archive = base.join("pull.tgz");
+        let archive = archive.to_str().unwrap();
+        let run = |paths: &[&str], limit: u64| {
+            let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+            let script = pull_pack_script(work.to_str().unwrap(), &paths, archive, limit);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .output()
+                .unwrap();
+            String::from_utf8(out.stdout).unwrap().trim().to_owned()
+        };
+        // Over the limit: the file stops at limit + 1 bytes.
+        let answer = run(&["dist"], 4096);
+        let size: u64 = answer.split_whitespace().next().unwrap().parse().unwrap();
+        assert_eq!(size, 4097, "{answer}");
+        assert_eq!(std::fs::metadata(archive).unwrap().len(), 4097);
+        // Within it: the whole archive and tar's success.
+        let answer = run(&["dist"], 1024 * 1024);
+        let mut words = answer.split_whitespace();
+        let size: u64 = words.next().unwrap().parse().unwrap();
+        assert!(size > 0 && size <= 1024 * 1024, "{answer}");
+        assert_eq!(words.next(), Some("0"), "{answer}");
+        // A missing path: tar's failure is reported.
+        let answer = run(&["missing"], 1024 * 1024);
+        assert_ne!(answer.split_whitespace().nth(1), Some("0"), "{answer}");
         let _ = std::fs::remove_dir_all(&base);
     }
 
