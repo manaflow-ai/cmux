@@ -89,11 +89,12 @@ public final class AcpmuxHub {
     public init() {}
 
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
-    public func bind(_ channel: (any LinkChannel)?) async {
+    public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20)) async {
         pumpTask?.cancel()
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
+        lastError = nil
         fullAccess = false
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
@@ -103,18 +104,26 @@ public final class AcpmuxHub {
         let notifications = connection.notifications
         pumpTask = Task { [weak self] in
             for await notification in notifications {
+                guard self?.connection === connection else { return }
                 self?.handle(notification)
             }
+            guard !Task.isCancelled, let self, self.connection === connection else { return }
+            self.connection = nil
+            self.isReady = false
+            self.fullAccess = false
+            self.lastError = self.lastError ?? "acpmux channel closed"
+            for entry in self.sources.values { entry.source?.linkDown() }
         }
         do {
             let initialized = try await connection.request("initialize", .object([
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
-            ]))
+            ]), timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
-            let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+            let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: requestTimeout)
+            guard !(await connection.isClosed), self.connection === connection else { return }
             var next: [String: AcpmuxSession] = [:]
             for value in watched["sessions"]?.arrayValue ?? [] {
                 if let session = AcpmuxSession(value) { next[session.id] = session }
@@ -128,9 +137,16 @@ public final class AcpmuxHub {
             log.info("acpmux ready, \(next.count, privacy: .public) sessions")
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
-            await seedPending(connection)
+            await seedPending(connection, requestTimeout: requestTimeout)
+            try Task.checkCancellation()
         } catch {
+            guard self.connection === connection else { return }
+            self.connection = nil
+            isReady = false
+            fullAccess = false
             lastError = LinkController.reason(error)
+            for entry in sources.values { entry.source?.linkDown() }
+            await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -138,14 +154,15 @@ public final class AcpmuxHub {
     /// Asks that were already open before this connection watched: acpmux
     /// notifies `permission_pending` only for new ones, so read each waiting
     /// session's permission records and report those with no decision.
-    private func seedPending(_ connection: AcpmuxConnection) async {
+    private func seedPending(_ connection: AcpmuxConnection, requestTimeout: Duration) async {
         for session in sessions.values where session.pendingPermissions > 0 {
+            guard !Task.isCancelled, self.connection === connection else { return }
             guard let page = try? await connection.request("_acpmux/events", .object([
                 "sessionId": .string(session.id),
                 "beforeSeq": .number(Double(session.lastSeq + 1)),
                 "limit": .number(200),
                 "kinds": .array([.string("permission_request"), .string("permission_decision")]),
-            ])) else { continue }
+            ]), timeout: requestTimeout) else { continue }
             let records = page["events"]?.arrayValue ?? []
             let decided = Set(records.compactMap { record -> String? in
                 record["kind"]?.stringValue == "permission_decision" ? record["msg"]?["permissionId"]?.stringValue : nil
@@ -486,22 +503,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         for attachment in attachments where attachment.imageMIMEType == nil {
-            guard let data = attachment.data else {
+            let payload: LinkUpload.Payload
+            if let data = attachment.data {
+                payload = .data(data)
+            } else if let url = attachment.fileURL {
+                payload = .file(url)
+            } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
             guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
-            uploaded[attachment.id] = try await Self.upload(data, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
         }
         return Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded)
     }
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
-    static func upload(_ data: Data, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
         do {
-            return try await LinkUpload.upload(data, name: name, cwd: LinkUpload.folder(cwd), over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            return try await LinkUpload.upload(data, name: name, cwd: nil, over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
@@ -525,7 +547,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 } else {
                     var link: [String: JSONValue] = ["type": .string("resource_link"), "uri": .string(uri),
                                                      "name": .string(attachment.name), "mimeType": .string(mime)]
-                    if let size = attachment.data?.count { link["size"] = .number(Double(size)) }
+                    if let size = attachment.data?.count ?? attachment.byteCount { link["size"] = .number(Double(size)) }
                     blocks.append(.object(link))
                 }
             }

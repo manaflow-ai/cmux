@@ -321,7 +321,9 @@ fn a_stopped_timer_is_said_and_started() {
     assert!(r.detail.contains("not running"), "{r:?}");
 }
 
-/// The real probe, run by `sh` against a fake `systemctl` in a scratch home.
+/// The real probe, run by `sh` against a fake `systemctl` in a scratch home (unix: modes,
+/// symlinks and a shell).
+#[cfg(unix)]
 mod probe_in_a_shell {
     use super::*;
     use std::fs;

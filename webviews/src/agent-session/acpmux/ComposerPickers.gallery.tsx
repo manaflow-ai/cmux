@@ -273,7 +273,7 @@ const openModel: Play = async (ctx) => {
 const openAccounts: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  await ctx.focus({ role: "menuitem", name: /^Provider/ });
+  await ctx.focus({ role: "menuitem", name: /^Account/ });
   await ctx.press("Enter");
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(
@@ -392,7 +392,8 @@ const openMode: Play = async (ctx) => {
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
-  const expected = ["Default", "Full access", "Plan"];
+  // Plan is the separate composer toggle; this menu contains permission modes only.
+  const expected = ["Default", "Full access"];
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {

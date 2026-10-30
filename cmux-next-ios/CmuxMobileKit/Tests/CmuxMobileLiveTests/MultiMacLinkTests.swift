@@ -15,10 +15,12 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     let screens: [String: String]
     /// Each Mac's `acpmux` service (by Mac id and request); nil leaves it unanswered.
     let acpmux: (@Sendable (String, Data) -> [Data])?
+    let silentNotifications: Bool
 
-    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil) {
+    init(screens: [String: String] = [:], acpmux: (@Sendable (String, Data) -> [Data])? = nil, silentNotifications: Bool = false) {
         self.screens = screens
         self.acpmux = acpmux
+        self.silentNotifications = silentNotifications
     }
 
     func dialCount(_ macID: String) -> Int { lock.withLock { dials[macID] ?? 0 } }
@@ -28,12 +30,14 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         lock.withLock { dials[mac, default: 0] += 1 }
         let screen = screens[mac] ?? mac
         let acpmux = acpmux
+        let silentNotifications = silentNotifications
         return MockMacLink(transport: transport) { service, data in
             if service == "acpmux", let acpmux { return acpmux(mac, data) }
             guard service == "daemon" else { return [] }
             return data.split(separator: 0x0A).compactMap { request -> Data? in
                 guard let object = try? JSONSerialization.jsonObject(with: Data(request)) as? [String: Any],
                       let id = object["id"] as? String else { return nil }
+                if silentNotifications, object["cmd"] as? String == "list-notifications" { return nil }
                 let line: String
                 switch object["cmd"] as? String ?? "" {
                 case "list-workspaces":

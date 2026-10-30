@@ -98,6 +98,7 @@ impl Hub {
     /// `shutdown_all`): the idle reaper never stops a harness again.
     pub fn stop_idle_reaper(&self) {
         self.stopping.store(true, Ordering::SeqCst);
+        self.peer_notices_stop.send_replace(true);
         self.idle_wake.notify_one();
     }
 

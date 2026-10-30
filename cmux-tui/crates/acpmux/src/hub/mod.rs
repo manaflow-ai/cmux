@@ -9,12 +9,15 @@ pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
 mod agent_pairs;
+mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
 mod btw;
+// A turn ends when its agent ends it; the steers it runs on with are the next turn's.
+mod carried_turn;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
@@ -23,7 +26,7 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
-mod cancel;
+pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
 pub mod composers;
@@ -86,7 +89,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, supersede::key as supersede_key};
+pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -111,6 +114,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -124,6 +128,7 @@ mod tap;
 mod titles;
 mod tool_paths;
 mod tools;
+pub(crate) mod turn_cap;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -131,9 +136,15 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod key_route;
 pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
+#[cfg(all(test, target_os = "linux"))]
+mod peer_flap_soak;
+mod peer_grace;
+#[cfg(test)]
+mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
@@ -169,6 +180,8 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+#[cfg(test)]
+mod stop_settles_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
@@ -241,6 +254,16 @@ pub struct HubEvent {
     pub remote: Option<RemoteRef>,
 }
 
+/// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
+/// that received it and the peer holding that chat.
+fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
+    match (target, peer) {
+        (None, _) => id.to_owned(),
+        (Some(target), None) => format!("{target}\0{id}"),
+        (Some(target), Some(peer)) => format!("{peer}\u{1}{target}\0{id}"),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RemoteRef {
     pub peer: String,
@@ -301,6 +324,9 @@ pub struct TurnInfo {
 pub struct PromptOptions {
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
     pub prompt_id: Option<String>,
+    /// The delivery id for a message sent through `_acpmux/send_queue`; direct prompts use the
+    /// prompt id when no separate delivery id exists.
+    pub message_id: Option<String>,
     /// Called once, as soon as the prompt is recorded (queued or started),
     /// with `{sessionId, promptId, turnId, queued, position?, steer?}`, or
     /// `{sessionId, promptId, duplicate: true}` for a prompt id seen before.
@@ -335,6 +361,9 @@ pub struct PromptOptions {
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Sender identity carried across a peer link. Provenance is intentionally removed at that
+    /// boundary, but the additive message event still needs the sender's stable identity.
+    pub message_sender: Option<Value>,
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
@@ -357,6 +386,16 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
+    /// turn's cap (`turn_cap.rs`).
+    pub send_now: bool,
+    /// The thread another agent's message goes in (`inbox.rs` `explicit_thread`): `pr:N` or
+    /// `topic:T`; `None` derives it.
+    pub thread: Option<String>,
+    /// A plain send from another agent on this host (`session/prompt`, `inbox::plain_send`): the
+    /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
+    /// release, a peer's or the mesh relay's forward) keeps the queue.
+    pub inbox: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -392,6 +431,11 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    /// Projection-only message repairs in flight, keyed by destination and delivery id. These
+    /// retries never resend a prompt and are bounded in `message_events.rs`.
+    pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
+    #[cfg(test)]
+    pub(super) message_projection_failures: StdMutex<std::collections::HashSet<String>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     /// Inline `/btw` side sessions being created, by their request-unique name: the family and
@@ -434,6 +478,7 @@ pub struct Hub {
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
+    pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
     /// Models each agent has advertised, keyed by agent profile name. Filled
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
@@ -661,6 +706,9 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            message_repairs: StdMutex::new(std::collections::HashSet::new()),
+            #[cfg(test)]
+            message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
@@ -680,6 +728,7 @@ impl Hub {
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
+            peer_notices_stop: tokio::sync::watch::channel(false).0,
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
@@ -825,6 +874,11 @@ impl Hub {
         *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
+    /// How many outbox deliveries are not settled yet (`outbox.rs`).
+    pub fn outbox_unsettled(&self) -> usize {
+        self.outbox.unsettled()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
     }
@@ -919,11 +973,10 @@ impl Hub {
         if let Some(link) = &meta.subsession {
             self.subsessions.note_name(&link.started_by, &link.short_name);
         }
-        // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
-        if let Some(link) =
-            meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
-        {
-            self.subsessions.set_open(&link.started_by, &meta.id, true);
+        // A live sub-session holds a slot of its parent (`subsessions.rs`). Idle-finished,
+        // disconnected and closed children are retained in the store but do not use a slot.
+        if let Some(link) = meta.subsession.as_ref() {
+            self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
@@ -1022,6 +1075,9 @@ impl Hub {
         let steering = meta.steering;
         // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
+        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
+        // policy change refuses it as while it moved (`queue::moving_error`).
+        let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1031,6 +1087,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            message_ids: StdMutex::new(None),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
@@ -1043,8 +1100,9 @@ impl Hub {
             queue: StdMutex::new(Vec::new()),
             team_information: Default::default(),
             queue_moved: Notify::new(),
-            moving: StdMutex::new(None),
+            moving: StdMutex::new(moving),
             restored: StdMutex::new(Vec::new()),
+            inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
@@ -1074,6 +1132,14 @@ impl Hub {
             cancels: AtomicU64::new(0),
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
+            stopping: StdMutex::new(None),
+            stop_restart: StdMutex::new(None),
+            stopped_agent: AtomicU64::new(0),
+            stop_respawn: AtomicU64::new(0),
+            taps: AtomicU64::new(0),
+            muted_taps: AtomicU64::new(0),
+            stop_hold: AtomicU64::new(0),
+            turn_hold: AtomicU64::new(0),
             compacting: AtomicBool::new(false),
             compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
@@ -1092,6 +1158,8 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_cap_timer: StdMutex::new(None),
+            inbox: StdMutex::new(inbox::Inbox::default()),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
@@ -1165,6 +1233,128 @@ impl Hub {
         self.append_with_host_seq(session, dir, kind, msg, None)
     }
 
+    /// Persist one session-to-session message projection. The journal containing the copy is
+    /// named by `session`; the payload keeps that id too so clients can route a replayed event.
+    #[cfg(test)]
+    pub(super) fn append_message_event(
+        &self,
+        session: &Session,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+    ) -> bool {
+        self.append_message_event_scoped(session, sender, text, message_id, at, None, None)
+    }
+
+    /// `target_scope` names the receiving chat of a sender's copy, and `target_peer` the peer
+    /// that holds it: a peer's chat may keep the raw id of one here (an export and import keeps
+    /// ids), and a message to each is its own copy.
+    #[allow(clippy::too_many_arguments)] // One copy's fields, each its own value.
+    pub(super) fn append_message_event_scoped(
+        &self,
+        session: &Session,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+        target_scope: Option<&str>,
+        target_peer: Option<&str>,
+    ) -> bool {
+        #[cfg(test)]
+        if self
+            .message_projection_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&session.id)
+        {
+            return false;
+        }
+        let mut msg = json!({
+            "sessionId": session.id.clone(),
+            "sender": sender,
+            "text": text,
+            "at": at,
+            "messageId": message_id,
+        });
+        if let Some(target) = target_scope {
+            msg["_acpmuxTarget"] = json!(target);
+            if let Some(peer) = target_peer {
+                msg["_acpmuxTargetPeer"] = json!(peer);
+            }
+        }
+        tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.catch_up_locked(session);
+        // A forwarded delivery can be accepted more than once while a caller retries
+        // the same id.  Keep one projection per delivery id in the durable journal,
+        // including after a daemon restart. Load the id index once, not once per
+        // message or recovered record. The append lock serializes check and append.
+        let mut index = session.message_ids.lock().unwrap_or_else(|e| e.into_inner());
+        if index.is_none() {
+            let mut ids = std::collections::HashSet::new();
+            if let Err(error) =
+                self.store.scan_kinds(&session.id, &["_acpmux/message"], &mut |record| {
+                    if let Some(id) = record.msg.get("messageId").and_then(Value::as_str) {
+                        let target = record.msg.get("_acpmuxTarget").and_then(Value::as_str);
+                        let peer = record.msg.get("_acpmuxTargetPeer").and_then(Value::as_str);
+                        ids.insert(message_key(id, target, peer));
+                    }
+                    true
+                })
+            {
+                tracing::warn!(session = %session.id, %error, "cannot read message projection ids");
+                return false;
+            }
+            *index = Some(ids);
+        }
+        let Some(ids) = index.as_mut() else { return false };
+        let key = message_key(&message_id, target_scope, target_peer);
+        if ids.contains(&key) {
+            return true;
+        }
+        // The payload retains the acceptance time; the journal records when this
+        // copy was appended, so recovering an old message cannot regress activity.
+        // Published only once stored: a failed copy is repaired later (`message_events.rs`),
+        // and that repair's copy is the one clients and peers hear.
+        if self.append_at_locked(session, "mux", "_acpmux/message", msg, None, None, true).1 {
+            ids.insert(key);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Record the sender-side copy when a prompt is accepted by peer `target_peer`'s chat
+    /// `target_session`.
+    #[allow(clippy::too_many_arguments)] // One copy's fields, each its own value.
+    pub(super) fn append_sender_message_event(
+        &self,
+        sender_session: &str,
+        sender: Value,
+        text: String,
+        message_id: String,
+        at: u64,
+        target_peer: &str,
+        target_session: &str,
+    ) -> bool {
+        if let Ok(session) = self.resolve(sender_session)
+            && session.id == sender_session
+        {
+            self.append_message_event_scoped(
+                &session,
+                sender,
+                text,
+                message_id,
+                at,
+                Some(target_session),
+                Some(target_peer),
+            )
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn append_stored(
         &self,
         session: &Session,
@@ -1216,6 +1406,22 @@ impl Hub {
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
+        self.append_at_locked(session, dir, kind, msg, host_seq, at, false)
+    }
+
+    /// `stored_only`: a record the store refused is neither counted nor published (its caller
+    /// appends it again), so no client or peer hears a copy the journal does not hold.
+    #[allow(clippy::too_many_arguments)]
+    fn append_at_locked(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+        stored_only: bool,
+    ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         // Record a harmless mux receipt instead of ambiguous completion metadata.
@@ -1256,6 +1462,9 @@ impl Hub {
         if session.status() == SessionStatus::Closed {
             self.store.close_log(&session.id);
         }
+        if stored_only && !stored {
+            return (record, false);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;
@@ -1277,6 +1486,8 @@ impl Hub {
                 | "turn_result"
                 | "turn_end"
                 | "turn_error"
+                | "stopping"
+                | "unstuck"
                 | work_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
@@ -1547,11 +1758,7 @@ impl Hub {
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).
             if let Some(link) = &m.subsession {
-                self.subsessions.set_open(
-                    &link.started_by,
-                    &session.id,
-                    status != SessionStatus::Closed,
-                );
+                self.subsessions.note_status(&link.started_by, &session.id, status);
             }
             (was, m.subsession.clone())
         };
