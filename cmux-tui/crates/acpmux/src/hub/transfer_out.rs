@@ -3,11 +3,12 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket}}`: the chat stops
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?}}`: the chat stops
 //!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
 //!    `interrupt`), and its bundle (`transfer.rs` export) is made. Answers `{schema, transferId,
 //!    sessionId, files: [{path, size}], session}`: the manifest the target takes. `to` names the
-//!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`).
+//!    target's local socket, which the source asks if the client goes away (`transfer_watch.rs`);
+//!    with `ssh`, that socket is on that ssh host, reached through a forward (`ssh_forward.rs`).
 //! 2. source `_acpmux/transfer_read {transferId, path, offset, limit?}` pages a file: `{data`
 //!    (base64)`, next, eof}`.
 //! 3. target `_acpmux/transfer_receive {manifest}`, `transfer_write`, `transfer_finish`.
@@ -123,8 +124,20 @@ impl Hub {
             "begin" => {
                 let session = self.resolve(text("sessionId"))?;
                 let interrupt = params.get("interrupt").and_then(Value::as_bool) == Some(true);
-                let to = params.get("to").and_then(|to| to.get("socket")).and_then(Value::as_str);
-                self.transfer_begin(&session, interrupt, to).await
+                let to = params.get("to");
+                let socket = to.and_then(|to| to.get("socket")).and_then(Value::as_str);
+                let ssh = to.and_then(|to| to.get("ssh")).and_then(Value::as_str);
+                if let Some(host) = ssh
+                    && (crate::cli::hosts::checked_host(host).is_err()
+                        || !socket.is_some_and(|s| {
+                            s.starts_with('/') && crate::cli::hosts::plain_path(s)
+                        }))
+                {
+                    return Err(RpcError::invalid_params(
+                        "transfer: `to.ssh` needs a plain ssh host and an absolute `to.socket`",
+                    ));
+                }
+                self.transfer_begin(&session, interrupt, socket, ssh).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -154,6 +167,7 @@ impl Hub {
         session: &Arc<Session>,
         interrupt: bool,
         to: Option<&str>,
+        to_ssh: Option<&str>,
     ) -> Result<Value, RpcError> {
         // A stopped chat moves (its bundle is its whole history); one that moved away never
         // does again.
@@ -204,6 +218,9 @@ impl Hub {
         };
         if let Some(socket) = to {
             let _ = std::fs::write(dir.join("to"), socket);
+        }
+        if let Some(host) = to_ssh {
+            let _ = std::fs::write(dir.join("to-ssh"), host);
         }
         super::transfer_watch::note_activity(&dir, None);
         self.watch_transfer(session, &transfer_id);
@@ -320,6 +337,9 @@ impl Hub {
             meta.bookmarks.clear();
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
+        // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
+        // mark must outlive a restart or the source could reopen and run it.
+        self.save_meta(session);
         self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
         self.kill(session, false).await?;
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));

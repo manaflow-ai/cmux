@@ -7,23 +7,31 @@
 //! 1. Refused while its turn runs (unless `--interrupt`), while it is being moved, once it moved
 //!    away, or when its folder is gone here (`session_move_plan.rs` `refusal`).
 //! 2. The target: the peer named, or with `auto` the daemon's placement (`_acpmux/place`) among
-//!    the peers, never this machine. A host reserved for someone (`reservations` in
-//!    fleet-registry.json, or an `acpmux host hold`) is never a target. Chats in one checkout go
-//!    to one host.
-//! 3. The folder (`plan_folder`): a checkout's branch is pushed to `origin` (never forced) and
-//!    becomes a worktree of that branch on the target (`wt new` there when it has `wt`, else a
-//!    clone under `~/Projects/checkouts`); any other folder under the home is made at the same
-//!    path under the target's home.
-//! 4. The move itself is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with the
-//!    target daemon's own local socket reached through an `ssh -L` forward: the chat is frozen
-//!    here, its bundle paged across, imported there in its new folder, then committed here. The
+//!    the peers, never this machine. A host the fleet registry holds (its `hold`, or a
+//!    `reservations` entry: `placement::held`) is never a target. Chats in one checkout go to
+//!    one host.
+//! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
+//!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
+//! 4. The folder (`plan_folder`, planned again now that the chat is frozen): a checkout's branch
+//!    is pushed to `origin` (never forced) and becomes a fresh worktree of that branch on the
+//!    target (`wt new` there when it has `wt`, else a fresh clone of its own under
+//!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
+//!    home is made at the same path under the target's home; `--cwd` names it outright.
+//! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
+//!    the target daemon's own local socket reached through an `ssh -L` forward
+//!    (`ssh_forward.rs`): the bundle is paged across, imported there in its new folder, then
+//!    committed here. The source's watch knows the target by its ssh host and socket, so a move
+//!    whose client goes away is still ended by asking the target. The
 //!    commit records where it went (`movedTo {host, sessionId, cwd, branch, commit}`), and a
 //!    moved chat never runs here again (`hub/lifecycle.rs`), so there is one writer. `resolve`
 //!    and agent links follow it (`hub/locate.rs`).
 
 use super::*;
-use anyhow::{Context as _, bail};
 use crate::cli::session_move_plan::{self as plan, Checkout, Folder};
+use crate::ssh_forward::Forward;
+#[cfg(test)]
+use crate::ssh_forward::forward_argv;
+use anyhow::{Context as _, bail};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
@@ -34,6 +42,7 @@ pub(crate) struct MoveArgs {
     pub all_idle: bool,
     pub interrupt: bool,
     pub leave_dirty: bool,
+    pub cwd: Option<String>,
     pub dry_run: bool,
 }
 
@@ -158,10 +167,18 @@ async fn move_steps(
     let target = targets.pick(src, &group).await?;
     o.host = Some(target.name.clone());
     let remote = target.remote().await?;
-    let folder = plan::plan_folder(&cwd, &home, checkout.as_ref(), &remote.home, args.leave_dirty)
-        .map_err(|e| anyhow!(e))?;
+    let target_cwd = args.cwd.as_deref();
+    let planned = plan::plan_folder(
+        &cwd,
+        &home,
+        checkout.as_ref(),
+        &remote.home,
+        args.leave_dirty,
+        target_cwd,
+    )
+    .map_err(|e| anyhow!(e))?;
     if args.dry_run {
-        o.cwd = Some(match &folder {
+        o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, .. } => {
                 format!("a worktree of {repo} {branch}{}", sub_text(subdir))
@@ -169,6 +186,54 @@ async fn move_steps(
         });
         return Ok(());
     }
+    // Frozen from here: no prompt, turn or agent write changes the chat while its folder is
+    // made, and every failure below gives it back.
+    let watch = json!({"socket": remote.socket, "ssh": target.ssh});
+    let begun = super::transfer::begin_move(src, &id, Some(watch), args.interrupt).await?;
+    let prepared = prepare(&cwd, &home, &target, &remote, args, o).await;
+    let (record, forward, dst) = match prepared {
+        Ok(p) => p,
+        Err(e) => {
+            super::transfer::abort_move(src, &id, &begun).await;
+            return Err(e);
+        }
+    };
+    let there = record["cwd"].as_str().map(str::to_owned);
+    let moved = super::transfer::finish_move(src, &dst, &id, &begun, there, None, record).await?;
+    drop(forward);
+    targets.placed(&target.name);
+    o.moved = true;
+    if let Some(name) = moved["name"].as_str() {
+        o.name = name.to_owned();
+    }
+    Ok(())
+}
+
+/// The frozen chat's folder made on the target, and a client of the target's daemon: the
+/// checkout read again (it may have changed before the freeze), its branch pushed, the folder
+/// made there. Returns the move's record (`movedTo`), the forward, and the client.
+async fn prepare(
+    cwd: &Path,
+    home: &Path,
+    target: &Target,
+    remote: &RemoteDaemon,
+    args: &MoveArgs,
+    o: &mut Outcome,
+) -> Result<(Value, Forward, Client)> {
+    let checkout = tokio::task::spawn_blocking({
+        let cwd = cwd.to_path_buf();
+        move || checkout_of(&cwd)
+    })
+    .await??;
+    let folder = plan::plan_folder(
+        cwd,
+        home,
+        checkout.as_ref(),
+        &remote.home,
+        args.leave_dirty,
+        args.cwd.as_deref(),
+    )
+    .map_err(|e| anyhow!(e))?;
     let mut record = json!({"host": target.name});
     if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
         let commit = tokio::task::spawn_blocking({
@@ -196,16 +261,7 @@ async fn move_steps(
         json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
     )
     .await?;
-    let moved =
-        super::transfer::move_chat(src, &dst, &id, None, Some(there), None, args.interrupt, record)
-            .await?;
-    drop(forward);
-    targets.placed(&target.name);
-    o.moved = true;
-    if let Some(name) = moved["name"].as_str() {
-        o.name = name.to_owned();
-    }
-    Ok(())
+    Ok((record, forward, dst))
 }
 
 fn sub_text(subdir: &str) -> String {
@@ -272,7 +328,8 @@ const ABOUT_SCRIPT: &str = r#"PATH="$HOME/.local/bin:$PATH"; printf '%s\n' "$HOM
 fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
     let mut lines = stdout.lines();
     let home = lines.next().unwrap_or_default().trim().to_owned();
-    let status: Value = serde_json::from_str(lines.next().unwrap_or_default()).unwrap_or(Value::Null);
+    let status: Value =
+        serde_json::from_str(lines.next().unwrap_or_default()).unwrap_or(Value::Null);
     // The daemon says where it listens: a socket path is never guessed (per-build state roots).
     let socket = status["socket"].as_str().unwrap_or_default().to_owned();
     let plain = |p: &str| p.starts_with('/') && crate::cli::hosts::plain_path(p);
@@ -294,12 +351,15 @@ if command -v wt >/dev/null 2>&1; then
   out=$(wt new "$repo" "$branch") || exit 1
   dir=$(printf '%s\n' "$out" | tail -n 1)
 else
-  dir="$HOME/Projects/checkouts/${repo#*/}/$(printf '%s' "$branch" | tr / -)"
-  if [ -e "$dir/.git" ]; then
-    git -C "$dir" fetch -q origin "$branch" && git -C "$dir" checkout -q "$branch" && git -C "$dir" merge -q --ff-only FETCH_HEAD || exit 1
-  else
-    mkdir -p -- "$(dirname -- "$dir")" && git clone -q --branch "$branch" -- "$url" "$dir" || exit 1
-  fi
+  # A fresh clone of its own, never one another chat or lane may be writing in.
+  base="$HOME/Projects/checkouts/$(printf '%s' "$repo" | tr / -)"
+  mkdir -p -- "$base" || exit 1
+  dir=$(mktemp -d "$base/$(printf '%s' "$branch" | tr / -).XXXXXX") || exit 1
+  git clone -q --branch "$branch" -- "$url" "$dir" || exit 1
+fi
+# A sparse checkout may leave the chat's subfolder out: check it out too.
+if [ -n "$sub" ] && [ ! -d "$dir/$sub" ]; then
+  git -C "$dir" sparse-checkout add -- "$sub" >/dev/null 2>&1 || true
 fi
 cd -- "$dir/$sub" && pwd -P"#;
 
@@ -325,85 +385,6 @@ fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
         bail!("{host} answered no plain folder path for the chat");
     }
     Ok(path)
-}
-
-/// An `ssh -L` forward of a target daemon's local socket to a private socket here, so the
-/// move talks to that daemon as its own local client does. Ends (ssh killed) when dropped.
-struct Forward {
-    local: PathBuf,
-    dir: PathBuf,
-    _ssh: tokio::process::Child,
-}
-
-impl Forward {
-    async fn open(host: &str, remote_socket: &str) -> Result<Self> {
-        let host = crate::cli::hosts::checked_host(host)?;
-        // A short private folder: a Unix socket path has about 100 bytes, and TMPDIR is long.
-        let dir = PathBuf::from(format!(
-            "/tmp/acpmux-move-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7().simple()
-        ));
-        std::fs::create_dir(&dir)?;
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
-        }
-        let local = dir.join("d.sock");
-        let mut ssh = tokio::process::Command::new("ssh")
-            .args(forward_argv(host, &local, remote_socket))
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .context("spawn ssh")?;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
-        while !local.exists() {
-            if let Some(status) = ssh.try_wait()? {
-                let _ = std::fs::remove_dir_all(&dir);
-                bail!("ssh to {host} ended ({status}) before forwarding the daemon's socket");
-            }
-            if tokio::time::Instant::now() > deadline {
-                let _ = std::fs::remove_dir_all(&dir);
-                bail!("ssh to {host} did not forward the daemon's socket within 30s");
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        Ok(Self { local, dir, _ssh: ssh })
-    }
-}
-
-impl Drop for Forward {
-    fn drop(&mut self) {
-        let _ = self._ssh.start_kill();
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-/// `ssh -N -L LOCAL:REMOTE -- HOST`, failing at once when the forward cannot be made.
-pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String> {
-    let mut argv: Vec<String> = [
-        "-N",
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ExitOnForwardFailure=yes",
-        "-o",
-        "StreamLocalBindUnlink=yes",
-        "-o",
-        "ServerAliveInterval=15",
-        "-o",
-        "ConnectTimeout=20",
-        "-L",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    argv.push(format!("{}:{remote}", local.display()));
-    argv.push("--".into());
-    argv.push(host.to_owned());
-    argv
 }
 
 /// A chosen target: its peer name and ssh destination.
@@ -474,17 +455,10 @@ impl Targets {
         }
         let verdict = src.request("_acpmux/place", json!({"work": "agent"})).await?;
         let hosts = verdict["hosts"].as_array().cloned().unwrap_or_default();
-        let held = |name: &str| -> Option<String> {
-            let row = hosts.iter().find(|h| h["name"].as_str() == Some(name));
-            if let Some(why) = row.and_then(|h| h["reserved"].as_str()) {
-                return Some(why.to_owned());
-            }
-            let holds = crate::cli::hosts::host_hold::Holds::read(&crate::cli::hosts::host_hold::holds_path());
-            match holds {
-                Ok(h) => h.why(name, name, crate::cli::hosts::host_hold::now_ms()),
-                Err(e) => Some(format!("its holds cannot be read ({e:#})")),
-            }
-        };
+        // The registry's one reader of holds and reservations (`placement::held`); placement
+        // already refuses such a host, and a named one is checked the same way.
+        let registry = crate::placement::load_registry();
+        let held = |name: &str| crate::placement::held(registry.as_ref(), name);
         let target = match &self.named {
             Some(n) => {
                 let t = self.target(n).ok_or_else(|| anyhow!("{n} is not an ssh peer"))?;
@@ -494,10 +468,11 @@ impl Targets {
                 t
             }
             None => {
-                let pick = choose(&hosts, &self.placed, |n| {
-                    self.target(n).is_some() && held(n).is_none()
-                })
-                .ok_or_else(|| anyhow!("no peer has room for a moved chat (`acpmux host place`)"))?;
+                let pick =
+                    choose(&hosts, &self.placed, |n| self.target(n).is_some() && held(n).is_none())
+                        .ok_or_else(|| {
+                            anyhow!("no peer has room for a moved chat (`acpmux host place`)")
+                        })?;
                 self.target(&pick).ok_or_else(|| anyhow!("{pick} is not an ssh peer"))?
             }
         };

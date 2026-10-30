@@ -14,7 +14,7 @@ fn checkout(top: &str, branch: Option<&str>, dirty: bool) -> Checkout {
 fn a_worktree_becomes_a_worktree_of_the_same_branch_with_its_subfolder() {
     let c = checkout("/Users/me/Projects/checkouts/cmux/fix", Some("me/fix"), false);
     let cwd = Path::new("/Users/me/Projects/checkouts/cmux/fix/cmux-tui");
-    let f = plan_folder(cwd, Path::new("/Users/me"), Some(&c), "/home/cmux", false).unwrap();
+    let f = plan_folder(cwd, Path::new("/Users/me"), Some(&c), "/home/cmux", false, None).unwrap();
     assert_eq!(
         f,
         Folder::Worktree {
@@ -26,7 +26,7 @@ fn a_worktree_becomes_a_worktree_of_the_same_branch_with_its_subfolder() {
         }
     );
     let top = Path::new("/Users/me/Projects/checkouts/cmux/fix");
-    let f = plan_folder(top, Path::new("/Users/me"), Some(&c), "/home/cmux", false).unwrap();
+    let f = plan_folder(top, Path::new("/Users/me"), Some(&c), "/home/cmux", false, None).unwrap();
     assert!(matches!(f, Folder::Worktree { ref subdir, .. } if subdir.is_empty()), "{f:?}");
 }
 
@@ -38,7 +38,7 @@ fn a_plain_folder_under_home_maps_to_the_same_path_under_the_targets_home() {
         ("/Users/me/Projects/scratch/notes", "/home/cmux/Projects/scratch/notes"),
         ("/Users/me", "/home/cmux"),
     ] {
-        let f = plan_folder(Path::new(cwd), home, None, "/home/cmux/", false).unwrap();
+        let f = plan_folder(Path::new(cwd), home, None, "/home/cmux/", false, None).unwrap();
         assert_eq!(f, Folder::Plain { cwd: want.into() }, "{cwd}");
     }
 }
@@ -46,11 +46,14 @@ fn a_plain_folder_under_home_maps_to_the_same_path_under_the_targets_home() {
 #[test]
 fn a_folder_outside_home_or_a_relative_target_home_is_refused() {
     let home = Path::new("/Users/me");
-    let e = plan_folder(Path::new("/tmp/review"), home, None, "/home/cmux", false).unwrap_err();
+    let e =
+        plan_folder(Path::new("/tmp/review"), home, None, "/home/cmux", false, None).unwrap_err();
     assert!(e.contains("outside this machine's home"), "{e}");
-    let e = plan_folder(Path::new("/Users/me/../x"), home, None, "/home/cmux", false).unwrap_err();
+    let e = plan_folder(Path::new("/Users/me/../x"), home, None, "/home/cmux", false, None)
+        .unwrap_err();
     assert!(e.contains("outside"), "{e}");
-    let e = plan_folder(Path::new("/Users/me/x"), home, None, "home/cmux", false).unwrap_err();
+    let e =
+        plan_folder(Path::new("/Users/me/x"), home, None, "home/cmux", false, None).unwrap_err();
     assert!(e.contains("not an absolute path"), "{e}");
 }
 
@@ -58,18 +61,22 @@ fn a_folder_outside_home_or_a_relative_target_home_is_refused() {
 fn a_detached_dirty_or_originless_checkout_is_refused() {
     let home = Path::new("/Users/me");
     let cwd = Path::new("/Users/me/w");
-    let e = plan_folder(cwd, home, Some(&checkout("/Users/me/w", None, false)), "/h", false);
+    let e = plan_folder(cwd, home, Some(&checkout("/Users/me/w", None, false)), "/h", false, None);
     assert!(e.unwrap_err().contains("detached HEAD"));
     let dirty = checkout("/Users/me/w", Some("b"), true);
-    let e = plan_folder(cwd, home, Some(&dirty), "/h", false).unwrap_err();
+    let e = plan_folder(cwd, home, Some(&dirty), "/h", false, None).unwrap_err();
     assert!(e.contains("uncommitted changes") && e.contains("--leave-dirty"), "{e}");
-    let f = plan_folder(cwd, home, Some(&dirty), "/h", true).unwrap();
+    let f = plan_folder(cwd, home, Some(&dirty), "/h", true, None).unwrap();
     assert!(matches!(f, Folder::Worktree { dirty: true, .. }), "--leave-dirty moves it: {f:?}");
     let mut none = checkout("/Users/me/w", Some("b"), false);
     none.origin = None;
-    assert!(plan_folder(cwd, home, Some(&none), "/h", false).unwrap_err().contains("no origin"));
+    assert!(
+        plan_folder(cwd, home, Some(&none), "/h", false, None).unwrap_err().contains("no origin")
+    );
     let bad = checkout("/Users/me/w", Some("-oProxyCommand=x"), false);
-    assert!(plan_folder(cwd, home, Some(&bad), "/h", false).unwrap_err().contains("plain branch"));
+    assert!(
+        plan_folder(cwd, home, Some(&bad), "/h", false, None).unwrap_err().contains("plain branch")
+    );
 }
 
 #[test]
@@ -99,4 +106,20 @@ fn a_running_turn_needs_interrupt_and_a_moving_or_moved_chat_never_moves() {
     let moved = json!({"status": "closed", "movedTo": {"host": "gcp-1", "sessionId": "s"}});
     let why = refusal(&moved, true).unwrap();
     assert!(why.contains("moved away already") && why.contains("gcp-1/s"), "{why}");
+}
+
+#[test]
+fn cwd_names_the_targets_folder_outright_for_any_chat() {
+    let home = Path::new("/Users/me");
+    // A folder outside the home moves with --cwd, as it is there.
+    let f = plan_folder(Path::new("/tmp/review"), home, None, "/home/cmux", false, Some("/srv/x"));
+    assert_eq!(f.unwrap(), Folder::Plain { cwd: "/srv/x".into() });
+    // A checkout's chat too: no worktree is made, so no branch need be pushed or be clean.
+    let dirty = checkout("/Users/me/w", None, true);
+    let f = plan_folder(Path::new("/Users/me/w"), home, Some(&dirty), "/h", false, Some("/srv/w"));
+    assert_eq!(f.unwrap(), Folder::Plain { cwd: "/srv/w".into() });
+    for bad in ["srv/x", "/srv/../x", "/srv/x\n"] {
+        let e = plan_folder(Path::new("/tmp/r"), home, None, "/h", false, Some(bad)).unwrap_err();
+        assert!(e.contains("--cwd"), "{bad:?}: {e}");
+    }
 }

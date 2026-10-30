@@ -45,9 +45,15 @@ fn the_forward_is_a_unix_socket_forward_that_fails_at_once_and_ends_options_befo
 #[test]
 fn the_targets_answer_is_taken_only_as_plain_absolute_paths() {
     let ok = parse_about("/home/cmux\n{\"socket\":\"/home/cmux/.acpmux/acpmux.sock\"}\n").unwrap();
-    assert_eq!((ok.home.as_str(), ok.socket.as_str()), ("/home/cmux", "/home/cmux/.acpmux/acpmux.sock"));
+    assert_eq!(
+        (ok.home.as_str(), ok.socket.as_str()),
+        ("/home/cmux", "/home/cmux/.acpmux/acpmux.sock")
+    );
     assert!(parse_about("/home/cmux\n\n").is_err(), "no status: no socket is guessed");
-    assert!(parse_about("/home/cmux\n{\"socket\":\"/tmp/a:b\"}\n").is_err(), "a colon would split -L");
+    assert!(
+        parse_about("/home/cmux\n{\"socket\":\"/tmp/a:b\"}\n").is_err(),
+        "a colon would split -L"
+    );
     assert!(parse_about("home\n{}\n").is_err());
     assert!(parse_about("/home/x y\n{}\n").is_err());
 }

@@ -119,6 +119,7 @@ pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
 pub mod sha256;
+pub(crate) mod ssh_forward;
 pub mod sr2_cost_labels;
 pub mod stats;
 pub mod store;

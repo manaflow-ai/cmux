@@ -7,12 +7,14 @@
 //! - It was: the target named at begin (`to: {socket}`) is asked with
 //!   `_acpmux/transfer_forget {transferId, sessionId}`, which drops any receive of the move
 //!   there and refuses any later one (a late `transfer_receive` or `transfer_finish` fails), and
-//!   says whether the chat landed. It landed: the
+//!   says whether the chat landed (a target on another machine, `to-ssh`, through an ssh
+//!   forward of its socket). It landed: the
 //!   move commits. It did not: the move aborts. A target that cannot answer, or a move with no
 //!   target named, keeps the chat frozen, and the source asks again after another lease.
 //!
 //! Its state is in the move's directory, so a daemon that restarts mid-move watches it again:
-//! `alive` (touched by begin and each read), `read` (each file read to its end) and `to`.
+//! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
+//! `to-ssh`.
 
 use super::transfer_out::{bundle_files, transfers_dir};
 use super::*;
@@ -114,7 +116,8 @@ impl Hub {
             let Ok(inner) = std::fs::read_dir(entry.path()) else { continue };
             for chat in inner.flatten().filter(|e| e.path().is_dir()) {
                 let id = chat.file_name().to_string_lossy().into_owned();
-                let Some(session) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned()
+                let Some(session) =
+                    self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned()
                 else {
                     continue;
                 };
@@ -194,9 +197,22 @@ impl Hub {
                 return true;
             }
         }
-        let landed = match std::fs::read_to_string(dir.join("to")) {
-            Ok(socket) => ask_target(Path::new(socket.trim()), &session.id, transfer_id).await,
-            Err(_) => None,
+        let ssh = std::fs::read_to_string(dir.join("to-ssh")).ok();
+        let landed = match (std::fs::read_to_string(dir.join("to")), ssh) {
+            (Ok(socket), None) => {
+                ask_target(Path::new(socket.trim()), &session.id, transfer_id).await
+            }
+            // On another machine: asked through a forward of its socket, closed after.
+            (Ok(socket), Some(host)) => {
+                match crate::ssh_forward::Forward::open(host.trim(), socket.trim()).await {
+                    Ok(fwd) => ask_target(&fwd.local, &session.id, transfer_id).await,
+                    Err(e) => {
+                        tracing::warn!(session = %session.id, transfer_id, "reaching a stalled move's target: {e:#}");
+                        None
+                    }
+                }
+            }
+            (Err(_), _) => None,
         };
         let ended = match landed {
             Some(true) => {

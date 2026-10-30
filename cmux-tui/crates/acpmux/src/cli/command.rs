@@ -506,6 +506,7 @@ pub enum Command {
         all_idle: bool,
         interrupt: bool,
         leave_dirty: bool,
+        cwd: Option<String>,
         dry_run: bool,
     },
     #[command(hide = true)]
@@ -872,6 +873,10 @@ pub enum SessionCmd {
         /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
         #[arg(long)]
         leave_dirty: bool,
+        /// Run the moved chats in this folder on the peer, as it is there: no worktree is made
+        /// and no branch pushed. For a folder outside this machine's home.
+        #[arg(long, value_name = "PATH")]
+        cwd: Option<String>,
         /// Say where each chat would go and change nothing.
         #[arg(long)]
         dry_run: bool,
@@ -1221,8 +1226,16 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
             }
-            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, dry_run } => {
-                Command::MoveSessions { sessions, host, all_idle, interrupt, leave_dirty, dry_run }
+            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, cwd, dry_run } => {
+                Command::MoveSessions {
+                    sessions,
+                    host,
+                    all_idle,
+                    interrupt,
+                    leave_dirty,
+                    cwd,
+                    dry_run,
+                }
             }
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }

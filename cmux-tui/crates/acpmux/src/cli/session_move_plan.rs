@@ -12,6 +12,8 @@
 //! - Any other folder under this machine's home maps to the same path under the target's home
 //!   (`~/Projects/x` stays `~/Projects/x`), made there if missing (`Folder::Plain`). Its files do
 //!   not move. A folder outside the home is refused: pass `--cwd`.
+//! - `--cwd PATH` (`target_cwd`) runs the chats in PATH on the target as it is there, for any
+//!   folder: no worktree is made and no branch pushed.
 
 use serde_json::Value;
 use std::path::{Component, Path, PathBuf};
@@ -110,22 +112,37 @@ fn under(path: &Path, base: &Path) -> Option<PathBuf> {
 }
 
 /// Where the folder `cwd` of a chat on this machine (home `home`) goes on a target whose home
-/// is `target_home`; `checkout` is its git checkout, if it is in one.
+/// is `target_home`; `checkout` is its git checkout, if it is in one. `target_cwd` (`--cwd`)
+/// names the folder there outright.
 pub(crate) fn plan_folder(
     cwd: &Path,
     home: &Path,
     checkout: Option<&Checkout>,
     target_home: &str,
     leave_dirty: bool,
+    target_cwd: Option<&str>,
 ) -> Result<Folder, String> {
+    if let Some(there) = target_cwd {
+        let plain = there.starts_with('/')
+            && super::hosts::plain_path(there)
+            && !there.split('/').any(|c| c == "..");
+        if !plain {
+            return Err(format!("--cwd {there:?} is not a plain absolute path"));
+        }
+        return Ok(Folder::Plain { cwd: there.to_owned() });
+    }
     if !target_home.starts_with('/') {
         return Err(format!("the target's home {target_home:?} is not an absolute path"));
     }
     if let Some(c) = checkout {
-        let subdir = under(cwd, &c.top)
-            .ok_or_else(|| format!("{} is not inside its checkout {}", cwd.display(), c.top.display()))?;
+        let subdir = under(cwd, &c.top).ok_or_else(|| {
+            format!("{} is not inside its checkout {}", cwd.display(), c.top.display())
+        })?;
         let Some(branch) = c.branch.as_deref() else {
-            return Err(format!("{} is on a detached HEAD: check out a branch first", c.top.display()));
+            return Err(format!(
+                "{} is on a detached HEAD: check out a branch first",
+                c.top.display()
+            ));
         };
         if !plain_branch(branch) {
             return Err(format!("branch {branch:?} is not a plain branch name"));
@@ -156,7 +173,13 @@ pub(crate) fn plan_folder(
     let rel = under(cwd, home).ok_or_else(|| {
         format!("{} is outside this machine's home: pass --cwd for the target", cwd.display())
     })?;
-    let target = Path::new(target_home.trim_end_matches('/')).join(rel);
+    let base = match target_home.trim_end_matches('/') {
+        "" => "/",
+        base => base,
+    };
+    // The home itself is the target's home, with no trailing `/`.
+    let target =
+        if rel.as_os_str().is_empty() { PathBuf::from(base) } else { Path::new(base).join(rel) };
     let cwd = target.to_string_lossy().into_owned();
     if !super::hosts::plain_path(&cwd) {
         return Err(format!("{cwd:?} is not a plain path"));
