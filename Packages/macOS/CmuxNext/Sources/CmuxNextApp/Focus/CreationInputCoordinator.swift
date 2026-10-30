@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextFocusUI
 import CmuxNextTerminal
+import os
 
 /// Owns a window's keys from the moment a pane or terminal tab creation is handled (a split, New
 /// Terminal Tab) until the new terminal has the keyboard (cx-wb5.76). Without it, keys typed
@@ -38,11 +39,21 @@ final class CreationInputCoordinator {
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
 
-    /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
+    /// Why a window's creation hold ended (R-L5: its end is a signal). `focusLanded`: every creation of the hold replied
+    /// and the focus it asked for holds, with a responder that takes the keys. `limitReached`: the hold's 2 s bound ended
+    /// it first, so the keys typed for the new terminal went on up to that late; logged, as a person feels it.
+    /// `focusLeft`: a key went to a field outside the content (a sidebar or bar field), which ends any hold. `windowClosed`.
+    enum HoldEnd: Equatable, Sendable {
+        case focusLanded, limitReached, focusLeft, windowClosed
     }
+
+    /// How the last creation hold of each window ended, by window number (tests, `debug.focus`).
+    private(set) var lastHoldEnd: [Int: HoldEnd] = [:]
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
+
+    /// How `window`'s last creation hold ended; nil when it never held.
+    func lastHoldEnd(in window: NSWindow?) -> HoldEnd? { window.flatMap { lastHoldEnd[$0.windowNumber] } }
 
     init(router: KeyRouter) { self.router = router }
 
@@ -201,7 +212,7 @@ final class CreationInputCoordinator {
         buffers[number] = buffer
         buffer.expire(after: holdLimit) { [weak self, weak window] buffer in
             guard let self, buffers[number] === buffer else { return }
-            if let window { flush(in: window, force: true) } else { buffers[number] = nil }
+            if let window { flush(in: window, force: true, end: .limitReached) } else { buffers[number] = nil }
         }
         return buffer
     }
@@ -232,7 +243,7 @@ final class CreationInputCoordinator {
         let number = window.windowNumber
         buffer.expire(after: holdLimit) { [weak self, weak window] buffer in
             guard let self, buffers[number] === buffer else { return }
-            if let window { flush(in: window, force: true) } else { buffers[number] = nil }
+            if let window { flush(in: window, force: true, end: .limitReached) } else { buffers[number] = nil }
         }
     }
 
@@ -268,7 +279,7 @@ final class CreationInputCoordinator {
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
         guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
-            flush(in: shell, force: true)
+            flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
             next.capture(event)
             return true
@@ -407,7 +418,8 @@ final class CreationInputCoordinator {
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
     /// A pending creation whose early view got the keyboard takes the held keys now: the hold stays (later keys go
     /// straight to that view through ``capture(_:in:)``) until the creation resolves.
-    private func flush(in window: NSWindow, force: Bool = false) {
+    /// `end`: why a forced end happened; an unforced one is ``HoldEnd/focusLanded``.
+    private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: HoldEnd = .limitReached) {
         guard let buffer = buffers[window.windowNumber] else { return }
         if !force, !buffer.isResolved {
             if !buffer.isEmpty, let router, let controller = router.focus(for: window).0,
@@ -419,6 +431,7 @@ final class CreationInputCoordinator {
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
             buffers[window.windowNumber] = nil
+            lastHoldEnd[window.windowNumber] = .windowClosed
             return
         }
         // Reduced: a topology the window marked changed counts (the new workspace may show in this turn).
@@ -434,6 +447,12 @@ final class CreationInputCoordinator {
         // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
         let unshown = buffer.waitsForWorkspace(other: shown)
         let pending = buffer.take(shown: shown)
+        let end = force ? forcedEnd : .focusLanded
+        lastHoldEnd[window.windowNumber] = end
+        if end == .limitReached {
+            // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
+            Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
+        }
         // The window's focus applies again, so the responder matches the focus model. The person's claim on the keyboard
         // stays until their next intent, so a primary input (Home's message box) still does not take it.
         if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
