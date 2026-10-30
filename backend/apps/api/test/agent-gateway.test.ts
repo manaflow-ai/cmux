@@ -7,7 +7,7 @@ import { fireAlarm } from "./setup/alarm.ts"
 
 type Reply = { ok: boolean; op: string; value?: unknown; error?: { code: string; details?: { request?: string } }; replayed: boolean }
 type Gateway = { dispatchIssueComment(input: Input): Promise<Reply> }
-type Input = { authorization: string; user: string; team: string; connectionId: string; repo: string; issue: number; body: string; mcpSessionId: string; requestId: string; toolInvocationId: string }
+type Input = { authorization: string; team: string; connectionId: string; repo: string; issue: number; body: string; mcpSessionId: string; requestId: string; toolInvocationId: string }
 
 const e = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -63,7 +63,7 @@ const setup = async (label: string) => {
   const feed = e.FEED_DO.get(e.FEED_DO.idFromName(user))
   const items = async () => (await read(session, "feed.list")).json.value.items.filter((x: any) => x.kind === "approve" && x.poster.kind === "integration")
   const answer = (item: string, decision: "allow" | "deny") => op(session, "feed.answer", { item, answer: { decision, ...(decision === "allow" ? { scope: "once" } : {}) } })
-  const input = (overrides: Partial<Input> = {}): Input => ({ authorization: `Bearer ${session}`, user, team, connectionId, repo: "acme/web", issue: 7, body: "synthetic comment", mcpSessionId: "session-1", requestId: "request-1", toolInvocationId: "tool-1", ...overrides })
+  const input = (overrides: Partial<Input> = {}): Input => ({ authorization: `Bearer ${session}`, team, connectionId, repo: "acme/web", issue: 7, body: "synthetic comment", mcpSessionId: "session-1", requestId: "request-1", toolInvocationId: "tool-1", ...overrides })
   return { session, user, team, connectionId, connection, feed, calls, items, answer, input, setMode: (next: typeof mode) => { mode = next } }
 }
 
@@ -115,7 +115,7 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     await inDO(expire.connection, async (instance) => instance.ctx.storage.sql.exec("UPDATE integration_approvals SET expires_at = 1 WHERE request = ?", expired.error?.details?.request))
     expect((await gateway.dispatchIssueComment(expire.input({ requestId: "expire" }))).error?.code).toBe("approval.expired")
     const other = await setup("wrong")
-    expect((await gateway.dispatchIssueComment(other.input({ user: other.user, team: expire.team, connectionId: expire.connectionId, requestId: "wrong" }))).error?.code).toBe("auth.forbidden")
+    expect((await gateway.dispatchIssueComment({ ...other.input({ team: expire.team, connectionId: expire.connectionId, requestId: "wrong" }), authorization: `Bearer ${other.session}` })).error?.code).toBe("auth.forbidden")
     expect((await gateway.dispatchIssueComment(other.input({ team: "team_00000000000000000000", requestId: "wrong-team" }))).ok).toBe(false)
     const revoked = await setup("revoke")
     const revPending = await gateway.dispatchIssueComment(revoked.input({ requestId: "revoke" }))

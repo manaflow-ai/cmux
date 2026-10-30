@@ -10,7 +10,6 @@ import { selectTeam, type TeamPrincipal } from "./team-select.ts"
 export interface AgentIssueCommentRequest {
   /** The platform forwards the caller's bearer; this binding verifies it, never trusts body identity. */
   readonly authorization: string
-  readonly user: string
   readonly team: string
   readonly connectionId: string
   readonly repo: string
@@ -36,13 +35,13 @@ const refused = (code: string): ExternalReply => ({
 export class AgentGateway extends WorkerEntrypoint<Env> {
   async dispatchIssueComment(input: AgentIssueCommentRequest): Promise<ExternalReply> {
     if (!agentGatewayOn(this.env)) return refused("platform.agent_gateway_off")
-    if (!input || !matches(/^user_[0-9a-f]{20}$/, input.user) || !matches(/^team_[0-9a-f]{20}$/, input.team)) return refused("validation.invalid")
+    if (!input || !matches(/^team_[0-9a-f]{20}$/, input.team)) return refused("validation.invalid")
     if (![input.mcpSessionId, input.requestId, input.toolInvocationId].every((v) => matches(ID, v))) return refused("validation.invalid")
     const bearer = /^Bearer\s+([^\s]+)$/i.exec(input.authorization)?.[1]
     const authenticated = await authenticate(this.env, bearer)
-    if (!authenticated?.user || !authenticated.team || authenticated.user !== input.user || authenticated.team !== input.team) return refused("auth.forbidden")
+    if (!authenticated?.user || !authenticated.team || authenticated.team !== input.team) return refused("auth.forbidden")
     const selected = await selectTeam(this.env, authenticated as TeamPrincipal, input.team)
-    if (!selected.ok || selected.principal.user !== input.user || selected.principal.team !== input.team) return refused("auth.forbidden")
+    if (!selected.ok || selected.principal.team !== input.team) return refused("auth.forbidden")
     const principal = agentGatewayPrincipal(selected.principal.user, selected.principal.team, input.mcpSessionId)
     try {
       const resolved = await resolveConnectionPrincipal(this.env, principal)
