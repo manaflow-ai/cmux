@@ -505,7 +505,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 // another install's, so the pane shows them instead of a refusal.
                 let replaced = status.pid.map(AcpmuxVersionHandoff.replaced(pid:)) == true
                 if replaced, let pid = status.pid {
-                    AcpmuxFailureLog(logPath: environment.logPath).record(.replacedBundle, detail: "pid \(pid)")
+                    logger.info("acpmux \(pid) runs a replaced bundle's executable")
                     if let heal, await heal(pid) {
                         logger.info("acpmux \(pid) ran a replaced bundle; its owner restarts it")
                         throw AgentPaneHostError.daemonRestarting
@@ -514,6 +514,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 do {
                     return try await Self.verifiedEndpoint(environment)
                 } catch let refusal as AcpmuxServerPeer.Refusal {
+                    // Only a refusal is a failure to reach acpmux; a replaced daemon that serves its chats is not.
+                    if replaced, let pid = status.pid {
+                        AcpmuxFailureLog(logPath: environment.logPath).record(.replacedBundle, detail: "pid \(pid): \(refusal)")
+                    }
                     let reason = replaced ? AcpmuxFailureCause.replacedBundle.logText : nil
                     throw Self.refused(refusal, environment, reason: reason, startsDaemons: owned)
                 }

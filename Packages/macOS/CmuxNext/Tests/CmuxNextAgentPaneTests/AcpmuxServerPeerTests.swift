@@ -77,7 +77,7 @@ struct AcpmuxServerPeerTests {
     /// End to end on a real process: a listener whose executable file was deleted while it runs,
     /// as an earlier bundle's daemon after Sparkle replaced the app. Its unix socket peer is
     /// another install's, not "the socket's peer process is unknown".
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(2)))
     func aListenerRunningADeletedFileIsAnotherInstall() async throws {
         let root = URL(fileURLWithPath: "/tmp/asp-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -86,25 +86,32 @@ struct AcpmuxServerPeerTests {
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/nc"), to: copy)
         let socket = root.appendingPathComponent("s.sock").path
         let listener = Process()
-        listener.executableURL = copy
-        listener.arguments = ["-lU", socket]
-        listener.standardInput = Pipe()
+        listener.executableURL = URL(fileURLWithPath: "/bin/bash")
+        // macOS 27 kills a copied system binary at exec; signed ad hoc, the copy runs
+        // (AcpmuxUnresponsiveWatchTests' hung daemon). `exec` keeps the pid.
+        listener.arguments = ["-c", #"/usr/bin/codesign -f -s - "$0" 2>/dev/null; exec "$0" -dklU "$1""#, copy.path, socket]
+        listener.standardInput = FileHandle.nullDevice
         listener.standardOutput = FileHandle.nullDevice
         listener.standardError = FileHandle.nullDevice
         try listener.run()
-        defer { listener.terminate() }
-        // wakeup-allow: bounded wait (2 s) for the listener to bind its socket.
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: socket) {
+        defer { kill(listener.processIdentifier, SIGKILL) }
+        // wakeup-allow: bounded wait (60 s, codesign and the first exec are slow on a loaded runner) for the bind.
+        let deadline = ContinuousClock.now + .seconds(60)
+        while AcpmuxUnresponsiveWatch.listenerPID(socketPath: socket) != listener.processIdentifier,
+              listener.isRunning, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
+        try #require(AcpmuxUnresponsiveWatch.listenerPID(socketPath: socket) == listener.processIdentifier)
         try FileManager.default.removeItem(at: copy)
-        try #require(AcpmuxVersionHandoff.replaced(pid: listener.processIdentifier))
+        // The field case: the running process's path cannot be read at all (not a path to a
+        // missing file, which base already took as another install's).
+        try #require(AcpmuxVersionHandoff.executablePath(pid: listener.processIdentifier) == nil)
 
         let descriptor = try AcpmuxServerPeer.connect(socket)
         defer { close(descriptor) }
         let executable = URL(fileURLWithPath: "/App/bin/acpmux")
         #expect(AcpmuxServerPeer.check(descriptor: descriptor, executable: executable, allowForeign: true) == .success(.foreign))
-        #expect(AcpmuxServerPeer.check(descriptor: descriptor, executable: executable) != .success(.own))
+        #expect(AcpmuxServerPeer.check(descriptor: descriptor, executable: executable) == .failure(.noPeer))
     }
 
     /// The peer of a socketpair end is this test process.
