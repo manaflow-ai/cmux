@@ -11,8 +11,9 @@
 // sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
 // Once the agent reads a message it leaves the group and draws where it was read.
 // The same message is shown once (Leo: "nx-sidebar #27128 own red fixed..." twice): by its prompt
-// id, else by its sender and whole text (a relay retried under a new id) when it carries no images
-// and its text is not acpmux's cut preview (two messages can share a preview's head). The
+// id, else by its sender and whole text (a relay retried under a new id) when it carries no images,
+// its text is not acpmux's cut preview (two messages can share a preview's head), and both are
+// queued or both are steers (a steer never hides a queue entry it cannot take back). The
 // copy that shows carries the hidden copies' queue entries (`queuedMessage.twins`), so its Dismiss
 // takes back every copy and none comes back after it.
 //
@@ -34,11 +35,14 @@ const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerP
 /// images has none: two "See attached" with different images are two messages, only one prompt id is
 /// one. Nor has one whose words are acpmux's cut preview (a reload's queue list, direct.ts
 /// `mergeQueue`): two messages can share their first 200 characters, and folding them would hide one
-/// and let Dismiss or Send now on the other take it back too.
+/// and let Dismiss or Send now on the other take it back too. A steer and a queued message are
+/// never the same by their words, only by one prompt id: the steer is already in the running turn and
+/// the queue entry is due after it, so hiding the entry behind the steer would leave it queued, with
+/// no Dismiss of its own, after the steer is sent or read.
 function contentKey(row: AcpmuxRow): string | undefined {
   if (row.incoming?.kind !== "message" || row.images?.length || row.queuedMessage?.preview) return undefined;
   const { name, sessionId, text } = row.incoming.message;
-  return `${sessionId ?? name}\u0000${text.trim()}`;
+  return `${row.kind === QUEUED_MESSAGE ? "queued" : "steer"}\u0000${sessionId ?? name}\u0000${text.trim()}`;
 }
 
 /// `rows` with each message once: the first of those with one prompt id, or one sender and text.
