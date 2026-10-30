@@ -1,0 +1,155 @@
+{
+  "title": "Workspace insertion without a cascade (cmux#28205)",
+  "frameInterval": 0.25,
+  "settings": {
+    "ui": {
+      "animations": {
+        "newWorkspace": true
+      }
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Setup only: list setup rows last",
+      "cmux": [
+        "settings",
+        "set",
+        "workspaces.newPlacement",
+        "bottom"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace api",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "api",
+        "--focus"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Workspace docs",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "docs",
+        "--focus"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Workspace spec",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "spec",
+        "--focus"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Chosen icon on spec",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.setIcon",
+        "--icon",
+        "star"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Group spec as Design",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.moveToNewGroup",
+        "--name",
+        "Design"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Second member review",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "review",
+        "--focus"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Third member qa",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "qa",
+        "--focus"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Back to the app default placement",
+      "cmux": [
+        "settings",
+        "unset",
+        "workspaces.newPlacement"
+      ],
+      "shot": false,
+      "wait": 1.5
+    },
+    {
+      "title": "Select spec (first row of the Design group)",
+      "cmux": [
+        "workspace",
+        "name:spec",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 2
+    },
+    {
+      "title": "Cmd-N at the existing top default; existing rows snap and the new row fades",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--name",
+        "fresh",
+        "--focus"
+      ],
+      "shot": false,
+      "wait": 3
+    },
+    {
+      "title": "Settled",
+      "wait": 2
+    }
+  ],
+  "displayScale": 2
+}

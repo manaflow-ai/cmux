@@ -646,3 +646,12 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Runaway session warning badge (2026-10-30)
 
 - PR [#27899](https://github.com/manaflow-ai/cmux/pull/27899). Leo, verbatim: "that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next". A workspace row whose agent chats acpmux finds breaking a usage rule (no autocompact cap, context over 400k, more than 40 subagents an hour; acpmux `usageWarnings`) draws a small `exclamationmark.triangle.fill` in the theme's attention color in the trailing cluster, left of the muted bell's slot, the same size as that bell. Its tooltip is each warning's line, and the row's accessibility label says them. It is its own view (`usageWarningMark`), never the working spinner. It never gives way to the hover controls: while the row is hovered it sits just left of the ⋯ and ×, the title fading before it, so a person can still point at it and read its tooltip (the first fleet capture showed the controls in its place). Rows with no warnings are unchanged. Tests: `SidebarUsageWarningTests`; gallery `AAUsageWarningGalleryTests` (before/after, light and dark).
+
+## Top workspace insert lands without a cascade (2026-10-30)
+
+- PR #28205, implementation 60b3312ca03. Leo: "when you create a workspace at the top it's a huge cascade". The proposed `sidebar.insertMotion` default is `.snap`: existing rows land at once and only the new row fades. Other variants remain available. The real-sidebar gallery exercises all four variants; its PNGs show settled states. Fleet recordings and macOS validation are still required before landing.
+t
+
+- Motion-only continuation of #28205, with placement decision paused in #27786. Leo: "but what is the desired behaviiour? do we know? we can pause on it, but at least unfuck the animation idk". Existing rows snap to final slots; only the inserted row fades and its chosen icon grows/fades after attachment. Top placement stays unchanged. Frame tests require every existing row in every sample, full visibility, stationary rows above, and final geometry below. The gallery draws icons at 2x in light and dark.
+
+- Exact-head Astra review correction: icon entrance and reuse retain the configured opacity (including archived dimming), and animation proofs require an awake display. No placement or motion-default change in this correction.
