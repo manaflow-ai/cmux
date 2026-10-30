@@ -371,11 +371,13 @@ extension WindowManager {
                 placements[id] = home
             }
         }
-        placements.merge(EphemeralWorkspaces.placements(self, live: live, placements: placements)) { claimed, _ in claimed }
+        // Before the ephemeral placements: one there is not the person opening the machine, and an
+        // unopened machine's ephemeral workspace opens no incognito window either.
+        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || placements[$0] != nil }
+        placements.merge(EphemeralWorkspaces.placements(self, live: live.filter { !unopened.contains($0) }, placements: placements)) { claimed, _ in claimed }
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
-        let unopened = Self.unopenedCloudWorkspaces(cloud) { registered.owner(of: $0) != nil || placements[$0] != nil }
         let held: Set<String> = FirstTabHold.held(live).union(unopened).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
