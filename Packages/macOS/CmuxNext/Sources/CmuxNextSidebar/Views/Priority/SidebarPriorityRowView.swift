@@ -58,6 +58,16 @@ final class SidebarPriorityRowView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// Route row presses to this view so dragging works when the pointer starts over the title,
+    /// preview, chip, or status subviews. Action buttons keep their own hit targets.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        for button in actionButtons where !button.isHidden && button.frame.contains(point) {
+            return button.hitTest(convert(point, to: button)) ?? button
+        }
+        return self
+    }
+
     func configure(_ entry: SidebarPriorityEntry) {
         self.entry = entry
         title.stringValue = entry.title

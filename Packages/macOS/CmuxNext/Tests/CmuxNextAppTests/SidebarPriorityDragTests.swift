@@ -49,6 +49,12 @@ struct SidebarPriorityDragTests {
         #expect(harness.panel.panel.entries.map(\.id) == ["c", "a", "b"])
     }
 
+    @Test func rowHitTestingTargetsTheRowForDragPresses() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["b"])
+        #expect(row.hitTest(NSPoint(x: row.bounds.midX, y: row.bounds.midY)) === row)
+    }
+
     @Test func draggingARowDownOneSlotPlacesItThere() throws {
         let harness = Harness()
         let height = try #require(harness.panel.rows["a"]).frame.height
