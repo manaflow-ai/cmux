@@ -678,7 +678,11 @@ export function mergeQueue(
     // same), and a name is an agent's, also for a row the pane never read the record of (a
     // reload). An older acpmux lists none.
     const listed = entry?.fromAgent;
-    const listedMessage = queuedMessage({ text: preview, fromAgent: listed, fromHarness: entry?.fromHarness });
+    // Keep the complete queue record here: when `fromAgent` is absent, the
+    // sender lives in `_meta.provenance` and `queuedMessage` must see it.
+    // Override only the text with acpmux's current preview; a stale full
+    // prompt would make the provenance branch look like an edit.
+    const listedMessage = queuedMessage({ ...entry, text: preview, fromAgent: listed, fromHarness: entry?.fromHarness });
     const kept = whole ? had.message : undefined;
     // A queue listing may carry the full provenance even when its compatibility `fromAgent`
     // field is absent. Preserve that parsed agent message; only an explicit null says that the
