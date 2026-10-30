@@ -174,6 +174,8 @@ export type AgentPaneVariant = VariantBase & {
   mockHarnesses?: unknown[];
   /** Mock-daemon health rows by harness id. Absent keeps its signed-in default. */
   mockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
+  /** With `ready.transport: "mock"`: the capability ids the mock daemon's `initialize` names. */
+  mockCapabilities?: string[];
   /** Mock-daemon selected-session auth reply. Expiry is session-scoped, never a harness health row. */
   mockSessionAuth?: {
     state: "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";

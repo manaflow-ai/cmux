@@ -125,6 +125,8 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
+    /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
+    var onTabSession: @MainActor () -> Void = {}
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
@@ -146,6 +148,8 @@ final class AgentTabStore {
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
+    /// A Chief's name and avatar as the sidebar shows them, by participant id (`chief.face`).
+    var chiefFace: (@MainActor (String) async -> [String: String])?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
     var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
@@ -187,6 +191,8 @@ final class AgentTabStore {
     private var shortcutObservation: Task<Void, Never>?
     /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
     private let pageSettings = AgentPanePageSettings()
+    /// The one Read aloud voice every chat page speaks through, and Stop Reading Aloud stops.
+    let readAloud = AgentPaneReadAloud()
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
@@ -426,7 +432,9 @@ final class AgentTabStore {
             // The first session is the outside chat's resume; a later switch shows another chat,
             // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
             if let shown = sessions[key], shown != session { adoptions = adoptions.filter { $0.value != key } }
+            let switched = sessions[key] != session
             sessions[key] = session
+            if switched { onTabSession() }
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key) { sendSession(session, for: key) }
@@ -519,6 +527,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
+        model.readAloud = readAloud
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current

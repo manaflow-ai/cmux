@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
 // wasting space. It is now text a few px over the card, in the chat composer as in the New Tab's

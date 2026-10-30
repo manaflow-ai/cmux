@@ -83,6 +83,7 @@
   white-space: nowrap;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+
 /* A run's command behind Raw (AgentRunCard.tsx): the code font, wrapped, at most a few lines tall. */
 .cv-agent-run__command {
   margin: 4px 0 0 24px;
@@ -94,4 +95,16 @@
   color: var(--cv-text-muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be. */
+.cv-chief-text-avatar {
+  display: inline-flex;
+  width: 16px;
+  aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--cv-card-fill);
+  font-size: var(--text-detail);
+  line-height: 1;
 }

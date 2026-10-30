@@ -13,6 +13,10 @@ const SAVE_EVERY_MS: u64 = 30_000;
 #[serde(rename_all = "camelCase")]
 struct Saved {
     last_seen: Option<u64>,
+    #[serde(default)]
+    down_since: Option<u64>,
+    #[serde(default)]
+    next_retry_at: Option<u64>,
     sessions: Vec<Value>,
 }
 
@@ -27,6 +31,15 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
+    if summary.get("state").is_some() {
+        summary["state"] = Value::String("unreachable".into());
+    }
+    // Unreachable is not stuck: last-known stuck details would contradict `state`.
+    for key in ["stuckReason", "stuckSince", "stuckError"] {
+        if summary.get(key).is_some() {
+            summary[key] = Value::Null;
+        }
+    }
     summary["stale"] = Value::Bool(true);
     summary["lastSeen"] = json!(last_seen);
     super::views::decide(summary);
@@ -63,13 +76,22 @@ impl Hub {
             .filter(|r| r.peer == peer)
             .map(|r| r.summary.clone())
             .collect();
-        let saved = Saved { last_seen: p.link().last_seen, sessions };
+        let link = p.link();
+        let saved = Saved {
+            last_seen: link.last_seen,
+            down_since: link.down_since,
+            next_retry_at: link.next_retry_at,
+            sessions,
+        };
         let write = || -> anyhow::Result<()> {
             crate::config::private_state_dir(&dir)?;
             crate::config::write_atomic(&path, &serde_json::to_vec(&saved)?)
         };
         if let Err(e) = write() {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
+        } else {
+            p.cache_saved_outage
+                .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         }
         drop(leases);
     }
@@ -81,7 +103,9 @@ impl Hub {
         let Some(path) = cache_path(&dir, &peer.name) else { return };
         let Ok(bytes) = std::fs::read(&path) else { return };
         let Ok(saved) = serde_json::from_slice::<Saved>(&bytes) else { return };
-        peer.seed_last_seen(saved.last_seen);
+        peer.seed_cached_link(saved.last_seen, saved.down_since, saved.next_retry_at);
+        peer.cache_saved_outage
+            .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         if map.values().any(|r| r.peer == peer.name) {
             return;
@@ -141,6 +165,52 @@ mod tests {
     fn test_hub() -> (Arc<Hub>, cmux_unix_socket::TestDir) {
         let dir = cmux_unix_socket::short_test_dir("acpmux-pc");
         (hub_at(dir.path()), dir)
+    }
+
+    #[tokio::test]
+    async fn an_empty_peer_outage_survives_a_daemon_restart() {
+        let (hub, dir) = test_hub();
+        let peer = crate::peer::Peer::new(
+            "absent",
+            "invalid://peer",
+            None,
+            None,
+            hub.peer_notices.clone(),
+        );
+        let down_since = now_ms() - 86_400_001;
+        peer.seed_outage(Some(down_since));
+        hub.peers.lock().unwrap().insert("absent".into(), peer.clone());
+        let mut settled = peer.settled();
+        let running = tokio::spawn(peer.clone().run());
+        tokio::time::timeout(std::time::Duration::from_secs(5), settled.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        peer.stop();
+        running.await.unwrap();
+
+        let again = hub_at(dir.path());
+        let restored = add_idle_peer(&again, "absent");
+        again.load_peer_cache(&restored);
+        assert_eq!(restored.link().down_since, Some(down_since));
+        assert_eq!(restored.link().last_seen, None, "never reached is preserved");
+        assert!(
+            restored.link().next_retry_at.is_some_and(|at| at > now_ms()),
+            "the remaining parked interval survives reboot"
+        );
+        assert!(again.remote_sessions().is_empty());
+        let mut backoff = crate::peer_link::Backoff::default();
+        assert_eq!(
+            restored.link().retry_delay(&mut backoff, now_ms(), 0.0),
+            std::time::Duration::from_secs(3_600)
+        );
+    }
+
+    #[test]
+    fn older_peer_caches_have_no_proven_outage_age() {
+        let saved: Saved = serde_json::from_value(json!({"lastSeen": 1, "sessions": []})).unwrap();
+        assert_eq!(saved.down_since, None);
+        assert_eq!(saved.next_retry_at, None);
     }
 
     /// A peer that is registered but never runs: its link stays down.
@@ -265,5 +335,16 @@ mod tests {
         assert!(e.message.starts_with("peer_unreachable: huge-blue"), "{}", e.message);
         assert!(hub.peer_down_for("nopeer/lane").is_none());
         assert!(hub.peer_down_for("lane").is_none());
+    }
+
+    #[test]
+    fn a_stale_row_is_unreachable_with_no_stuck_details() {
+        let mut row = json!({"sessionId": "m1", "status": "ready", "state": "stuck",
+            "stuckReason": "capacity", "stuckSince": 7, "stuckError": "HTTP 503"});
+        assert!(mark_stale(&mut row, Some(9)));
+        assert_eq!(row["state"], "unreachable", "{row}");
+        for key in ["stuckReason", "stuckSince", "stuckError"] {
+            assert!(row[key].is_null(), "{key}: {row}");
+        }
     }
 }

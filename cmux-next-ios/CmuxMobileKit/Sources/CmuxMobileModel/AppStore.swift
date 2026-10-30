@@ -156,6 +156,19 @@ public final class AppStore {
         if merged != workspaces { workspaces = merged }
     }
 
+    /// Reconciles metadata for existing rows without rebuilding or comparing
+    /// every tab on the Mac. Topology changes still use `replaceWorkspaces`.
+    public func updateWorkspaces(macID: String, rows: [Workspace]) {
+        var rows = rows
+        groupEdits.apply(to: &rows, now: now())
+        for row in rows {
+            guard !pendingWorkspaceIDs.contains(row.id),
+                  let index = workspaces.firstIndex(where: { $0.macID == macID && $0.id == row.id }),
+                  workspaces[index] != row else { continue }
+            workspaces[index] = row
+        }
+    }
+
     /// `current` with one Mac's rows replaced by `next` in place: the Mac's
     /// block stays where its first (cached or live) row was, so the first live
     /// answer after a launch does not move that Mac's rows behind every other

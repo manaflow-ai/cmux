@@ -524,23 +524,19 @@ echo "systemctl $*" >> "$HOME/calls""#;
 /// [`install_script`] in `home` with [`FAKE_MANAGER`] as `systemctl`: the
 /// calls and stderr.
 fn install_units(home: &Path) -> (Vec<String>, String) {
-    use std::os::unix::fs::PermissionsExt;
     let bin = home.join("fakebin");
     std::fs::create_dir_all(&bin).unwrap();
     let systemctl = bin.join("systemctl");
-    std::fs::write(&systemctl, format!("#!/bin/sh\n{FAKE_MANAGER}\n")).unwrap();
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&systemctl, format!("#!/bin/sh\n{FAKE_MANAGER}\n"));
     // With `cat-cut` in the home, a write from stdin fails (a full /tmp).
     let cat = bin.join("cat");
     let fail =
         "if [ -e \"$HOME/cat-cut\" ] && [ $# -eq 0 ]; then head -c 20 > /dev/null; exit 1; fi";
-    std::fs::write(&cat, format!("#!/bin/sh\n{fail}\nexec /bin/cat \"$@\"\n")).unwrap();
-    std::fs::set_permissions(&cat, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&cat, format!("#!/bin/sh\n{fail}\nexec /bin/cat \"$@\"\n"));
     // With `cp-cut` in the home, a copy stops halfway (a full disk, a kill).
     let cp = bin.join("cp");
     let cut = "if [ -e \"$HOME/cp-cut\" ]; then head -c 20 \"$1\" > \"$2\"; exit 1; fi";
-    std::fs::write(&cp, format!("#!/bin/sh\n{cut}\nexec /bin/cp \"$@\"\n")).unwrap();
-    std::fs::set_permissions(&cp, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&cp, format!("#!/bin/sh\n{cut}\nexec /bin/cp \"$@\"\n"));
     let out = Command::new("sh")
         .args(["-c", &install_script()])
         .env("HOME", home)

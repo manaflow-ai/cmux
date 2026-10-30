@@ -251,7 +251,10 @@ final class SectionHeaderRowView: SidebarRowView {
         // making the header reflow when the pointer arrives.
         chevron.isHidden = isEmpty
         let chevronSide = Metrics.smallIconSize
-        chevron.frame = NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+        // Without the add button the chevron takes the trailing column, as a group header's does.
+        chevron.frame = allowsAdd ? NSRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
+            : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.midY, side: chevronSide)
+        if !allowsAdd { trailing = SidebarStyle.trailingColumnStart(rowWidth: b.width) }
         trailing -= chevronSide + Metrics.space2
         let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
         let nh = ceil(name.intrinsicContentSize.height)
