@@ -4750,6 +4750,8 @@ function AcpmuxPane() {
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
   const [harnessSwitch] = useState(() => new HarnessSwitch());
   const switchView = useSyncExternalStore(harnessSwitch.subscribe, harnessSwitch.view, harnessSwitch.view);
+  const switchViewRef = useRef(switchView);
+  switchViewRef.current = switchView;
   // Typing in a new chat (this pane's fresh composer or its New Tab page) warms the agent its Enter
   // starts (newChatPrewarm.ts, acpmux hub/pool). Silent: a folder without a Trust answer asks at Enter.
   const [newChatPrewarm] = useState(
@@ -7497,7 +7499,7 @@ function AcpmuxPane() {
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       });
     },
-    [requestFolder],
+    [folderContinuation, requestFolder],
   );
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
   const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
@@ -8435,7 +8437,7 @@ function AcpmuxPane() {
               const projectGeneration = continuationProjectGeneration.current;
               const holder = composerHandle.current;
               const summary = snapshotRef.current?.summary;
-              const intent = switchView.intent;
+              const intent = switchViewRef.current.intent;
               const harness = intent?.harness ?? summary?.harness;
               const model = intent?.config.model ?? summary?.model;
               return folderContinuation.run({
@@ -9025,7 +9027,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate, sandbox]);
+  }, [folderContinuation, harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate, sandbox]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
