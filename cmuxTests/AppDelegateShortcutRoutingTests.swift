@@ -6146,6 +6146,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testBrowserFirstDocumentEditingRoutingIncludesRichTextFormatting() {
+        // Cmd+B (bold), Cmd+U (underline) and Cmd+K (insert link) are the rich-text
+        // chords of Google Docs, Gmail, Notion and Slack. Like Chrome, cmux must give
+        // them to focused web content first; Cmd+B otherwise toggles the sidebar
+        // (issue #27619).
+        let cases: [(name: String, key: String, keyCode: UInt16)] = [
+            ("Cmd+B", "b", 11), // kVK_ANSI_B
+            ("Cmd+U", "u", 32), // kVK_ANSI_U
+            ("Cmd+K", "k", 40), // kVK_ANSI_K
+        ]
+        for testCase in cases {
+            let event = makeKeyEvent(
+                modifierFlags: [.command],
+                characters: testCase.key,
+                charactersIgnoringModifiers: testCase.key,
+                keyCode: testCase.keyCode
+            )
+            XCTAssertTrue(
+                shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(event),
+                "\(testCase.name) must be routed through web content first while a browser pane is focused"
+            )
+        }
+    }
+
     func testBrowserFirstDocumentEditingRoutingIncludesPaste() {
         // Cmd+V must reach focused web content before cmux's terminal text box
         // fallback when the text-box beta is enabled (issue #6380).
@@ -12706,6 +12730,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(
             appDelegate.debugHandleCustomShortcut(event: event),
             "Cmd+I must not be captured by app shortcut routing while a browser pane is focused"
+        )
+#else
+        XCTFail("debug shortcut hooks are only available in DEBUG")
+#endif
+    }
+
+    func testToggleSidebarShortcutYieldsToFocusedBrowserPane() {
+        // With a browser pane focused, app shortcut routing must yield Cmd+B so the
+        // keystroke reaches the focused web view and Google Docs or Gmail can bold
+        // text. Toggle Sidebar still runs from the main-menu fallback when the page
+        // leaves the key unhandled, as Chrome does with its own menu keys (issue #27619).
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        guard let event = makeKeyDownEvent(
+            key: "b",
+            modifiers: [.command],
+            keyCode: 11, // kVK_ANSI_B
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+B event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+B must not be captured by app shortcut routing while a browser pane is focused"
         )
 #else
         XCTFail("debug shortcut hooks are only available in DEBUG")
