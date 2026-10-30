@@ -40,8 +40,8 @@ class ClaudeHookSpoolTests(unittest.TestCase):
         self.frames = []
         self.rejected_seq = set()
         self.unacknowledged_seq = set()
-        self.fail_next_connection = False
-        self.connection_attempted = False
+        self.fail_authentication = False
+        self.authentication_disconnected = False
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.addCleanup(self.stopping.set)
@@ -112,18 +112,20 @@ sys.stdin.read()
                 continue
             except OSError:
                 return
-            with self.condition:
-                if self.fail_next_connection:
-                    self.fail_next_connection = False
-                    self.connection_attempted = True
-                    self.condition.notify_all()
-                    conn.close()
-                    continue
             threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
     def handle(self, conn):
         with conn, conn.makefile('rb') as stream:
             for line in stream:
+                if line.startswith(b'auth '):
+                    with self.condition:
+                        if self.fail_authentication:
+                            # Fail before authentication completes, so the
+                            # forwarder cannot claim or submit a spool record.
+                            conn.shutdown(socket.SHUT_RDWR)
+                            self.authentication_disconnected = True
+                            self.condition.notify_all()
+                            return
                 try:
                     frame = json.loads(line)
                 except ValueError:
@@ -246,27 +248,30 @@ sys.stdin.read()
         self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1, 2, 3])
         self.assertEqual(self.cli_launches(), [], 'a queue_full reply must not end the forwarder')
 
-    def test_connect_failure_retries_unsent_event_without_another_hook(self):
+    def test_authentication_disconnect_retries_unsent_event_without_another_hook(self):
+        # An accepted connection can succeed at connect() even if the server
+        # immediately closes it. Require authentication to make the disconnect
+        # an observable transport failure before the record is claimed.
+        self.env['CMUX_SOCKET_PASSWORD'] = 'spool-test-password'
+        self.fail_authentication = True
         self.start_forwarder()
         drain_lock = os.open(self.spool / 'drain.lock', os.O_RDWR)
         try:
             # Keep the live forwarder out until the producer has published and
-            # acknowledged the event. Its first connect must then fail.
+            # acknowledged the event. Its authentication must then fail.
             fcntl.lockf(drain_lock, fcntl.LOCK_EX)
-            self.fail_next_connection = True
             self.run_hook('stop', {'session_id': 'spool-test', 'seq': 0})
             self.assertEqual(len(list(self.spool.glob('*.rec'))), 1)
             self.assertEqual(self.cli_launches(), [])
         finally:
             os.close(drain_lock)
 
-        # Wait for the fixture to observe the forwarder's failed connection
-        # attempt. This proves the test reached the transport failure path
-        # before checking that recovery retained ownership of the spool.
+        # Keep failing authentication until the disconnect and retained record
+        # have been observed; a fast retry cannot race these assertions.
         with self.condition:
             self.assertTrue(
-                self.condition.wait_for(lambda: self.connection_attempted, timeout=5),
-                'forwarder never attempted the failed connection',
+                self.condition.wait_for(lambda: self.authentication_disconnected, timeout=5),
+                'forwarder never reached the authentication disconnect',
             )
         forwarder_lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
         try:
@@ -277,6 +282,8 @@ sys.stdin.read()
         finally:
             os.close(forwarder_lock)
 
+        with self.condition:
+            self.fail_authentication = False
         self.admitted(1)  # Retry wakes even with no new spool write.
         self.run_hook('prompt-submit', {'session_id': 'spool-test', 'seq': 1})
         enqueued = self.admitted(2)
