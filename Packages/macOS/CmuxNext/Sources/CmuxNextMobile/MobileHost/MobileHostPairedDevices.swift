@@ -303,6 +303,8 @@ public final class MobileHostPairedDevicesFile: Sendable {
     private func distrustIfCutOff(recorded: Bool) {
         let marked = FileManager.checked.fileExists(atPath: cutOffMarker.path)
         guard marked || recorded else { return }
+        // Red-proof ref: the record is gone once read, as at d6f29ce775d.
+        if recorded { cutOffSettled() }
         inForce.withLock { $0 = Data() }
         var durable = marked
         if !marked {

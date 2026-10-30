@@ -41,9 +41,7 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
     func keep(_ names: [String]) {
         guard !names.isEmpty else { return }
         Self.logger.fault("quit ended with state files still saving: \(names.joined(separator: ", "), privacy: .public)")
-        state.withLock { state in
-            write(names + state.pending.filter { !names.contains($0) })
-        }
+        write(names)
     }
 
     /// The names the last quit recorded; empty when none. The first call (from any thread but the main
@@ -54,25 +52,15 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
         state.withLock { state in
             if let cached = state.lastQuit { return cached }
             let names = record.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-            let paired = names.filter(Self.isPaired)
+            if !names.isEmpty, let record { try? FileManager.checked.removeItem(at: record) }
             state.lastQuit = names
-            state.pending = paired
-            if names != paired { write(paired) }
             return names
         }
     }
 
     /// The paired list made the cut-off fact safe (its marker is on disk, or its seal is cleared): the
     /// record stops naming it, and is removed when it names nothing else.
-    public func pairedCutOffSettled() {
-        state.withLock { state in
-            guard !state.pending.isEmpty else { return }
-            let pending = state.pending
-            state.pending = []
-            let onDisk = record.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-            write(onDisk.filter { !pending.contains($0) && !Self.isPaired($0) })
-        }
-    }
+    public func pairedCutOffSettled() {}
 
     /// Writes `names` as the record, or removes it when `names` is empty.
     private func write(_ names: [String]) {
