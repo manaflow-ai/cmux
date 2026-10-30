@@ -29,8 +29,7 @@ struct PaneVerbOnPendingPaneTests {
                 "zoom on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
             })
             let notice = services.refusalHUD.message ?? ""
-            // The test host runs in English; the text is MiscHandlerStrings.paneNotReady.
-            #expect(notice.localizedCaseInsensitiveContains("still opening"), "the notice is not the pane-still-opening one: \(notice)")
+            #expect(notice.contains(MiscHandlerStrings.paneNotReady), "the notice is not the pane-still-opening one: \(notice)")
             #expect(!notice.localizedCaseInsensitiveContains("unknown pane"), "the stand-in reached the daemon: \(notice)")
             // The split confirms; nothing was zoomed.
             try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
@@ -60,7 +59,7 @@ struct PaneVerbOnPendingPaneTests {
             try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
                 "Split Left on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
             })
-            #expect(services.refusalHUD.message?.localizedCaseInsensitiveContains("still opening") == true,
+            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
                     "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
             // The first split confirms; the refused Split Left made no third pane, and the notice showed once.
             try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
@@ -86,8 +85,38 @@ struct PaneVerbOnPendingPaneTests {
                 "perform on a pane still opening showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown + 1))"
             })
             #expect(services.refusalHUD.shownCount == shown + 2, "two refusals showed \(services.refusalHUD.shownCount - shown) notices")
-            #expect(services.refusalHUD.message?.localizedCaseInsensitiveContains("still opening") == true,
+            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
                     "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
+        }
+    }
+
+    /// Review #7 B1: a sender that calls the daemon connection itself, not a `DaemonService` funnel, shows the refusal
+    /// too. A cmux.json `newTabInCurrentPane` command (`ConfigCommandRunner`, the typed New Tab page path) on a pending
+    /// split's pane: the request is refused before it is sent, the notice shows once, and no tab opens.
+    @Test func aCommandTypedIntoANewTabOnAPendingPaneShowsOneNotice() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            var terminal = ActionInvocation(origin: .user)
+            terminal.opensTerminal = true
+            let before = Set(content.panes.keys)
+            let tabsBefore = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
+            #expect(services.registry.perform("splitDown", invocation: terminal))
+            let pending = try #require(content.panes.first { !before.contains($0.key) }?.value, "the split shows no pane in its turn")
+            #expect(pending.pane.handle.rawValue >= ProvisionalPane.firstHandle, "the split already confirmed")
+            let shown = services.refusalHUD.shownCount
+            // `ConfigCommandRunner.run` for `newTabInCurrentPane`: the targeted pane's controller types into a new tab.
+            pending.newTerminalTab(typing: "true\r")
+
+            try await PinnedPageTests.until({ services.refusalHUD.shownCount > shown }, report: {
+                "a typed new tab on the pending pane showed nothing (HUD \(services.refusalHUD.shownCount), was \(shown))"
+            })
+            #expect(services.refusalHUD.message?.contains(MiscHandlerStrings.paneNotReady) == true,
+                    "the notice is not the pane-still-opening one: \(services.refusalHUD.message ?? "")")
+            try await PinnedPageTests.until({ content.panes.values.allSatisfy { $0.pane.handle.rawValue < ProvisionalPane.firstHandle } },
+                                            report: { "the split did not confirm" })
+            let tabs = content.panes.values.reduce(0) { $0 + $1.pane.tabs.count }
+            #expect(tabs == tabsBefore + 1, "the refused typed new tab opened a tab: \(tabs) tabs, \(tabsBefore) before the split")
+            #expect(services.refusalHUD.shownCount == shown + 1, "the refusal showed \(services.refusalHUD.shownCount - shown) times")
         }
     }
 }
