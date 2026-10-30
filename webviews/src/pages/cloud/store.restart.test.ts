@@ -57,13 +57,22 @@ test("the re-reads back off to the cap and end when the page stops listening", a
   const store = new CloudStore(provider);
   const unsubscribe = store.subscribe(() => undefined);
   await settle();
-  for (let i = 0; i < 8; i++) {
+  // Past the doubling (1, 2, 4, 8 s) the wait is the cap.
+  for (let i = 0; i < 6; i++) {
     jest.advanceTimersByTime(CLOUD_RESTART_MAX_MS);
     await settle();
   }
-  expect(provider.authReads).toBe(9);
+  // At the cap: exactly one read per cap window, never more (still doubling) or none (past it).
+  for (let i = 0; i < 3; i++) {
+    const before = provider.authReads;
+    jest.advanceTimersByTime(CLOUD_RESTART_MAX_MS);
+    await settle();
+    expect(provider.authReads).toBe(before + 1);
+  }
+  expect(store.getSnapshot().connection).toBe("disconnected");
   unsubscribe();
+  const stopped = provider.authReads;
   jest.advanceTimersByTime(CLOUD_RESTART_MAX_MS * 4);
   await settle();
-  expect(provider.authReads).toBe(9);
+  expect(provider.authReads).toBe(stopped);
 });
