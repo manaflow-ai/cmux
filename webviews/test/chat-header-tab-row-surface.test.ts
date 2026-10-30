@@ -67,7 +67,8 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       "\n",
     );
     await page.setContent(`<!doctype html><html><head><style>
-      html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); }
+      html { width: 100%; height: 100%; background: rgb(10, 20, 30) !important; }
+      body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); }
       ${shellCss}
     </style></head><body>
       <section class="acpmux-shell" data-tab-row
@@ -83,6 +84,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     // Every pixel in the offered row, including its bottom edge, is the native strip beneath it.
     expect(pixel(20, 8)).toEqual([10, 20, 30, 255]);
     expect(pixel(20, 39)).toEqual([10, 20, 30, 255]);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
     // The page fill starts immediately after the offered row.
     expect(pixel(20, 50)).toEqual([200, 10, 20, 255]);
     expect(await page.locator(".acpmux-header").evaluate((node) => getComputedStyle(node, "::after").content)).toBe(
