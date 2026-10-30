@@ -910,6 +910,42 @@ test("a late cancelled compaction boundary is fenced after the next explicit pro
   client.close();
 });
 
+test("a compaction fence lifts at the next explicit prompt, so a later turn's compaction completes", async () => {
+  const forced = { status: "cancelled", stopReason: "cancelled", cancelForced: true, turnId: "turn-old" };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "compact this", promptId: "prompt-old", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old", promptId: "prompt-old" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", forced],
+      ["mux", "user_message", { text: "continue", promptId: "prompt-new", turnId: "turn-new" }],
+      ["mux", "turn_started", { turnId: "turn-new", promptId: "prompt-new" }],
+      ["mux", "turn_result", { status: "completed", turnId: "turn-new" }],
+    ]),
+  );
+  const { client, rows, working } = await connect(daemon);
+  const compactions = () => rows().filter((row) => row.kind === "compaction");
+  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed"]);
+
+  daemon.push(
+    record(
+      [
+        ["mux", "user_message", { text: "later", promptId: "prompt-later", turnId: "turn-later" }],
+        ["mux", "turn_started", { turnId: "turn-later", promptId: "prompt-later" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", preTokens: 12, postTokens: 4 })],
+        ["mux", "turn_end", {}],
+        ["mux", "turn_result", { status: "completed", turnId: "turn-later" }],
+      ],
+      8,
+    ),
+  );
+  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed", "completed"]);
+  expect(compactions()[1]!.compaction?.inferred).toBeUndefined();
+  expect(working()).toBe(false);
+  client.close();
+});
+
 // Recorded from a claude-sr2 chat (2026-10-20): Claude Code repeats `status: compacting` every 30s
 // while a compaction runs, so one compaction sends several running updates. Each used to start its
 // own row, and the turn's end noted every one the completion did not replace as failed: three
