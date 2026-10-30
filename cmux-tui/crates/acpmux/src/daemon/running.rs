@@ -4,7 +4,7 @@
 //! as a host with nothing on it (hq#4897 failure 4, hq#5075). While a live daemon holds this
 //! home's lock without serving yet (a restart's handover), the listing waits for its socket.
 
-use super::{HANDOVER_BUDGET, HANDOVER_RETRY, live_holder};
+use super::{HANDOVER_BUDGET, HANDOVER_RETRY, lock_has_live_holder};
 use crate::cli::errors::{AppError, Code};
 use crate::client::Client;
 use crate::config::{home, socket_path};
@@ -19,7 +19,7 @@ pub async fn connect_running() -> Result<Arc<Client>> {
     let lock = home().join("daemon.lock");
     connect_running_with(
         &path,
-        || live_holder(&lock).is_some(),
+        || lock_has_live_holder(&lock),
         HANDOVER_BUDGET,
         || Client::connect(&path),
     )
@@ -39,10 +39,14 @@ where
 {
     let deadline = tokio::time::Instant::now() + budget;
     loop {
-        if let Ok(value) = connect().await {
+        // Bounded too: a socket that accepts but never answers its hello waits out the budget,
+        // never hangs the listing.
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if let Ok(Ok(value)) = tokio::time::timeout(left, connect()).await {
             return Ok(value);
         }
-        if !held() {
+        let timed_out = tokio::time::Instant::now() + HANDOVER_RETRY >= deadline;
+        if !held() && !timed_out {
             return Err(AppError::new(
                 Code::Runtime,
                 "no_daemon",
@@ -53,12 +57,12 @@ where
             )
             .into());
         }
-        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+        if timed_out {
             return Err(AppError::new(
                 Code::Runtime,
                 "daemon_not_serving",
                 format!(
-                    "an acpmux daemon holds {} but serves no socket at {} after {budget:?}",
+                    "an acpmux daemon holds {} but does not answer at {} after {budget:?}",
                     home().join("daemon.lock").display(),
                     path.display()
                 ),
@@ -129,17 +133,30 @@ mod tests {
         assert_eq!(detail(&e), "daemon_not_serving", "{e}");
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_socket_that_never_answers_ends_the_wait() {
+        let got = connect_running_with(
+            Path::new("/x/s"),
+            || false,
+            Duration::from_secs(2),
+            std::future::pending::<Result<()>>,
+        )
+        .await;
+        let e = got.unwrap_err();
+        assert_eq!(detail(&e), "daemon_not_serving", "{e}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn the_lock_holder_is_read_without_taking_the_lock_or_making_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let lock = dir.path().join("daemon.lock");
-        assert_eq!(live_holder(&lock), None);
+        assert!(!lock_has_live_holder(&lock));
         assert!(!lock.exists(), "a probe made the lock file");
         std::fs::write(&lock, format!("{}\n", std::process::id())).unwrap();
-        assert_eq!(live_holder(&lock), Some(std::process::id()));
+        assert!(lock_has_live_holder(&lock));
         // A pid no process has (above the default pid_max): no holder.
         std::fs::write(&lock, "999999999\n").unwrap();
-        assert_eq!(live_holder(&lock), None);
+        assert!(!lock_has_live_holder(&lock));
     }
 }

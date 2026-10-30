@@ -222,7 +222,9 @@ pub fn render(
         .collect();
     let mut out = String::new();
     if shown.is_empty() {
-        out.push_str(if sessions.is_empty() {
+        out.push_str(if filtered {
+            "no sessions match these filters\n"
+        } else if sessions.is_empty() {
             "no sessions (create one: acpmux new -m codex -n my-task)\n"
         } else {
             "no live named sessions\n"

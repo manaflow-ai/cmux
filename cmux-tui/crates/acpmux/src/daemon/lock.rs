@@ -96,18 +96,21 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     alive.then_some(pid as u32)
 }
 
-/// The pid of the live daemon that holds the lock at `path`, read from the pid it wrote there,
-/// without taking the lock or creating the file: a listing asks this to tell a daemon in a
-/// restart's handover (wait for it) from none at all (start none, `running.rs`).
+/// Whether a live daemon holds the lock at `path`, read from the pid it wrote there, without
+/// taking the lock or creating the file: a listing asks this to tell a daemon in a restart's
+/// handover (wait for it) from none at all (start none, `running.rs`).
 #[cfg(unix)]
-pub(super) fn live_holder(path: &Path) -> Option<u32> {
-    holder_pid(&std::fs::File::open(path).ok()?)
+pub(super) fn lock_has_live_holder(path: &Path) -> bool {
+    std::fs::File::open(path).ok().as_ref().and_then(holder_pid).is_some()
 }
 
-/// Windows: the lock covers the file, so its holder cannot be read; a listing waits for none.
+/// Windows: the lock covers the file, so its holder cannot be read, and trying it could fail a
+/// daemon starting at that moment. A daemon keeps `daemon.pid` beside it until it stops, so its
+/// presence counts as held: a crashed daemon's leftover costs a listing at most the handover
+/// budget, then a retryable `daemon_not_serving`.
 #[cfg(windows)]
-pub(super) fn live_holder(_path: &Path) -> Option<u32> {
-    None
+pub(super) fn lock_has_live_holder(path: &Path) -> bool {
+    path.with_file_name("daemon.pid").exists()
 }
 
 /// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.

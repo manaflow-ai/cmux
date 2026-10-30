@@ -168,10 +168,6 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         }
         return Ok(());
     }
-    if sessions.is_empty() && filtered {
-        println!("no sessions match (acpmux ls --all lists every session)");
-        return Ok(());
-    }
     let peers = match peers {
         Some(read) => match read.await {
             Ok(Ok(status)) => status.get("peers").and_then(Value::as_array).cloned(),

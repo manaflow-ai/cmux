@@ -155,3 +155,12 @@ fn an_empty_daemon_and_an_all_hidden_list_say_so() {
     assert!(out.starts_with("no live named sessions\n"), "{out}");
     assert!(out.ends_with("1 more hidden (1 closed): acpmux ls --all\n"), "{out}");
 }
+
+#[test]
+fn a_filter_that_matches_nothing_still_names_the_down_peers() {
+    // `acpmux ls --host air-blue` with air-blue down and no rows cached from it.
+    let peers = [json!({"name": "air-blue", "state": "offline"})];
+    let out = render(&[], Some(&peers), View::default(), true, NOW);
+    assert!(out.starts_with("no sessions match these filters\n"), "{out}");
+    assert!(out.contains("UNKNOWN air-blue: peer offline;"), "{out}");
+}
