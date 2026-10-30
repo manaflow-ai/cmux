@@ -43,7 +43,7 @@ fn screenshot_out_is_made_absolute_except_stdout() {
 
 #[test]
 fn space_mutations_use_the_catalog_actions_and_name_targets() {
-    for (words, action, target, args) in [
+    for (words, action, target, action_args) in [
         (&["space", "new", "Work"][..], "space.new", None, json!({"name": "Work"})),
         (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
         (
@@ -76,8 +76,16 @@ fn space_mutations_use_the_catalog_actions_and_name_targets() {
         assert_eq!(method, "action.run");
         assert_eq!(params["action"], action);
         assert_eq!(params.get("target").and_then(Value::as_str), target);
-        assert_eq!(params["args"], args);
+        assert_eq!(params["args"], action_args);
     }
+}
+
+#[test]
+fn space_catalog_actions_keep_their_generic_cli_routes() {
+    let (method, params) = call(parse(&args(&["space", "new-window"])).unwrap().unwrap());
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "space new-window");
+    assert_eq!(params["cli"], true);
 }
 
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names

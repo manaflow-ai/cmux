@@ -188,24 +188,32 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             return Ok(None);
         }
         let words = rest.iter().map(String::as_str).collect::<Vec<_>>();
-        let (action, action_args): (&str, Vec<String>) = match words.as_slice() {
-            ["new", name] => ("space.new", vec!["--name".into(), (*name).into()]),
-            ["switch", name] => ("space switch", vec!["--target".into(), format!("room:{name}")]),
-            ["rename", old, new] => (
+        let custom = match words.as_slice() {
+            ["new", name] => {
+                Some(("space.new", vec!["--name".into(), (*name).into()], ActionName::Any))
+            }
+            ["switch", name] => Some((
+                "space switch",
+                vec!["--target".into(), format!("room:{name}")],
+                ActionName::Cli,
+            )),
+            ["rename", old, new] => Some((
                 "space rename",
                 vec!["--target".into(), format!("room:{old}"), "--name".into(), (*new).into()],
-            ),
-            ["close", name] => (
+                ActionName::Cli,
+            )),
+            ["close", name] => Some((
                 "space delete",
                 vec!["--target".into(), format!("room:{name}"), "--confirm".into()],
-            ),
+                ActionName::Cli,
+            )),
             ["move", kind, target, name] => {
                 let action = match *kind {
                     "workspace" => "workspace move-to-space",
                     "tab" => "tab move-to-space",
                     _ => return Err(UsageError::new("space move takes workspace or tab")),
                 };
-                (
+                Some((
                     action,
                     vec![
                         "--target".into(),
@@ -213,16 +221,14 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                         "--space".into(),
                         (*name).into(),
                     ],
-                )
+                    ActionName::Cli,
+                ))
             }
-            _ => {
-                return Err(UsageError::new(
-                    "space takes list, new, switch, rename, move or close",
-                ));
-            }
+            _ => None,
         };
-        let action_name = if action == "space.new" { ActionName::Any } else { ActionName::Cli };
-        return run_action(action, &action_args, action_name).map(Some);
+        if let Some((action, action_args, action_name)) = custom {
+            return run_action(action, &action_args, action_name).map(Some);
+        }
     }
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
