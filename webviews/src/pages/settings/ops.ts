@@ -137,6 +137,22 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
+/** This Mac joined to a team with the one-line join: its consent switches, both off until the person turns them on. */
+export type DevicesJoinState = {
+  title: string;
+  /** "Joined to <team> as <name>". */
+  joined: string;
+  help: string;
+  error: string | null;
+  /** A consent write is in flight: both switches are disabled until it ends. */
+  busy: boolean;
+  /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
+  known: boolean;
+  /** The label of the action that turns both off while the record is unknown; null while it is known. */
+  revoke_all: string | null;
+  switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
+};
+
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
   /** The app is a DEV build: the Development category shows (Settings > Development). */
@@ -170,6 +186,8 @@ export type HostLists = {
   server?: ServerHostState | null;
   /** Settings > Devices (plans/cmux-next/add-device-DESIGN.md): every device, its texts localized by the app. */
   devices?: DevicesHostState | null;
+  /** Settings > Devices: this joined Mac's Screen sharing and Control consent (labs.machineJoin); null unless joined. */
+  devices_join?: DevicesJoinState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
@@ -313,6 +331,10 @@ export type ComputerUseState = {
   screen_recording: boolean | null;
   /** The helper app's name, null when this build has no signed helper. */
   helper: string | null;
+  /** Legacy Computer Use is off: its helper can't verify this cmux build (not team-signed). */
+  host_unverified?: boolean;
+  /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
+  upstream_fallback?: boolean;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -369,9 +391,68 @@ export type AccountsCmux = {
   error: string | null;
 };
 
+/** An inline team name form (New Team, Rename Team); the field starts at `value`. */
+export type AccountsTeamForm = {
+  kind: "create" | "rename";
+  title: string;
+  help: string;
+  value: string;
+  placeholder: string;
+  maxLength: number;
+  submit: string;
+  cancel: string;
+  error: string | null;
+  busy: boolean;
+};
+
+/** The open team's details. Admins get `buttons` (`team.rename`, `team.delete`); members `readOnly`. */
+export type AccountsTeamDetails = {
+  loading: string | null;
+  error: string | null;
+  facts: Array<{ label: string; value: string }>;
+  membersTitle: string;
+  members: Array<{ id: string; name: string; detail: string | null; role: string; you: string | null }>;
+  /** Pending invitations; null unless the person is an admin. */
+  invitationsTitle: string | null;
+  invitations: Array<{ id: string; email: string; role: string; expires: string | null }> | null;
+  noInvitations: string | null;
+  buttons: AccountsButton[];
+  readOnly: string | null;
+  rename: AccountsTeamForm | null;
+  confirm: { text: string; confirm: string; cancel: string; error: string | null; busy: boolean } | null;
+};
+
+/** One team with the person's role; `toggle` runs `team.details`. */
+export type AccountsTeamRow = {
+  id: string;
+  name: string;
+  role: string;
+  roleKind: "admin" | "member" | "unknown";
+  active: string | null;
+  open: boolean;
+  toggle: AccountsButton;
+  detail: AccountsTeamDetails | null;
+};
+
+/**
+ * The account's teams with roles, the open team's details and the create, rename and delete forms.
+ * Gestures run as `team.<gesture>`: `details`, `new`, `create` (`name`), `rename`, `saveName`
+ * (`team`, `name`), `delete`, `confirmDelete`, `cancel`. Null when signed out.
+ */
+export type AccountsTeamList = {
+  title: string;
+  newTeam: AccountsButton;
+  rows: AccountsTeamRow[];
+  empty: string | null;
+  create: AccountsTeamForm | null;
+  notice: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+};
+
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
   teams: AccountsTeams | null;
+  /** Older hosts omit it. */
+  teamList?: AccountsTeamList | null;
   refresh: string;
   refreshing: boolean;
   /** cmux's own account: who is signed in, sign in, switch and sign out. */
@@ -380,8 +461,18 @@ export type AccountsState = {
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };
 
-/** One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam. */
-export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string; team?: string };
+/**
+ * One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam and
+ * the `team.*` gestures, `name` for a team create or rename.
+ */
+export type AccountsRun = {
+  action: string;
+  provider?: string;
+  account?: string;
+  secret?: string;
+  team?: string;
+  name?: string;
+};
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
 export type AgentHarnessRow = {
@@ -770,7 +861,7 @@ export type ChannelBuild = {
   /** GitHub's compare from the installed build's commit; null for that build or an unknown commit. */
   compare_url: string | null;
   health: "promoted" | "held" | "pulled" | "pending";
-  health_title: string;
+  health_title: string | null;
   pulled_reason: string | null;
   /** This Mac runs it ("You Are Here"). */
   installed: boolean;
@@ -841,6 +932,8 @@ export type SettingsOps = {
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
   "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' Screen sharing or Control switch of this joined Mac (on: the person's gesture only). */
+  "cmux.settings.devices.join_consent": [{ surface: "screen" | "control"; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */

@@ -591,6 +591,32 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
+    },
+    {
+      "date": "2026-10-29",
+      "row": "stateful_singletons",
+      "allow": 2,
+      "why": "Per-PR kill switches are deliberately process-wide: the public killSwitch API must read one verified set across all call sites, and one KillSwitchReader follows the app updater so a ring change cannot leave competing readers or stale writes. The state is replaced only after signature verification; the reader is created at the updater composition seam. Independent review of cmux#24212 covers this lifecycle."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "global_mutable_statics",
+      "allow": 4,
+      "why": "MessagesLabHome PaletteScope (per-chat bubble colours, user 2026-10-28): the vendored MessagesLab renderer reads its palette from process-wide statics (Fixture.theme, Fixture.paletteGeneration) on any thread, so two Home chats on screen with different Chat Colors overwrote each other. The fix mirrors the renderer's existing RenderScaleScope: a main-thread scope slot (mainThreadScoped, as RenderScaleScope's, to avoid binding a task local on main outside a task), the process palette that replaces the stored Fixture.theme, a main-only intern table so equal palettes share cache ids, and Fixture.baseGeneration that replaces the stored paletteGeneration. Moving them into an injected instance would mean rewriting every static drawing helper of the vendored renderer, which reads Fixture.* by design."
+    },
+    {
+      "date": "2026-10-30",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "owner": "cmux-next Performance Lead (cmux-orchestrator-1), PR #28036",
+      "expires": "2026-11-13",
+      "why": "MessagesLabHome PaletteScope's one lock (crash ratchet base red, 2026-10-30): it replaces the four unsynchronized statics of the 2026-10-28 exception above (mainThreadScoped, process, the box table and Fixture.baseGeneration; three nonisolated(unsafe) waivers and one counted hit) with one OSAllocatedUnfairLock that guards them, because render workers read the process palette and the base generation while the main thread writes them: a data race the nonisolated(unsafe) marks only hid. The count falls by three. The state stays process-wide for the same reason as that exception: the vendored MessagesLab renderer reads Fixture.* statics from every static drawing helper by design."
+    },
+    {
+      "date": "2026-10-30",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "CaptureBackdropPanel (#27514, DEBUG-only debug.capture_backdrop): a capture backdrop observes the willClose of its one target window (object: target, at most one backdrop per window), so closing the window removes and closes its screen-sized backdrop instead of leaving it on screen (Codex review of 71131c81 asked for this). No shared adapter for a window close exists in CmuxNextDesign, and only that window close concerns the backdrop. The observation holds the panel weakly (the window keeps the panel, so no cycle) and stops when the backdrop is replaced, taken away or its window closes (remove()), or when the panel is released."
     }
   ],
   "observer_wrappers": [

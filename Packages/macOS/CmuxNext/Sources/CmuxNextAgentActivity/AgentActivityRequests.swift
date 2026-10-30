@@ -2,8 +2,8 @@ public import AppKit
 public import Foundation
 
 /// The Activity page's requests and state, for whichever host shows the page: the page asks
-/// `ready`, `select`, `filter`, `scrub`, `layout`, `follow`, `perform` and `frame`, and gets the
-/// model's state after each change. Operations stay with ``AgentActivityModel`` and its source.
+/// `ready`, `select`, `filter`, `scrub`, `open`, `layout`, `follow`, `perform` and `frame` (a `data:` URL of
+/// the host's stored bytes, `size` `thumb` or `full`), and gets the model's state after each change. Operations stay with ``AgentActivityModel`` and its source.
 @MainActor
 public struct AgentActivityRequests {
     /// The model the page shows and drives.
@@ -23,7 +23,7 @@ public struct AgentActivityRequests {
     /// `{ok: false, error: {userMessage}}`.
     ///
     /// - Parameters:
-    ///   - method: `ready`, `select`, `filter`, `scrub`, `layout`, `follow`, `perform` or `frame`.
+    ///   - method: `ready`, `select`, `filter`, `scrub`, `open`, `layout`, `follow`, `perform` or `frame`.
     ///   - params: The request's JSON object.
     /// - Returns: The reply object.
     public func reply(to method: String, params: [String: Any]) async -> [String: Any] {
@@ -37,6 +37,10 @@ public struct AgentActivityRequests {
             case "select": model.select(session: params["id"] as? String); value = NSNull()
             case "filter": model.filter = params["value"] as? String ?? ""; value = NSNull()
             case "scrub": model.scrub(to: (params["seq"] as? NSNumber).map { $0.uint64Value }); value = NSNull()
+            case "open":
+                // A frame clicked in the timeline or grid: its session, then that frame, in one turn.
+                model.select(session: params["id"] as? String)
+                model.scrub(to: (params["seq"] as? NSNumber).map { $0.uint64Value }); value = NSNull()
             case "layout":
                 if let raw = params["value"] as? String, let layout = AgentActivityLayout(rawValue: raw) { model.layout = layout }
                 value = NSNull()
@@ -47,9 +51,14 @@ public struct AgentActivityRequests {
                 try await model.performAndWait(op); value = NSNull()
             case "frame":
                 guard let blob = params["blob"] as? String else { throw AgentActivitySourceError.malformed }
-                let width = params["width"] as? Int ?? 1
-                let height = params["height"] as? Int ?? 1
-                value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
+                let session = params["session"] as? String
+                let requested = AgentActivityFrameSize(rawValue: params["size"] as? String ?? "") ?? .thumb
+                let recording = session.flatMap { id in model.allSessions.first { $0.id == id }?.recording }
+                let frame = AgentActivityFrameRef(blob: blob, width: params["width"] as? Int ?? 0,
+                                                  height: params["height"] as? Int ?? 0)
+                guard let data = await source.frame(frame, size: AgentActivityWire.frameSize(requested: requested, recording: recording),
+                                                    session: session) else { throw AgentActivitySourceError.malformed }
+                value = data.dataURL
             default: throw AgentActivitySourceError.refused(method)
             }
             body = ["ok": true, "value": value]
@@ -73,12 +82,5 @@ public struct AgentActivityRequests {
     static func frame(_ value: AgentActivityFrameRef) -> [String: Any] { ["blob": value.blob, "width": value.width, "height": value.height, "expired": value.expired] }
     static func event(_ value: AgentActivityEvent) -> [String: Any] { ["seq": value.seq, "time": value.time.timeIntervalSince1970 * 1000, "kind": value.kind.rawValue, "tool": value.tool as Any, "target": value.target as Any, "ok": value.ok, "errorCode": value.errorCode as Any, "durationMs": value.durationMs as Any, "redactedTextLength": value.redactedTextLength as Any, "beforeFrame": value.beforeFrame.map(frame) as Any, "afterFrame": value.afterFrame.map(frame) as Any, "clickPoint": value.clickPoint.map { ["x": $0.x, "y": $0.y] } as Any] }
     static func json(_ object: [String: Any]) -> String { guard let data = try? JSONSerialization.data(withJSONObject: object), let value = String(data: data, encoding: .utf8) else { return "{}" }; return value }
-    static func frameData(source: any AgentActivitySource, frame: AgentActivityFrameRef) async throws -> String {
-        guard let image = await source.image(for: frame), let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff), let data = bitmap.representation(using: .png, properties: [:]) else {
-            throw AgentActivitySourceError.malformed
-        }
-        return data.base64EncodedString()
-    }
     static func operation(_ p: [String: Any]) -> AgentActivityUserOp? { guard let raw = p["op"] as? String else { return nil }; let session = p["session"] as? String; switch raw { case "stop": return session.map { .stop(session: $0) }; case "pause": return session.map { .pause(session: $0) }; case "resume": return session.map { .resume(session: $0) }; case "watch": return session.map { .watch(session: $0, on: p["on"] as? Bool ?? false) }; case "export": return session.map { .export(session: $0) }; case "openAgent": return session.map { .openAgent(session: $0) }; case "openTarget": return session.map { .openTarget(session: $0) }; case "stopAll": return (p["machine"] as? String).map { .stopAll(machine: $0) }; default: return nil } }
 }

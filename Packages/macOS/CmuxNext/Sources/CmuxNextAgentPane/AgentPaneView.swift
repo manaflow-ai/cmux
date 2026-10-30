@@ -246,6 +246,14 @@ public final class AgentPaneView: NSView {
             self.rendersAtFullRate = full
         }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
+        // else at the top; the App's launch sweep removes either after 30 days.
+        dictation.chatSession = { [weak model] in model?.sessionId }
+        model.onDictationRecording = { [weak self] path, session in self?.dictation.takeRecording(path, session: session) }
+        model.onDictationRecordingUnsent = { [weak self] recording, session in self?.dictation.giveBackRecording(recording, session: session) }
+        dictation.recordingFolder = { [weak model] in
+            model.flatMap { ChatUploadFolders.standard?.freshUpload(session: $0.onLocalPaths?() == true ? $0.sessionId : nil) }
+        }
         // A frame that grants needs a real gesture in this pane; page script cannot make one.
         gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, no gesture (fail closed).
@@ -397,6 +405,7 @@ public final class AgentPaneView: NSView {
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
         dictation.close()
+        model.readAloud?.stop(owner: model)
         model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil

@@ -178,7 +178,7 @@ pub(super) fn resolve(
 
 /// `https://…`, or `http://` only to this machine (a local API in development); no trailing slash.
 /// Errors never echo the URL (it could hold a secret someone pasted into it).
-fn secure_origin(raw: &str) -> Result<String, String> {
+pub(super) fn secure_origin(raw: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(raw).map_err(|_| "the cmux API is not a URL".to_owned())?;
     if url.host_str().is_none()
         || !url.username().is_empty()
@@ -248,8 +248,12 @@ pub(super) fn run(
                 }
                 write_token_file(path, &session.token)?;
             }
+            if output == OutputMode::Quiet {
+                // Quiet prints nothing on success, the token least of all.
+                return Ok(0);
+            }
             let ssh = session.ssh.as_ref().map(|s| format!("ssh {}@{}", s.user, s.host));
-            if output == OutputMode::Json {
+            if matches!(output, OutputMode::Json | OutputMode::JsonLines) {
                 // With --token-file the token is only in the file.
                 let (token, file) = match token_file {
                     Some(path) => (Value::Null, json!(path.display().to_string())),
@@ -286,11 +290,16 @@ pub(super) fn run(
             if code == session.token || code == credential {
                 return Err("the machine's answer is not readable".into());
             }
-            if output == OutputMode::Json {
-                writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })).map_err(io)?;
-            } else {
-                out.write_all(answer.stdout.as_bytes()).map_err(io)?;
-                err.write_all(answer.stderr.as_bytes()).map_err(io)?;
+            match output {
+                OutputMode::Json | OutputMode::JsonLines => {
+                    writeln!(out, "{}", json!({ "machine": session.machine, "exit_code": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr })).map_err(io)?;
+                }
+                // Quiet drops the command's output; its stderr and exit code still say what failed.
+                OutputMode::Quiet => err.write_all(answer.stderr.as_bytes()).map_err(io)?,
+                OutputMode::Human => {
+                    out.write_all(answer.stdout.as_bytes()).map_err(io)?;
+                    err.write_all(answer.stderr.as_bytes()).map_err(io)?;
+                }
             }
             Ok(answer.exit_code)
         }

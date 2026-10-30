@@ -320,10 +320,13 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           if (was && Math.abs(was.height - each.height) > 0.5) problems.push(`${each.name}'s height changed`);
           if (each.name !== "model" && !each.chevron) problems.push(`${each.name} lost its chevron`);
         }
-        // Muted like its effort: the name draws in the effort detail's own quiet ink.
+        // Muted: the name draws in the button's own quiet ink, and its effort one step back of it
+        // (#24151, Leo 2026-10-21: "Opus 5.5 Medium", the effort in secondary ink).
         const model = chip(row, "model");
-        const muted = model?.detailColor;
+        const muted = model?.color;
         if (model?.nameColor !== muted) problems.push(`the model name ${model?.nameColor} is not muted (${muted})`);
+        if (model?.detailColor !== undefined && model.detailColor === model.nameColor)
+          problems.push(`the effort ${model.detailColor} is not one step back of the model name`);
         if (row.modelLabel && model?.leadingIcon) problems.push("the model's brand mark still draws beside its name");
         if (!row.modelLabel && !model?.leadingIcon) problems.push("the stepped-down model chip has no mark");
         const mode = chip(row, "mode");

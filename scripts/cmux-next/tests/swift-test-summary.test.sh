@@ -21,6 +21,14 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
 cat "$STUB_OUTPUT"
+# A helper's crash report, written during the run with this process as its parent:
+# the wrapper counts only reports from its own `swift test` and the helpers it saw.
+if [[ -n "${STUB_CRASH_REPORT:-}" ]]; then
+  sed "s/__PARENT_PID__/$$/" "$STUB_CRASH_REPORT" > "$STUB_CRASH_REPORT_DEST"
+  # The run starts at a whole second, so date the report ahead of it; otherwise a
+  # write at X.9 and a start at X+1 reads it as from before.
+  python3 -c 'import os,sys,time; t=time.time()+60; os.utime(sys.argv[1],(t,t))' "$STUB_CRASH_REPORT_DEST"
+fi
 # A run that keeps finishing tests while the watchdog watches: one line per STUB_DRIP_SECONDS,
 # which is what a healthy width-limited run looks like (thousands open, finishes still arriving).
 if [[ -n "${STUB_DRIP:-}" ]]; then
@@ -120,6 +128,10 @@ if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a f
 # "Test run started." is the run, not a test.
 grep '^::error' <<<"$out" | grep -q ' 2 tests started and never finished: hangsForever()' || fail "the error counts the run itself as an unfinished test" "$out"
 grep -q 'hangsForever()' <<<"$summary" || fail "the step summary does not name hangsForever()" "$summary"
+# A cut-short run reports itself as incomplete, never as a pass or a plain red.
+grep -q '^::error title=cmux-next swift test incomplete::' <<<"$out" || fail "a cut-short run is not titled incomplete" "$out"
+if grep -q '^::error title=cmux-next swift test ended early' <<<"$out"; then fail "a cut-short run still says ended early, not incomplete" "$out"; fi
+grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say the run is incomplete" "$summary"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -133,11 +145,8 @@ grep '^::error' <<<"$out" | grep -q 'crashesHere()' || fail "a crashed run does 
 reports="$TMP/DiagnosticReports"; crashes="$TMP/crashes"
 mkdir -p "$reports"
 printf '%s\n' '{"app_name":"swiftpm-testing-helper","bug_type":"309","name":"swiftpm-testing-helper"}' \
-  '{"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"faultingThread":2,"usedImages":[{"name":"libswift_Concurrency.dylib"},{"name":"CmuxNextPackageTests"}],"threads":[{"frames":[{"imageIndex":1,"symbol":"idleThread"}]},{"frames":[]},{"triggered":true,"frames":[{"imageIndex":0,"symbol":"swift_task_checkIsolatedSwift"},{"imageIndex":1,"symbol":"KeyWindowObserver.windowWillClose(_:)"},{"imageIndex":1,"symbol":"closure #1 in BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain()"}]}]}' \
-  > "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
-# The run starts at a whole second after this write, so date the report ahead
-# of it; otherwise a write at X.9 and a start at X+1 reads it as from before.
-python3 -c 'import os,sys,time; t=time.time()+60; os.utime(sys.argv[1],(t,t))' "$reports/swiftpm-testing-helper-2026-10-09-021500.ips"
+  '{"pid":4242,"parentPid":__PARENT_PID__,"exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},"faultingThread":2,"usedImages":[{"name":"libswift_Concurrency.dylib"},{"name":"CmuxNextPackageTests"}],"threads":[{"frames":[{"imageIndex":1,"symbol":"idleThread"}]},{"frames":[]},{"triggered":true,"frames":[{"imageIndex":0,"symbol":"swift_task_checkIsolatedSwift"},{"imageIndex":1,"symbol":"KeyWindowObserver.windowWillClose(_:)"},{"imageIndex":1,"symbol":"closure #1 in BrowserPopupPanelThreadTests.anOpenerCloseNoticePostedOffMainClosesItsPopupsOnMain()"}]}]}' \
+  > "$TMP/trap.ips"
 printf '%s\n' '{"app_name":"swiftpm-testing-helper"}' '{"threads":[{"triggered":true,"frames":[{"imageIndex":0,"symbol":"anOldCrash"}]}],"usedImages":[{"name":"x"}]}' \
   > "$reports/swiftpm-testing-helper-old.ips"
 touch -t 202001010000 "$reports/swiftpm-testing-helper-old.ips"
@@ -148,7 +157,8 @@ cat > "$TMP/trap.out" <<'OUT'
 error: Process '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec/swift/pm/swiftpm-testing-helper --test-bundle-path /x/CmuxNextPackageTests.xctest/Contents/MacOS/CmuxNextPackageTests --testing-library swift-testing' exited with unexpected signal code 5
 OUT
 export CMUX_NEXT_CRASH_REPORTS_DIR="$reports" CMUX_NEXT_CRASH_OUT="$crashes"
-CMUX_NEXT_CRASH_WAIT_SECONDS=0 run trap 1
+STUB_CRASH_REPORT="$TMP/trap.ips" STUB_CRASH_REPORT_DEST="$reports/swiftpm-testing-helper-2026-10-09-021500.ips" \
+  CMUX_NEXT_CRASH_WAIT_SECONDS=0 run trap 1
 unset CMUX_NEXT_CRASH_REPORTS_DIR CMUX_NEXT_CRASH_OUT
 [[ "$status" != 0 ]] || fail "a run whose test helper died on a signal exited 0" "$out"
 crash=$(grep '^::error title=cmux-next swift test crash' <<<"$out" || true)
@@ -194,7 +204,7 @@ cat > "$TMP/short.out" <<'EOF'
 EOF
 run short 0
 [[ "$status" != 0 ]] || fail "a truncated run with a summary line exited 0" "$out"
-short_error=$(grep '^::error title=cmux-next swift test reported fewer' <<<"$out" || true)
+short_error=$(grep '^::error title=cmux-next swift test incomplete::reported fewer' <<<"$out" || true)
 [[ -n "$short_error" ]] || fail "no short-run ::error line" "$out"
 grep -q 'summaries count 1 tests in total but 3 started and 2 of those never finished' <<<"$short_error" \
   || fail "the error does not give the three counts" "$short_error"
@@ -678,5 +688,41 @@ EOF
 STUB_DRIP=6 STUB_DRIP_SECONDS=1 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1   run progress 0
 [[ "$out" != *"swift test stuck"* ]]   || fail "the watchdog killed a run that was still finishing tests" "$out"
 [[ "$out" != *"=== sample"* ]] || fail "the watchdog sampled a run making progress" "$out"
+
+# A test prints bytes that are not UTF-8 (a string cut mid-character: the first two bytes of "→").
+# CI runs in a UTF-8 locale, where macOS awk died on that line on every read ("towc: multibyte
+# conversion failure") and sed with it ("illegal byte sequence"): the report named nothing and the
+# stall watchdog never fired (cmux#25978 job 123476714112). Both still work on such a log.
+bad=$'\xe2\x86'
+utf8=$(locale -a 2>/dev/null | grep -iE '^(en_US|C)\.utf-?8$' | head -n 1 || true)
+utf8=${utf8:-en_US.UTF-8}
+printf '%s\n' \
+  '◇ Test run started.' \
+  '◇ Test printsHalfACharacter() started.' \
+  "cut here: $bad" \
+  '✔ Test printsHalfACharacter() passed after 0.001 seconds.' \
+  '◇ Test hangsAfterTheBadByte() started.' \
+  > "$TMP/badbyte.out"
+LC_ALL=$utf8 run badbyte 143
+[[ "$out" != *"towc"* && "$out" != *"illegal byte"* ]] || fail "a log reader died on a non-UTF-8 byte" "$out"
+grep '^::error title=cmux-next swift test incomplete' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
+  || fail "the report of a log with a non-UTF-8 byte does not name the unfinished test" "$out"
+if grep '^::error' <<<"$out" | grep -q 'printsHalfACharacter'; then fail "the report names the finished test" "$out"; fi
+[[ "$status" == 143 ]] || fail "the run with a non-UTF-8 byte exited $status, not 143" "$out"
+
+started=$SECONDS
+LC_ALL=$utf8 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run badbyte 0
+(( SECONDS - started < 30 )) || fail "the watchdog took $((SECONDS - started)) s on a log with a non-UTF-8 byte" "$out"
+[[ "$out" != *"towc"* && "$out" != *"illegal byte"* ]] || fail "the watchdog died on a non-UTF-8 byte" "$out"
+grep '^::error title=cmux-next swift test stuck' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
+  || fail "the watchdog does not name the stuck test after a non-UTF-8 byte" "$out"
+
+# The watcher's annotations start their own line even when the test output stops mid-line, or the
+# log viewer reads one as the end of a test line (cmux#24073 job 123468767603). The hang annotation
+# takes the same printf; the stall one is the one a test can reach in seconds.
+printf '%s\n%s' '◇ Test run started.' '◇ Test case passing 1 argument x → 1 to f(x:) start' > "$TMP/midline.out"
+STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run midline 0
+grep -q '^::error title=cmux-next swift test stuck::' <<<"$out" \
+  || fail "the watchdog annotation does not start its own line" "$out"
 
 echo "ok swift-test-summary"

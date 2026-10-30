@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PeerConfig {
     pub url: String,
+    /// Optional encrypted route. Tokens and application authorization are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wireguard: Option<crate::wireguard::StaticPeer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// The peer daemon's peer token (`server/peer_auth.rs`), for a `ws://`

@@ -76,10 +76,10 @@ pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
 /// (`session_scope::tasks_max`): a host's scope holds its session's harness
 /// too when that harness got no scope of its own (no `systemd-run`, a
 /// remote profile), so a fork storm stops there as it would in a session
-/// scope. The value is the daemon's (`ACPMUX_SESSION_TASKS_MAX` in its
-/// environment), not a profile's: a host is placed before its session's
-/// profile environment reaches it, so a profile override applies to the
-/// session scope only.
+/// scope. The value is the daemon's (`session.tasksMax` in its config, else
+/// `ACPMUX_SESSION_TASKS_MAX` in its environment), not a profile's: a host is
+/// placed before its session's profile environment reaches it, so a profile
+/// override applies to the session scope only.
 pub(crate) fn busctl_args(unit: &str, pid: u32, tasks_max: u64) -> Vec<String> {
     let mut args: Vec<String> = [
         "--user",
@@ -202,7 +202,7 @@ mod linux {
             .args(busctl_args(
                 unit,
                 host,
-                crate::session_scope::tasks_max(&|key| std::env::var(key).ok()).unwrap_or(u64::MAX),
+                crate::session_scope::host_tasks_max().unwrap_or(u64::MAX),
             ))
             .env_clear()
             .envs(env)
