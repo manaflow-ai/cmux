@@ -68,5 +68,4 @@ extension CloudStrings {
         String(localized: "cloud.error.unreadable", defaultValue: "cmux Cloud sent an answer this version of cmux can't read. Update cmux, then try again.",
                table: "Cloud", bundle: .module)
     }
-
 }

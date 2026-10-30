@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextDaemon
 import Foundation
 import Testing
 
@@ -57,15 +58,28 @@ struct CloudPauseResumeAvailabilityTests {
     }
 
     @Test(arguments: [CloudMachine.Status.paused, .running, .unknown])
-    func aLiveDaemonHidesOnlyResumeAndNeverRefusesCommands(status: CloudMachine.Status) {
+    func aLiveDaemonHidesOnlyResumeAndNeverRefusesCommands(status: CloudMachine.Status) async throws {
         let f = Self.fixture(status)
-        f.session.daemon.store.connectionState = .connected(CloudCLITargetTests.fullIdentity())
+        let identity = CloudCLITargetTests.fullIdentity()
+        let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-pause-menu-\(UUID().uuidString).sock"))
+        f.session.daemon.start(first: { .success((connection, identity)) }, makeConnection: { connection })
+        defer { f.session.daemon.shutdownConnection() }
+        await f.session.daemon.firstConnection()
+        #expect(f.session.daemon.connection != nil)
+        f.session.daemon.store.connectionState = .connected(identity)
         let ids = Self.menuIDs(f.services, f.session)
         #expect(ids.contains(Self.pause))
         #expect(!ids.contains(Self.resume))
         let run = ActionInvocation(target: Self.target(f.session))
         #expect(Self.reason(f.services, Self.pause, run) == nil)
         #expect(Self.reason(f.services, Self.resume, run) == nil)
+    }
+
+    @Test func aKeptHandshakeWithoutAConnectionDoesNotHideResume() {
+        let f = Self.fixture(.running)
+        f.session.daemon.store.connectionState = .connected(CloudCLITargetTests.fullIdentity())
+        #expect(f.session.daemon.connection == nil)
+        #expect(Self.menuIDs(f.services, f.session).contains(Self.resume))
     }
 
     @Test(arguments: [CloudMachine.Status.failed, .unknown])

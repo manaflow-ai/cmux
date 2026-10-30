@@ -190,7 +190,7 @@ extension CloudHandlers {
         // and app-link resume can both change the server without refreshing that record.
         // This only changes menu visibility; explicit commands remain idempotent.
         ActionTargetVisibility.hide("cloudResumeMachine", in: registry) { invocation in
-            guard let session = try? machine(invocation, context) else { return false }
+            guard let session = try? machine(invocation, context), session.daemon.connection != nil else { return false }
             if case .connected = session.daemon.store.connectionState { return true }
             return false
         }
