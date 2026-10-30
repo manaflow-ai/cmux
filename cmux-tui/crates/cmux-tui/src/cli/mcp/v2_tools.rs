@@ -624,8 +624,9 @@ impl V2Tool {
                 params.insert(name.clone(), default);
             } else if field["required"] == Value::Bool(true) {
                 let schema = Generator::new(catalog()).field(field);
-                let values = schema["enum"]
-                    .as_array()
+                let values = schema
+                    .get("enum")
+                    .and_then(Value::as_array)
                     .map(|values| {
                         let names: Vec<&str> = values.iter().filter_map(Value::as_str).collect();
                         format!(" (one of {})", names.join(", "))
