@@ -184,13 +184,26 @@ nonisolated enum CloudGitHubSetup {
 
     /// A token ask for a repo no team has: an agent not yet bound answers `vm.unbound` and mints
     /// nothing; a bound one passes it to the API, which refuses it. An unbound agent's helper would
-    /// fail every git call, so the device flow runs instead.
-    static let unboundProbe = "printf 'protocol=https\\nhost=github.com\\npath=cmux-setup-probe/none.git\\n\\n' | cmux github credential get 2>&1 >/dev/null | grep -q 'vm\\.unbound'"
+    /// fail every git call, so the device flow runs instead. The ask gets ``probeSeconds``: a hung
+    /// agent (the CLI waits up to 240 s for it) is stopped and counts as unavailable too, so the
+    /// device flow still starts inside ``timeoutMs``. Sets `unbound` to 1 for either.
+    static let unboundProbe = [
+        #"p=$(mktemp 2>/dev/null || echo "/tmp/cmux-gh-probe.$$")"#,
+        #"printf 'protocol=https\nhost=github.com\npath=cmux-setup-probe/none.git\n\n' | cmux github credential get >/dev/null 2>"$probe_err" & probe=$!"#,
+        #"j=0; while kill -0 "$probe" 2>/dev/null && [ $j -lt \#(probeSeconds * 4) ]; do sleep 0.25; j=$((j+1)); done"#,
+        #"if kill -0 "$probe" 2>/dev/null; then kill "$probe" 2>/dev/null; unbound=1"#,
+        #"elif grep -q 'vm\.unbound' "$probe_err"; then unbound=1; else unbound=; fi"#,
+        #"rm -f "$probe_err""#,
+    ].joined(separator: "\n")
+
+    /// The probe's bound, well inside the exec's ``timeoutMs`` with the device flow's 15 s after it.
+    static let probeSeconds = 4
 
     static func appCommand(at socket: String) -> String {
         [
             "if [ -S \(shellQuote(socket)) ] && command -v cmux >/dev/null 2>&1; then",
-            "  if \(unboundProbe); then echo 'cmux-app: unavailable'",
+            unboundProbe,
+            "  if [ -n \"$unbound\" ]; then echo 'cmux-app: unavailable'",
             "  elif cmux github setup >/dev/null 2>&1; then echo 'cmux-gh: app'; exit 0",
             "  else echo 'cmux-app: failed'; fi",
             "else",

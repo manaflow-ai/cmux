@@ -220,6 +220,28 @@ struct CloudGitHubSetupTests {
         #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on an unbound agent")
     }
 
+    /// A hung agent is stopped after the probe's bound and counts as unavailable: the device flow
+    /// still starts inside the exec's timeout.
+    @Test func aHungAgentGetsNoHelperWithinTheBound() throws {
+        let root = URL(fileURLWithPath: "/tmp/cn-gh-hung-\(UUID().uuidString.prefix(8))")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let seen = root.appendingPathComponent("seen")
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && exec sleep 60\nexit 0\n"
+        try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
+        let path = root.appendingPathComponent("a.sock").path
+        let listener = try Self.listen(at: path)
+        defer { Darwin.close(listener) }
+        let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
+        let started = ContinuousClock.now
+        let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
+        #expect(ContinuousClock.now - started < .seconds(CloudGitHubSetup.probeSeconds + 4))
+        #expect(ran.output == "cmux-app: unavailable\ncmux-gh: logged_in\n")
+        #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on a hung agent")
+    }
+
     @Test func theAppOutcomeIsOkAndNamesItsMethod() {
         let outcome = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-gh: app\n")
         #expect(outcome == .init(identity: .set, gitHub: .app))
