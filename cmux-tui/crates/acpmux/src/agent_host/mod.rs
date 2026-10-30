@@ -34,6 +34,7 @@ pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
+pub(crate) mod unresolved;
 mod wait;
 pub use wait::{
     BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,
@@ -48,7 +49,22 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Oldest and newest host protocol this build speaks.
 pub const PROTOCOL_MIN: u16 = 1;
-pub const PROTOCOL_MAX: u16 = 1;
+pub const PROTOCOL_MAX: u16 = 3;
+/// The protocol from which a `line` may ask for a receipt (`WRITTEN_METHOD`).
+pub const RECEIPT_VERSION: u16 = 2;
+/// The protocol from which a host logs each line that asks for a receipt (`QUEUED_METHOD`), so
+/// a next daemon can tell from the log which of them its harness may not have yet.
+pub const QUEUED_VERSION: u16 = 3;
+/// The receipt for a `line` (protocol 2): a `tap` entry (`dir = out`) carrying this
+/// notification, `{receipt, written}`, once its lines are written to the harness (`written:
+/// true`) or can never be (its stdin closed: `false`). An entry, not a frame of its own, so it
+/// is retained until acknowledged, replayed to the next controller, and known to every build.
+pub const WRITTEN_METHOD: &str = "_acpmux/host_written";
+/// A `line` that asks for a receipt, as its host took it (protocol 3): a `tap` entry (`dir =
+/// out`) carrying this notification, `{receipt}`, before any line of it is queued for the
+/// harness. A log that has it and no `WRITTEN_METHOD` for the same receipt can not prove the
+/// harness has that line: the next daemon holds it again (`link::adopt_receipt`).
+pub const QUEUED_METHOD: &str = "_acpmux/host_queued";
 /// Discovery record schema this build writes and reads.
 pub const RECORD_VERSION: u32 = 1;
 /// Largest frame either side accepts.
@@ -74,8 +90,13 @@ pub enum ControllerFrame {
     Resume { after: u64 },
     /// One ACP message for the harness. The host translates it when the
     /// harness speaks Claude stream-json, writes it, and echoes the written
-    /// lines as `tap` entries.
-    Line { msg: Value },
+    /// lines as `tap` entries. `receipt` (protocol 2): the host logs its
+    /// receipt (`WRITTEN_METHOD`) once every line of it is written to the harness.
+    Line {
+        msg: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receipt: Option<u64>,
+    },
     /// Entries up to `h` are in the controller's log; the host may drop them.
     Ack { h: u64 },
     /// End the harness process group: SIGTERM, then SIGKILL after `grace_ms`.
@@ -189,6 +210,10 @@ pub struct SpawnSpec {
     /// a write end for its whole life (`daemon::router_owner_fifo`).
     #[serde(default)]
     pub router_owner_fifo: Option<PathBuf>,
+    /// The folder the harness must exec in, by identity: a sub-session's checked folder
+    /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
+    #[serde(default)]
+    pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,6 +294,23 @@ fn live_path(dir: &Path, session_id: &str, nonce: &str) -> PathBuf {
     dir.join(format!("{session_id}.{nonce}.live"))
 }
 
+/// Where host `record`'s live lock may be: the pool, then the hosts directory (a pooled host's
+/// lock moves there when a session takes it, so a move between the two is not missed), then its
+/// socket's directory, its own when the path was short enough.
+pub fn live_lock_dirs(record: &HostRecord) -> Vec<PathBuf> {
+    let hosts = hosts_dir();
+    let mut dirs = vec![pool_dir(&hosts), hosts];
+    if let Some(own) = record.socket.parent().filter(|d| !dirs.iter().any(|x| x == d)) {
+        dirs.push(own.to_path_buf());
+    }
+    dirs
+}
+
+/// Whether host incarnation `nonce` of `session_id` keeps its live lock in `dir`.
+pub fn live_lock_exists(dir: &Path, session_id: &str, nonce: &str) -> bool {
+    live_path(dir, session_id, nonce).exists()
+}
+
 /// Socket for one host: next to the record when the path is short enough for
 /// `sun_path`, else in the private per-user directory acpmux already uses.
 #[cfg(unix)]
@@ -313,6 +355,15 @@ pub fn random_hex(bytes: usize) -> Result<String> {
 
 /// Every record in `dir`: those this build reads, and those it cannot.
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
+    // Debug builds only: while the file `ACPMUX_TEST_HOST_RECORDS_FAIL_FILE` names exists, the
+    // records cannot be read, as on a disk that fails, so the daemon's integration tests can drive
+    // that path. Release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(flag) = std::env::var_os("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE")
+        && Path::new(&flag).exists()
+    {
+        anyhow::bail!("the agent host records could not be read");
+    }
     let mut good = Vec::new();
     let mut bad = Vec::new();
     match std::fs::symlink_metadata(dir) {
@@ -447,9 +498,15 @@ pub enum Liveness {
 /// to this incarnation even when the PID has been reused.
 #[cfg(unix)]
 pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
+    liveness_of(&live_path(dir, session_id, start_nonce))
+}
+
+/// [`liveness`] of any lock file a process holds for its life (a background task's runner,
+/// `bg_run.rs`).
+#[cfg(unix)]
+pub fn liveness_of(path: &Path) -> Liveness {
     use std::os::fd::AsRawFd;
-    let path = live_path(dir, session_id, start_nonce);
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+    let file = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Liveness::Dead,
         Err(_) => return Liveness::Unknown,

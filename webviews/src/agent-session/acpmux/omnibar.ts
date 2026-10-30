@@ -192,6 +192,17 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
   return [...first, ...scored.slice(0, MAX_ROWS - first.length - 1), last];
 }
 
+/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1) (Lucas 2026-10-26): Down
+/// on the last row wraps to the first, and Up on the first row returns to the field (-1, no row:
+/// Return sends the prompt), so the caret can move again. From the field Down takes the first row
+/// and Up the last.
+export function stepSelection(current: number, step: 1 | -1, count: number): number {
+  if (count === 0) return -1;
+  if (current < 0) return step === 1 ? 0 : count - 1;
+  if (step === 1) return (current + 1) % count;
+  return current - 1;
+}
+
 /// The row Enter takes before the arrows move: the typed text's own row. None for an
 /// empty bar, where Enter makes the selected kind as it is (an empty terminal or chat).
 export function defaultRow(rows: OmnibarRow[], kind: TabKind, query: string): number {

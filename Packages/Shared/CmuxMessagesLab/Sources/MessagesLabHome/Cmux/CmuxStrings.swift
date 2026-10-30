@@ -40,14 +40,6 @@ enum CmuxStrings {
     static func turnRanSearches(_ n: Int) -> String {
         String(localized: "home.turn.ranSearches", defaultValue: "Ran \(n) searches", table: "CmuxHome", bundle: .module)
     }
-    /// Finished steps of other kinds, alone in the row.
-    static func turnSteps(_ n: Int) -> String {
-        String(localized: "home.turn.steps", defaultValue: "\(n) steps", table: "CmuxHome", bundle: .module)
-    }
-    /// Finished steps of other kinds, after a folded kind ("Ran 3 commands · 2 more steps").
-    static func turnMoreSteps(_ n: Int) -> String {
-        String(localized: "home.turn.moreSteps", defaultValue: "\(n) more steps", table: "CmuxHome", bundle: .module)
-    }
 
     /// The message menu's permalink item (tree threads, cx-och3h).
     /// The remove button on an attachment in the message box (its help and accessibility label).
@@ -171,13 +163,12 @@ enum CmuxStrings {
 
     // MARK: The Chief's plan card (HomeTableRowProvider.swift)
 
-    /// The card's header: "Plan · 6 steps", or "Plan · 6 steps, 3 active" while some still run.
+    /// The card's header: "Plan", or "Plan · 3 active" while some steps still run. Never a step count.
     static func planHeader(steps: Int, active: Int) -> String {
         if active == 0 {
-            return String(format: String(localized: "home.plan.steps", defaultValue: "Plan · %lld steps", table: "CmuxHome", bundle: .module), steps)
+            return String(localized: "home.plan.title", defaultValue: "Plan", table: "CmuxHome", bundle: .module)
         }
-        return String(format: String(localized: "home.plan.stepsActive", defaultValue: "Plan · %1$lld steps, %2$lld active", table: "CmuxHome", bundle: .module),
-                      steps, active)
+        return String(format: String(localized: "home.plan.activeCount", defaultValue: "Plan · %lld active", table: "CmuxHome", bundle: .module), active)
     }
 
     /// A step's state pill.

@@ -274,9 +274,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .navigationDestination(for: MacConversationRoute.self) { route in
             MacConversationScreen(route: route, feed: feed)
         }
-        // Back on Home: look for the Cloud Chief again if it was not reachable, and read the Mac's list.
+        // Back on Home: read the Cloud Chiefs again (one may be archived or deleted elsewhere), and the Mac's list.
         .task {
-            sources.refreshIfNeeded()
+            sources.recheck()
             feed.refresh()
         }
         .alert("New Chief", isPresented: $namingChief) {

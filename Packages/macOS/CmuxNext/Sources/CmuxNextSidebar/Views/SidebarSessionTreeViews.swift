@@ -95,13 +95,14 @@ final class SidebarPullRequestBadgeView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        let text = count.intrinsicContentSize
+        // The count's frame holds its text and padding (`naturalSize`): the text alone clipped it.
+        let text = count.naturalSize
         return NSSize(width: ceil(Self.glyphSize + Metrics.space1 + text.width), height: ceil(max(Self.glyphSize, text.height)))
     }
 
     override func layout() {
         super.layout()
-        let side = Self.glyphSize, text = count.intrinsicContentSize
+        let side = Self.glyphSize, text = count.naturalSize
         glyph.frame = NSRect(x: 0, y: (bounds.height - side) / 2, width: side, height: side)
         count.frame = NSRect(x: side + Metrics.space1, y: (bounds.height - text.height) / 2, width: ceil(text.width), height: ceil(text.height))
     }

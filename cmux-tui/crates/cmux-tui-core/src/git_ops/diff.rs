@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
 use crate::resource::ResourceError;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.diff";
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
@@ -38,6 +39,7 @@ struct ChangedFile {
     deletions: u64,
     binary: bool,
     patch: Option<String>,
+    blob_fingerprint: Option<String>,
     patch_truncated: bool,
 }
 
@@ -51,6 +53,7 @@ impl ChangedFile {
             deletions: 0,
             binary: false,
             patch: None,
+            blob_fingerprint: None,
             patch_truncated: false,
         }
     }
@@ -67,16 +70,19 @@ impl ChangedFile {
             "deletions":clamp(self.deletions),
         });
         if let Some(previous_path) = &self.previous_path {
-            value["previous_path"] = json!(previous_path);
+            value.set("previous_path", json!(previous_path));
         }
         if self.binary {
-            value["binary"] = json!(true);
+            value.set("binary", json!(true));
         }
         if let Some(patch) = &self.patch {
-            value["patch"] = json!(patch);
+            value.set("patch", json!(patch));
+        }
+        if let Some(fingerprint) = &self.blob_fingerprint {
+            value.set("blob_fingerprint", json!(fingerprint));
         }
         if self.patch_truncated {
-            value["patch_truncated"] = json!(true);
+            value.set("patch_truncated", json!(true));
         }
         value
     }
@@ -90,7 +96,7 @@ pub(super) fn read(
     pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;
     let mut value = report(repository, &comparison, OPERATION, fields)?;
-    value["scope"] = json!(scope);
+    value.set("scope", json!(scope));
     Ok(value)
 }
 
@@ -151,7 +157,7 @@ fn report(
     files.truncate(max_files);
     let files_omitted = total_files - files.len();
     let wants_patch = include_patch && comparison.revisions.is_some();
-    if wants_patch && files.iter().any(ChangedFile::has_patch) {
+    if wants_patch && files.iter().any(|file| file.status != "untracked") {
         let batches = if files_omitted == 0 {
             // Every file is returned: the request's own paths select them.
             vec![paths]
@@ -171,13 +177,13 @@ fn report(
         "files_omitted":clamp(files_omitted as u64),
     });
     if let Some(head) = &comparison.head {
-        value["head"] = json!(head);
+        value.set("head", json!(head));
     }
     if let Some(base) = &comparison.base {
-        value["base"] = json!(base);
+        value.set("base", json!(base));
     }
     if untracked_skipped > 0 {
-        value["untracked_skipped"] = json!(clamp(untracked_skipped as u64));
+        value.set("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
     Ok(value)
 }
@@ -276,9 +282,16 @@ fn attach_patches(
             incomplete = true;
             break;
         }
-        let arguments = diff_args(comparison, &["--patch", &unified], batch);
+        let arguments = diff_args(comparison, &["--patch", "--full-index", &unified], batch);
         let output = git(repository, operation, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
         let sections = parse::patches(&output.stdout);
+        let fingerprints =
+            parse::blob_fingerprints(&output.stdout).into_iter().collect::<HashMap<_, _>>();
+        for file in files.iter_mut().filter(|file| file.status != "untracked") {
+            if let Some(fingerprint) = fingerprints.get(&file.path) {
+                file.blob_fingerprint = Some(fingerprint.clone());
+            }
+        }
         if output.truncated {
             incomplete = true;
             cut.extend(sections.last().map(|(path, _)| path.clone()));
@@ -306,7 +319,7 @@ fn attach_patches(
 fn returned_paths(files: &[ChangedFile]) -> Vec<String> {
     files
         .iter()
-        .filter(|file| file.has_patch())
+        .filter(|file| file.status != "untracked")
         .flat_map(|file| std::iter::once(file.path.clone()).chain(file.previous_path.clone()))
         .collect()
 }

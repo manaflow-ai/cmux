@@ -131,7 +131,7 @@ struct ContextMenuShapeTests {
             }
         }
         let more = try #require(submenu("More", in: rows(.workspaceRow)))
-        for id: ActionID in ["workspace.copyPath", "revealWorkspaceInFinder", "palette.closeOtherWorkspaces", "workspace.newAbove"] {
+        for id: ActionID in ["palette.closeOtherWorkspaces", "workspace.newAbove"] {
             #expect(more.contains { $0.id == id }, "\(id) is a row of More itself")
         }
     }

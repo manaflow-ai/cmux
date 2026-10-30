@@ -144,6 +144,26 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
+            // Chief zoom: Cmd-= (and Cmd-+), Cmd-- and Cmd-0 on Home (KeyBindingDefaults.scopedDefaults) step
+            // the Agent Chat Zoom setting (`agentPane.zoom`), which the Chief transcript follows like an agent chat.
+            ActionDescriptor(
+                id: "home.zoomIn", title: t("action.home.zoomIn", "Chief: Zoom In"),
+                keywords: ["home", "chief", "chat", "zoom", "bigger", "text size", "font"],
+                category: .window, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomOut", title: t("action.home.zoomOut", "Chief: Zoom Out"),
+                keywords: ["home", "chief", "chat", "zoom", "smaller", "text size", "font"],
+                category: .window, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomReset", title: t("action.home.zoomReset", "Chief: Actual Size"),
+                keywords: ["home", "chief", "chat", "zoom", "reset", "actual size", "text size"],
+                category: .window, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;
@@ -328,6 +348,23 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home pin-unpin",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // A chat's own bubble and text colours (user 2026-10-28): the row's Chat Colors… and the
+            // palette open the picker; `cmux chat colors --conversation <id> --sent "#34C759"` sets one
+            // (`default` clears a role, `--reset` clears them all). Looks only, kept on this Mac.
+            ActionDescriptor(
+                id: "home.chatColors", title: t("action.home.chatColors", "Chat Colors…"),
+                keywords: ["home", "chat", "colors", "colours", "bubble", "text", "background", "theme", "imessage", "conversation"],
+                category: .window, symbol: "paintpalette", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            Self.color("sent", t("argument.home.chatColors.sent", "My Bubble Color")),
+                            Self.color("sentText", t("argument.home.chatColors.sentText", "My Text Color")),
+                            Self.color("received", t("argument.home.chatColors.received", "Their Bubble Color")),
+                            Self.color("receivedText", t("argument.home.chatColors.receivedText", "Their Text Color")),
+                            ActionArgument(name: "reset", title: t("argument.home.chatColors.reset", "Reset to Default"), kind: .bool,
+                                           isRequired: false)],
+                cliName: "chat colors",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
@@ -367,6 +404,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
                                            ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
                        isRequired: isRequired)
+    }
+
+    /// One bubble colour of `home.chatColors`: `#RRGGBB`, or `default` for the default for every chat.
+    private static func color(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .string, isRequired: false)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.

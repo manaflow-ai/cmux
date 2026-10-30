@@ -1508,3 +1508,26 @@ fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     assert_eq!(rerun["state"], "ok", "{rerun}");
     assert_eq!(app.settings_sets().len(), 1, "the rerun showed a second sheet");
 }
+
+/// A decision recorded under another spelling of the folder (made before the folder moved behind
+/// a link) is the folder's own: setup reads it as acpmux does, and `--level unknown` forgets it.
+#[test]
+fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
+    let world = World::new("trust-spelling");
+    let folder = world.folder();
+    let link = world.home.parent().unwrap().join("spelled-through-a-link");
+    std::os::unix::fs::symlink(&folder, &link).unwrap();
+    let old = link.to_string_lossy().into_owned();
+    std::fs::create_dir_all(&world.acpmux).unwrap();
+    std::fs::write(world.acpmux.join("trust.json"), json!({old.as_str(): "untrusted"}).to_string())
+        .unwrap();
+
+    let held = world.json(&["setup", "trust", &folder, "--level", "untrusted"]);
+    assert_eq!(held["state"], "ok", "{held}");
+    assert_eq!(held["recorded"], "untrusted", "{held}");
+
+    let forgot = world.json(&["setup", "trust", &folder, "--level", "unknown"]);
+    assert_eq!(forgot["state"], "changed", "{forgot}");
+    assert_eq!(forgot["after"]["level"], "unknown", "{forgot}");
+    assert_eq!(world.record(), Some(json!({})));
+}

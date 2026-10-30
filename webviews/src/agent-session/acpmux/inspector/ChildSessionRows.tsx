@@ -5,8 +5,12 @@
 // subagent lines instead (SubagentsSection.tsx, with `sessionStatus` and `sessionStateLabel`). A chat icon, its title and
 // its live state in words. Waiting on the person first, then running, failed and idle
 // (`orderedSessions`). A row opens that chat.
-import { useT, type StringKey } from "../i18n";
-import { Icon } from "../icons/Icon";
+import { useT, type StringKey, type Translate } from "../i18n";
+import { Spinner } from "../conversation/icons";
+import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { AgentMark } from "../../shared/AgentMark";
+import { agentTone } from "../subagents/agentTones";
+import { TonedIcon } from "../subagents/TonedIcon";
 import { rowIconSize } from "../icons/iconSize";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
@@ -22,11 +26,25 @@ const SESSION_STATE: Record<StartedState, { word: StringKey; status: SubagentSta
   idle: { word: "subagents.state.completed", status: "done" },
 };
 
-/// A started chat's status as a subagent's reads, for the counts and the Active and Done lists.
-export const sessionStatus = (child: StartedSession): SubagentStatus => SESSION_STATE[child.state].status;
+/// The retry acpmux waits to run for a started chat's failed turn (retryState.ts ``sessionRetry``).
+const retryOf = (child: StartedSession) => {
+  const phase = sessionRetry(child);
+  return phase.kind === "retrying" ? phase.retry : undefined;
+};
 
-/// A started chat's state in words ("Running", "Done"), as its row says it.
-export const sessionStateLabel = (child: StartedSession): StringKey => SESSION_STATE[child.state].word;
+/// A started chat's status as a subagent's reads, for the counts and the Active and Done lists: one
+/// acpmux retries is running again.
+export const sessionStatus = (child: StartedSession): SubagentStatus =>
+  retryOf(child) ? "running" : SESSION_STATE[child.state].status;
+
+/// A started chat's state in words ("Running", "Done", "Retrying (2/4) after a capacity error"), as
+/// its row says it, and whether it works (the turning ring) while acpmux retries it.
+export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
+  const retry = retryOf(child);
+  return retry
+    ? { text: retryLabel(t, retry), working: true }
+    : { text: t(SESSION_STATE[child.state].word), working: false };
+}
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,
 /// each newest first.
@@ -48,23 +66,37 @@ export function ChildSessionRows({
   return (
     <>
       {orderedSessions(sessions).map((child) => {
-        const state = SESSION_STATE[child.state];
+        const status = sessionStatus(child);
+        const label = sessionStateText(t, child);
         return (
           <li key={child.sessionId}>
             <button
               type="button"
               className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-summary-session"
-              data-status={state.status}
+              data-status={status}
               disabled={!onOpen}
               onClick={() => onOpen?.(child.sessionId)}
             >
-              <span className="acpmux-lineage__icon" data-state={state.status}>
-                <Icon name="agent.chat" size={ROW_ICON} row />
+              {/* Its harness's mark, else the chat icon in its own stable tone (Leo, 2026-10-29: "all of
+                  these icons that are literally all the same icon, that's terrible"). */}
+              <span className="acpmux-lineage__icon" data-state={status}>
+                {child.harness ? (
+                  <AgentMark
+                    agent={child.harness}
+                    size={ROW_ICON}
+                    fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />}
+                  />
+                ) : (
+                  <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />
+                )}
               </span>
               <span className="acpmux-summary-text">
                 <span className="acpmux-summary-agent__name">{child.title}</span>
               </span>
-              <span className="acpmux-summary-meta acpmux-summary-agent__state">{t(state.word)}</span>
+              <span className="acpmux-summary-meta acpmux-summary-agent__state">
+                {label.working && <Spinner size={ROW_ICON} loading />}
+                {label.text}
+              </span>
             </button>
           </li>
         );

@@ -7,11 +7,19 @@ import Testing
 @Suite struct ActionContractTests {
     let catalog = ActionCatalog.all
 
+    /// `remote.openRemote` is a top-level verb from #25092; rename to a
+    /// noun-verb form (e.g. `remote open`) when its owner next touches it.
+    static let topLevelVerbs: [ActionID: String] = ["remote.openRemote": "open-remote"]
+
     @Test func everyActionHasAUniqueNounVerbCLIName() {
         var seen: [String: ActionID] = [:]
         for descriptor in catalog {
             let parts = descriptor.cliName.split(separator: " ")
-            #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
+            if let verb = Self.topLevelVerbs[descriptor.id] {
+                #expect(descriptor.cliName == verb, "\(descriptor.id): \(descriptor.cliName)")
+            } else {
+                #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
+            }
             #expect(descriptor.cliName == descriptor.cliName.lowercased(), "\(descriptor.id)")
             if let other = seen[descriptor.cliName] {
                 Issue.record("cliName \(descriptor.cliName) used by \(other) and \(descriptor.id)")
@@ -46,6 +54,7 @@ import Testing
                 "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.deleteChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
+                "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",

@@ -7,7 +7,7 @@
 // wheelPassThrough.ts)
 //
 // One chat with every part the stack can show at once: a question waiting for an answer (the asks
-// stack), the pull request dock (three PRs), an error card (the chat menu's Edit CLAUDE.md, which
+// stack), three inline pull request pills, an error card (the chat menu's Edit CLAUDE.md, which
 // the browser host refuses), the tray of running work (two subagents), the queued prompts and the
 // composer's card; then the dictation notice in the error card's place (the mic, which the browser
 // host refuses too). The page is the pane's dev entry with its browser host, talking JSON-RPC to a
@@ -220,16 +220,6 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
     expect({ name, surfaceScrolls: Math.abs(over) >= 2 }).toEqual({ name, surfaceScrolls: false });
   }
 
-  /// The wheel at (`x`, `y`), in the empty room of a band beside what it holds, scrolls the transcript,
-  /// and the pointer there reaches the band, never a row hidden under the stack.
-  async function expectEmptyRoom(page: Page, name: string, part: string, x: number, y: number) {
-    expect({ name, reach: await reaches(page, x, y, part) }).toEqual({ name, reach: "band" });
-    const up = await wheelAt(page, x, y, -300);
-    expect({ name, scrollsUp: up < -100 }).toEqual({ name, scrollsUp: true });
-    const down = await wheelAt(page, x, y, 300);
-    expect({ name, scrollsDown: down > 100 }).toEqual({ name, scrollsDown: true });
-  }
-
   /// A part that is its own box in the stack, inset by its margin (`part`): the stack's gutter beside
   /// it reaches the transcript and the wheel there scrolls it; the box takes the pointer, and the
   /// wheel over it moves the transcript not at all.
@@ -260,6 +250,29 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
 
   for (const [name] of engines) {
     describe(name, () => {
+      test("inline PR links are in the transcript and wheel over them scrolls the transcript", async () => {
+        current = browsers.get(name);
+        const page = await open();
+        try {
+          expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
+          const links = page.locator(".acpmux-scroll .acpmux-pr-dock").first();
+          const link = links.locator(".acpmux-pr-dock__bar").first();
+          await link.scrollIntoViewIfNeeded();
+          const box = (await link.boundingBox())!;
+          const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+          expect(
+            await link.evaluate(
+              (node, point) => document.elementFromPoint(point.x, point.y)?.closest("a") === node,
+              point,
+            ),
+          ).toBe(true);
+          const moved = await wheelAt(page, point.x, point.y, -300);
+          expect(moved).toBeLessThan(-100);
+        } finally {
+          await page.close();
+        }
+      });
+
       test("the gutter beside every part of the stack scrolls the transcript, and the part keeps the pointer", async () => {
         current = browsers.get(name);
         const page = await open();
@@ -275,16 +288,9 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
             .filter((part) => part.getBoundingClientRect().height > 0)
             .map((part) => part.classList[0]),
         );
-        expect(shown).toEqual([
-          "acpmux-permission",
-          "acpmux-pr-dock",
-          "acpmux-host-error",
-          "acpmux-running-tray",
-          "acpmux-composer",
-        ]);
+        expect(shown).toEqual(["acpmux-permission", "acpmux-host-error", "acpmux-running-tray", "acpmux-composer"]);
 
         await expectGutter(page, "question", ".acpmux-asks-stack", ".acpmux-asks-stack > *");
-        await expectGutter(page, "pull requests", ".acpmux-pr-dock", ".acpmux-pr-dock > *");
         await expectGutter(
           page,
           "error card",
@@ -299,10 +305,6 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
           "transcript",
         );
         await expectGutter(page, "card", ".acpmux-composer", ".acpmux-composer > .acpmux-composer-box", "transcript");
-
-        // The empty room right of a pull request's chip.
-        const chip = (await page.locator(".acpmux-pr-dock__chip").first().boundingBox())!;
-        await expectEmptyRoom(page, "right of a chip", ".acpmux-pr-dock", chip.x + chip.width + 16, chip.y + 13);
 
         // The tray of running work is its own box, inset by its margin: beside it is the stack's own
         // gutter, which passes through as the composer's does, and the tray takes the pointer.
@@ -319,37 +321,22 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         await page.close();
       });
 
-      // In a short pane the pull request dock and the question card give up height and scroll inside
-      // it: the wheel over their rows scrolls only them, and their scrollbar, at the band's edge,
-      // takes the pointer (so it can be dragged).
-      test("a part that scrolls in a short pane scrolls under the wheel alone, and its scrollbar takes the pointer", async () => {
+      // In a short pane the question card gives up height; its rows keep the pointer. PR links
+      // are inline transcript content, covered separately below, and reserve no bottom-stack box.
+      test("a question in a short pane keeps the pointer and does not scroll the transcript", async () => {
         current = browsers.get(name);
         const page = await open(440);
-        const lists = await page.evaluate(() =>
-          [".acpmux-pr-dock", ".acpmux-asks-stack"].filter((selector) => {
-            const list = document.querySelector<HTMLElement>(`.acpmux-main > .acpmux-dock > ${selector}`)!;
-            return list.scrollHeight > list.clientHeight + 4;
-          }),
-        );
-        expect(lists).toContain(".acpmux-pr-dock");
+        const lists = [".acpmux-asks-stack"];
+        await page.locator(".acpmux-dock > .acpmux-asks-stack").waitFor();
+        expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
         for (const list of lists) {
           const band = (await page.locator(`.acpmux-dock > ${list}`).boundingBox())!;
           const y = band.y + band.height / 2;
-          // The list's scroll, or a scroller inside it (the permission panel's own).
-          const listTop = () =>
-            page.evaluate((list) => {
-              const band = document.querySelector<HTMLElement>(`.acpmux-dock > ${list}`)!;
-              return [band, ...band.querySelectorAll<HTMLElement>("*")].reduce((sum, node) => sum + node.scrollTop, 0);
-            }, list);
           // Over its rows, a little in from the card's leading edge.
           const row = (await page.locator(`.acpmux-dock > ${list} > *`).first().boundingBox())!;
-          const before = await listTop();
           const moved = await wheelAt(page, row.x + 12, y, 60);
           expect({ list, transcript: Math.abs(moved) < 2 }).toEqual({ list, transcript: true });
-          // The pull request dock scrolls under it. The question card's own scrolling is not this
-          // file's: the wheel over its rows moves neither it nor the transcript today, as on base.
-          if (list === ".acpmux-pr-dock")
-            expect({ list, scrolled: (await listTop()) > before }).toEqual({ list, scrolled: true });
+          // The question may scroll within its own short card; it must not scroll the transcript.
           expect({ list, scrollbar: await reaches(page, band.x + band.width - 3, y, list) }).toEqual({
             list,
             scrollbar: "band",

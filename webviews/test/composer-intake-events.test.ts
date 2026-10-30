@@ -91,3 +91,48 @@ test("a failed upload fails each file it held, with the host's reason", async ()
   );
   expect(failed).toEqual([[0, { text: "The disk is full." }]]);
 });
+
+// Review (Codex): an image is a chip as soon as its preview is made, while its original still
+// uploads; removing that chip stops the upload (the intake's `cancelled` asks per file).
+test("an image whose chip is gone stops its original's upload", async () => {
+  imageEngine();
+  let removed = false;
+  const chunks: string[] = [];
+  const host = async (method: string, params: Record<string, unknown>) => {
+    if (method === "chat.upload.begin") return { token: params.name, size: params.size, chunkSize: 512 * 1024 };
+    if (method === "chat.upload.chunk") {
+      chunks.push(params.token as string);
+      if (chunks.length === 2) removed = true;
+      return { offset: (params.offset as number) + atob(params.data as string).length };
+    }
+    if (method === "chat.upload.finish") return { path: `/tmp/${String(params.token)}` };
+    return null;
+  };
+  const { uploadToMachine } = await import("../src/agent-session/acpmux/cloudUploads");
+  const big = new File([new Uint8Array(8 * 1024 * 1024)], "shot.png", { type: "image/png" });
+  const originals: string[] = [];
+  await intakeFiles(
+    [big],
+    {
+      allowImages: true,
+      upload: (files, cancelled) => uploadToMachine(files, host, cancelled),
+      // As useAttachmentIntake asks: the file is a chip, and that chip is no longer staged.
+      cancelled: () => removed,
+    },
+    { original: (_index, path) => originals.push(path) },
+  );
+  expect(chunks.length).toBe(2);
+  expect(originals).toEqual([]);
+});
+
+// Review (Codex): the strip shows the chat on screen. A chip pasted in chat A is out of view, not
+// removed, while B is shown, so A's image keeps uploading its original.
+test("an image's chip counts as removed only from the strip of the chat it was pasted in", async () => {
+  const { chipRemoved } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const base = { chip: "img", stagedHere: true, everDrawn: true, pastedIn: "A", showing: "A", strip: [] };
+  expect(chipRemoved(base)).toBe(true);
+  expect(chipRemoved({ ...base, showing: "B" })).toBe(false);
+  expect(chipRemoved({ ...base, everDrawn: false })).toBe(false);
+  expect(chipRemoved({ ...base, stagedHere: false })).toBe(false);
+  expect(chipRemoved({ ...base, strip: [{ id: "img" } as never] })).toBe(false);
+});

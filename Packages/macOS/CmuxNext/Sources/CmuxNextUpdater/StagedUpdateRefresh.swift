@@ -35,9 +35,6 @@ final class StagedUpdateRefresh {
     var replaceable: (() -> Bool)?
     /// Starts the check that stages the newer build; nil runs the driver's ``UpdateController/checkForUpdates()``.
     var startCheck: (() -> Void)?
-    /// How long a fresh update that lists no deltas waits for them before a scheduled swap; nil reads
-    /// the driver's ``UpdateController/pendingDeltaWindow``.
-    var deltaWindow: TimeInterval?
     /// `updates.checkAutomatically` and `updates.checkIntervalSeconds` (``reschedule(automatic:interval:updater:)``).
     private(set) var schedule: (automatic: Bool, interval: TimeInterval) = (true, 3600)
     /// The probe in flight, if any, the ring pick it reads (``ringMoved()``) and whether the person asked for it.
@@ -171,10 +168,11 @@ final class StagedUpdateRefresh {
 
     /// Probes the ring for a build newer than the staged one, and swaps it in. Joins a probe in
     /// flight (one of another ring is read again when it ends); nil when nothing waits that this
-    /// app can replace (then nothing is read).
+    /// app can replace (then nothing is read). `asked` overrides whether the person asked (the reason
+    /// is not "scheduled check"); the release push passes false, so nothing answers on screen.
     @discardableResult
-    func run(reason: String, updater: UpdaterService) -> Task<Void, Never>? {
-        let asked = reason != "scheduled check"
+    func run(reason: String, asked: Bool? = nil, updater: UpdaterService) -> Task<Void, Never>? {
+        let asked = asked ?? (reason != "scheduled check")
         if let task {
             if asked { probing?.asked = true }
             return task
@@ -239,13 +237,6 @@ final class StagedUpdateRefresh {
         guard case .updateAvailable(let item)? = updater.lastProbe?.outcome,
               AppcastSelector.isOlder(staged, than: item.version) else {
             updater.log.append("staged build \(staged) is the newest \(updater.ring.rawValue) build")
-            return nil
-        }
-        // As Sparkle's scheduled check does (PendingDeltaWait), a scheduled swap waits for the deltas
-        // nightly-next lists minutes after a build's full archive; the next probe is an interval later.
-        if !asked, !item.listsDeltas, let window = deltaWindow ?? updater.controller?.pendingDeltaWindow,
-           let date = item.date, abs(updater.now().timeIntervalSince(date)) < window {
-            updater.log.append("build \(item.version) lists no deltas yet: the next scheduled check takes it")
             return nil
         }
         return item.version

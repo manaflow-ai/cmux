@@ -5,22 +5,21 @@
 // with no delay; a click scrolls on cubic-bezier(0.35, 0.05, 0, 1) for about 400 ms and lands the
 // prompt's bubble 35 px below the transcript's top; its bubble's highlight runs 1400 ms. Under
 // Reduce Motion none of them animate.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
-  try {
-    await (await webkit.launch({ headless: true })).close();
-  } catch {
-    console.warn("thread-minimap-motion: skipping (run `bunx playwright install webkit`)");
-    describe.skip("thread minimap motion", () => test("webkit", () => {}));
-    return;
-  }
+  // The probe gets 30 s, not Playwright's 180 s default, which is longer than the runner's 120 s per-file
+  // limit (run-webviews-tests.sh). On the fleet's aws Macs, where steps run over SSH as ec2-user, WebKit
+  // never answers its launch (Chromium starts there in 300 ms). The default made the runner kill the
+  // file before its skip could run (TIMEOUT on aws-m4pro-3 and -6, 2026-10-22). Where the lane is
+  // required (GitHub Actions), a WebKit that does not launch fails the file instead (probeEngineOrSkip).
+  if (!(await probeEngineOrSkip("thread minimap motion", "webkit", webkit))) return;
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;

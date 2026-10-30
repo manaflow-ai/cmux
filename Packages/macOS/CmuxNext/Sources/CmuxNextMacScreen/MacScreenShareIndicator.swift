@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 
 /// The menu bar item shown while a device sees or controls this Mac: visible
 /// from every app. It names who and how (a device hub session) and offers
@@ -45,7 +46,8 @@ final class MacScreenShareIndicator: NSObject {
 
     private func rebuild() {
         guard let item else { return }
-        item.button?.toolTip = title
+        // Who sees or controls this Mac, on hover too: a themed tip, never the stock bubble.
+        item.button?.themedToolTip = title
         item.button?.image?.accessibilityDescription = title
         let menu = NSMenu()
         let heading = NSMenuItem(title: title, action: nil, keyEquivalent: "")

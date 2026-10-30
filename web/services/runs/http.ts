@@ -24,11 +24,50 @@ import {
 import { encodeRunCursor, type RunCursor } from "./model";
 import { RuntimeAttemptConflictError } from "../vms/runtimeRepository";
 
+/** A client supplied an invalid Run request; keep it in the shared error envelope. */
+export class RunRequestError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly action: string;
+  readonly extra?: Record<string, unknown>;
+
+  constructor(code: string, message: string, action: string, status = 400, extra?: Record<string, unknown>) {
+    super(message);
+    this.name = "RunRequestError";
+    this.code = code;
+    this.status = status;
+    this.action = action;
+    this.extra = extra;
+  }
+}
+
+/** User sign-in cannot authorize a worker: retain that distinction in recovery guidance. */
+export class RunUnauthorizedError extends RunRequestError {
+  constructor() {
+    super("unauthorized", "This Run attempt request is missing a valid worker credential.",
+      "Retry with the worker token issued for this attempt. To view your runs, sign in with `cmux cloud sign-in`; user sign-in does not authorize worker requests.", 401);
+  }
+}
+
 export function runJson(data: unknown, status = 200): Response {
   return jsonResponse(data, status);
 }
 
 export function runError(error: unknown): Response {
+  if (error instanceof RunRequestError) {
+    return vmErrorResponse({
+      error: error.code,
+      status: error.status,
+      message: error.message,
+      action: error.action,
+      retryable: false,
+      extra: error.extra,
+    });
+  }
+  return runServiceError(error);
+}
+
+function runServiceError(error: unknown): Response {
   if (error instanceof RunNotFoundError || error instanceof RunAttemptNotFoundError) {
     return vmErrorResponse({ error: "run_not_found", status: 404, message: "The requested run was not found.", action: "Refresh the run list and retry." });
   }
