@@ -162,6 +162,18 @@ struct PersonalGroupLife {
         let life = self
         commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
     }
+
+    /// Reconciles a group after a close event reaches the home store.
+    func deleteWhenEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
+        let life = self
+        Task { @MainActor in
+            if !life.isEmptyUnpinned(group) {
+                let condition: @MainActor @Sendable () -> Bool = { life.isEmptyUnpinned(group) || life.personal.group(group) == nil }
+                for await done in ObservationStream(condition) where done { break }
+            }
+            life.deleteIfEmpty(group, failed: failed)
+        }
+    }
 }
 
 /// One window's group name editors (cx-rcby): the group whose editor opens

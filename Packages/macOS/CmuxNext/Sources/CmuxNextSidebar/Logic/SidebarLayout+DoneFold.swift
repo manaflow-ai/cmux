@@ -74,7 +74,7 @@ nonisolated extension SidebarLayout {
 
     /// Finished agent chats (done, failed, or lost) and workspaces explicitly marked Done settle into the
     /// collapsed fold. Waiting and red-CI chats remain in place so they stay visible to the person.
-    private static func isFinished(_ workspace: SidebarWorkspace) -> Bool {
+    static func isFinished(_ workspace: SidebarWorkspace) -> Bool {
         if workspace.taskStatus == .done { return true }
         switch workspace.agentChip {
         case .done?, .failed?, .lost?: return true

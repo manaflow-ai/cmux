@@ -123,6 +123,15 @@ import Testing
         #expect(!model.patchWorkspaces([Self.ws("c", chip: .failed)]))
     }
 
+    @Test func aGroupWithFinishedAgentChatsIsNotSpliced() throws {
+        let o = Self.options()
+        let group = SidebarGroup(id: GroupID("g"), name: "G", color: .green,
+                                 workspaces: [Self.ws("failed", chip: .failed), Self.ws("live")])
+        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: [.group(group)])]
+        let shown = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
+        #expect(shown.folding(group, collapsed: true, in: sections[0], metrics: .standard, options: o) == nil)
+    }
+
     @Test func markingDoneMovesTheRow() {
         let model = SidebarModel(sections: Self.sections())
         TunableStore.shared.activate(file: nil)

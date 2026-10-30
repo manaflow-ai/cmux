@@ -42,11 +42,7 @@ enum WorkspaceGroupClose {
         // allowing the close events to settle.
         if services.machines.local.store.personal.isLoaded {
             let life = PersonalGroupLife(machines: services.machines), id = group.id
-            Task { @MainActor in
-                let empty: @MainActor @Sendable () -> Bool = { life.isEmptyUnpinned(id) }
-                if !empty() { await ObservationDeadline(owner: "workspace-group-close-prune").until(empty, limit: .seconds(5)) }
-                life.deleteIfEmpty(id, failed: { sidebar.resync() })
-            }
+            life.deleteWhenEmpty(id, failed: { sidebar.resync() })
         }
         guard invocation.origin == .user, !names.isEmpty,
               let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
