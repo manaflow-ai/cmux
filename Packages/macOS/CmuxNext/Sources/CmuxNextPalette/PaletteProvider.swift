@@ -16,12 +16,16 @@ public protocol PaletteProvider: AnyObject {
     /// Cached rows draw immediately while this provider refreshes their state.
     var refreshesOnOpen: Bool { get }
     func items() async -> [PaletteItem]
+    /// Items over time, for a source that shows a first list and a fuller one later (a notice
+    /// row while a slow source answers, then its rows). Nil: `items()` once.
+    func itemUpdates() -> AsyncStream<[PaletteItem]>?
 }
 
 extension PaletteProvider {
     public var showsItemsForEmptyQuery: Bool { true }
     public var immediateItems: [PaletteItem]? { nil }
     public var refreshesOnOpen: Bool { false }
+    public func itemUpdates() -> AsyncStream<[PaletteItem]>? { nil }
 }
 
 /// A provider over a fixed item list (extensions, tests, custom actions).
@@ -52,6 +56,7 @@ public final class AsyncPaletteProvider: PaletteProvider {
     public let immediateItems: [PaletteItem]?
     public var refreshesOnOpen: Bool { immediateItems != nil }
     private let load: @MainActor () async -> [PaletteItem]
+    private let updates: (@MainActor () -> AsyncStream<[PaletteItem]>)?
 
     public init(id: String, showsItemsForEmptyQuery: Bool = true, immediateItems: [PaletteItem]? = nil,
                 load: @escaping @MainActor () async -> [PaletteItem]) {
@@ -59,7 +64,30 @@ public final class AsyncPaletteProvider: PaletteProvider {
         self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
         self.immediateItems = immediateItems
         self.load = load
+        self.updates = nil
     }
+
+    /// A provider whose items come over time (``PaletteProvider/itemUpdates()``); `items()` is the last list.
+    public static func streaming(id: String, showsItemsForEmptyQuery: Bool = true, immediateItems: [PaletteItem]? = nil,
+                                 updates: @escaping @MainActor () -> AsyncStream<[PaletteItem]>) -> AsyncPaletteProvider {
+        AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, immediateItems: immediateItems,
+                             streaming: updates)
+    }
+
+    private init(id: String, showsItemsForEmptyQuery: Bool, immediateItems: [PaletteItem]?,
+                 streaming updates: @escaping @MainActor () -> AsyncStream<[PaletteItem]>) {
+        self.id = id
+        self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
+        self.immediateItems = immediateItems
+        self.updates = updates
+        self.load = {
+            var last: [PaletteItem] = []
+            for await items in updates() { last = items }
+            return last
+        }
+    }
+
+    public func itemUpdates() -> AsyncStream<[PaletteItem]>? { updates?() }
 
     // A palette reset (Cmd-Shift-P reopen) can release this inside an
     // action's task-local scope or from a search task; teardown must not

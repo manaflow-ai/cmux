@@ -259,14 +259,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func chatPeers() async throws -> [AgentChatPeer] {
         // Validate the app's daemon/home just as a composer handshake does. Listing never
         // starts another daemon; the tab store already prewarms its own host.
-        // A list for a picker: this caller stops waiting after 2 s, the status deadline it had before
-        // #28083, so a slow acpmux does not hold the palette's or the CLI's destinations (Cloud
-        // machines come after this list). It is the caller's own bound only: the shared lookup goes
-        // on for the panes that wait on it, and nothing decides the daemon is dead. Past it the
-        // list throws and the picker shows this Mac and the Cloud machines.
-        _ = try await withAgentPaneDeadline(.seconds(2), label: "acpmux lookup for chat peers") {
-            try await self.endpoint(startsDaemon: false)
-        }
+        // Waits for the lookup like a pane; a picker shows that the other Macs are not loaded yet
+        // while it waits (AgentChatDestinations.updates), and the caller's cancel ends this wait.
+        _ = try await endpoint(startsDaemon: false)
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
     }
