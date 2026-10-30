@@ -54,6 +54,16 @@ jobs:
           CI_NEEDS: ${{{{ toJSON(needs) }}}}
         run: python3 -c 'import os; print(os.environ["CI_NEEDS"])'
 """
+CI_STATUS_SCRIPT = """python3 -c 'import os; print(os.environ["CI_NEEDS"])'"""
+
+
+def rollup_log(job, script, *output):
+    """A rollup's log: the runner's lines, its step's echoed script and env (a group), what it printed, its exit."""
+    first = script.strip().splitlines()[0]
+    return log(job, "Set up job", "Current runner version: '2.338.1'", "Runner name: 'runner-abc'") + "\n" + log(
+        job, "Report", f"##[group]Run {first}", *(f"\x1b[36;1m{line}\x1b[0m" for line in script.strip().splitlines()),
+        "env:", "  NEEDS: {", ' "a": {"result": "failure"}', "}", "##[endgroup]", *output,
+        "##[error]Process completed with exit code 1.", "Cleaning up orphan processes")
 
 
 class FakeGitHub:
@@ -375,7 +385,7 @@ class Excusing(unittest.TestCase):
             self.gh.jobs[job_id] = {"id": job_id, "run_id": run_id, "head_sha": sha, "name": "ci-status",
                                     "status": "completed", "conclusion": "failure",
                                     "steps": [{"name": "Report", "conclusion": "failure"}]}
-            self.gh.logs[job_id] = log("ci-status", "Report", "##[error]Process completed with exit code 1.")
+            self.gh.logs[job_id] = rollup_log("ci-status", CI_STATUS_SCRIPT, f"{SWIFT}: failure")
         self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
@@ -665,6 +675,11 @@ def unittest_log(job, step, *failures):
     """A unittest run that finished: its failures, the `Ran N tests` line and the verdict."""
     return log(job, step, *failures, "-" * 70, "Ran 12 tests in 0.210s", "",
                f"FAILED (failures={len(failures)})", "##[error]Process completed with exit code 1.")
+GUARD_STATUS_SCRIPT = """python3 - <<'PY'
+import json, os, sys
+needs = json.loads(os.environ["GUARD_NEEDS"])
+sys.exit(any(job["result"] != "success" for job in needs.values()))
+PY"""
 GUARDS_WORKFLOW = """
 jobs:
   tooling-tests:
@@ -733,8 +748,7 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
                         3: guard_status(3, 10, HEAD), 4: guard_status(4, 20, BASE_SHA),
                         5: dict(failed_job(5, 10, HEAD, HISTORY, "Run"), conclusion="success"),
                         6: dict(failed_job(6, 20, BASE_SHA, HISTORY, "Run"), conclusion="success")}
-        status_log = log(GUARD_STATUS, "Check routed guard jobs", "workflow-guard-tests: failure (route linux_guard_tests=true)",
-                         "##[error]Process completed with exit code 1.")
+        status_log = rollup_log(GUARD_STATUS, GUARD_STATUS_SCRIPT, "workflow-guard-tests: failure (route linux_guard_tests=true)")
         self.gh.logs = {1: unittest_log(NOTARY, NOTARY_STEP, NOTARY_FAIL), 2: unittest_log(NOTARY, NOTARY_STEP, NOTARY_FAIL),
                         3: status_log, 4: status_log}
         self.gh.check_runs = [{"check_runs": [
@@ -770,9 +784,30 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
     def test_a_rollup_failing_on_a_verdict_of_its_own_is_not_excused(self):
         # The generated-files verdict's shape: it reads a need's output and fails on it, a red of its own that
         # the base comparison of the jobs under it never sees.
-        self.gh.logs[3] = log(GUARD_STATUS, "Check routed guard jobs",
-                              "##[error]Generated cmux-next files are stale. swift-test's step summary says how")
+        self.gh.logs[3] = rollup_log(GUARD_STATUS, GUARD_STATUS_SCRIPT, "workflow-guard-tests: failure (route linux_guard_tests=true)",
+                                     "##[error]Generated cmux-next files are stale. swift-test's step summary says how")
         with self.assertRaisesRegex(excuse.Refused, f"'{GUARD_STATUS}': errors not on feat-cmux-next run 20.*stale"):
+            self.judge()
+
+    def test_a_required_guard_skipped_only_at_the_head_is_not_excused(self):
+        # The rollup's own diagnostic is plain output, no error line: a skipped job has no failure to compare, so a
+        # base-red job beside it must not carry the rollup.
+        self.gh.jobs[5]["conclusion"] = "skipped"
+        self.gh.logs[3] = rollup_log(GUARD_STATUS, GUARD_STATUS_SCRIPT,
+                                     "workflow-guard-history: skipped (route linux_guard_history=true)",
+                                     "workflow-guard-tests: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, f"'{GUARD_STATUS}': lines it printed not on feat-cmux-next run 20: "
+                                                    "workflow-guard-history: skipped"):
+            self.judge()
+
+    def test_the_runner_and_the_echoed_script_are_not_compared(self):
+        # A different runner, run time and env dump on the base: only what the rollup's step printed counts.
+        self.gh.logs[4] = self.gh.logs[4].replace("runner-abc", "runner-xyz").replace('"failure"', '"skipped"')
+        self.assertIn(f"excused '{GUARD_STATUS}'", "\n".join(self.judge()))
+
+    def test_a_rollup_whose_own_output_is_not_in_its_log_stays_red(self):
+        self.gh.logs[3] = log(GUARD_STATUS, "Report", "workflow-guard-tests: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, "its own steps' output is not in its log"):
             self.judge()
 
     def test_the_same_holds_for_the_whole_red_run(self):

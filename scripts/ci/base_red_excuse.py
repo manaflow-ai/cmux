@@ -31,10 +31,12 @@ A rollup job (ci-status, Guard status, macOS status: a job whose every step only
 has no test or error of its own: its red is the reds of the jobs under it. It is found in the run's workflow
 files at the head, never from a list of names. It is excused only when it has a failed job under it in the same
 run, every one of them is excused above, and the rollup itself is red the same way on the base: red there too, with
-its failed steps and its own error lines among the base's. A step that reads its needs' outputs can fail on a verdict
-of its own (the generated-files verdict), and that red is only the base's when the base printed it too. A rollup
-with nothing failed under it, and one whose workflow cannot be read (then it is judged as an ordinary job, with
-nothing to compare), stays red.
+its failed steps and every line its own steps printed (their diagnostics: "workflow-guard-history: skipped (route
+...)", "Generated cmux-next files are stale") among the base's. A rollup also fails on what no failed job shows: a
+required job that was skipped, a bad route, a verdict read from a need's outputs; those reasons are only the base's
+when the base printed them too. A rollup with nothing failed under it, one whose own output cannot be found in its
+log, and one whose workflow cannot be read (then it is judged as an ordinary job, with nothing to compare), stays
+red.
 """
 from __future__ import annotations
 
@@ -74,6 +76,11 @@ NEEDS_RESULT = re.compile(r"toJSON\(\s*needs\s*\)|\bneeds\.[\w-]+\.result\b|\bne
 EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
 # A reusable workflow in the same repository, read at the same commit; any other `uses:` is opaque.
 LOCAL_WORKFLOW = re.compile(r"\./(\.github/workflows/[^@\s]+\.ya?ml)")
+# A rollup step's output is what follows its `##[group]Run <first line of its script>` header, up to the next step or
+# the runner's own closing lines; the group itself is the echoed script and env, never output.
+STEP_OUTPUT_END = re.compile(r"##\[group\]Run |##\[error\]Process completed with exit code|Post job cleanup\.|"
+                             r"A job completed hook has been configured|Cleaning up orphan processes")
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # GitHub nests reusable workflows at most four deep.
 MAX_WORKFLOW_DEPTH = 4
 # Where the workflow files at a run's head are read from first: this git repository (a mirror or checkout that has the
@@ -227,6 +234,31 @@ def is_rollup(job: dict) -> bool:
                     for step in steps))
 
 
+def step_header(step: dict) -> re.Pattern:
+    """The log's `##[group]Run ...` header of a `run:` step: its script's first line, an expression matching anything."""
+    first = next((line.strip() for line in str(step.get("run") or "").splitlines() if line.strip()), "")
+    return re.compile(r"##\[group\]Run " + ".*".join(re.escape(part) for part in EXPRESSION.split(first)))
+
+
+def step_output(log: str, headers: list[re.Pattern]) -> set[str] | None:
+    """Every line the steps with these headers printed (numbers and commit shas masked, warnings dropped), or None
+    when a header is not in the log: what a rollup's own steps said, to compare with the base's."""
+    lines = [ANSI.sub("", line) for line in lines_of(log)]
+    found: set[str] = set()
+    for header in headers:
+        start = next((at for at, line in enumerate(lines) if header.fullmatch(line)), None)
+        if start is None:
+            return None
+        at = next((at for at in range(start + 1, len(lines)) if lines[at].startswith("##[endgroup]")), len(lines))
+        for line in lines[at + 1:]:
+            if STEP_OUTPUT_END.match(line):
+                break
+            text = line.replace("##[error]", "").strip()
+            if text and not text.startswith(("##[group]", "##[endgroup]")) and not WARNING.search(text):
+                found.add(re.sub(r"\d+", "#", mask_shas(text)))
+    return found
+
+
 def name_pattern(name: str, matrix: bool) -> tuple[str, bool]:
     """(regex, literal) for the run's display name of a job named NAME: an expression matches anything, and a
     matrix job's name may carry its values in parentheses."""
@@ -262,7 +294,8 @@ class Graph:
             matrix = isinstance(strategy, dict) and bool(strategy.get("matrix"))
             regex, literal = name_pattern(str(job.get("name") or key), matrix)
             node = {"id": scope + str(key), "key": str(key), "needs": [scope + str(need) for need in needs],
-                    "rollup": is_rollup(job), "caller": "uses" in job}
+                    "rollup": is_rollup(job), "caller": "uses" in job,
+                    "headers": [step_header(step) for step in job.get("steps") or []] if is_rollup(job) else []}
             if node["caller"]:
                 # Every job of a called workflow shows as "<caller> / <job>".
                 node.update(pattern=re.compile(prefix + regex + " / .+"), literal=False)
@@ -360,6 +393,7 @@ class HeadJobs:
         self.graphs: dict[int, Graph | None] = {}
         # Rollups found among the head's reds: compared with the base as well, minus the need for a test line.
         self.rollups: dict[int, dict] = {}
+        self.rollup_nodes: dict[int, dict] = {}
         # A job brought in by a rollup: the rollup's name, so a refusal says which red it stands for.
         self.parents: dict[int, str] = {}
         self.current: int | None = None  # the job judge_jobs is comparing now
@@ -392,6 +426,7 @@ class HeadJobs:
             self.jobs[job["id"]] = job
             return
         self.rollups[job["id"]] = job
+        self.rollup_nodes[job["id"]] = node
         patterns = graph.under(node)
         under = [found for found in self.jobs_of(job["run_id"])
                  if found["id"] != job["id"] and failed(found)
@@ -421,8 +456,9 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, n
             head.add(job_for(repo, latest[name], sha, github))
     if notes is not None:
         notes.extend(head.notes)
-    # A rollup only gets here with failed jobs under it (add refuses one without), so it is never alone.
-    return list(head.rollups.values()) + list(head.jobs.values())
+    # A rollup only gets here with failed jobs under it (add refuses one without), so it is never alone. It is judged
+    # after them, so a refusal names the job under it that is not the base's before the rollup's own lines.
+    return list(head.jobs.values()) + list(head.rollups.values())
 
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
@@ -510,6 +546,12 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
+        if job["id"] in reds.rollup_nodes:
+            headers = reds.rollup_nodes[job["id"]]["headers"]
+            said = step_output(head_log, headers)
+            if said is None:
+                raise Refused(f"'{name}': its own steps' output is not in its log; nothing to compare with the base")
+            compared.append(("lines it printed", said, step_output(base_log, headers) or set()))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
