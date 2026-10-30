@@ -327,7 +327,7 @@ impl Hub {
         // A turn past its cap takes no agent's message, so no digest of them (`turn_cap.rs`).
         let steer = session.steering.load(Ordering::SeqCst)
             && session.turn().is_some()
-            && !super::super::turn_cap::past_cap(&session);
+            && !super::super::turn_cap::past_cap(session);
         let digest_id = format!("inbox-digest-{}", uuid::Uuid::now_v7());
         let turn_id = uuid::Uuid::now_v7().to_string();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
