@@ -1,7 +1,7 @@
 import CmuxNextAgentActivity
-import CmuxNextAgentPane
-import CmuxNextWakeups
-import Foundation
+public import CmuxNextAgentPane
+public import CmuxNextWakeups
+public import Foundation
 
 /// The app's connection to acpmux's device-wide chat index. acpmux owns the list (P-RUST,
 /// layer-ownership.md rules 1-3): native lists show windows over it (``AcpmuxChatWindows``: acpmux
@@ -10,13 +10,15 @@ import Foundation
 /// `_acpmux/chat_projects`). This feed holds no chat of the index: an index change reaches the main
 /// actor as a signal for its observers (the projects relay), never as the chat.
 @MainActor
-final class ChatsFeed {
+public final class ChatsFeed {
     /// The windows over the index that native lists show (the sidebar's chat history, the New Tab
     /// page's cards).
-    let windows = AcpmuxChatWindows()
+    public let windows = AcpmuxChatWindows()
     private let socket: String
+    /// Each drain's line count and main-actor time (the App's debug timings).
+    private let drained: @MainActor (Int, Duration) -> Void
     /// The acpmux socket this feed reads (readers that ask acpmux themselves use it).
-    var socketPath: String { socket }
+    public var socketPath: String { socket }
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -27,7 +29,13 @@ final class ChatsFeed {
     private var windowRequests: [Int: String] = [:]
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
 
-    init(socketPath: String) { socket = socketPath }
+    /// - Parameters:
+    ///   - socketPath: acpmux's socket.
+    ///   - drained: Each drain's line count and main-actor time (the App's debug timings).
+    public init(socketPath: String, drained: @escaping @MainActor (Int, Duration) -> Void = { _, _ in }) {
+        socket = socketPath
+        self.drained = drained
+    }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
@@ -39,14 +47,14 @@ final class ChatsFeed {
 
     /// Calls `changed` after each index change (a chat added, changed or removed; not a chat's
     /// activity) while `owner` lives, and starts the one long-lived connection for the first.
-    func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
+    public func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 
     /// Keeps the connection up for the windows while nothing else observes: one idle push
     /// connection, no timers.
-    func keepCurrent() {
+    public func keepCurrent() {
         observe(self) {}
     }
 
@@ -71,7 +79,7 @@ final class ChatsFeed {
     }
 
     /// One decoded line of the connection. None carries a chat of the index.
-    nonisolated enum Message: Sendable, Equatable {
+    public nonisolated enum Message: Sendable, Equatable {
         /// The watch is on (its answer); its page is not read.
         case watching
         /// The index changed: a chat was added, changed or removed.
@@ -83,7 +91,7 @@ final class ChatsFeed {
         /// The daemon dropped a notification or the watch lagged: every window and observer again.
         case lagged
 
-        init?(line: Data) {
+        public init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             if let id = (message["id"] as? NSNumber)?.intValue, id >= 2 {
                 if id == 2, message["result"] is [String: Any] {
@@ -134,7 +142,7 @@ final class ChatsFeed {
     private func apply(_ drain: MainActorLineDrain<Message>, from connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         let started = ContinuousClock.now
-        defer { DebugTimings.chatsFeedApplied(lines: drain.values.count, ContinuousClock.now - started) }
+        defer { drained(drain.values.count, ContinuousClock.now - started) }
         var changed = false
         for message in drain.values {
             switch message {
@@ -215,4 +223,4 @@ final class ChatsFeed {
 }
 
 /// Compatibility for code and extensions that still name the old feed.
-typealias AgentRecentsFeed = ChatsFeed
+public typealias AgentRecentsFeed = ChatsFeed
