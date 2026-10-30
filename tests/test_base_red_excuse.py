@@ -523,15 +523,30 @@ class Excusing(unittest.TestCase):
 
         self.gh.json = json_with_checks
 
-    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+    def red_ci_status(self):
         self.gh.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
                            "conclusion": "failure", "steps": [{"name": "Report", "conclusion": "failure"}]}
         self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+
+    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+        # ci.yml's ci-status needs `macos`, a called workflow: its jobs are 'macos / <job>'.
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
-        self.assertIn(SWIFT, "\n".join(lines))
+        self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
+        # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
+        # ci-status red: its own verdict did. A base-red job outside it must not carry it.
+        self.red_ci_status()
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
     def test_a_red_ci_status_with_no_other_failed_job_blocks(self):
         self.gh.jobs[1]["conclusion"] = "success"
@@ -675,6 +690,41 @@ class Excusing(unittest.TestCase):
         self.gh.base_runs.append({"id": 19, "event": "push", "conclusion": "success"})
         self.assertIn("run 20", "\n".join(self.judge()))
 
+    def contract_with(self, edit):
+        contract = copy.deepcopy(excuse.rollups())
+        edit(contract["routed"]["Guard status"]["routes"])
+        patch = unittest.mock.patch.object(excuse, "_ROLLUPS", contract)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_a_route_the_workflow_adds_is_judged_from_the_contract(self):
+        # A needed job the workflow adds (here workflow-guard-new on linux_guard_new) is read from the contract,
+        # with no list in this script to update.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.contract_with(lambda routes: routes.update(
+            {"workflow-guard-new": {"route": "linux_guard_new", "exact": [], "prefixes": ["workflow-guard-new / "]}}))
+        name = "nightly-guards / Guard status"
+        for job_id, child in ((5, 3), (6, 4)):
+            self.gh.jobs[job_id]["name"] = "nightly-guards / workflow-guard-new / lint"
+            self.gh.logs[child] = log(name, "Check routed guard jobs", "workflow-guard-new: failure (route linux_guard_new=true)")
+        self.assertIn("workflow-guard-new / lint", "\n".join(self.judge_guard()))
+
+    def test_a_route_job_the_contract_does_not_name_is_refused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.contract_with(lambda routes: routes.pop("workflow-guard-tests"))
+        with self.assertRaisesRegex(excuse.Refused, "unknown routed job workflow-guard-tests"):
+            self.judge_guard()
+
+    def test_an_unconditional_job_reported_with_a_route_is_refused(self):
+        # workflow-guard-submodule-forward-only has no `if:`: its report never names a route.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.jobs[5]["name"] = self.gh.jobs[6]["name"] = "nightly-guards / workflow-guard-submodule-forward-only"
+        self.gh.logs[3] = log(name, "Check routed guard jobs",
+                              "workflow-guard-submodule-forward-only: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map"):
+            self.judge_guard()
+
     def test_a_guard_status_does_not_match_an_unrelated_routed_job(self):
         name = "nightly-guards / Guard status"
         head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
@@ -699,6 +749,103 @@ def crashed(job, signal, unfinished, frames, *extra):
                f"##[error]no \"Test run with\" summary line (crash, kill or truncation); {len(unfinished)} tests "
                f"started and never finished: {'; '.join(unfinished)}",
                f"##[error]the test helper died on signal {signal}; crashed thread: {frames}")
+
+
+CI_YML = """
+on: {pull_request: {}}
+jobs:
+  changes: {runs-on: x, steps: []}
+  web: {needs: [changes], uses: ./.github/workflows/ci-web.yml}
+  fast-guards: {name: CI fast guards, runs-on: x, steps: []}
+  outside: {needs: [web], runs-on: x, steps: []}
+  ci-status: {needs: [web, fast-guards], runs-on: x, steps: []}
+"""
+GUARDS_YML = """
+on:
+  workflow_call:
+    inputs:
+      linux_guard_tests: {type: string}
+jobs:
+  workflow-guard-submodule-forward-only: {name: workflow-guard-submodule-forward-only, runs-on: x, steps: []}
+  workflow-guard-tests:
+    if: ${{ inputs.linux_guard_tests == 'true' }}
+    name: workflow-guard-tests / ${{ matrix.group }}
+    strategy: {matrix: {group: [a]}}
+    runs-on: x
+    steps: []
+  guard-status:
+    name: Guard status
+    needs: [workflow-guard-submodule-forward-only, workflow-guard-tests]
+    runs-on: x
+    steps: []
+"""
+
+
+class RollupsFromNeeds(unittest.TestCase):
+    """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
+
+    def derive(self, ci=CI_YML, guards=GUARDS_YML):
+        with tempfile.TemporaryDirectory() as root:
+            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards)):
+                if text is not None:
+                    (Path(root) / file).write_text(text)
+            return excuse.derive_rollups(Path(root))
+
+    def test_the_committed_contract_is_the_workflows(self):
+        import yaml  # noqa: F401,PLC0415 - deriving reads YAML; a host without it must not pass this silently
+        self.assertEqual(json.loads(excuse.ROLLUPS_FILE.read_text()), excuse.derive_rollups(),
+                         "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+
+    def test_needs_are_followed_and_named_as_actions_names_them(self):
+        got = self.derive()
+        self.assertEqual(got["run"]["ci-status"]["under"], {
+            "changes": {"exact": ["changes"], "prefixes": []},
+            "fast-guards": {"exact": ["CI fast guards"], "prefixes": []},
+            "web": {"exact": [], "prefixes": ["web / "]}})
+        self.assertEqual(got["routed"]["Guard status"]["routes"], {
+            "workflow-guard-submodule-forward-only": {
+                "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
+            "workflow-guard-tests": {"route": "linux_guard_tests", "exact": [], "prefixes": ["workflow-guard-tests / "]}})
+
+    def test_any_shape_it_does_not_know_is_refused(self):
+        tests_if = "if: ${{ inputs.linux_guard_tests == 'true' }}"
+        cases = {
+            "a missing workflow": (dict(ci=None), "unreadable"),
+            "a missing rollup job": (dict(ci=CI_YML.replace("ci-status:", "ci-verdict:")), "no job ci-status"),
+            "an unknown need": (dict(ci=CI_YML.replace("needs: [web, fast-guards]", "needs: [web, nope]")),
+                                "not jobs of its workflow"),
+            "needs that are not a list": (dict(ci=CI_YML.replace("needs: [web, fast-guards]", "needs: {web: 1}")),
+                                          "not jobs of its workflow"),
+            "a rollup with no needs": (dict(ci=CI_YML.replace("needs: [web, fast-guards], ", "")), "needs no job"),
+            "a name with an expression inside": (dict(
+                ci=CI_YML.replace("name: CI fast guards", 'name: "CI ${{ matrix.x }} guards"')), "not a fixed name"),
+            "an expression before the last part": (dict(guards=GUARDS_YML.replace(
+                "workflow-guard-tests / ${{ matrix.group }}", '"workflow-guard-tests / ${{ matrix.group }} / x"')),
+                "not a fixed name"),
+            "a route if of another shape": (dict(guards=GUARDS_YML.replace(
+                tests_if, "if: ${{ inputs.linux_guard_tests == 'true' || github.event_name == 'push' }}")),
+                "not one route input"),
+            "a route input not declared": (dict(guards=GUARDS_YML.replace(
+                tests_if, "if: ${{ inputs.linux_guard_other == 'true' }}")), "not one route input"),
+            "a routed workflow with another trigger": (dict(
+                guards=GUARDS_YML.replace("on:\n", "on:\n  push: {}\n")), "called only"),
+            "unparseable YAML": (dict(guards=GUARDS_YML + "\n  : [\n"), "unreadable"),
+        }
+        for why, (files, said) in cases.items():
+            with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
+                self.derive(**files)
+
+    def test_a_missing_or_malformed_contract_refuses_every_rollup(self):
+        for text in (None, "{", "[]", '{"run": {}, "routed": {}}',
+                     '{"run": {"ci-status": {"under": {"x": {"exact": "x", "prefixes": []}}}}, "routed": {}}'):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as root:
+                path = Path(root) / "rollups.json"
+                if text is not None:
+                    path.write_text(text)
+                with unittest.mock.patch.object(excuse, "ROLLUPS_FILE", path), \
+                        unittest.mock.patch.object(excuse, "_ROLLUPS", None), \
+                        self.assertRaisesRegex(excuse.Refused, "no rollup red is excused"):
+                    excuse.is_aggregate("ci-status")
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):
