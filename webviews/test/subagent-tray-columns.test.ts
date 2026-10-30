@@ -112,10 +112,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
           const center = (node: HTMLElement) => {
             const box = node.getBoundingClientRect();
-            return { x: box.right - 2, y: box.top + box.height / 2 };
+            return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
           };
+          // The empty slot's own center, where it lies over the row's button: the click must reach the row.
+          const slot = noStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot");
           const stop = withStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
-          return { noStop: center(noStop), stop: center(stop!) };
+          if (!slot || slot.getBoundingClientRect().width === 0)
+            throw new Error("the no-stop row has no sized stop slot");
+          return { noStop: center(slot), stop: center(stop!) };
         });
         await page.mouse.click(clickTargets.noStop.x, clickTargets.noStop.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(

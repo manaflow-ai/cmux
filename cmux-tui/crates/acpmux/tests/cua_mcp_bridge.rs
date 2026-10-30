@@ -59,6 +59,7 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
     .unwrap();
     std::fs::set_permissions(&endpoint, std::fs::Permissions::from_mode(mode)).unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
+    let consent_home = dir.to_owned();
     std::thread::spawn(move || {
         let Ok((stream, _)) = listener.accept() else { return };
         let mut writer = stream.try_clone().unwrap();
@@ -68,6 +69,36 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
         writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
         while let Some(Ok(line)) = lines.next() {
             let request: Value = serde_json::from_str(&line).unwrap();
+            if request["method"] == "machine/consent" {
+                let required = consent_home.join("machine-credential.json").exists()
+                    || consent_home.join("consent.json").exists();
+                let consent = std::fs::read(consent_home.join("consent.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .unwrap_or(json!({"screen":"none", "control":"none"}));
+                writeln!(
+                    writer,
+                    "{}",
+                    json!({"id":request["id"], "ok":true,
+                    "result":{"consentRequired":required,"consent":consent}})
+                )
+                .unwrap();
+                continue;
+            }
+            if request["method"] == "tools/list" {
+                let inventory = std::fs::read(consent_home.join("inventory.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .unwrap_or(json!([
+                        {"name":"stand_in_tool", "inputSchema":{"type":"object"}},
+                        {"name":"screenshot", "annotations":{"readOnlyHint":true}},
+                        {"name":"driver_observation", "annotations":{"readOnlyHint":true}},
+                        {"name":"click", "annotations":{"readOnlyHint":false}}
+                    ]));
+                writeln!(writer, "{}", json!({"id":request["id"],"ok":true,"result":inventory}))
+                    .unwrap();
+                continue;
+            }
             let _ = tx.send(line);
             let reply = json!({"id": request["id"], "ok": true,
                 "result": [{"name": "stand_in_tool", "inputSchema": {"type": "object"}}]});
@@ -117,6 +148,74 @@ fn a_private_endpoint_file_of_this_user_reaches_the_helper_with_the_secret() {
     let first: Value =
         serde_json::from_str(&received.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
     assert_eq!(first, json!({"secret": SECRET}));
+}
+
+fn machine_state(dir: &Path, screen: &str, control: &str) {
+    for (name, body) in [
+        (
+            "machine-credential.json",
+            json!({"credential":"cmm_test", "machine_id":"test", "team_id":"team", "name":"test", "hub_origin":"https://example.com", "last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}),
+        ),
+        ("consent.json", json!({"screen":screen,"control":control})),
+    ] {
+        let path = dir.join(name);
+        std::fs::write(&path, body.to_string()).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+/// The connection predates join and remains open through grants and revocation.
+/// A control grant must never implicitly grant screen capture, including a
+/// screenshot returned after a click or a future unknown operation.
+#[test]
+fn an_open_bridge_rechecks_independent_screen_consent_on_every_call() {
+    let dir = Dir::new("consent");
+    let _received = stand_in(&dir.0, 0o600);
+    let mut child = daemon_env::acpmux(&dir.0)
+        .arg("cua-mcp")
+        .env("CMUX_NEXT_CUA_V2_DIR", &dir.0)
+        .env("ACPMUX_HOME", dir.0.join("empty-agent-controlled-home"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut id = 0;
+    let mut call = |name: &str| {
+        id += 1;
+        writeln!(input, "{}", json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":{}}})).unwrap();
+        input.flush().unwrap();
+        let mut line = String::new();
+        output.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    assert_ne!(call("screenshot")["result"]["isError"], true);
+    machine_state(&dir.0, "none", "granted");
+    for name in ["screenshot", "get_desktop_state", "click", "future_capture_action"] {
+        let result = call(name);
+        assert_eq!(result["result"]["isError"], true, "{name}: {result}");
+        assert!(result.to_string().contains("consent_required"));
+    }
+    machine_state(&dir.0, "granted", "none");
+    assert_ne!(call("screenshot")["result"]["isError"], true);
+    assert_ne!(call("driver_observation")["result"]["isError"], true);
+    assert_eq!(call("click")["result"]["isError"], true);
+    // Inventory, not a familiar tool name, determines whether this is read-only.
+    std::fs::write(
+        dir.0.join("inventory.json"),
+        json!({"tools":[{"name":"screenshot","annotations":{"readOnlyHint":false}}]}).to_string(),
+    )
+    .unwrap();
+    assert_eq!(call("screenshot")["result"]["isError"], true);
+    assert_eq!(call("unlisted_tool")["result"]["isError"], true);
+    machine_state(&dir.0, "granted", "granted");
+    assert_ne!(call("click")["result"]["isError"], true);
+    machine_state(&dir.0, "none", "granted");
+    assert_eq!(call("click")["result"]["isError"], true);
+    drop(input);
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]
@@ -175,7 +274,14 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
         server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
         line.clear();
         server.read_line(&mut line).await.unwrap();
-        let request: Value = serde_json::from_str(&line).unwrap();
+        let mut request: Value = serde_json::from_str(&line).unwrap();
+        if request["method"] == "machine/consent" {
+            let reply = json!({"id":request["id"],"ok":true,"result":{"consentRequired":false,"consent":{"screen":"none","control":"none"}}});
+            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            line.clear();
+            server.read_line(&mut line).await.unwrap();
+            request = serde_json::from_str(&line).unwrap();
+        }
         let reply = json!({"id": request["id"], "ok": true, "result": {"accepted": true}});
         server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
         request
@@ -188,6 +294,47 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
     let request = peer.await.unwrap();
     assert_eq!(
         request,
-        json!({"id": 1, "method": "tools/call", "name": "click", "arguments": arguments})
+        json!({"id": request["id"], "method": "tools/call", "name": "click", "arguments": arguments})
     );
+}
+
+#[tokio::test]
+async fn missing_failed_or_malformed_host_consent_never_forwards_a_tool() {
+    use acpmux::cua_v2::Helper;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    for reply in [
+        json!({"ok":false,"error":"unknown method"}),
+        json!({"ok":true,"result":{}}),
+        json!({"ok":true,"result":{"consentRequired":"false","consent":{"screen":"granted","control":"granted"}}}),
+        json!({"ok":true,"result":{"consentRequired":false,"consent":{"screen":"invalid","control":"granted"}}}),
+        json!({"ok":true,"result":{"consentRequired":true,"consent":{"screen":"none","control":"granted"}}}),
+    ] {
+        let (client, server) = tokio::io::duplex(4096);
+        let peer = tokio::spawn(async move {
+            let mut server = tokio::io::BufReader::new(server);
+            let mut line = String::new();
+            server.read_line(&mut line).await.unwrap();
+            server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+            line.clear();
+            server.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "machine/consent");
+            let mut reply = reply;
+            reply["id"] = request["id"].clone();
+            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            line.clear();
+            assert_eq!(
+                server.read_line(&mut line).await.unwrap(),
+                0,
+                "no tool may reach the helper"
+            );
+        });
+        let mut helper = Helper::admit(client, SECRET).await.unwrap();
+        assert_eq!(
+            helper.request("tools/call", Some("click"), json!({})).await.unwrap_err().to_string(),
+            "consent_required"
+        );
+        drop(helper);
+        peer.await.unwrap();
+    }
 }

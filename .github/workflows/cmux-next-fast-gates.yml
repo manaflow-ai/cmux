@@ -86,8 +86,22 @@ jobs:
               echo "::error::pr must be a pull request number (digits only)"
               exit 1
             fi
-            read -r state head_repo base_ref head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" \
-              --jq '[.state, (.head.repo.full_name // "deleted"), .base.ref, .head.sha] | @tsv')
+            gh_read() {
+              local response status
+              if response="$(gh api "$@")"; then
+                printf '%s' "$response"
+              else
+                status=$?
+                return "$status"
+              fi
+            }
+            pr_fields="$(gh_read "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+              --jq '[.state, (.head.repo.full_name // ""), .base.ref, .head.sha] | @tsv')" || exit $?
+            IFS=$'\t' read -r state head_repo base_ref head extra <<<"$pr_fields"
+            if [[ -n "$extra" || -z "$state" || -z "$head_repo" || -z "$base_ref" || -z "$head" ]]; then
+              echo "::error::#$PR returned incomplete pull request metadata from GitHub"
+              exit 1
+            fi
             if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
               echo "::error::#$PR comes from $head_repo; dispatch gates only pull requests from $GITHUB_REPOSITORY"
               exit 1
@@ -96,7 +110,7 @@ jobs:
               echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
               exit 1
             fi
-            base=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)
+            base="$(gh_read "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)" || exit $?
             post=true
           else
             [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }

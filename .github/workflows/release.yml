@@ -234,11 +234,17 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
               exit 1
             fi
-            case "${GLAEDA_HOOK_SHA256:-}" in
-              2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4|41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef) ;;
-              *) echo "::error title=Signing runner::glaeda hook ${GLAEDA_HOOK_SHA256:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-                 exit 1 ;;
-            esac
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+              exit 1
+            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
@@ -506,10 +512,13 @@ jobs:
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
+      # The Bundle cmux-tui phase bundles none (deferred): "Install universal
+      # Ghostty CLI helper" below installs this tree's universal cmux-tui client
+      # (install-cmux-tui-client.sh); the phase never takes another build's client.
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
@@ -541,9 +550,12 @@ jobs:
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$version" --release-tag "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" --output-dir remote-daemon-assets
+          # No --verify-cli here: the cmux-tui client is installed below (the
+          # Bundle cmux-tui phase bundled none). "Verify signed app SSH daemon
+          # contract" runs the bundled-CLI query on the signed app.
           python3 scripts/verify_remote_daemon_release.py \
             --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
-            --assets-dir remote-daemon-assets --app "$app" --embed --verify-cli
+            --assets-dir remote-daemon-assets --app "$app" --embed
 
       - name: Attest SSH daemon release assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -866,6 +878,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-release-dry-run
+          retention-days: 7
           path: |
             cmux-macos.dmg
             appcast.xml

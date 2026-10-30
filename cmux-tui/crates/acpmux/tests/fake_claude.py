@@ -30,6 +30,12 @@ Claude Code 2.1 does it: user lines written during the step wait; at the
 interrupt the step's result comes first, then each waiting line is echoed and
 answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20); a
 cancel_async_message drops a waiting line by its uuid.
+"gated: PATH" runs turn after turn on gates PATH.1, PATH.2, ...: user lines written meanwhile
+wait. A gate that says "read" reads them at a tool boundary (each echoed), then the turn ends and
+the prompt is done. One that says "end" ends the turn first; the lines waiting then run as the
+next turn of Claude Code's own (echoed, "read: TEXT"), which waits for the next gate; "end-first"
+does the same with only the first waiting line, and the rest stay unread; "fail" ends the turn
+with a connection error. An interrupt is answered and changes nothing.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -85,6 +91,7 @@ session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 import json
 import os
 import sys
+import uuid
 import threading
 
 
@@ -324,9 +331,19 @@ def long_step(prompt):
                   "request_id": msg.get("request_id"), "response": {"cancelled": len(kept) < len(waiting)}}})
             waiting = kept
         elif msg.get("type") == "control_request":
+            request = msg.get("request") or {}
+            if (request.get("subtype") == "side_question"
+                    and os.environ.get("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED") == "1"):
+                unsupported = ("Unsupported control request subtype: side_question"
+                               if os.environ.get("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED_SUBTYPE") == "1"
+                               else "side_question is not supported in this context")
+                send({"type": "control_response", "response": {"subtype": "error",
+                      "request_id": msg.get("request_id"),
+                      "error": unsupported}})
+                continue
             send({"type": "control_response", "response": {"subtype": "success",
                   "request_id": msg.get("request_id"), "response": {}}})
-            if (msg.get("request") or {}).get("subtype") == "interrupt":
+            if request.get("subtype") == "interrupt":
                 break
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
@@ -338,6 +355,62 @@ def long_step(prompt):
                                                  "delta": {"type": "text_delta", "text": "read: " + said}}})
         send({"type": "result", "subtype": "success", "result": "read: " + said, "num_turns": 1,
               "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
+def gated(prompt, base):
+    """The "gated: PATH" turns (module doc)."""
+    import time
+    send({"type": "user", "isReplay": True, "uuid": prompt.get("uuid"), "message": prompt.get("message")})
+    send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                             "delta": {"type": "text_delta", "text": "gated turn 1"}}})
+    waiting = []
+    n = 1
+    while True:
+        gate = "%s.%d" % (base, n)
+        while not os.path.exists(gate):
+            try:
+                got = LINES.get(timeout=0.02)
+            except queue.Empty:
+                continue
+            if got is None:
+                sys.exit(0)
+            msg = json.loads(got)
+            if msg.get("type") == "user":
+                waiting.append(msg)
+            elif msg.get("type") == "control_request":
+                send({"type": "control_response", "response": {"subtype": "success",
+                      "request_id": msg.get("request_id"), "response": {}}})
+        with open(gate) as f:
+            how = f.read().strip()
+        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
+                                  if isinstance(b, dict)) for m in waiting)
+        if how == "fail":
+            send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                  "result": "API Error: Connection error.", "duration_api_ms": 5})
+            return
+        if how == "read":
+            for m in waiting:
+                send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
+            text = "read: " + said if waiting else "done"
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": text}}})
+            send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            return
+        send({"type": "result", "subtype": "success", "result": "ended %d" % n, "num_turns": 1,
+              "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+        if not waiting:
+            return
+        # "end-first": its next turn reads only the first waiting line; the rest stay unread.
+        read = waiting[:1] if how == "end-first" else waiting
+        for m in read:
+            send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
+        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
+                                  if isinstance(b, dict)) for m in read)
+        waiting = waiting[len(read):]
+        n += 1
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
 
 
 def flood():
@@ -664,7 +737,12 @@ while True:
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
-                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+                reply = {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}
+                # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
+                if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
+                    reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {
+                        "input_tokens": 3, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 200_000, "output_tokens": 50}})
+                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
             # The model's reply takes time: a turn's prompt is never stored in
             # the millisecond its turn ends.
             import time
@@ -688,6 +766,9 @@ while True:
             continue
         if said.strip() == "long-step":
             long_step(msg)
+            continue
+        if said.startswith("gated: "):
+            gated(msg, said[len("gated: "):].strip())
             continue
         if said.strip() == "fg-shell":
             fg_shell()

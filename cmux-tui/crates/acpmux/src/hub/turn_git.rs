@@ -10,6 +10,7 @@
 
 use super::{Hub, Session};
 use crate::git_state::GitState;
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -66,7 +67,7 @@ impl Hub {
             o.extend(git);
             o.insert("unread".into(), Value::Bool(!self.shown(session)));
         }
-        msg["pendingPermissions"] = self.session_summary(session)["pendingPermissions"].clone();
+        msg.set("pendingPermissions", self.session_summary(session)["pendingPermissions"].clone());
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
     }

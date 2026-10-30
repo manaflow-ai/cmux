@@ -80,15 +80,16 @@ pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
     }
     let query = WEB.as_ref()?.captures(text)?.get(1).map_or("", |m| m.as_str());
     let named = |key: &str| pairs(query).into_iter().filter(|(k, _)| k == key).collect::<Vec<_>>();
-    let mut required = Vec::new();
-    for key in ["harness", "session"] {
+    let mut required: [(&str, Option<Option<String>>); 2] = [("harness", None), ("session", None)];
+    for (key, slot) in required.iter_mut() {
+        let key: &str = key;
         let mut values = named(key);
         if values.len() > 1 {
             return Some(Err(format!("the link names {key} more than once")));
         }
-        required.push((key, values.pop().map(|(_, v)| v)));
+        *slot = values.pop().map(|(_, v)| v);
     }
-    Some(build([required[0].clone(), required[1].clone()], query))
+    Some(build(required, query))
 }
 
 fn build(required: [(&str, Option<Option<String>>); 2], query: &str) -> Result<AgentLink, String> {
@@ -141,13 +142,13 @@ fn decode(s: &str) -> Option<String> {
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
+    while let Some(&byte) = bytes.get(i) {
+        if byte == b'%' {
             let hex = s.get(i + 1..i + 3)?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             i += 3;
         } else {
-            out.push(bytes[i]);
+            out.push(byte);
             i += 1;
         }
     }

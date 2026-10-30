@@ -12,7 +12,7 @@
 pub(crate) fn has_status(m: &str, code: &str) -> bool {
     let bytes = m.as_bytes();
     m.match_indices(code).any(|(at, _)| {
-        let before = at.checked_sub(1).map(|i| bytes[i]);
+        let before = at.checked_sub(1).and_then(|i| bytes.get(i).copied());
         let after = bytes.get(at + code.len()).copied();
         !before.is_some_and(|b| b.is_ascii_alphanumeric())
             && !after.is_some_and(|b| b.is_ascii_alphanumeric())

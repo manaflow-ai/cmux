@@ -158,6 +158,9 @@ public final class AgentChatStore {
     private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The chat opened on its newest history only: older records stay on the Mac, so the
+    /// first turn shown is not where the session started (``AgentSessionEvent/earlierHistory(_:)``).
+    public private(set) var hasEarlierHistory = false
     /// The title the agent gave the session (`session_info_update`).
     public private(set) var sessionTitle: String?
 
@@ -207,6 +210,8 @@ public final class AgentChatStore {
     @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
+    /// Whether the last failed prompt can be sent again from the composer.
+    public var canRetryPrompt: Bool { resendable != nil }
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
     /// a prompt that never went out).
     private var seenPromptIDs: Set<String> = []
@@ -229,6 +234,8 @@ public final class AgentChatStore {
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
     private var currentMessageID: String?
+    /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
+    private var startsNewAttempt = false
     private var task: Task<Void, Never>?
 
     public init(source: any AgentSessionSource) {
@@ -308,6 +315,20 @@ public final class AgentChatStore {
         if clientError != nil { clientError = nil }
     }
 
+    /// A failed latest turn retries through acpmux, which preserves its input and context.
+    public func canRetryFailedTurn(_ turn: AgentTurn) -> Bool {
+        turns.last?.id == turn.id && turns.last?.status == .failed && !retryRequested
+    }
+
+    public func retryFailedTurn(_ turn: AgentTurn) {
+        guard canRetryFailedTurn(turn) else { return }
+        clientError = nil
+        retryRequested = true
+        source.send(.retryFailedTurn)
+    }
+
+    private var retryRequested = false
+
     public func cancel() { source.send(.cancel) }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
@@ -334,15 +355,42 @@ public final class AgentChatStore {
 
     public func setModel(_ id: String) { source.send(.setModel(id)) }
 
+    /// Retry on a finished turn: its prompt goes again with what it attached. An image only
+    /// the Mac's record holds is read back first; one that can't be read goes without its
+    /// bytes, so the send fails and the draft comes back instead of a prompt without it.
+    public func retry(_ turn: AgentTurn) {
+        withAttachments(of: turn) { $0.send(prompt: turn.prompt, attachments: $1) }
+    }
+
     /// Retry with another model (the Mac's turn menu): the chat moves to `model`, then `turn`'s
-    /// prompt goes again; the model the chat runs retries as Retry does. When the Mac refuses
-    /// the model, the prompt is not sent and the chat shows the Mac's reason.
+    /// prompt goes again with its attachments; the model the chat runs retries as Retry does.
+    /// When the Mac refuses the model, the prompt is not sent and the chat shows the Mac's reason.
     public func retry(_ turn: AgentTurn, model: String) {
         let text = turn.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        guard model != currentModelID else { return send(prompt: text) }
-        clientError = nil
-        source.send(.retryWithModel(model: model, text: text, promptID: UUID().uuidString.lowercased()))
+        guard !text.isEmpty || !turn.attachments.isEmpty else { return }
+        withAttachments(of: turn) { store, attachments in
+            guard model != store.currentModelID else { return store.send(prompt: text, attachments: attachments) }
+            store.clientError = nil
+            let promptID = UUID().uuidString.lowercased()
+            store.keepSent(attachments, promptID: promptID)
+            store.source.send(.retryWithModel(model: model, text: text, attachments: attachments, promptID: promptID))
+        }
+    }
+
+    /// Runs `then` with `turn`'s attachments holding their bytes: at once when the phone has
+    /// them all, else after reading recorded images from the source.
+    private func withAttachments(of turn: AgentTurn, then: @escaping @MainActor (AgentChatStore, [AgentAttachment]) -> Void) {
+        let attachments = turn.attachments
+        guard attachments.contains(where: { $0.data == nil && $0.fileURL == nil }) else { return then(self, attachments) }
+        Task { [weak self] in
+            var loaded = attachments
+            for index in loaded.indices where loaded[index].data == nil && loaded[index].fileURL == nil {
+                guard let source = self?.source else { return }
+                loaded[index].data = await source.attachmentData(loaded[index])
+            }
+            guard let self else { return }
+            then(self, loaded)
+        }
     }
 
     /// The models Retry with another model offers (the Mac shows it only with two or more).
@@ -350,6 +398,26 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+
+    /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
+    /// sends nothing; the message goes when the person sends it from the composer. Only an
+    /// empty composer (whitespace counts as empty) takes it: a draft there is never replaced,
+    /// so this returns nil (the bubble then asks before replacing it).
+    public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return turn.prompt
+    }
+
+    /// The queued row's X: takes the prompt back into the composer, returning the text the
+    /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
+    /// there is never replaced, so the prompt stays queued and this returns nil (the row then
+    /// asks before removing it).
+    public func takeBackQueued(_ id: String, draft: String) -> String? {
+        guard let item = queue.first(where: { $0.id == id }) else { return nil }
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        removeQueued(id)
+        return item.text
+    }
     /// Edit queued prompt (the agent pane's wording): the new text keeps its place.
     public func editQueued(_ id: String, text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -398,10 +466,28 @@ public final class AgentChatStore {
         lastChangeWasReplay = false
         placeBottomStackInstantly = false
         switch event {
+        case .turnRetried(let previousTurnID, let turnID):
+            guard let index = turns.indices.last, turns[index].id == previousTurnID,
+                  turns[index].status == .failed else { break }
+            // Keep the original input and partial work: the daemon may continue a cut turn.
+            // Its new user_message is an attempt, not another user-authored turn.
+            turns[index].id = turnID
+            turns[index].status = .running
+            turns[index].errorText = nil
+            turns[index].retry = nil
+            turns[index].endedAt = nil
+            for agentIndex in subagents.indices where subagents[agentIndex].turnID == previousTurnID {
+                subagents[agentIndex].turnID = turnID
+            }
+            retryRequested = false
+            currentMessageID = nil
+            startsNewAttempt = true
         case .userMessage(let text, let promptId, let turnId, let attachments, let at):
+            retryRequested = false
             currentMessageID = nil
             reached(promptId)
             if !turns.contains(where: { $0.id == turnId }) {
+                startsNewAttempt = false
                 turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
                                        promptAt: at))
             }
@@ -468,14 +554,19 @@ public final class AgentChatStore {
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
             summary.status = .waiting
-        case .permissionDecision(let permissionId, let optionId):
+        case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
                 if case .question(var question) = item, question.id == permissionId, question.isPending {
-                    let answered = optionId != nil && optionId == question.source.answerOption
-                    question.state = answered ? .answered(AgentQuestionAnswer(selections: [:])) : .cancelled
+                    // An ACP question's choices are the permission options themselves: any one
+                    // chosen is its answer, but its reject option (Decline) is a decline.
+                    // Other harnesses answer through `answerOption`.
+                    let answered = optionId != nil && (question.source.harness == .acp
+                        ? optionId != question.source.rejectOption
+                        : optionId == question.source.answerOption)
+                    question.state = answered ? .answered(question.recordedAnswer(answers, optionId: optionId)) : .cancelled
                     return .question(question)
                 }
                 guard case .permission(var record) = item, record.request.id == permissionId else { return nil }
@@ -502,13 +593,19 @@ public final class AgentChatStore {
             offeredModes = modes
             self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
+        case .earlierHistory(let earlier):
+            hasEarlierHistory = earlier
         case .fullAccess(let on):
             fullAccess = on
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
+            // A dropped link can lose the request before the daemon accepts it, with
+            // no error or retry record to clear the in-flight tap on reattach.
+            if status == .disconnected { retryRequested = false }
         case .clientError(let message):
             approvingOptionID = nil
+            retryRequested = false
             clientError = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             // The transcript already showed it run: only its reply was lost.
@@ -592,20 +689,22 @@ public final class AgentChatStore {
         switch update {
         case .agentMessageChunk(let text, let messageId):
             guard var turn = turns.last else { return }
-            if case .message(let id, let existing)? = turn.items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
+            if !startsNewAttempt, case .message(let id, let existing)? = turn.items.last, messageId == nil || messageId == currentMessageID || currentMessageID == nil {
                 turn.items[turn.items.count - 1] = .message(id: id, markdown: existing + text)
             } else {
                 turn.items.append(.message(id: messageId ?? UUID().uuidString, markdown: text))
             }
             currentMessageID = messageId
+            startsNewAttempt = false
             turns[turns.count - 1] = turn
         case .agentThoughtChunk(let text):
             guard var turn = turns.last else { return }
-            if case .thought(let id, let existing)? = turn.items.last {
+            if !startsNewAttempt, case .thought(let id, let existing)? = turn.items.last {
                 turn.items[turn.items.count - 1] = .thought(id: id, text: existing + text)
             } else {
                 turn.items.append(.thought(id: UUID().uuidString, text: text))
             }
+            startsNewAttempt = false
             turns[turns.count - 1] = turn
         case .toolCall(var call):
             call.startedAt = call.startedAt ?? Date()
