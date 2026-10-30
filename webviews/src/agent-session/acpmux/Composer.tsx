@@ -634,7 +634,9 @@ export function Composer({
         .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
         .catch(() => {});
     },
-    carries: () => carryPrompt.current || Boolean(switching) ||
+    carries: () =>
+      carryPrompt.current ||
+      Boolean(switching) ||
       (!!draftTransfer.current && draftTransfer.current.target === sessionId),
   });
   const attachmentsRef = useRef(attachments);
@@ -679,7 +681,10 @@ export function Composer({
     handle,
     () => ({
       draftState() {
-        return { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
+        return {
+          text: field.current?.value() ?? textRef.current,
+          attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
+        };
       },
       prepareDraftTransfer(target) {
         const source = persistedSession.current;
@@ -836,9 +841,14 @@ export function Composer({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments,
+  useKeptAttachments(
+    sessionId,
+    attachments,
+    setAttachments,
+    keptAttachments,
     () => carryPrompt.current || (!!draftTransfer.current && draftTransfer.current.target === sessionId),
-    () => draftTransfer.current?.target === sessionId ? draftTransfer.current : undefined);
+    () => (draftTransfer.current?.target === sessionId ? draftTransfer.current : undefined),
+  );
   useEffect(() => {
     // Both text and attachment effects have consumed the transfer on this render.
     if (draftTransfer.current && draftTransfer.current.source !== sessionId) draftTransfer.current = undefined;

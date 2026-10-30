@@ -6,7 +6,9 @@ export type DraftTransfer = { ready: Promise<void>; cancel(): void; commit(): vo
 export class FolderContinuation {
   private generation = 0;
   private pending = false;
-  invalidate(): void { this.generation += 1; }
+  invalidate(): void {
+    this.generation += 1;
+  }
   async run(actions: {
     start(): Promise<string | undefined>;
     current(): boolean;

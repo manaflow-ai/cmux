@@ -8430,19 +8430,27 @@ function AcpmuxPane() {
               const holder = composerHandle.current;
               const summary = snapshotRef.current?.summary;
               return folderContinuation.run({
-                start: () => client.startSession(summary?.harness, undefined, undefined, undefined, true, summary?.model),
-                current: () => directClient.current === client && client.trustGeneration === generation &&
+                start: () =>
+                  client.startSession(summary?.harness, undefined, undefined, undefined, true, summary?.model),
+                current: () =>
+                  directClient.current === client &&
+                  client.trustGeneration === generation &&
                   composerHandle.current === holder,
-                transfer: (id) => holder?.prepareDraftTransfer(id) ?? {
-                  ready: Promise.resolve(),
-                  cancel: () => undefined,
-                  commit: () => undefined,
-                },
+                transfer: (id) =>
+                  holder?.prepareDraftTransfer(id) ?? {
+                    ready: Promise.resolve(),
+                    cancel: () => undefined,
+                    commit: () => undefined,
+                  },
                 clearFolder: () => setProjectDraft(undefined),
                 select: async (id) => {
                   const selected = await client.select(id);
-                  if (selected !== id || client.selectedSession !== id ||
-                      directClient.current !== client || continuationProjectGeneration.current !== projectGeneration)
+                  if (
+                    selected !== id ||
+                    client.selectedSession !== id ||
+                    directClient.current !== client ||
+                    continuationProjectGeneration.current !== projectGeneration
+                  )
                     return false;
                   void persistSession(selected);
                   return true;
@@ -10027,8 +10035,7 @@ function AcpmuxPane() {
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
   // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
-  const continueWithoutFolder = useCallback(() =>
-    callNative<void>("chat.new", folderContinuationRequest), []);
+  const continueWithoutFolder = useCallback(() => callNative<void>("chat.new", folderContinuationRequest), []);
   const trustPending = trustAsk.holdsAsks;
   // A secret is the one ask held while the trust read is in flight: a value typed into it must
   // never go before the folder is known to need no trust answer first.
@@ -10111,8 +10118,12 @@ function AcpmuxPane() {
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
           onContinueWithoutFolder={
-            healthLocal && !remoteChat && !directClient.current?.startsOnSend &&
-            trustAsk.ask?.state === "decided" && trustAsk.ask.level === "untrusted" && !isAgentHome(trustAsk.ask.cwd)
+            healthLocal &&
+            !remoteChat &&
+            !directClient.current?.startsOnSend &&
+            trustAsk.ask?.state === "decided" &&
+            trustAsk.ask.level === "untrusted" &&
+            !isAgentHome(trustAsk.ask.cwd)
               ? continueWithoutFolder
               : undefined
           }

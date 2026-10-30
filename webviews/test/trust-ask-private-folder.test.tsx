@@ -90,7 +90,6 @@ test("a project folder keeps its name", async () => {
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe("Trust atlas-web?");
 });
 
-
 test("a declined folder offers continuation without folder context", async () => {
   let continued = 0;
   await act(async () => {
@@ -101,7 +100,9 @@ test("a declined folder offers continuation without folder context", async () =>
         onTrust={() => undefined}
         onDistrust={() => undefined}
         onUndo={() => undefined}
-        onContinueWithoutFolder={() => { continued += 1; }}
+        onContinueWithoutFolder={() => {
+          continued += 1;
+        }}
       />,
     );
   });
@@ -113,17 +114,33 @@ test("a declined folder offers continuation without folder context", async () =>
   expect(continued).toBe(1);
 });
 
-
 test("continuation disables duplicate clicks and reports a failed start for retry", async () => {
   let reject!: (error: Error) => void;
   let starts = 0;
-  await act(async () => root.render(<TrustAsk
-    ask={{ state: "decided", level: "untrusted", cwd: "/project" }} agent="Agent"
-    onTrust={() => {}} onDistrust={() => {}} onUndo={() => {}}
-    onContinueWithoutFolder={() => { starts += 1; return new Promise<void>((_, no) => { reject = no; }); }}
-  />));
-  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Continue without folder")!;
-  await act(async () => { button.click(); button.click(); });
+  await act(async () =>
+    root.render(
+      <TrustAsk
+        ask={{ state: "decided", level: "untrusted", cwd: "/project" }}
+        agent="Agent"
+        onTrust={() => {}}
+        onDistrust={() => {}}
+        onUndo={() => {}}
+        onContinueWithoutFolder={() => {
+          starts += 1;
+          return new Promise<void>((_, no) => {
+            reject = no;
+          });
+        }}
+      />,
+    ),
+  );
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (b) => b.textContent === "Continue without folder",
+  )!;
+  await act(async () => {
+    button.click();
+    button.click();
+  });
   expect(starts).toBe(1);
   expect(button.disabled).toBe(true);
   await act(async () => reject(new Error("offline")));

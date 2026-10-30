@@ -4,7 +4,10 @@ import { FolderContinuation, folderContinuationRequest } from "../src/agent-sess
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: Error) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 function fixture() {
@@ -13,15 +16,38 @@ function fixture() {
   const events: string[] = [];
   let current = true;
   const actions = {
-    start: () => { events.push("start"); return pending.promise; },
+    start: () => {
+      events.push("start");
+      return pending.promise;
+    },
     current: () => current,
-    transfer: (id: string) => { events.push(`transfer:${id}`); return {
-      ready: Promise.resolve(), cancel: () => events.push("cancel"), commit: () => { events.push("commit"); },
-    }; },
-    select: async (id: string) => { events.push(`select:${id}`); return true; },
-    clearFolder: () => { events.push("clear"); },
+    transfer: (id: string) => {
+      events.push(`transfer:${id}`);
+      return {
+        ready: Promise.resolve(),
+        cancel: () => events.push("cancel"),
+        commit: () => {
+          events.push("commit");
+        },
+      };
+    },
+    select: async (id: string) => {
+      events.push(`select:${id}`);
+      return true;
+    },
+    clearFolder: () => {
+      events.push("clear");
+    },
   };
-  return { continuation, pending, events, actions, navigate: () => { current = false; } };
+  return {
+    continuation,
+    pending,
+    events,
+    actions,
+    navigate: () => {
+      current = false;
+    },
+  };
 }
 test("double clicks create one chat and transfer only after start succeeds", async () => {
   const f = fixture();

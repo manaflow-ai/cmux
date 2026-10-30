@@ -45,7 +45,6 @@ Object.assign(dom.window.Range.prototype, {
   getBoundingClientRect: box,
 });
 
-
 const { act, createRef } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -53,12 +52,25 @@ const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { readPersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
 const host = document.getElementById("composer")!;
 let root: ReturnType<typeof createRoot>;
-afterEach(() => { act(() => root.unmount()); dom.window.localStorage.clear(); });
+afterEach(() => {
+  act(() => root.unmount());
+  dom.window.localStorage.clear();
+});
 afterAll(() => {
   dom.window.close();
-  for (const [key, had, value] of saved) { if (had) scope[key] = value; else delete scope[key]; }
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
 });
-const attachment: ComposerAttachment = { id: "file-one", kind: "text", name: "note.txt", mimeType: "text/plain", size: 16, text: "attached content" };
+const attachment: ComposerAttachment = {
+  id: "file-one",
+  kind: "text",
+  name: "note.txt",
+  mimeType: "text/plain",
+  size: 16,
+  text: "attached content",
+};
 async function fixture() {
   root = createRoot(host);
   const handle = createRef<ComposerHandle>();
@@ -66,18 +78,41 @@ async function fixture() {
   const writes: { id: string; chips: ComposerAttachment[] }[] = [];
   let finishRead!: (chips: ComposerAttachment[]) => void;
   const store = {
-    read: (id: string): Promise<ComposerAttachment[]> => id === "destination"
-      ? new Promise((resolve) => { finishRead = resolve; }) : Promise.resolve([]),
-    write: async (id: string, chips: ComposerAttachment[]) => { writes.push({ id, chips }); return { held: chips.map(c => c.id) }; },
+    read: (id: string): Promise<ComposerAttachment[]> =>
+      id === "destination"
+        ? new Promise((resolve) => {
+            finishRead = resolve;
+          })
+        : Promise.resolve([]),
+    write: async (id: string, chips: ComposerAttachment[]) => {
+      writes.push({ id, chips });
+      return { held: chips.map((c) => c.id) };
+    },
   };
-  const draw = (id: string) => act(async () => root.render(
-    <Composer sessionId={id} snapshot={noChat([], { sessionId: id,
-      summary: { sessionId: id, harness: "claude", cwd: "/project", turnCount: 0 } })}
-      chips={() => null} onSend={(text, attachments) => { sent.push({text, attachments: attachments ?? []}); return true; }}
-      onStop={() => {}} handle={handle} keptAttachments={store} />
-  ));
+  const draw = (id: string) =>
+    act(async () =>
+      root.render(
+        <Composer
+          sessionId={id}
+          snapshot={noChat([], {
+            sessionId: id,
+            summary: { sessionId: id, harness: "claude", cwd: "/project", turnCount: 0 },
+          })}
+          chips={() => null}
+          onSend={(text, attachments) => {
+            sent.push({ text, attachments: attachments ?? [] });
+            return true;
+          }}
+          onStop={() => {}}
+          handle={handle}
+          keptAttachments={store}
+        />,
+      ),
+    );
   await draw("source");
-  await act(async () => { handle.current!.restore("held draft", [attachment]); });
+  await act(async () => {
+    handle.current!.restore("held draft", [attachment]);
+  });
   return { handle, draw, sent, writes, finishRead: () => act(async () => finishRead([])) };
 }
 test("text and attachment arrive once despite a delayed empty destination read", async () => {
@@ -89,17 +124,24 @@ test("text and attachment arrive once despite a delayed empty destination read",
   await f.finishRead();
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
   expect(readPersistedDraft("source") ?? "").toBe("");
-  expect(f.writes.some(w => w.id === "source" && w.chips.length === 0)).toBe(true);
+  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(true);
   expect(f.sent).toHaveLength(0);
-  await act(async () => { f.handle.current!.send(); });
-  await act(async () => { f.handle.current!.send(); });
+  await act(async () => {
+    f.handle.current!.send();
+  });
+  await act(async () => {
+    f.handle.current!.send();
+  });
   expect(f.sent).toEqual([{ text: "held draft", attachments: [attachment] }]);
   await f.draw("other");
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
 });
 test("a cancelled transfer preserves the source without restore or duplication", async () => {
   const f = await fixture();
-  act(() => { const transfer = f.handle.current!.prepareDraftTransfer("destination"); transfer.cancel(); });
+  act(() => {
+    const transfer = f.handle.current!.prepareDraftTransfer("destination");
+    transfer.cancel();
+  });
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
   await f.draw("other");
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
@@ -108,7 +150,9 @@ test("a cancelled transfer preserves the source without restore or duplication",
 });
 test("a different selected session never receives a pending transfer", async () => {
   const f = await fixture();
-  act(() => { f.handle.current!.prepareDraftTransfer("destination"); });
+  act(() => {
+    f.handle.current!.prepareDraftTransfer("destination");
+  });
   await f.draw("other");
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
@@ -122,7 +166,7 @@ test("failed selection after rendering preserves the source, while destination c
   await f.draw("other");
   act(() => transfer.cancel());
   expect(readPersistedDraft("source")).toBe("held draft");
-  expect(f.writes.some(w => w.id === "destination" && w.chips[0]?.id === attachment.id)).toBe(true);
-  expect(f.writes.some(w => w.id === "source" && w.chips.length === 0)).toBe(false);
+  expect(f.writes.some((w) => w.id === "destination" && w.chips[0]?.id === attachment.id)).toBe(true);
+  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
   expect(f.sent).toHaveLength(0);
 });

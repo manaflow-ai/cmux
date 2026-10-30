@@ -116,10 +116,13 @@ export function TrustAsk({
                       continuingRef.current = true;
                       setContinuing(true);
                       setContinueError(false);
-                      void Promise.resolve().then(onContinueWithoutFolder).catch(() => setContinueError(true)).finally(() => {
-                        continuingRef.current = false;
-                        setContinuing(false);
-                      });
+                      void Promise.resolve()
+                        .then(onContinueWithoutFolder)
+                        .catch(() => setContinueError(true))
+                        .finally(() => {
+                          continuingRef.current = false;
+                          setContinuing(false);
+                        });
                     }}
                   >
                     {t("trust.continueWithoutFolderLabel")}
