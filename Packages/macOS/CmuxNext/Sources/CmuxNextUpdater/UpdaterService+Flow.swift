@@ -16,7 +16,7 @@ extension UpdaterService {
         // A found update nobody asked about (downloads wait for a click) is the sidebar footer's quiet
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
-        guard let card = flow.card(downloadsAutomatically: true) else { return nil }
+        guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
@@ -35,7 +35,7 @@ extension UpdaterService {
 
     /// The footer's update pill, or nil when it does not show.
     public var footerPill: UpdateFooterPill? {
-        flow.footerPill(preferences: preferences)
+        stagedPulledHeld ? nil : flow.footerPill(preferences: preferences)
     }
 
     /// The answer to the update-found step (the notice card's Update, the sidebar footer's Update
@@ -66,15 +66,19 @@ extension UpdaterService {
         send(.installRequested)
     }
 
-    /// The quit is decided: with `updates.installOnQuit` off, cancel the
-    /// staged update's installer before the app exits.
+    /// The quit is decided: with `updates.installOnQuit` off, or a staged build known pulled
+    /// (``stagedPulledHeld``), cancel the staged update's installer before the app exits.
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
-        let action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
+        var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
-        if action == .cancelPendingInstall {
+        if action == .proceed, stagedPulledHeld {
+            log.append("quit: the staged build was pulled, cancelling it instead of installing on quit")
+            action = .cancelPendingInstall
+            _ = cancelStaged()
+        } else if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
             _ = cancelStaged()
         }

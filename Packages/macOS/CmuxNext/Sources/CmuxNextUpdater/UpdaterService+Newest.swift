@@ -38,6 +38,14 @@ extension UpdaterService {
         }
     }
 
+    /// A staged build known pulled waits in Update Ready (an installer this app cannot cancel, or
+    /// one about to be dropped): no card or footer pill offers it, and a quit with
+    /// `updates.installOnQuit` off cancels it as any staged update.
+    var stagedPulledHeld: Bool {
+        guard case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty else { return false }
+        return StagedUpdateRefresh.knownPulled(staged, updater: self)
+    }
+
     /// Starts the check that downloads the newest build (this app's driver, never Sparkle's silent one).
     func startNewestCheck(_ reason: NewestFetch) {
         newestFetch = reason
@@ -50,7 +58,12 @@ extension UpdaterService {
         guard disabledReason == nil, !dropPulledAvailable(), newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
-            guard !flow.installRequested, !stagedRefresh.clickWaits, cancelStaged() else { return }
+            guard !flow.installRequested, !stagedRefresh.clickWaits else { return }
+            guard cancelStaged() else {
+                // No installer this app holds: the build stays staged, and nothing offers it (``stagedPulledHeld``).
+                log.append("staged build \(staged) was pulled, but no installer was held to cancel; not offering it")
+                return
+            }
             if droppedPulled.insert(staged).inserted {
                 log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
                 startNewestCheck(.stagedPulled)
