@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import ObjectiveC
 
 /// What a capture backdrop (``CaptureBackdropPanel``) shows behind a window, so its translucency
 /// and the blur of its glass are visible in a capture: a uniform dark desktop shows neither.
@@ -65,10 +66,10 @@ public nonisolated enum CaptureBackdropPattern: Equatable, Sendable {
 /// click, a key, the key or main role, or a place in the Window menu.
 public final class CaptureBackdropPanel: NSPanel {
     public let pattern: CaptureBackdropPattern
-    /// The window it is behind.
+    /// The window it is behind, which keeps it (``NSWindow/captureBackdrop``).
     public private(set) weak var target: NSWindow?
-    /// The panel keeps itself alive while it is shown (nothing else owns it); ``close()`` lets it go.
-    private var shown: CaptureBackdropPanel?
+    /// The key under which its target window keeps it.
+    static let retainKey = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
 
     init(pattern: CaptureBackdropPattern, image: NSImage?, frame: NSRect, target: NSWindow) {
         self.pattern = pattern
@@ -84,35 +85,33 @@ public final class CaptureBackdropPanel: NSPanel {
         identifier = NSUserInterfaceItemIdentifier("cmux.captureBackdrop")
         collectionBehavior = [.ignoresCycle, .fullScreenAuxiliary]
         contentView = CaptureBackdropView(pattern: pattern, image: image)
-        shown = self
     }
 
     override public var canBecomeKey: Bool { false }
     override public var canBecomeMain: Bool { false }
-
-    override public func close() {
-        super.close()
-        shown = nil
-    }
 }
 
 extension NSWindow {
-    /// The capture backdrop shown behind this window (``CaptureBackdropPanel``), if any.
+    /// The capture backdrop shown behind this window (``CaptureBackdropPanel``), if any. The window
+    /// keeps it, so it goes with the window.
     public var captureBackdrop: CaptureBackdropPanel? {
-        NSApp.windows.lazy.compactMap { $0 as? CaptureBackdropPanel }.first { $0.target === self && $0.isVisible }
+        (objc_getAssociatedObject(self, CaptureBackdropPanel.retainKey) as? CaptureBackdropPanel).flatMap { $0.isVisible ? $0 : nil }
     }
 
     /// Shows `pattern` just behind this window, covering its screen (so a move on that screen
-    /// keeps it covered; set it again after the window changes screens), and closes the backdrop
-    /// it had and any whose window is gone; nil only closes them. `image` is an `.image`
-    /// pattern's image (``CaptureBackdropPattern/imageData()``).
+    /// keeps it covered; set it again after the window changes screens), and takes away the
+    /// backdrop it had and any whose window is gone; nil only takes them away. `image` is an
+    /// `.image` pattern's image (``CaptureBackdropPattern/imageData()``).
     @discardableResult
     public func setCaptureBackdrop(_ pattern: CaptureBackdropPattern?, image: NSImage? = nil) -> CaptureBackdropPanel? {
-        for panel in NSApp.windows.compactMap({ $0 as? CaptureBackdropPanel }) where panel.target == nil || panel.target === self {
-            panel.close()
+        (objc_getAssociatedObject(self, CaptureBackdropPanel.retainKey) as? CaptureBackdropPanel)?.orderOut(nil)
+        objc_setAssociatedObject(self, CaptureBackdropPanel.retainKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        for panel in NSApp.windows.compactMap({ $0 as? CaptureBackdropPanel }) where panel.target == nil {
+            panel.orderOut(nil)
         }
         guard let pattern else { return nil }
         let panel = CaptureBackdropPanel(pattern: pattern, image: image, frame: (screen?.frame ?? frame).union(frame), target: self)
+        objc_setAssociatedObject(self, CaptureBackdropPanel.retainKey, panel, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         panel.order(.below, relativeTo: windowNumber)
         return panel
     }
