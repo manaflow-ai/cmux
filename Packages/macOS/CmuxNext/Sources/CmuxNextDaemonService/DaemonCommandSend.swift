@@ -93,8 +93,12 @@ extension DaemonService {
                 command.close(failure: error)
                 let failure = command.connection == nil
                     ? ActionWorkFailure("\(label): \(self.notConnectedReason ?? DaemonError.notConnected.description)")
-                    : ActionWorkFailure(label, error)
+                    : self.workFailure(label, error)
                 onFailure?(failure)
+                // A pane verb on a pane still opening (``PaneNotReady``): a fire-and-forget `send` (no `onFailure`) that no
+                // action.run scope captures (a key, the menu) shows nothing for its failure, so it says why here, once
+                // (rule a). A capturing caller answers the typed refusal; effect paths show it through the registry.
+                if onFailure == nil, command.ticket == nil, error is PaneNotReady { self.onPaneNotReady?(failure.message) }
                 return failure
             }
         }

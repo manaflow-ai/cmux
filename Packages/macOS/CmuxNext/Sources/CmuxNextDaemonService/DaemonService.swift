@@ -571,11 +571,8 @@ public final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            let failure = workFailure(label, error)
-            // A pane verb on a pane still opening: a run nobody captures (a key, the menu) shows nothing for a failed
-            // `send`, so this one says why, once (rule a). A capturing caller gets the typed refusal instead.
-            if error is PaneNotReady, ticket == nil { onPaneNotReady?(failure.message) }
-            return failure
+            // A ``PaneNotReady`` is the typed refusal here; only the fire-and-forget `send` shows it (`startSend`).
+            return workFailure(label, error)
         }
     }
 
