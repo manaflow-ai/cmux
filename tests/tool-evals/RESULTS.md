@@ -30,6 +30,41 @@ Still failing: `sign-in-link-in-cmux` (both models run macOS `open URL`: the hea
 has no cmux browser, so this needs the app tier to judge), and one `rename-tab` sample on
 Sonnet.
 
+## Round 2 (2026-10-30): real harnesses, 12 models
+
+All 34 headless cases, 2 samples each. Claude models run through the Claude Agent SDK
+(the installed Claude Code) and the rest through OpenRouter in the generic harness. Each
+sample's cmux daemon and MCP server run on the rbx builder (`--remote-daemon`), and the
+agents run under the live guard. Baseline: the #26625 build (b3). New: 858cd2f (h9).
+
+| Model | #26625 | 858cd2f | Tool errors |
+| --- | --- | --- | --- |
+| Opus 5.5 | 33 | **34** (68/68) | 11 → 12 |
+| Haiku 5.5 | 29 | **34** (68/68) | 43 → 8 |
+| Sonnet 5.5 | 32 | 33 (67/68)¹ | 7 → 7 |
+| Grok 4.7 | 28 | **34** | 19 → 14 |
+| Gemini 4 Argon | 34 | 33 | 16 → 14 |
+| MiniMax M3.1 Flash | 27 | 33 | 61 → 8 |
+| Kimi K3.1 Pro | 28 | 33 | 23 → 17 |
+| Qwen 3.8 Max | 31 | 33 | 28 → 17 |
+| DeepSeek v4.1-flash | 29 | 32 | 26 → 12 |
+| Mistral Large 4 | 27 | 32 | 24 → 13 |
+| GLM 5.3 Prime | 26 | 31 | 102 → 20 |
+| GLM 5.3 FlashX | 20 | 29 | 59 → 29 |
+
+¹ Sonnet's one miss, `move-workspace-checked`, came from the grader. The grader read the
+session's workspace index; the sidebar shows the personal placement order, which
+`workspace_place {index}` sets. With the grader fixed (9bcfa81), all 12 models pass that
+case and the two other workspace cases in 3 of 3 samples.
+
+The fixes in this round each came from errors in the panels: ids at the top of a change's
+answer; a tab where a terminal is needed; `.catch` on calls; function-shaped scripts; a
+record where its id goes; and these sheet lines: "next to X" means a new tab in X's pane,
+`pane_neighbor_get` / `terminal_process_get`, and a terminal tab that stays open.
+
+Not run in this round: GPT 6 Astra. The subrouter paused gpt-6-astra admission
+(`admission_paused`) for the whole round.
+
 ## What changed, and the failure each change answered
 
 | Change | Failure it fixed (case, source) |
