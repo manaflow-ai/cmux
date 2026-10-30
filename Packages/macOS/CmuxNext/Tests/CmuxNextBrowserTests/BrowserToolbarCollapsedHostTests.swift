@@ -14,6 +14,7 @@ import Testing
     struct Hosted {
         let window: ConflictRecordingWindow
         let host: NSView
+        let hostHeight: NSLayoutConstraint
         let chrome: BrowserChromeView
         let page: WebKitTab
 
@@ -23,9 +24,19 @@ import Testing
             window.isReleasedWhenClosed = false
             let root = NSView(frame: window.contentLayoutRect)
             window.contentView = root
-            host = NSView(frame: root.bounds)
-            host.autoresizingMask = [.width, .height]
+            // Sized by constraints, as the pane's content host is (its height is a constraint the
+            // chrome's own must fit in; a frame-only host lets the chrome grow to its rows instead).
+            host = NSView()
+            host.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(host)
+            hostHeight = host.heightAnchor.constraint(equalToConstant: root.bounds.height)
+            NSLayoutConstraint.activate([
+                host.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                host.topAnchor.constraint(equalTo: root.topAnchor),
+                hostHeight,
+            ])
+            root.layoutSubtreeIfNeeded()
             page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
             chrome = BrowserChromeView(tab: page)
             chrome.toolbarPosition = position
@@ -38,11 +49,11 @@ import Testing
 
         /// The host collapses to 0 points high and lays out, then grows back and lays out.
         func collapseAndRestore() -> (collapsed: NSRect, collapsedChrome: NSRect) {
-            let full = host.frame
-            host.frame.size.height = 0
+            let full = hostHeight.constant
+            hostHeight.constant = 0
             window.contentView?.layoutSubtreeIfNeeded()
             let collapsed = (rect(chrome.toolbar), rect(chrome))
-            host.frame = full
+            hostHeight.constant = full
             window.contentView?.layoutSubtreeIfNeeded()
             return collapsed
         }
@@ -61,6 +72,7 @@ import Testing
         defer { view.tearDown() }
         let height = view.chrome.toolbarHeight.constant
         let collapsed = view.collapseAndRestore()
+        #expect(collapsed.collapsedChrome.height == 0, "the chrome is as high as its host, 0")
         #expect(view.window.verticalConflicts.isEmpty, "AppKit broke a vertical pin: \(view.window.verticalConflicts)")
         #expect(collapsed.collapsed.height == height, "the toolbar row keeps its height while the host is 0 high")
         #expect(collapsed.collapsed.maxY == collapsed.collapsedChrome.maxY, "pinned to the chrome's top while collapsed")
@@ -76,6 +88,7 @@ import Testing
         defer { view.tearDown() }
         let height = view.chrome.toolbarHeight.constant
         let collapsed = view.collapseAndRestore()
+        #expect(collapsed.collapsedChrome.height == 0, "the chrome is as high as its host, 0")
         #expect(view.window.verticalConflicts.isEmpty, "AppKit broke a vertical pin: \(view.window.verticalConflicts)")
         #expect(collapsed.collapsed.height == height)
         #expect(collapsed.collapsed.minY == collapsed.collapsedChrome.minY, "pinned to the chrome's bottom while collapsed")
