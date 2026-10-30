@@ -419,9 +419,10 @@ final class CloudService {
     @ObservationIgnored private var recordReads = 0
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
     @ObservationIgnored private var recordReadApplied: [String: Int] = [:]
-    /// Record reads that have been issued but whose answers have not landed yet. A list
-    /// cannot remove a session while a newer one-record read may still reintroduce it.
-    @ObservationIgnored private var recordReadsOutstanding: Set<Int> = []
+    /// Only one-record reads protect their own machine from an older list's removal.
+    @ObservationIgnored private var recordReadsOutstanding: [Int: String] = [:]
+    /// Omitted machines awaiting a newer status read; retired as soon as that read finishes.
+    @ObservationIgnored private var deferredRecordRemovals: [String: Int] = [:]
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -497,21 +498,20 @@ final class CloudService {
         Self.listIsCurrent(loadedAt: hasLoadedMachines ? listLoadedAt : nil, loadedFor: loadedAccount, account: listAccount, now: .now, within: age)
     }
 
-    /// Takes the ticket of a machine-record read, before it is sent (``apply(_:to:read:)``).
-    func beginRecordRead() -> Int {
+    /// Takes a read ticket before sending. A one-record request names its machine; a list does not.
+    func beginRecordRead(machineID: String? = nil) -> Int {
         recordReads += 1
-        recordReadsOutstanding.insert(recordReads)
+        recordReadsOutstanding[recordReads] = machineID
         return recordReads
     }
 
     /// Retires a read whose request failed or was superseded before it produced a record.
     func finishRecordRead(_ read: Int) {
-        recordReadsOutstanding.remove(read)
+        guard recordReadsOutstanding.removeValue(forKey: read) != nil else { return }
+        processDeferredRecordRemovals()
     }
 
     func reconcile(_ list: [CloudMachine], read: Int) {
-        // This list has landed; newer record reads remain outstanding while we reconcile.
-        recordReadsOutstanding.remove(read)
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
@@ -525,29 +525,42 @@ final class CloudService {
             }
         }
         let ids = Set(visible.map(\.id))
-        // A machine whose record came from a read asked after this list stays: that read saw it.
-        let newerReadOutstanding = recordReadsOutstanding.contains { $0 > read }
-        for session in machines.cloud where !ids.contains(session.machineID) &&
-            recordReadApplied[session.machineID, default: 0] < read && !newerReadOutstanding {
+        for session in machines.cloud where !ids.contains(session.machineID) {
+            deferredRecordRemovals[session.machineID] = max(read, deferredRecordRemovals[session.machineID, default: 0])
+        }
+        processDeferredRecordRemovals()
+    }
+
+    private func processDeferredRecordRemovals() {
+        guard !policyDisabled else { return }
+        for (machineID, read) in deferredRecordRemovals {
+            // A later successful read saw this machine, superseding the omission.
+            if recordReadApplied[machineID, default: 0] >= read {
+                deferredRecordRemovals[machineID] = nil
+                continue
+            }
+            // A status request for another machine cannot delay this removal.
+            guard !recordReadsOutstanding.contains(where: { $0.key > read && $0.value == machineID }) else { continue }
+            deferredRecordRemovals[machineID] = nil
+            guard machines.session(machineID) != nil else { continue }
             if let user = auth.user {
                 let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
-                let machineID = session.machineID
                 // task-owner: server-driven removal; the adapter stops renewal before cleanup.
                 Task { try? await codexBroker.revoke(machineID: machineID, scope: scope) }
             }
-            creations.machineRemoved(session.machineID)
-            recordReadApplied[session.machineID] = nil
-            machines.remove(session.machineID)?.disconnect()
+            creations.machineRemoved(machineID)
+            recordReadApplied[machineID] = nil
+            machines.remove(machineID)?.disconnect()
         }
     }
 
     /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
     /// machine that stopped being live suspends its link, and one that turned live connects.
-    /// `read` (``beginRecordRead()``): a record from a read asked before the one the session
+    /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
     /// holds changes nothing, so answers that land out of order run no stale transition.
     func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
-        // The one-record response has landed, so it no longer protects a list from removal.
-        recordReadsOutstanding.remove(read)
+        // Apply the newer record before releasing any removal it was protecting.
+        defer { finishRecordRead(read) }
         guard read > recordReadApplied[machine.id, default: 0] else { return }
         recordReadApplied[machine.id] = read
         let wasLive = session.machine.status.isLive
@@ -594,7 +607,8 @@ final class CloudService {
         for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         recordReadApplied = [:]
-        recordReadsOutstanding = []
+        recordReadsOutstanding = [:]
+        deferredRecordRemovals = [:]
         machines.cloudLimits = nil
         hasLoadedMachines = false
         listLoadedAt = nil

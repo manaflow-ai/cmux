@@ -348,7 +348,7 @@ struct CloudIdlePauseTests {
     func anOlderListWithoutTheMachineDoesNotRemoveANewerRecord() throws {
         let f = Self.pausedMachine(reason: nil)
         let session = f.session, cloud = f.services.cloud
-        let olderList = cloud.beginRecordRead(), status = cloud.beginRecordRead()
+        let olderList = cloud.beginRecordRead(), status = cloud.beginRecordRead(machineID: f.session.machineID)
         var running = session.machine
         running.status = .running
         cloud.apply(running, to: session, read: status)
@@ -367,7 +367,7 @@ struct CloudIdlePauseTests {
         let f = Self.pausedMachine(reason: nil)
         let session = f.session, cloud = f.services.cloud
         let olderList = cloud.beginRecordRead()
-        let newerStatus = cloud.beginRecordRead()
+        let newerStatus = cloud.beginRecordRead(machineID: session.machineID)
         var running = session.machine
         running.status = .running
 
@@ -387,7 +387,7 @@ struct CloudIdlePauseTests {
         let f = Self.pausedMachine(reason: nil)
         let cloud = f.services.cloud
         let list = cloud.beginRecordRead()
-        let status = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: f.session.machineID)
         cloud.finishRecordRead(status)
         cloud.reconcile([], read: list)
         #expect(f.services.machines.session(f.session.machineID) == nil)
@@ -399,13 +399,57 @@ struct CloudIdlePauseTests {
         let f = Self.pausedMachine(reason: nil)
         let cloud = f.services.cloud
         let list = cloud.beginRecordRead()
-        let status = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: f.session.machineID)
         cloud.reconcile([], read: list)
         #expect(f.services.machines.session(f.session.machineID) === f.session)
         cloud.finishRecordRead(status)
         #expect(f.services.machines.session(f.session.machineID) == nil,
                 "failure retries the removal without waiting for another refresh")
         #expect(f.session.linkPhase == .idle)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aStatusReadForAnotherMachineDoesNotDelayRemoval() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let other = MachineIconTests.cloudMachine(f.services, id: "vm-other")
+        other.machine.status = .paused
+        defer { other.disconnect() }
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: other.machineID)
+
+        cloud.reconcile([other.machine], read: list)
+        #expect(f.services.machines.session(f.session.machineID) == nil,
+                "B's pending status must not keep omitted A registered")
+        #expect(f.services.machines.session(other.machineID) === other)
+        cloud.finishRecordRead(status)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func removalWaitsUntilEveryNewerReadForThatMachineFinishes() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let first = cloud.beginRecordRead(machineID: f.session.machineID)
+        let second = cloud.beginRecordRead(machineID: f.session.machineID)
+        cloud.reconcile([], read: list)
+        cloud.finishRecordRead(first)
+        #expect(f.services.machines.session(f.session.machineID) === f.session)
+        cloud.finishRecordRead(second)
+        #expect(f.services.machines.session(f.session.machineID) == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aNewerListSupersedesADeferredRemoval() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: f.session.machineID)
+        cloud.reconcile([], read: list)
+        cloud.reconcile([f.session.machine], read: cloud.beginRecordRead())
+        cloud.finishRecordRead(status)
+        #expect(f.services.machines.session(f.session.machineID) === f.session)
+        f.session.disconnect()
     }
 
     /// A newer list that first shows a machine (and creates its session) holds that machine's
