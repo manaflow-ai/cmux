@@ -183533,6 +183533,270 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
       }
+    },
+    "settings.home.clipboardHistory": {
+      "comment": "Settings toggle (home.clipboardHistory): the Chief composer's + menu lists recently copied text and images.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipboard History in the + Menu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwischenablageverlauf im +-Menü"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historique du presse-papiers dans le menu +"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجل الحافظة في قائمة +"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historial del portapapeles en el menú +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 + 選單中顯示剪貼板歷史記錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 + 菜单中显示剪贴板历史记录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 메뉴의 클립보드 기록"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ メニューのクリップボード履歴"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historija međuspremnika u meniju +"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udklipshistorik i +-menuen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia appunti nel menu +"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រវត្តិឃ្លីបបតក្នុងម៉ឺនុយ +"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utklippshistorikk i +-menyen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia schowka w menu +"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Histórico da área de transferência no menu +"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История буфера обмена в меню +"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประวัติคลิปบอร์ดในเมนู +"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Menüsünde Pano Geçmişi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія буфера обміну в меню +"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lịch sử bảng nhớ tạm trong menu +"
+          }
+        }
+      }
+    },
+    "settings.home.clipboardHistory.help": {
+      "comment": "Help for the home.clipboardHistory toggle: what the Chief's + menu shows, that the list stays local and skips passwords, and that off means no clipboard reads.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das +-Menü des Chiefs listet Texte und Bilder auf, die du kürzlich kopiert hast, sodass du sie mit einem Klick hinzufügen kannst. Die Liste bleibt im Arbeitsspeicher dieses Mac und lässt Passwörter aus. Wenn deaktiviert, liest cmux deine Zwischenablage dafür nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le menu + du Chief liste les textes et images que vous avez copiés récemment, pour en ajouter un d’un clic. La liste reste en mémoire sur ce Mac et ignore les mots de passe. Désactivé, cmux ne lit pas votre presse-papiers pour cela."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض قائمة + الخاصة بـ Chief النصوص والصور التي نسختها مؤخرًا، لتضيف أيًّا منها بنقرة. تبقى القائمة في ذاكرة هذا الـ Mac وتتجاوز كلمات المرور. عند إيقافها، لا يقرأ cmux الحافظة لهذا الغرض."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El menú + del Chief muestra el texto y las imágenes que copiaste hace poco, para añadir uno con un clic. La lista se queda en la memoria de este Mac y omite las contraseñas. Si está desactivado, cmux no lee el portapapeles para esto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的 + 選單會列出你最近拷貝的文字和圖片，按一下即可加入。此列表只保存在這部 Mac 的記憶體中，並會略過密碼。關閉後，cmux 不會為此讀取你的剪貼板。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的 + 菜单会列出你最近拷贝的文本和图片，点按一下即可添加。此列表只保存在这台 Mac 的内存中，并会跳过密码。关闭后，cmux 不会为此读取你的剪贴板。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief의 + 메뉴에 최근에 복사한 텍스트와 이미지가 표시되어 클릭 한 번으로 추가할 수 있습니다. 목록은 이 Mac의 메모리에만 남고 암호는 건너뜁니다. 끄면 cmux는 이를 위해 클립보드를 읽지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief の + メニューに最近コピーしたテキストと画像が表示され、クリックで追加できます。リストはこの Mac のメモリ内にのみ保持され、パスワードは除外されます。オフにすると、cmux はこのためにクリップボードを読み取りません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meni + Chiefa prikazuje tekst i slike koje ste nedavno kopirali, pa jedan možete dodati jednim klikom. Lista ostaje u memoriji na ovom Macu i preskače lozinke. Kada je isključeno, cmux za to ne čita vaš međuspremnik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs +-menu viser tekst og billeder, du har kopieret for nylig, så du kan tilføje et med ét klik. Listen bliver i hukommelsen på denne Mac og springer adgangskoder over. Når den er slået fra, læser cmux ikke din udklipsholder til den."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il menu + del Chief elenca testo e immagini copiati di recente, così puoi aggiungerne uno con un clic. L'elenco resta in memoria su questo Mac e salta le password. Se disattivato, cmux non legge gli appunti per questo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ឺនុយ + របស់ Chief បង្ហាញអត្ថបទ និងរូបភាពដែលអ្នកបានចម្លងថ្មីៗ ដូច្នេះអ្នកអាចបន្ថែមមួយដោយចុចតែម្តង។ បញ្ជីនៅក្នុងអង្គចងចាំលើ Mac នេះ ហើយរំលងពាក្យសម្ងាត់។ ពេលបិទ cmux មិនអានឃ្លីបបតរបស់អ្នកសម្រាប់វាទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs +-meny viser tekst og bilder du nylig har kopiert, så du kan legge til ett med ett klikk. Listen blir i minnet på denne Macen og hopper over passord. Når den er av, leser ikke cmux utklippstavlen din for den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu + Chiefa pokazuje ostatnio skopiowany tekst i obrazy, więc możesz dodać jeden jednym kliknięciem. Lista pozostaje w pamięci tego Maca i pomija hasła. Gdy wyłączone, cmux nie odczytuje do tego schowka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O menu + do Chief lista textos e imagens que você copiou recentemente, para você adicionar um com um clique. A lista fica na memória deste Mac e ignora senhas. Desativado, o cmux não lê sua área de transferência para isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню + у Chief показывает недавно скопированные текст и изображения, чтобы добавить их одним щелчком. Список хранится в памяти этого Mac и пропускает пароли. Если выключено, cmux не читает для этого буфер обмена."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมนู + ของ Chief แสดงข้อความและรูปภาพที่คุณคัดลอกล่าสุด คุณจึงเพิ่มได้ในคลิกเดียว รายการอยู่ในหน่วยความจำบน Mac เครื่องนี้และข้ามรหัสผ่าน เมื่อปิด cmux จะไม่อ่านคลิปบอร์ดของคุณสำหรับเมนูนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'in + menüsü yakın zamanda kopyaladığınız metin ve görüntüleri listeler, böylece birini tek tıkla ekleyebilirsiniz. Liste bu Mac'te bellekte kalır ve parolaları atlar. Kapalıyken cmux bunun için panonuzu okumaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Меню + у Chief показує нещодавно скопійовані текст і зображення, щоб додати їх одним клацанням. Список зберігається в пам'яті цього Mac і пропускає паролі. Якщо вимкнено, cmux не читає для цього буфер обміну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Menu + của Chief liệt kê văn bản và hình ảnh bạn sao chép gần đây để bạn thêm bằng một cú nhấp. Danh sách chỉ nằm trong bộ nhớ trên máy Mac này và bỏ qua mật khẩu. Khi tắt, cmux không đọc bảng nhớ tạm của bạn cho mục này."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

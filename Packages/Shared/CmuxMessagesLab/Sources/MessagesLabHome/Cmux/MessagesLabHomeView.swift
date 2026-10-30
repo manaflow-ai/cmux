@@ -486,6 +486,17 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
+    /// The "+" button's menu (the host builds and shows it at `anchor`, the button). Nil: the "+"
+    /// opens ``onPickAttachments`` at once.
+    public var onPlusMenu: ((_ anchor: NSView) -> Void)? {
+        get { projection.onPlusMenu }
+        set { projection.onPlusMenu = newValue }
+    }
+    /// Text from the + menu (a clipboard row): the message box takes the keyboard and the text
+    /// goes in at its caret, replacing a selection, as typing it would (the end of the draft
+    /// when the box did not hold the keyboard).
+    /// - Parameter text: The text to insert.
+    public func insertIntoPrimaryInput(_ text: String) { controller.insertIntoCompose(text) }
     /// A paste in the field: true when the host's intake took the pasteboard.
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }

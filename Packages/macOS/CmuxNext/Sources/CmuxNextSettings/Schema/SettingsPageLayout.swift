@@ -243,7 +243,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "privacy", title: SettingsText.keyed("settings.category.privacy", "Privacy and Security"),
             symbol: "hand.raised",
             groups: [
-                GroupSpec(keys: ["history.terminalCommands", "home.attachments.keepLocation"],
+                GroupSpec(keys: ["history.terminalCommands", "home.attachments.keepLocation", "home.clipboardHistory"],
                           title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),

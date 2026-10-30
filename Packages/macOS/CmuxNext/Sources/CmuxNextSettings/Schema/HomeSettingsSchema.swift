@@ -45,6 +45,15 @@ nonisolated enum HomeSettingsSchema {
                                          "When off, location data is removed from photos and videos before they are attached."),
                 kind: .toggle, default: .bool(false), keywords: ["gps", "location", "privacy", "metadata", "exif", "attachments", "photos"]
             ),
+            // The + menu's recent copies (Leo 2026-10-20: "like Raycast/Spotlight's clipboard history"); local only.
+            SettingDescriptor(
+                HomeClipboardHistorySetting.configPath, section: .home, group: attachments,
+                title: SettingsText.keyed("settings.home.clipboardHistory", "Clipboard History in the + Menu"),
+                help: SettingsText.keyed("settings.home.clipboardHistory.help",
+                                         "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."),
+                kind: .toggle, default: .bool(HomeClipboardHistorySetting.defaultEnabled),
+                keywords: ["clipboard", "pasteboard", "copy", "paste", "history", "privacy", "attachments", "chief", "plus"]
+            ),
             // The Channels entry after Home (cx-frn2y): section Home; the Settings page draws it in the
             // Appearance category's Sidebar card (the card takes every row of the sidebar group).
             SettingDescriptor(

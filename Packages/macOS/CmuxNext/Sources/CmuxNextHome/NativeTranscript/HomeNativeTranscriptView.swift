@@ -171,6 +171,7 @@ public final class HomeNativeTranscriptView: NSView {
         noticeButton.action = #selector(noticeButtonClicked)
         addSubview(noticeButton)
         connectAttachments()
+        connectPlusMenu()
         connectVoice()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
