@@ -59,9 +59,14 @@ public final class DesignSettings {
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
-    /// The same text multiplier native chrome uses, including the legacy Interface Size override.
-    public var interfaceScaleScript: String {
-        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)')"
+    /// Sets the chrome multiplier and the effective page zoom used by web column sizing. The latter
+    /// is passed explicitly by page hosts so Agent Chat Zoom is included without making generic pages
+    /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
+    public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
+        let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
+            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
