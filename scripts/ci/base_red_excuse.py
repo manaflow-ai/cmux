@@ -35,7 +35,8 @@ its failed steps and every line its own steps printed (their diagnostics: "workf
 ...)", "Generated cmux-next files are stale") among the base's. A rollup also fails on what no failed job shows: a
 required job that was skipped, a bad route, a verdict read from a need's outputs; those reasons are only the base's
 when the base printed them too. Its job definition must be the same in the base run's workflow: a workflow edited
-at the head (a step that just fails, given a `needs` expression) is never judged as a rollup. A rollup with nothing
+at the head (a step that just fails, given a `needs` expression, or a changed default shell, env or caller input
+above it) is never judged as a rollup. A rollup with nothing
 failed under it, one whose own output cannot be found in its log, one changed at the head, and one whose workflow
 cannot be read (then it is judged as an ordinary job, with nothing to compare), stays red.
 """
@@ -297,14 +298,18 @@ class Graph:
         self.read = read
         self.nodes: dict[str, dict] = {}
 
-    def add_file(self, path: str, prefix: str = "", scope: str = "", depth: int = 0, literal_prefix: bool = True) -> None:
+    def add_file(self, path: str, prefix: str = "", scope: str = "", depth: int = 0, literal_prefix: bool = True,
+                 context: tuple = ()) -> None:
         import yaml  # PyYAML; an ImportError leaves the graph unread, so every job is judged as itself.
 
         if depth > MAX_WORKFLOW_DEPTH:
             raise ValueError(f"{path}: reusable workflows nested past {MAX_WORKFLOW_DEPTH}")
-        jobs = yaml.safe_load(self.read(path)).get("jobs")
+        workflow = yaml.safe_load(self.read(path))
+        jobs = workflow.get("jobs")
         if not isinstance(jobs, dict) or not jobs:
             raise ValueError(f"{path}: no jobs")
+        # Everything else in the file (env, defaults, permissions, on, ...) shapes how its jobs run.
+        context = context + ({str(key): value for key, value in workflow.items() if key != "jobs"},)
         for key, job in jobs.items():
             if not isinstance(job, dict):
                 raise ValueError(f"{path}: job {key} is not a mapping")
@@ -315,15 +320,16 @@ class Graph:
             regex, literal = name_pattern(str(job.get("name") or key), matrix)
             node = {"id": scope + str(key), "key": str(key), "needs": [scope + str(need) for need in needs],
                     "rollup": is_rollup(job), "caller": "uses" in job,
-                    # The whole job as written, to tell a rollup the head changed from the base's.
-                    "definition": json.dumps(job, sort_keys=True, default=str),
+                    # The job as written, with every file and caller job above it, to tell a rollup the head changed
+                    # from the base's.
+                    "definition": json.dumps([context, job], sort_keys=True, default=str),
                     "headers": [step_header(step) for step in job.get("steps") or []] if is_rollup(job) else []}
             if node["caller"]:
                 # Every job of a called workflow shows as "<caller> / <job>".
                 node.update(pattern=re.compile(prefix + regex + " / .+"), literal=False)
                 if match := LOCAL_WORKFLOW.fullmatch(str(job["uses"]).strip()):
                     self.add_file(match[1], prefix + regex + " / ", node["id"] + "/", depth + 1,
-                                  literal_prefix and literal)
+                                  literal_prefix and literal, context + (job,))
             else:
                 node.update(pattern=re.compile(prefix + regex), literal=literal_prefix and literal)
             self.nodes[node["id"]] = node

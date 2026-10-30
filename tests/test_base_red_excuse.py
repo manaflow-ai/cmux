@@ -879,6 +879,17 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, f"'{GUARD_STATUS}': its job in the workflow at the head is not the one"):
             self.judge()
 
+    def test_a_rollup_whose_inherited_settings_changed_at_the_head_is_not_judged_by_its_jobs(self):
+        self.gh.base_workflow_files = dict(self.gh.workflow_files)
+        for path, edit in ((".github/workflows/ci-guards.yml", ("on: workflow_call\n",
+                                                                "on: workflow_call\ndefaults:\n  run:\n    shell: bash -c 'exit 1' {0}\n")),
+                           (".github/workflows/guards.yml", ("    with:\n", "    with:\n      linux_guard_history: 'true'\n"))):
+            self.gh.workflow_files = dict(self.gh.base_workflow_files)
+            self.gh.workflow_files[path] = self.gh.workflow_files[path].replace(*edit)
+            self.assertNotEqual(self.gh.workflow_files[path], self.gh.base_workflow_files[path])
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, "is not the one"):
+                self.judge()
+
     def test_a_rollup_whose_base_workflow_cannot_be_read_stays_red(self):
         self.gh.base_workflow_files = {".github/workflows/guards.yml": GUARDS_WORKFLOW}
         with self.assertRaisesRegex(excuse.Refused, "that workflow cannot be read"):
