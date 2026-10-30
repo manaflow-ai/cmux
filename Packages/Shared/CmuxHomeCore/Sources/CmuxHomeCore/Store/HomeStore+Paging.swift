@@ -38,6 +38,9 @@ extension HomeStore {
     /// subscription, an archived conversation shown only while open).
     public func close(_ id: ConversationID) {
         guard pager.close(id) else { return }
+        agentMessageReads.removeValue(forKey: id)?.cancel()
+        agentMessageRefreshes.remove(id)
+        agentMessages[id] = nil
         mirror.endTranscript(id)
         bumpTranscript(id)
         source.close(id)
@@ -51,7 +54,10 @@ extension HomeStore {
         // The window may have been replaced during the await; a page that no
         // longer joins it is dropped (the next scroll asks again).
         guard mirror.windows[id]?.firstSeq == first else { return }
-        if mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize) { bumpTranscript(id) }
+        if mirror.prepend(older, to: id, reachedStart: older.count < Self.pageSize) {
+            bumpTranscript(id)
+            requestAgentMessages(id)
+        }
     }
 
     /// The conversation's transcript read, or the one already running.
@@ -110,7 +116,10 @@ extension HomeStore {
             settle()
             rebuildRows()
             // A view joins mid-run: the owner's live text so far (`run.live`).
-            if outcome == .applied { requestLive(id) }
+            if outcome == .applied {
+                requestLive(id)
+                requestAgentMessages(id)
+            }
             if outcome == .applied { return }
             gaps += 1
         }
