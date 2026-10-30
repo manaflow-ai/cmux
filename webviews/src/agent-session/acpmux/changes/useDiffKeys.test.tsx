@@ -100,10 +100,23 @@ test("v marks the first file in view viewed", () => {
   expect(event.defaultPrevented).toBe(true);
 });
 
-test("v follows the picked file while it shows", () => {
-  const picked = setup("b.ts");
-  press(picked.document, "v");
-  expect(picked.clicks).toEqual(["viewed-b"]);
+test("v follows the picked file when it is not the first one in view", () => {
+  // Both files show; without the pick, the first in view (a) would be the target.
+  const { document, clicks } = setup("b.ts");
+  document.querySelector<HTMLElement>('[data-path="a.ts"]')!.getBoundingClientRect = rect(0, 40);
+  press(document, "v");
+  expect(clicks).toEqual(["viewed-b"]);
+});
+
+test("v follows a picked first file, and falls back to the first in view when the pick scrolled out", () => {
+  const { document, clicks } = setup("a.ts");
+  document.querySelector<HTMLElement>('[data-path="a.ts"]')!.getBoundingClientRect = rect(0, 40);
+  press(document, "v");
+  expect(clicks).toEqual(["viewed-a"]);
+  // The pick scrolls away: the first file still in view is the target instead.
+  document.querySelector<HTMLElement>('[data-path="a.ts"]')!.getBoundingClientRect = rect(-200, -10);
+  press(document, "v");
+  expect(clicks).toEqual(["viewed-a", "viewed-b"]);
 });
 
 test("v finds a file whose later edit shows although its first edit scrolled away", () => {
