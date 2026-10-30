@@ -130,18 +130,27 @@ acpmux session fork NAME [--name NEW]              # new session sharing the his
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
+acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
-Start an agent for a task (its own worktree, its brief, shown in the app) with
-one command; running it again reuses the session and worktree and sends nothing:
+Start an agent for a task (its own worktree and brief) with one command; running
+it again reuses the session and worktree and sends nothing:
 
 ```bash
-acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
+
+`--group "GROUP"` is optional person-facing app state. It runs `cmux agent
+open`, creates a workspace and places it in the named cmux sidebar group (and
+may create that group); it does not move focus. Use a human label only, never a
+`grp_…`, `ws_…` or other object id. Omit it unless the person asked for this
+sidebar placement. To recover from an unwanted placement, inspect
+`cmux --json workspace group list`, then move/delete the affected workspace or
+group with the other `workspace group` commands; rerunning without `--group` is safe.
 
 A child of another harness under your own chat (a Codex child of a Claude chat): it lists
 under your chat, and your sub-session tools read, message and stop it.

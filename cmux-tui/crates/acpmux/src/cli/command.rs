@@ -384,7 +384,7 @@ pub enum Command {
     /// archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
-    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
+    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
     /// This machine as a hand of a Cloud Chief: pair, run, status.
@@ -437,6 +437,10 @@ pub enum Command {
     RulesCmd { session: String, rules: Option<String>, clear: bool },
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
+    #[command(hide = true)]
+    TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    #[command(hide = true, subcommand)]
+    QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -549,7 +553,9 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        /// `session.memory_mb=6144`, `session.swap_mb=2048`,
+        /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
+        /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
         set: Option<String>,
     },
@@ -924,12 +930,30 @@ pub enum SessionCmd {
         #[arg(long)]
         clear: bool,
     },
+    /// The turn cap: past it, the running turn takes no other agent's message (they wait for the
+    /// next turn, and the agent is told once to end its turn); the person's still go in. Omit
+    /// the flags to show it; setting it takes the app or this socket, never an agent.
+    TurnCap {
+        session: String,
+        /// The cap in minutes (1 to 1440).
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=1440), conflicts_with_all = ["off", "clear"])]
+        minutes: Option<u64>,
+        /// No cap for this session, whatever its default.
+        #[arg(long, conflicts_with = "clear")]
+        off: bool,
+        /// Drop the session's own value: back to its default.
+        #[arg(long)]
+        clear: bool,
+    },
     /// One line per turn.
     History {
         session: String,
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
+    #[command(subcommand)]
+    Queue(crate::cli::session_queue::QueueCmd),
 }
 
 #[derive(Args)]
@@ -1074,7 +1098,10 @@ pub struct NewArgs {
     /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
     /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
     /// machine as a remote client, are refused with the command that works instead.
-    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick. Left out on a
+    /// machine the fleet registry marks interactive (a person's own Mac), the session is placed
+    /// as with `auto`, off every such machine, unless `--cwd` or `-w` names a folder here;
+    /// `local` keeps it on this machine.
     #[arg(long)]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
@@ -1206,10 +1233,14 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
             }
+            SessionCmd::TurnCap { session, minutes, off, clear } => {
+                Command::TurnCapCmd { session, minutes, off, clear }
+            }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
             DaemonCmd::Run {

@@ -85,9 +85,15 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
+        let (
+            Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest },
+            preset_plain,
+        ) = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
+            let r =
+                self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
+            (r, plain)
         };
         let agent = agent.as_str();
         if profile.kind == crate::config::HarnessKind::Terminal {
@@ -115,9 +121,11 @@ impl Hub {
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
         // The start mode also skips a remote-origin session (the remote
-        // guard settles its mode) and a profile that pins its mode.
+        // guard settles its mode) and a profile that pins its mode; a built-in Chief subagent
+        // preset's chat takes it as a plain chat does (`start_mode.rs`, cmux#27847).
+        let mode_plain = adopt.is_none() && preset_plain && folder_root.is_none();
         let mode_eligible =
-            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile);
+            super::start_mode::mode_eligible(mode_plain, remote, keep_harness_mode, &profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()

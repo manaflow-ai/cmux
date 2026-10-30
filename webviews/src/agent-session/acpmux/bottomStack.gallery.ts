@@ -119,6 +119,14 @@ const checkPrQueue: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
+  // Expanding a wrapped prompt animates the queue's height. Inspect the staged end state,
+  // after its ResizeObserver has reserved that height above the floating stack.
+  await ctx.waitFor(() =>
+    ctx
+      .find({ selector: ".acpmux-composer-queue" })
+      .getAnimations()
+      .every((animation) => animation.playState !== "running"),
+  );
   geometry(ctx);
   // A started chat has no folder/host strip (#20869, locationRow.ts): the queue is the composer's
   // top strip, and no hidden slot for the strip may hold space above it.
@@ -218,7 +226,11 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-composer-bar" }],
   covers: ["agent-session/acpmux/PermissionCard.tsx", "agent-session/acpmux/TrustAsk.tsx"],
   variants: {
-    "pr-queue": { snapshot: prQueue, native: { "acp.trust.get": { cwd: CWD, level: "trusted" } }, play: checkPrQueue },
+    "pr-queue": {
+      snapshot: prQueue,
+      native: { "acp.trust.get": { cwd: CWD, level: "trusted" } },
+      play: checkPrQueue,
+    },
     "trust-permission-queue": { snapshot: grouped, native, play: checkTrust },
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },
