@@ -7,7 +7,15 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { useEffect, useRef, useState, type ReactNode, type MouseEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type MouseEvent,
+  type PointerEvent,
+} from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
@@ -50,6 +58,9 @@ export type ChatMenuItem =
       icon: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
+      /// A product-level key hint when the action has no registered host shortcut (for example, the
+      /// title menu's Rename R and Fork F, matching Claude Code's session menu).
+      shortcutLabel?: string;
       disabled?: boolean;
       onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
       children?: ChatMenuChild[];
@@ -60,7 +71,49 @@ export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
   groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
 
 /// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
-export type ChatMenuChild = { key: string; label: string; shortcutAction?: string; onSelect: () => void };
+export type ChatMenuChild = {
+  key: string;
+  label: string;
+  disabled?: boolean;
+  shortcutAction?: string;
+  shortcutLabel?: string;
+  onSelect: () => void;
+};
+
+type ShortcutMenuItem = Exclude<ChatMenuItem, "separator"> | ChatMenuChild;
+
+export function menuItemForShortcut(
+  items: readonly (ChatMenuItem | ChatMenuChild)[],
+  key: string,
+): ShortcutMenuItem | undefined {
+  const normalized = key.length === 1 ? key.toUpperCase() : "";
+  if (!normalized) return undefined;
+  return items.find(
+    (item): item is ShortcutMenuItem => item !== "separator" && item.shortcutLabel?.toUpperCase() === normalized,
+  );
+}
+
+/** A popup may outlive the selected chat until React commits the new view. Its callbacks must
+ * remain bound to the chat that opened it, including submenu callbacks. */
+export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): ChatMenuItem[] {
+  // The selection event goes through: Fork's Option-click opens its destination chooser (forkMenu.ts).
+  const guard =
+    <E,>(run: (event?: E) => void) =>
+    (event?: E) => {
+      if (current()) run(event);
+    };
+  return items.map((item) =>
+    item === "separator"
+      ? item
+      : {
+          ...item,
+          ...(item.onSelect && { onSelect: guard(item.onSelect) }),
+          ...(item.children && {
+            children: item.children.map((child) => ({ ...child, onSelect: guard(child.onSelect) })),
+          }),
+        },
+  );
+}
 
 export function ChatHeaderTools({
   onTerminal,
@@ -360,6 +413,7 @@ export function ChatHeaderTools({
       <ChatMenu
         items={rows}
         disabled={chatRows.length === 0}
+        onOpen={onMenuOpen}
         nativeOpen={
           native && chatMenu
             ? (row) =>
@@ -369,7 +423,6 @@ export function ChatHeaderTools({
                 })
             : undefined
         }
-        onOpen={onMenuOpen}
         expand={expand}
         onExpanded={onExpanded}
       />
@@ -468,21 +521,33 @@ function customizeItems(
   return items;
 }
 
-function ChatMenu({
+export function ChatMenu({
   items,
   disabled,
   onOpen,
+  nativeOpen,
   expand,
   onExpanded,
-  nativeOpen,
+  trigger,
+  triggerClassName,
+  triggerLabel,
+  triggerTitle,
+  registerPickerLabel,
 }: {
   items: () => ChatMenuItem[];
   /// No rows yet (Quick Chat before its session): the button stays, disabled.
   disabled?: boolean;
   onOpen?: () => Promise<unknown>;
+  nativeOpen?: (row?: string) => Promise<unknown>;
   expand?: string;
   onExpanded?: () => void;
-  nativeOpen?: (row?: string) => Promise<unknown>;
+  /// Optional trigger content for another header control (ThreadTitle); the menu behavior stays shared.
+  trigger?: ReactNode;
+  triggerClassName?: string;
+  triggerLabel?: string;
+  triggerTitle?: string;
+  /// `null` leaves this menu out of the picker registry (a title menu is not the header actions picker).
+  registerPickerLabel?: string | null;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -491,11 +556,21 @@ function ChatMenu({
   // Set when the palette asks for one row's children (Continue In…): the menu lists only those.
   const [only, setOnly] = useState<string>();
   const opening = useRef(0);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(
+    () => () => {
+      opening.current++;
+    },
+    [],
+  );
   const show = (row?: string) => {
     const generation = ++opening.current;
-    const ready = () => {
+    const apply = () => {
       if (generation !== opening.current) return;
-      setRows(items());
+      // `onOpen` refreshes native state and may rerender before its promise settles. Read the
+      // latest factory after that await so a title menu never commits the previous chat's targets.
+      setRows(itemsRef.current());
       setOnly(row);
       setOpen(true);
     };
@@ -503,14 +578,16 @@ function ChatMenu({
       void nativeOpen(row).catch(() => {
         if (generation !== opening.current) return;
         setNativeFailed(true);
-        ready();
+        apply();
       });
       return;
     }
-    if (!onOpen) return ready();
-    // The menu's labels read the tab's state; a host that does not answer quickly gets the rows anyway.
-    const timeout = new Promise((resolve) => window.setTimeout(resolve, 150));
-    void Promise.race([onOpen().catch(() => undefined), timeout]).then(ready);
+    // Open on the press. Refresh native availability in place; a delayed response must never
+    // postpone the menu or reopen it after dismissal or unmount.
+    apply();
+    void onOpen?.()
+      .catch(() => undefined)
+      .then(apply);
   };
   const showRef = useRef(show);
   showRef.current = show;
@@ -521,7 +598,11 @@ function ChatMenu({
   }, [expand, onExpanded]);
   // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
   const label = t("chatMenu.open");
-  useEffect(() => registerPicker(label, () => showRef.current()), [label]);
+  useEffect(() => {
+    const pickerLabel = registerPickerLabel === undefined ? label : registerPickerLabel;
+    if (pickerLabel === null) return;
+    return registerPicker(pickerLabel, () => showRef.current());
+  }, [label, registerPickerLabel]);
   const onOpenChange = (next: boolean) => {
     if (next) return show();
     opening.current++;
@@ -529,13 +610,30 @@ function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
+  const shortcutRows = children ?? rows;
+  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.key.length !== 1) return;
+    const key = event.key.toUpperCase();
+    const item = menuItemForShortcut(rows, key) ?? menuItemForShortcut(shortcutRows, key);
+    if (!item || item.disabled || !item.onSelect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    item.onSelect();
+    onOpenChange(false);
+  };
+  const buttonLabel = triggerLabel ?? label;
   if (nativeOpen && !nativeFailed) return null;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
-        <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />
+      <MenuButton
+        className={triggerClassName ?? "acpmux-header-tool"}
+        label={buttonLabel}
+        title={triggerTitle}
+        disabled={disabled}
+      >
+        {trigger ?? <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />}
       </MenuButton>
-      <MenuPopup className="acpmux-chat-menu-popover" align="end">
+      <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={onMenuKeyDown}>
         {children
           ? children.map((child) => <ChatMenuChildRow key={child.key} child={child} />)
           : rows.map((row, index) =>
@@ -552,6 +650,7 @@ function ChatMenu({
                     <>
                       <Icon name={row.icon} size={15} />
                       <span className="acpmux-chat-menu-label">{row.label}</span>
+                      {row.shortcutLabel && <kbd className="acpmux-chat-menu-key">{row.shortcutLabel}</kbd>}
                     </>
                   }
                 >
@@ -569,7 +668,8 @@ function ChatMenu({
 }
 
 function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
-  const shortcut = useShortcut(item.shortcutAction ?? "");
+  const registeredShortcut = useShortcut(item.shortcutAction ?? "");
+  const shortcut = item.shortcutLabel ?? registeredShortcut;
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
@@ -580,9 +680,10 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
 }
 
 function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
-  const shortcut = useShortcut(child.shortcutAction ?? "");
+  const registeredShortcut = useShortcut(child.shortcutAction ?? "");
+  const shortcut = child.shortcutLabel ?? registeredShortcut;
   return (
-    <MenuItem className="acpmux-chat-menu-item" onSelect={child.onSelect}>
+    <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>

@@ -421,7 +421,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, inbox },
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary, quick actions, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
+      note: "Native row tools opt-in: Summary, quick-action icons, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
       props: {
         ...base,
         inbox,
