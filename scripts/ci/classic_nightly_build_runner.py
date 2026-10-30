@@ -117,8 +117,7 @@ def candidates(first: str = "") -> tuple[str, ...]:
 def dead_labels(evidence: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
     """The candidates the snapshot (`evidence`, fresh or not) shows dead, or none when it shows every one dead:
     with no label showing life it says nothing to choose by, and the caller's own order holds."""
-    dead = {label for label in CANDIDATES if picker.blacksmith_dead(evidence, label, now)}
-    return set() if dead >= set(CANDIDATES) else dead
+    return picker.dead_macos_26(evidence, now) & set(CANDIDATES)
 
 
 def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
