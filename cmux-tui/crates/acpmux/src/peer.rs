@@ -1757,6 +1757,10 @@ impl Drop for ForgetPending {
 }
 
 #[cfg(test)]
+#[path = "peer_attach_tests.rs"]
+mod attach_tests;
+
+#[cfg(test)]
 mod remote_config_tests {
     use super::*;
 
