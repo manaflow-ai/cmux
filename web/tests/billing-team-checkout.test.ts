@@ -305,6 +305,37 @@ describe("team checkout idempotency", () => {
     });
   }
 
+  test("a replacement session that is itself replayed and finished is replaced again", async () => {
+    queuedSessions = [
+      replayedSession("cs_first", "https://checkout.stripe.com/c/first"),
+      replayedSession("cs_second", "https://checkout.stripe.com/c/second"),
+      { id: "cs_third", url: "https://checkout.stripe.com/c/third" },
+    ];
+    queuedRetrievals = [
+      { id: "cs_first", url: null, status: "complete" },
+      { id: "cs_second", url: null, status: "complete" },
+    ];
+
+    const response = await checkoutGet("plan=team&teamId=team-b");
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/third");
+    expect(retrieveSession.mock.calls.map((call) => call[0])).toEqual(["cs_first", "cs_second"]);
+    expect(new Set(idempotencyKeys(createSession.mock.calls)).size).toBe(3);
+  });
+
+  test("a racer that got the same Stripe customer back reuses it when the insert hits the primary key", async () => {
+    dbRows.beforeInsert = () => {
+      dbRows.customers = [{ id: "cus_new_team" }];
+      throw Object.assign(new Error("duplicate key"), { code: "23505", constraint: "stripe_customers_pkey" });
+    };
+
+    const response = await checkoutGet("plan=team&teamId=team-b");
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
+    expect(sessionParams().customer).toBe("cus_new_team");
+    expect(deleteCustomer).not.toHaveBeenCalled();
+  });
+
   test("a checkout that loses the customer insert race deletes its Stripe customer and uses the winner's", async () => {
     dbRows.beforeInsert = () => {
       dbRows.customers = [{ id: "cus_race_winner" }];
