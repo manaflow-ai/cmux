@@ -2888,6 +2888,7 @@ jobs:
           if ! [[ -x "$client" ]]; then
             reasons+=("$client is not installed on runner $RUNNER_NAME")
             finish unavailable
+            exit 1  # finish exits already; the step leaves here before any "$client" call (client guard).
           fi
           # submit N PACKAGE SUITES: one fleet step that builds PACKAGE once and runs SUITES at REF.
           # --no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
