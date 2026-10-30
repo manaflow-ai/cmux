@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4099795415801",
+  "notes": "notes/4099795415801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27740,
+      "title": "acpmux: an adopted Claude chat reads its transcript from the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27004,
+      "title": "[ask-2663fecb03] Add a separate pane-type chevron beside the plain plus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27830,
+      "title": "build: thin LTO for the cmux-tui release profile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26554,
+      "title": "Web latency: bounded probe lifecycle and exact-head evidence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27026,
+      "title": "cloud sidebar: Machines section grouped by kind, one type scale and three inks, in AppKit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27510,
+      "title": "fix(next): debug clicks and page keys on a Chromium chat count as the person's gesture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27065,
+      "title": "git: add bounded pages for large tracked-file patches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27862,
+      "title": "fix(cmux-next): VNC reconnect test helpers are nonisolated (test target compile red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25336,
+      "title": "fix(cmux-next): scripted agent opens keep the user's focus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24580,
+      "title": "fix: prepare sidebar group lookup before the first fold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27684,
+      "title": "cmux NEXT No-SwiftUI check: a stale base entry cannot admit new SwiftUI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27847,
+      "title": "fix(acpmux,webviews): Chief subagent chats start in full access; approve-all reads as full access",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27844,
+      "title": "fix(webviews): five react-apps-check base reds (PR links fallback, stale tests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27304,
+      "title": "NEXT iOS: keep offline agent drafts with Retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27600,
+      "title": "acpmux: start agent harnesses at background CPU class on macOS, so cmux and its renderers go first",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
