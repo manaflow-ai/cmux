@@ -267,7 +267,8 @@ public final class ComputerUseHelperV2 {
             return unavailable("the helper did not report ready")
         }
         let link = await ComputerUseHelperV2HostLink.connect(path: hostSocketPath, helperPID: spawned.pid,
-                                                             executable: executable, secret: hostSecret)
+                                                             executable: executable, secret: hostSecret,
+                                                             team: signingTeam.team)
         guard current == generation else {
             link?.close()
             spawned.closeInput()

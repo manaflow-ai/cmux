@@ -83,7 +83,9 @@ public final class ComputerUseLivePreview {
     ///   - clock: The clock a done card's hide and the live view's frames wait on.
     ///   - capture: The live view; by default the legacy helper's window stream.
     ///   - sight: Whether the person can see a chat; nil turns the live view off.
-    public init(host: any ComputerUseLivePreviewHost, makeSource: (@MainActor () -> any ComputerUseLivePreviewSource)? = nil,
+    ///   - deadlines: The app's deadline placer, for the default source's socket waits.
+    public init(host: any ComputerUseLivePreviewHost, deadlines: MainDeadlineScheduler,
+                makeSource: (@MainActor () -> any ComputerUseLivePreviewSource)? = nil,
                 resolver: any ComputerUsePreviewAppResolving = ComputerUseWorkspaceAppResolver(),
                 clock: any Clock<Duration> = ContinuousClock(), capture: ComputerUseLiveCapture? = nil,
                 sight: (any ComputerUsePreviewSight)? = nil) {
@@ -91,7 +93,8 @@ public final class ComputerUseLivePreview {
         self.resolver = resolver
         self.clock = clock
         self.makeSource = makeSource ?? {
-            ComputerUseActivityPreviewSource(configuration: { ComputerUseHelperDaemon.shared.configuration })
+            ComputerUseActivityPreviewSource(configuration: { ComputerUseHelperDaemon.shared.configuration },
+                                             deadlines: deadlines)
         }
         self.capture = capture ?? ComputerUseLiveCapture(configuration: { ComputerUseHelperDaemon.shared.configuration },
                                                          helperPID: {
