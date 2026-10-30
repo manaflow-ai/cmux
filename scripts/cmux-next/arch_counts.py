@@ -101,7 +101,8 @@ rewrites the json without comparing totals: reviewers compare the definitions):
                           `// blocking-allow:` comment and every `allowBlocking(` call (not a
                           `func allowBlocking(` declaration); ratchets down only (Performance Lead
                           2026-10-24)
-  app_lines               physical lines (newlines) of CmuxNextApp Swift (report only here)
+  app_lines               physical lines (newlines) of CmuxNextApp Swift; ratchets down only (reward-hacking
+                          audit, cmux-ad 2026-10-30: it rose 143,610 -> 164,014 while it was report only)
 
 Every row reads the whole closure: a Shared package's static or observer counts under its module, and its
 targets are placed (layer_unplaced) and their edges classified like CmuxNext's.
@@ -242,7 +243,7 @@ ROWS = (
     Row("app_broadcast_names", "app-internal Notification.Name broadcasts", True),
     Row("observer_sites", "NotificationCenter/KVO observer sites", True),
     Row("blocking_allow_escapes", "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()", True),
-    Row("app_lines", "CmuxNextApp Swift lines", False),
+    Row("app_lines", "CmuxNextApp Swift lines", True),
 )
 ROW_IDS = tuple(row.id for row in ROWS)
 LAYER_ROWS = ("layer_hard", "layer_soft", "layer_upward", "layer_unplaced")
@@ -4444,8 +4445,10 @@ def _count_statics(base, head, files, facts, net, redeclared, tables, lookup, be
 # The json record
 
 
-def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None) -> dict:
-    """The arch-ratchet.json object for a full count."""
+def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None,
+           escape_reviews: list | None = None) -> dict:
+    """The arch-ratchet.json object for a full count. ESCAPE_REVIEWS (the record of who reviewed each
+    blocking_allow_escapes site, its owner and expiry) is kept as the old record has it: --update never writes it."""
     packages: dict[str, dict[str, int]] = collections.defaultdict(dict)
     for row in ROW_IDS:
         for pkg, n in sorted(counts.rows[row].items()):
@@ -4457,14 +4460,19 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
                  "defines every row). A push may not raise a ratcheted row's total, in the code or in this file's "
                  "totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The "
                  "one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, "
-                 "\"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next "
+                 "\"why\": \"...\", \"author\": \"<who wrote it>\", \"owner\": \"<who removes it>\", "
+                 "\"receipt\": \"Review (<reviewer, not the author>): SHIP at <40-hex sha>\", \"expiry\": "
+                 "\"YYYY-MM-DD\"} to exceptions (an entry with no independent receipt, owner or expiry allows "
+                 "nothing); the push that adds it may raise that row by n, and the next "
                  "--update folds it into the totals and marks it with applied_sha (an applied entry is never edited "
                  "or removed). --update refuses a rise that no pending exception covers, except a rise that "
                  "commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it "
                  "records that one with a generated applied entry whose raised_by names those commits. A generated "
                  "entry allows no rise in any push's code, and the push that brings it is re-checked: its commits "
                  "must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no "
-                 "other entry, and its allow at most their rise. Never CI."),
+                 "other entry, and its allow at most their rise. Every blocking_allow_escapes site also needs an "
+                 "escape_reviews entry (path, text, owner, author, receipt, expiry, state): a push that adds a site "
+                 "with no reviewed entry is refused, and --audit lists unreviewed and expired ones. Never CI."),
         "method": "arch_counts",
         "method_version": METHOD_VERSION,
         "measured_sha": sha,
@@ -4479,6 +4487,7 @@ def record(sha: str, counts: Counts, lay: Layers, exceptions: list | None = None
             "unplaced": lay.unplaced,
         },
         "exceptions": exceptions if exceptions is not None else [],
+        "escape_reviews": escape_reviews if escape_reviews is not None else [],
         # A speed hint for the observer count's first search (Observers.hint_names), never trusted.
         "observer_wrappers": sorted(counts.observer_wrappers),
     }
