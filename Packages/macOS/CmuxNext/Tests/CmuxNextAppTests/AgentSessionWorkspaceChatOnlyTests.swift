@@ -145,10 +145,12 @@ struct AgentSessionWorkspaceChatOnlyTests {
             }
         }, within: .seconds(10))
         #expect(kill(pid, SIGSTOP) == 0)
+        // Let the keyed tab request go out while the daemon is stopped. Its first short
+        // deadline must expire before the daemon resumes, forcing the production retry path.
+        await releaseFirstTab.open()
         // The old ten-second keyed-tab budget must expire while the daemon is stopped.
         try await Task.sleep(for: .seconds(12))
         #expect(kill(pid, SIGCONT) == 0)
-        await releaseFirstTab.open()
         let failure = await work.value?.message
 
         try await PasswordManagerRouteTests.until({

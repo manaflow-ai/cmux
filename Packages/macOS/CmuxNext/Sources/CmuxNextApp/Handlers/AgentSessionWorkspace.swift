@@ -120,8 +120,8 @@ enum AgentSessionWorkspace {
                 let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair,
                                                                           giveUp: giveUp) { created in
                     await beforeFirstTab?()
-                    try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true,
-                                                           until: giveUp, on: daemon, tabs: services.agentTabs)
+                    return try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true,
+                                                                  until: giveUp, on: daemon, tabs: services.agentTabs)
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
