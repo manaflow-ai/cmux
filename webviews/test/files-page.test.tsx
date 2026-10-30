@@ -202,3 +202,69 @@ test("keeps a folder's state when a complete listing still holds a file of that 
   expect(snapshot.selected).toBe("src/main.ts");
   expect(snapshot.rows.find((row) => row.path === "src/components")?.kind).toBe("file");
 });
+
+test("ignores stale open failures across navigation, collapse, and retry", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { FilesOps } = await import("../src/pages/files/types");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const files = structuredClone(sampleTree);
+  const provider = new MockFilesProvider(files);
+  const baseCall = provider.call.bind(provider);
+  const pending: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+  provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+    if (op === FilesOps.open) {
+      return new Promise<R>((resolve, reject) =>
+        pending.push({ resolve: () => resolve(undefined as R), reject }),
+      );
+    }
+    return baseCall(op, params);
+  };
+  const settle = (reject: boolean, message = "gone") => {
+    const attempt = pending.shift()!;
+    if (reject) attempt.reject(new Error(message));
+    else attempt.resolve();
+  };
+  const store = new FilesStore(provider);
+
+  await store.start();
+  await store.refresh();
+  store.select("src/main.ts");
+  const a1 = store.open("src/main.ts");
+  store.select("src/store.ts");
+  const b = store.open("src/store.ts");
+  store.select("src/main.ts");
+  const a2 = store.open("src/main.ts");
+  settle(true, "old A");
+  settle(false);
+  settle(false);
+  await Promise.all([a1, b, a2]);
+  expect(store.getSnapshot().notice).toBeUndefined();
+
+  const current = store.open("src/main.ts");
+  expect(store.getSnapshot().notice).toBeUndefined();
+  settle(true, "current A");
+  await current;
+  expect(store.getSnapshot().notice).toBe("current A");
+  const retry = store.open("src/main.ts");
+  expect(store.getSnapshot().notice).toBeUndefined();
+  settle(false);
+  await retry;
+
+  store.select("src/main.ts");
+  const collapsed = store.open("src/main.ts");
+  store.collapse("src");
+  settle(true, "collapsed");
+  await collapsed;
+  expect(store.getSnapshot().notice).toBeUndefined();
+
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  const forgotten = store.open("src/main.ts");
+  delete files.src;
+  await store.refresh();
+  settle(true, "forgotten");
+  await forgotten;
+  expect(store.getSnapshot().selected).toBeUndefined();
+  expect(store.getSnapshot().notice).toBeUndefined();
+});
