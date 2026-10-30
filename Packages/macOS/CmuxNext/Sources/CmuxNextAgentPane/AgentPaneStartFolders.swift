@@ -81,7 +81,7 @@ public final class AgentPaneStartFolders {
                     (AcpmuxPathPolicy.canonical(path), homeFolder.flatMap(AcpmuxPathPolicy.canonical))
                 }.value
                 guard let home, picked == home else { return AgentPaneModel.transportFailure(.pathInvalid) }
-                return Self.answerHome(home, confirm: confirm, transport: transport)
+                return await Self.answerHome(home, confirm: confirm, transport: transport)
             case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
             case .agentHome: return AgentPaneReply.success(["status": "ok", "cwd": answer.agentHome ?? path])
             case .missing, nil: return AgentPaneModel.transportFailure(.pathInvalid)
@@ -98,7 +98,7 @@ public final class AgentPaneStartFolders {
             return AgentPaneReply.success(["status": "ok", "cwd": folder])
         }
         guard let home, folder == home else { return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": folder]) }
-        return Self.answerHome(home, confirm: confirm, transport: transport)
+        return await Self.answerHome(home, confirm: confirm, transport: transport)
     }
 
     /// A new chat on another machine (cx-1bhjj): that machine's store decides its folder by the
@@ -138,18 +138,17 @@ public final class AgentPaneStartFolders {
     private static func grantPicked(_ path: String, transport: AgentPaneTransport) async {
         // The store's spelling is not always the canonical one the relay compares (a symlink).
         guard let folder = await Task.detached(operation: { AcpmuxPathPolicy.canonical(path) }).value,
-              !transport.addedRoots.contains(folder), !transport.roots().contains(folder),
               transport.gestures.consume() else { return }
-        transport.grantPicked(folder)
+        await transport.grantPicked(folder)
     }
 
     /// The home folder the user picked: asked about first; the answer (on its click) makes it a
     /// root of this pane, so the chat starts there at once.
-    private static func answerHome(_ home: String, confirm: Bool, transport: AgentPaneTransport) -> [String: Any] {
+    private static func answerHome(_ home: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
         if transport.addedRoots.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
         guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
         guard transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        transport.grantPicked(home)
+        await transport.grantPicked(home, trust: false)
         return AgentPaneReply.success(["status": "ok", "cwd": home])
     }
 }

@@ -308,6 +308,11 @@ export function markDraftRead(sessionId: string | undefined): void {
   if (sessionId?.trim()) readDrafts.add(sessionId);
 }
 
+/** A composer left a session; a later visit must merge that session's durable draft again. */
+export function forgetDraftRead(sessionId: string | undefined): void {
+  if (sessionId?.trim()) readDrafts.delete(sessionId);
+}
+
 /// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),
 /// or undefined when nothing could be read (no session, no page action yet, a failed or dropped
 /// connection). "Unread" is never "no draft": a composer that took it for one would let what the
