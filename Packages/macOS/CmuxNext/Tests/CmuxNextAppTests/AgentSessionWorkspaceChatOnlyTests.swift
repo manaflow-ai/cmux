@@ -94,6 +94,12 @@ struct AgentSessionWorkspaceChatOnlyTests {
         }
         try #require(tabs.canHostChat, "this build has no agent page")
         let pid = try #require(services.daemon.identity?.pid)
+        defer {
+            // If an assertion or timeout below fails while the daemon is stopped, leave no
+            // child behind to poison the serialized app suite.
+            _ = kill(pid, SIGCONT)
+            _ = kill(pid, SIGTERM)
+        }
         let key = WorkspaceKey.generate()
         let work = try AgentSessionWorkspace.open(session: "s-chat-only-late", name: "late lane", key: key, cwd: "/tmp", services: services)
 

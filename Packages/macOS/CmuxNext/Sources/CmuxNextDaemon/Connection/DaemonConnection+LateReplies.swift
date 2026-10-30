@@ -28,8 +28,8 @@ extension DaemonConnection {
         while true {
             do {
                 return try await send()
-            } catch DaemonError.timedOut(let request) where ContinuousClock.now < giveUp && !Task.isCancelled {
-                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again")
+            } catch let error as DaemonError where error.isLostConnection && ContinuousClock.now < giveUp && !Task.isCancelled {
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); asking again")
             }
         }
     }
