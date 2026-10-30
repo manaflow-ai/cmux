@@ -564,7 +564,7 @@ export function useFolderTrustAsk(
     // session id and folder happen to match.
     if (
       held.authorityEpoch !== authorityEpoch ||
-      held.ownerEpoch !== ownerEpoch ||
+      (held.ownerEpoch !== ownerEpoch && !held.cwds.includes(cwd)) ||
       held.visitValue !== visitValue ||
       !sameVisit() ||
       !sameAuthority()
