@@ -10,7 +10,8 @@
 // - only the newest WINDOW rows mount at first, placed at the bottom (or around the task opened)
 //   in a layout effect, before the frame paints; older rows mount a window at a time as the reader
 //   scrolls up to the top sentinel, with the scroll offset held so nothing moves;
-// - while the reader is at the bottom, a new row keeps them there;
+// - while the reader is at the bottom, a new row keeps them there; scrolled up, at most MOUNTED rows
+//   stay mounted as rows stream in, and the bottom sentinel mounts the rest;
 // - a workflow agent's transcript (read a page at a time through acpmux) loads its older history from
 //   the same top sentinel once every row it has is mounted (`onLoadOlder`), with the offset held too.
 // The sentinels' IntersectionObservers (one above the mounted rows, one below a window opened around
@@ -100,10 +101,21 @@ export function SubagentTranscript({
   }
   // Rows replaced by fewer (a workflow agent's transcript read again from a fresh page after its file
   // was cut or replaced): the window is taken again from the new rows, never left past their end.
-  const [count, setCount] = useState(rows.length);
-  if (rows.length !== count) {
-    setCount(rows.length);
-    if (rows.length < count) setRange(windowRange(rows));
+  // Rows read in above the first one (a workflow agent's older history): the window moves down by as
+  // many, so the rows the reader was on stay the ones mounted.
+  const [seen, setSeen] = useState({ count: rows.length, head: rows[0]?.id });
+  if (rows.length !== seen.count || rows[0]?.id !== seen.head) {
+    setSeen({ count: rows.length, head: rows[0]?.id });
+    if (rows.length < seen.count) setRange(windowRange(rows));
+    else if (seen.head !== undefined && rows[0]?.id !== seen.head) {
+      const moved = rows.findIndex((row) => row.id === seen.head);
+      if (moved < 0) setRange(windowRange(rows));
+      else
+        setRange((current) => ({
+          start: current.start + moved,
+          end: current.end === undefined ? undefined : current.end + moved,
+        }));
+    }
   }
   const atBottom = useRef(anchor === undefined);
   // While the mounted window moves (rows added above, rows unmounted above, older text merged into a
@@ -139,11 +151,13 @@ export function SubagentTranscript({
     if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
   });
 
-  // Following the newest row, the mounted rows stay bounded: once a window's worth has streamed in
-  // under the reader, the rows above the newest window unmount (the top sentinel brings them back).
+  // Rows streaming in keep the mounted rows bounded. Following the newest row, once a window's worth
+  // has streamed in under the reader, the rows above the newest window unmount (the top sentinel
+  // brings them back). Scrolled up, the window stops following at MOUNTED rows, so nothing above
+  // the reader moves; the bottom sentinel mounts the rest as they scroll down.
   useLayoutEffect(() => {
-    if (atBottom.current && range.end === undefined && rows.length - range.start > 2 * WINDOW)
-      setRange({ start: rows.length - WINDOW });
+    if (range.end !== undefined || rows.length - range.start <= MOUNTED) return;
+    setRange(atBottom.current ? { start: rows.length - WINDOW } : { start: range.start, end: range.start + MOUNTED });
   }, [rows.length, range]);
 
   // Scrolling up to the top sentinel mounts the window before it, holding the scroll; scrolling
