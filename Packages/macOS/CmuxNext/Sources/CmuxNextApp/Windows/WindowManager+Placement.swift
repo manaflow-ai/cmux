@@ -45,9 +45,10 @@ extension WindowManager {
         var refreshed: Set<String> = []
         for id in ready {
             guard let pending = pendingPlacements[id] else { continue }
+            // A rows-pass retry can run before membership names the owner: keep the entry for that pass.
+            guard let window = pending.window ?? registry.value.owner(of: id) else { continue }
             pendingPlacements[id] = nil
-            guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
-                  let daemon = services.machines.daemon(forWorkspace: id) else { continue }
+            guard let bridge = controller(for: window)?.sidebar, let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             // One store-backed rows pass per window; each following placement
             // reads the model with the preceding optimistic moves applied.
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
