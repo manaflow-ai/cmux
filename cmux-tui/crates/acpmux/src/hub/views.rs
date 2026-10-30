@@ -327,6 +327,7 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            name_given: m.name_given,
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
@@ -408,6 +409,11 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
+                    // their next completed turn or a resume, not for the turn to end.
+                    held_by_stop: q.held
+                        && q.run.agent.is_some()
+                        && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
                     // The sending session and its harness, as the daemon bound them.
                     from_session_id: crate::prompt_provenance::sender_of(q.run.provenance.as_ref())

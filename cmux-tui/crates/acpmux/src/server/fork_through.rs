@@ -34,8 +34,15 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
+        meta.remove("startLater");
     }
     Ok(m)
+}
+
+/// Whether a `session/fork` came from `acp.session.fork` (Fork Conversation), which answers once
+/// the fork's chat is made and starts its agent after (`Hub::fork`'s `start_later`).
+pub(super) fn starts_later(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/startLater").and_then(Value::as_bool).unwrap_or(false)
 }
 
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
@@ -74,9 +81,8 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
                 mux.insert(key.into(), value.clone());
             }
         }
-        if !mux.is_empty() {
-            out.set("_meta", json!({"acpmux": mux}));
-        }
+        mux.insert("startLater".into(), json!(true));
+        out.set("_meta", json!({"acpmux": mux}));
         return Ok(out);
     }
     let through = params
@@ -123,9 +129,8 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
     }
+    mux.insert("startLater".into(), json!(true));
     let mut out = json!({"sessionId": session.id});
-    if !mux.is_empty() {
-        out.set("_meta", json!({"acpmux": mux}));
-    }
+    out.set("_meta", json!({"acpmux": mux}));
     Ok(out)
 }

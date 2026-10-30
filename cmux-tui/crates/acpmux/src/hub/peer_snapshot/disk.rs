@@ -12,7 +12,7 @@
 use anyhow::{Context as _, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::io::{BufRead as _, Read as _};
+use std::io::{BufRead as _, Read as _, Write};
 use std::path::{Path, PathBuf};
 
 pub(super) type Key = (String, String);
@@ -44,7 +44,25 @@ pub(super) struct Head {
 }
 
 pub(super) fn record_bytes(v: &Value) -> u64 {
-    serde_json::to_vec(v).map_or(0, |b| b.len() as u64 + 1)
+    struct Counter(u64);
+    impl Write for Counter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(buf.len() as u64);
+            Ok(buf.len())
+        }
+
+        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+            self.0 = self.0.saturating_add(buf.len() as u64);
+            Ok(())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, v).map_or(0, |_| counter.0.saturating_add(1))
 }
 
 /// A record's seq: from 1, and below 2^53 (what a client's number holds exactly), so no bound's
