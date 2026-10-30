@@ -1567,6 +1567,76 @@ class SaturatedOwnedPool(unittest.TestCase):
                 self.assertEqual(self.side_outputs(busy, moving, **extra)["blacksmith_6_jobs"], "")
 
 
+class NightlyFirstOnAStaleSnapshot(unittest.TestCase):
+    """Rulebook: "a waiting nightly, promote or nightly sign/verify job is admitted ... ahead of every PR, DEV
+    and side job". On 2026-10-30 from 12:20Z the janitor's snapshot landed 22 to 25 minutes apart, so every
+    cmux-next placement read none under 15 minutes ("no pool snapshot under 15 min old to count Blacksmith's
+    queue") and sent its fast tier to blacksmith-6vcpu-macos-26 blind (runs 41053956129, 41054963820,
+    41056535837, 41056990103). nightly-next's sign-nightly-identity-legacy and generate-nightly-deltas
+    queued there behind them. A snapshot up to RESERVED_SNAPSHOT_MINUTES old still holds the label for the
+    freshness work it shows queued."""
+
+    RUNS = " fast-tier swift-canary cmux-scheme-compile release-compile "
+
+    def shot(self, minutes_old: float, reserved_small: int = 1) -> dict:
+        shot = snapshot(minutes_old=minutes_old, small=3, oldest={"small": 20})
+        shot["pools"][SMALL]["reserved_queued"] = reserved_small
+        return shot
+
+    def test_a_late_snapshot_still_reads_its_reservation(self):
+        late = cascade.QUEUE_SNAPSHOT_MINUTES + 10
+        self.assertIsNone(cascade.seen(self.shot(late), NOW), "too old for counts")
+        held = cascade.reserved_from(self.shot(late), NOW)
+        self.assertEqual(held, cascade.Seen(waits={}, age=float(late), reserved={SMALL: 1}, stale=True))
+        self.assertIsNone(cascade.reserved_from(self.shot(late, reserved_small=0), NOW), "nothing reserved")
+        self.assertIsNone(cascade.reserved_from(self.shot(cascade.RESERVED_SNAPSHOT_MINUTES + 1), NOW))
+        self.assertIsNone(cascade.reserved_from({"generated_at": "not a time", "pools": {}}, NOW))
+        self.assertIsNone(cascade.reserved_from(None, NOW))
+
+    def test_the_read_returns_it_when_the_counts_are_stale(self):
+        late = self.shot(cascade.QUEUE_SNAPSHOT_MINUTES + 10)
+        pool = mock.Mock()
+        pool.GitHub.return_value.snapshot.return_value = late
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 10}):
+            live, waiting, seen = cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s",
+                                                   GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                                               pool, now=NOW, log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.reserved, {SMALL: 1})
+        # A fresh snapshot is read as before, never as stale.
+        pool.GitHub.return_value.snapshot.return_value = self.shot(2)
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 10}):
+            _, waiting, seen = cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s",
+                                                GITHUB_REPOSITORY="manaflow-ai/cmux"), pool, now=NOW, log=lambda _: None)
+        self.assertEqual(waiting, {LARGE: 0, SMALL: 3})
+        self.assertFalse(seen.stale)
+
+    def test_pr_jobs_keep_the_owned_label_while_nightly_waits_on_6_vcpu(self):
+        held = cascade.reserved_from(self.shot(cascade.QUEUE_SNAPSHOT_MINUTES + 10), NOW)
+        for live in (None, {LARGE: 0, SMALL: 10}):
+            with self.subTest(live=live):
+                result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, None, held, saturated=True)
+                self.assertEqual(result.jobs, none_placed())
+                self.assertIn("snapshot shows freshness work queued", result.why)
+                # Without the reservation the incident's route stands: the fast tier takes the last resort.
+                self.assertEqual(cascade.place(env(CASCADE_RUNS=" fast-tier "), (), live, None, None,
+                                               saturated=True).jobs, none_placed(**{SMALL: ("fast-tier",)}))
+        # A feed's compile is freshness work itself and still takes it.
+        feed = env(CASCADE_RUNS=self.RUNS, FRESH_JOBS="cmux-scheme-compile")
+        self.assertEqual(cascade.place(feed, (), None, None, held, saturated=True).jobs[SMALL],
+                         ("cmux-scheme-compile",))
+
+    def test_a_stale_reading_is_no_owned_queue_reading(self):
+        """The side placement reads `seen` for the owned route's wait: a stale Seen says nothing there."""
+        held = cascade.reserved_from(self.shot(cascade.QUEUE_SNAPSHOT_MINUTES + 10), NOW)
+        runners = [{"name": f"cmux{n}-glaeda", "status": "online", "busy": True,
+                    "labels": [{"name": label} for label in ("self-hosted", SIDE)]} for n in (1, 2)]
+        self.assertIsNone(placement.route_wait(SIDE, runners, held))
+        fresh = cascade.Seen(waits={}, owned={SIDE: 12.0})
+        self.assertEqual(placement.route_wait(SIDE, runners, fresh), 12.0)
+
+
 class DeadEndRoute(unittest.TestCase):
     """A job never stays on an owned route that is a longer queue than Blacksmith 6 vCPU's, or that one host
     alone serves.
