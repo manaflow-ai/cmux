@@ -697,6 +697,13 @@ class FocusAfterCloseTests(unittest.TestCase):
             self.load([self.run_action("closePane"), tunable, setting, {"title": "Wait", "wait": 1},
                        self.run_action("focusLeft")])
 
+    def test_other_focus_moves_do_not_hide_the_close(self) -> None:
+        for move in ("focusPaneByNumber", "focusNextPane", "focusPreviousPane", "pane.focus",
+                     "column.focusLeft", "focusHistoryBack"):
+            with self.subTest(move=move), self.assertRaisesRegex(
+                    self.tour_module.TourError, "step 3 runs focusLeft after closePane"):
+                self.load([self.run_action("closePane"), self.run_action(move), self.run_action("focusLeft")])
+
     def test_a_pane_opened_after_the_close_allows_the_focus(self) -> None:
         link = {"title": "Link", "rpc": {"method": "debug.terminal.links", "params": {"agentLink": "https://example.com"}}}
         self.load([self.run_action("closePane"), link, self.run_action("focusLeft")])

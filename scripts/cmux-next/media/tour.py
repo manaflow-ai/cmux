@@ -83,6 +83,10 @@ OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
+# Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
+FOCUS_MOVES = DIRECTIONAL_FOCUS | {
+    "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "pane.focus", "column.focusLeft",
+    "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast"}
 PANE_CLOSES = {"closePane", "pane.closeOthers"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
@@ -207,7 +211,7 @@ def _keeps_panes(step: dict[str, Any]) -> bool:
     if rpc is not None:
         return command is None and rpc["method"] == "debug.tunables"
     action = _action(step)
-    return command[0] == "settings" or action in DIRECTIONAL_FOCUS
+    return command[0] == "settings" or action in FOCUS_MOVES
 
 
 def focus_after_close(path: Path, steps: list[dict[str, Any]]) -> None:
