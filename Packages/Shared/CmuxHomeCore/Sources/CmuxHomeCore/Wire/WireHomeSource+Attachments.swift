@@ -156,6 +156,9 @@ extension WireHomeSource {
         guard size > 0 else { throw HomeRejection.invalid("attachment.bad_answer") }
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
+        if answer["transport"].string == "direct" {
+            return try await putDirectParts(answer, url: url, size: size, from: handle)
+        }
         var parts: [HomeWireJSON] = []
         var number = 1
         while true {
@@ -169,11 +172,6 @@ extension WireHomeSource {
             }
             request.setValue(String(number), forHTTPHeaderField: "x-cmux-part-number")
             let http = client.http
-            if answer["transport"].string == "direct" {
-                parts.append(try await putDirectPart(number, data, asking: request))
-                number += 1
-                continue
-            }
             request.setValue(String(data.count), forHTTPHeaderField: "content-length")
             request.httpBody = data
             let reply = try await client.exchange(request, effect: .mutation) { try await http.send($0) }
@@ -202,9 +200,60 @@ extension WireHomeSource {
         return part
     }
 
+    /// The direct parts of the file behind `handle`, in order. A direct part is larger than the
+    /// server's request limit (hundreds of MiB or more), so it never sits in memory: each is
+    /// copied to its own temporary file in bounded chunks and uploaded from that file, which is
+    /// removed once its upload returns.
+    private func putDirectParts(_ answer: HomeWireJSON, url: URL, size: Int, from handle: FileHandle) async throws -> [HomeWireJSON] {
+        let total = try handle.seekToEnd()
+        var parts: [HomeWireJSON] = []
+        var number = 1
+        var offset: UInt64 = 0
+        while offset < total {
+            try Task.checkCancellation()
+            var request = URLRequest(url: url)
+            for (name, value) in answer["headers"].object ?? [:] {
+                if let text = value.string { request.setValue(text, forHTTPHeaderField: name) }
+            }
+            request.setValue(String(number), forHTTPHeaderField: "x-cmux-part-number")
+            let (piece, count) = try Self.partFile(handle, offset: offset, length: Int(min(UInt64(size), total - offset)))
+            defer { try? FileManager.default.removeItem(at: piece) }
+            guard count > 0 else { break }
+            parts.append(try await putDirectPart(number, file: piece, count: count, asking: request))
+            offset += UInt64(count)
+            number += 1
+        }
+        guard !parts.isEmpty else { throw HomeRejection.invalid("attachment.bad_answer") }
+        return parts
+    }
+
+    /// Copies `length` bytes at `offset` of `handle` into a new temporary file, `chunk` bytes at a
+    /// time, and answers it with the bytes copied (fewer only at the end of the file). Memory stays
+    /// at one chunk whatever the part's size; the caller removes the file.
+    static func partFile(_ handle: FileHandle, offset: UInt64, length: Int, chunk: Int = 8 << 20) throws -> (URL, Int) {
+        let piece = FileManager.default.temporaryDirectory.appendingPathComponent("home-part-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: piece.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
+        do {
+            let out = try FileHandle(forWritingTo: piece)
+            defer { try? out.close() }
+            try handle.seek(toOffset: offset)
+            var copied = 0
+            while copied < length {
+                let next = try readPart(size: min(chunk, length - copied)) { try handle.read(upToCount: $0) }
+                guard !next.isEmpty else { break }
+                try out.write(contentsOf: next)
+                copied += next.count
+            }
+            return (piece, copied)
+        } catch {
+            try? FileManager.default.removeItem(at: piece)
+            throw error
+        }
+    }
+
     /// One direct part: the server signs a URL for part `number`, then the
-    /// bytes go straight to the bucket and its ETag names the part.
-    private func putDirectPart(_ number: Int, _ data: Data, asking: URLRequest) async throws -> HomeWireJSON {
+    /// part's file goes straight to the bucket and its ETag names the part.
+    private func putDirectPart(_ number: Int, file: URL, count: Int, asking: URLRequest) async throws -> HomeWireJSON {
         var ask = asking
         ask.httpMethod = "POST"
         let http = client.http
@@ -217,17 +266,16 @@ extension WireHomeSource {
         for (name, value) in signed["headers"].object ?? [:] {
             if let text = value.string { request.setValue(text, forHTTPHeaderField: name) }
         }
-        request.httpBody = data
         let reply: HomeWireHTTPReply
         do {
-            reply = try await http.send(request)
+            reply = try await http.upload(request, fromFile: file)
         } catch {
             throw HomeRejection.indeterminate
         }
         guard (200...299).contains(reply.status), let etag = reply.etag else {
             throw reply.status >= 500 ? HomeRejection.indeterminate : HomeRejection.invalid("attachment.upload_refused")
         }
-        return ["part_number": .number(Double(number)), "byte_count": .number(Double(data.count)), "etag": .string(etag)]
+        return ["part_number": .number(Double(number)), "byte_count": .number(Double(count)), "etag": .string(etag)]
     }
 
     private static func derived(_ image: AttachmentDerivedImage) -> HomeWireJSON {

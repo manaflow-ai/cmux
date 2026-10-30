@@ -411,6 +411,24 @@ import Testing
         await source.shutdown()
     }
 
+    @Test func aDirectPartIsCopiedToItsOwnFileInBoundedChunks() throws {
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("wire-part-src-\(UUID().uuidString)")
+        try Data("0123456789abcdef".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let handle = try FileHandle(forReadingFrom: source)
+        defer { try? handle.close() }
+        // A 7-byte part at offset 4, copied 3 bytes at a time.
+        let (piece, count) = try WireHomeSource.partFile(handle, offset: 4, length: 7, chunk: 3)
+        defer { try? FileManager.default.removeItem(at: piece) }
+        #expect(count == 7)
+        #expect(try Data(contentsOf: piece) == Data("456789a".utf8))
+        // The last part stops at the end of the file.
+        let (tail, tailCount) = try WireHomeSource.partFile(handle, offset: 12, length: 8, chunk: 3)
+        defer { try? FileManager.default.removeItem(at: tail) }
+        #expect(tailCount == 4)
+        #expect(try Data(contentsOf: tail) == Data("cdef".utf8))
+    }
+
     @Test func theBackoffGrowsToThirtySeconds() {
         #expect((0..<7).map { reconnectDelay(attempt: $0) } == [1, 2, 4, 8, 16, 30, 30].map { Duration.seconds($0) })
     }

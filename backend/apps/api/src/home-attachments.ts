@@ -647,9 +647,12 @@ const completeDirect = async (env: Env, conversation: string, slot: UploadSlot, 
   const sha = new ResumableSha256(state)
   const offset = sha.bytes
   const length = Math.min(step, slot.byte_count - offset)
-  const object = await bucket.get(slot.object_key, { range: { offset, length } })
+  const readBack = failure({ status: 503, code: "attachment.verify_retry", message: "the object could not be read back; complete again", extra: { retryable: true } })
+  // A read that fails (an R2 error, a body stream that breaks) leaves the hash state where it was: the client completes again.
+  const object = await bucket.get(slot.object_key, { range: { offset, length } }).catch(() => undefined)
+  if (object === undefined) return readBack
   if (!object || !("body" in object)) return invalid
-  if ((await hashInto(object.body, sha)) !== length) return failure({ status: 503, code: "attachment.verify_retry", message: "the object could not be read back; complete again", extra: { retryable: true } })
+  if ((await hashInto(object.body, sha).catch(() => -1)) !== length) return readBack
   if (offset + length < slot.byte_count) {
     // Another call that stored this step first wins; this one answers the progress before it.
     return verifying((await conv.advanceDirect(conversation, slot.id, state, sha.state())) ? sha.bytes : offset)
