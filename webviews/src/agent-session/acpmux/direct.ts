@@ -980,17 +980,56 @@ export const BRIDGE_URL = "cmux-bridge://acpmux/";
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
 
-/// Runs `run` once before the next display frame, or after 50 ms when the page draws no frames
-/// (a hidden pane), so a hidden transcript still keeps up.
-export const nextFrame = (run: () => void) => {
-  let ran = false;
-  const once = () => {
-    if (ran) return;
-    ran = true;
-    run();
+/// How soon a hidden page draws a change other than its text stream (`emitInFrame`), as the frame
+/// fallback did before.
+const HIDDEN_DRAW_MS = 50;
+
+/// What hidden pages left for their first frame once shown (`nextFrame`): at most one per client,
+/// since a client waits for one frame at a time and cancels it on close.
+const waitingForShow = new Set<() => void>();
+function waitForShow(wait: () => void): void {
+  if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);
+  waitingForShow.add(wait);
+}
+function stopWaiting(wait: () => void): void {
+  if (waitingForShow.delete(wait) && waitingForShow.size === 0)
+    document.removeEventListener("visibilitychange", drawShown);
+}
+function drawShown(): void {
+  if (!pageShown()) return;
+  document.removeEventListener("visibilitychange", drawShown);
+  const due = [...waitingForShow];
+  waitingForShow.clear();
+  for (const wait of due) wait();
+}
+
+/// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
+/// (an occluded window). A hidden page draws nothing: `run` waits until it shows, also when the page
+/// hides before the frame comes, and its first frame then draws everything that landed meanwhile
+/// (`emitInFrame` holds one waiting snapshot). Every page's waits share one listener, which goes
+/// with that show. The returned cancel stops it in any state, so a closed client leaves nothing
+/// waiting. A hidden page used to draw the shown chat's stream every 50 ms that nobody could see.
+export const nextFrame = (run: () => void): (() => void) => {
+  let done = false;
+  const frame = () => {
+    if (done) return;
+    if (!pageShown()) return waitForShow(frame);
+    let ran = false;
+    const once = () => {
+      if (ran || done) return;
+      ran = true;
+      if (!pageShown()) return waitForShow(frame);
+      done = true;
+      run();
+    };
+    requestAnimationFrame(once);
+    setTimeout(once, 50);
   };
-  requestAnimationFrame(once);
-  setTimeout(once, 50);
+  frame();
+  return () => {
+    done = true;
+    stopWaiting(frame);
+  };
 };
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
@@ -1207,11 +1246,22 @@ export class AcpmuxDirectClient {
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
-  static scheduleFrame: ((run: () => void) => void) | undefined;
+  static scheduleFrame: ((run: () => void) => (() => void) | void) | undefined;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
+  /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change other than its
+  /// text stream (`emitInFrame`): one 50 ms timer at a time, which ends when it fires or on close.
+  private drawnWorking = false;
+  private drawnWorkingSession?: string;
+  /// The event just reduced only grew the streaming reply's or thought's text (`emitInFrame`).
+  private streamGrew = false;
+  /// Turns of the shown chat this client saw end (`turnsEnded` in the snapshot).
+  private turnsEnded = 0;
+  private hiddenDraw?: ReturnType<typeof setTimeout>;
+  /// The frame this client waits for, if any: one at a time, cancelled on close (`emitInFrame`).
+  private frameRequest?: { cancel?: () => void };
   private socket?: WebSocket;
   private nextRequest = 1;
   private pending = new Map<
@@ -1558,6 +1608,18 @@ export class AcpmuxDirectClient {
   private subagents = new SubagentFold(this.subagentStops);
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
+  /// A purge in flight owns the selected session's disappearance; do not replace it with another
+  /// chat before the page's caller closes the tab.
+  private purgingSessionId?: string;
+  /// A purge that succeeded while its chat was still selected: acpmux's `purged` notification may
+  /// come after the purge's answer, and that chat's leaving the list then selects nothing, not
+  /// another chat, so the deletion's own completion (closing the tab) is not undone. Cleared by any
+  /// other selection.
+  private purgedSessionId?: string;
+  /// The client's own most recent leaving of a chat that left the list (`selectFallbackSession`),
+  /// at the selection generation it made: a page completion for that chat (Archive's close) can tell
+  /// it apart from a navigation the person made meanwhile.
+  private fallback?: { from: string; generation: number };
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
@@ -1886,8 +1948,14 @@ export class AcpmuxDirectClient {
           this.noteMissing(this.selectedSessionId);
           this.missingReason = "notListedAtOpen";
         }
-        this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
+        const purging =
+          this.selectedSessionId !== undefined &&
+          (this.purgingSessionId === this.selectedSessionId || this.purgedSessionId === this.selectedSessionId);
+        if (purging) this.purgedSessionId = undefined;
+        const from = this.selectedSessionId;
+        this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
+        this.fallback = { from, generation: this.selectionGeneration };
         this.resetSessionState();
         // The machine the chat was on, from what the app host kept of it (another tab read it).
         const missing = this.missingSession;
@@ -2715,9 +2783,15 @@ export class AcpmuxDirectClient {
       this.noteMissing(this.selectedSessionId);
       this.missingReason = "leftListWhileShown";
     }
-    this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
+    const purging =
+      this.selectedSessionId !== undefined &&
+      (this.purgingSessionId === this.selectedSessionId || this.purgedSessionId === this.selectedSessionId);
+    if (purging) this.purgedSessionId = undefined;
+    const from = this.selectedSessionId;
+    this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
+    this.fallback = from ? { from, generation } : undefined;
     const hold = this.selectedSessionId ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     this.resetSessionState();
     this.emit(reason);
@@ -3745,9 +3819,10 @@ export class AcpmuxDirectClient {
     this.sawPrompt(event);
     this.lastSeq = event.seq;
     this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
+    this.streamGrew = false;
     this.reduce(event);
     this.noticeRefusal(event);
-    this.emitInFrame(event.kind);
+    this.emitInFrame(event.kind, this.streamGrew);
   }
 
   /// A queued prompt acpmux refused when its turn came, heard live, that this client did not send
@@ -3771,16 +3846,45 @@ export class AcpmuxDirectClient {
   }
 
   /// Snapshots before the next display frame, once for every event that lands before it.
-  private emitInFrame(connection: string): void {
+  private emitInFrame(connection: string, streamGrew = false): void {
     const schedule = AcpmuxDirectClient.scheduleFrame;
     if (!schedule) return this.emit(connection);
     const scheduled = this.frameSnapshot !== undefined;
     this.frameSnapshot = connection;
-    if (scheduled) return;
-    schedule(() => {
-      const pending = this.frameSnapshot;
-      if (pending !== undefined && !this.closed) this.emit(pending);
-    });
+    // A hidden page's frames wait for it to show (`nextFrame`), and only the reply's and the
+    // thought's text growing waits for them: the token stream, the bulk of a running chat's events.
+    // Everything else draws within 50 ms as before, since the page's effects still act on it while
+    // hidden (a subagent's own pane, the tab's header). A turn starting or ending draws at once, each
+    // one, so the header refreshes on every end (App.tsx `pane.tabState`).
+    if (!pageShown() && this.workingNow() !== this.drawnWorking) return this.emit(connection);
+    if (!pageShown() && !streamGrew) {
+      this.hiddenDraw ??= setTimeout(() => {
+        this.hiddenDraw = undefined;
+        const pending = this.frameSnapshot;
+        if (pending !== undefined && !this.closed) this.emit(pending);
+      }, HIDDEN_DRAW_MS);
+      return;
+    }
+    // A snapshot drawn since (a turn's start or end on a hidden page) left this frame nothing to
+    // draw, but it is still asked for: no second one, however many events land before it.
+    if (scheduled || this.frameRequest) return;
+    const request: { cancel?: () => void } = {};
+    this.frameRequest = request;
+    request.cancel =
+      schedule(() => {
+        if (this.frameRequest === request) this.frameRequest = undefined;
+        const pending = this.frameSnapshot;
+        if (pending !== undefined && !this.closed) this.emit(pending);
+      }) ?? undefined;
+  }
+
+  /// Whether the chat runs a turn, as the snapshot says it (`isWorking`).
+  private workingNow(summary = this.summary): boolean {
+    return (
+      this.replayThrough === undefined &&
+      // acpmux may still list a paused queue as running after its turn failed.
+      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)))
+    );
   }
 
   /// This chat's names and the listed chats', which tell an agent's message addressed
@@ -4838,6 +4942,7 @@ export class AcpmuxDirectClient {
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
       );
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
+      this.streamGrew = sameMessage;
       // A message after the reply that was streaming when the steer went: the agent read it.
       if (!sameMessage) this.landSteer();
       const existing = this.rows.get(id);
@@ -4859,10 +4964,13 @@ export class AcpmuxDirectClient {
       }
       this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
+      const steers = this.waitingSteers.length;
       this.landSteer();
       this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
+      const last = existing?.items?.at(-1);
+      this.streamGrew = steers === 0 && last?.kind === "thought" && !last.tool;
       this.rows.set(id, {
         id,
         version: (existing?.version ?? 0) + 1,
@@ -5197,10 +5305,10 @@ export class AcpmuxDirectClient {
     }
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
-    const working =
-      this.replayThrough === undefined &&
-      // acpmux may still list a paused queue as running after its turn failed.
-      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)));
+    const working = this.workingNow(summary);
+    if (this.drawnWorking && !working && this.drawnWorkingSession === this.selectedSessionId) this.turnsEnded += 1;
+    this.drawnWorking = working;
+    this.drawnWorkingSession = this.selectedSessionId;
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(
@@ -5293,6 +5401,7 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
+      turnsEnded: this.turnsEnded,
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
       ...(working && this.turnPrompt ? { turnPrompt: this.turnPrompt } : {}),
@@ -5342,6 +5451,19 @@ export class AcpmuxDirectClient {
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
+  }
+  /** Whether the client's latest selection change was its own fallback away from `sessionId`
+   *  (the chat left the list), not a chat the person selected since. */
+  fellBackFrom(sessionId: string | undefined): boolean {
+    return (
+      sessionId !== undefined &&
+      this.fallback?.from === sessionId &&
+      this.fallback.generation === this.selectionGeneration
+    );
+  }
+  /** Whether a purge owns the selected session's disappearance. */
+  get purgeInFlight(): boolean {
+    return this.purgingSessionId !== undefined;
   }
   /** A copy of the selected session's recorded events, oldest first, for the inspector. */
   sessionEvents(): EventRecord[] {
@@ -6110,10 +6232,28 @@ export class AcpmuxDirectClient {
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
-  async archive(archived: boolean): Promise<void> {
+  /// Resolves to the chat it acted on (the shown one during a snapshot hold), which its caller's
+  /// completion is bound to.
+  async archive(archived: boolean): Promise<string> {
     const sessionId = this.actingSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/archive", { sessionId, archived });
+    return sessionId;
+  }
+  /// Permanently removes the shown session from acpmux history. The caller closes the tab only
+  /// after this authenticated, session-scoped purge succeeds.
+  async purge(sessionId: string): Promise<void> {
+    // The confirmation belongs to its original chat, even between a hold's release and React's
+    // next commit. Never resolve this destructive target from the client's mutable selection.
+    if (!sessionId || sessionId !== this.selectedSessionId || sessionId !== this.actingSessionId)
+      throw new Error(translate("error.notOpen"));
+    this.purgingSessionId = sessionId;
+    try {
+      await this.request("_acpmux/kill", { sessionId, purge: true });
+      if (this.selectedSessionId === sessionId) this.purgedSessionId = sessionId;
+    } finally {
+      if (this.purgingSessionId === sessionId) this.purgingSessionId = undefined;
+    }
   }
   /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
   /// shown again.
@@ -6471,6 +6611,7 @@ export class AcpmuxDirectClient {
     // The chat being left is kept for its own next open, while it is still the selected one.
     this.rememberCurrentTail();
     const generation = ++this.selectionGeneration;
+    if (this.purgedSessionId !== sessionId) this.purgedSessionId = undefined;
     // What the pane shows (the chat before, a new chat's hero) stays drawn until this chat's attach page is in.
     const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     this.selectedSessionId = sessionId;
@@ -6733,6 +6874,8 @@ export class AcpmuxDirectClient {
   leave(): void {
     const previous = this.selectedSessionId;
     if (!previous) return;
+    if (this.purgingSessionId === previous) this.purgingSessionId = undefined;
+    if (this.purgedSessionId === previous) this.purgedSessionId = undefined;
     this.selectedSessionId = undefined;
     this.selectionGeneration += 1;
     this.resetSessionState();
@@ -7593,6 +7736,9 @@ export class AcpmuxDirectClient {
     this.rememberCurrentTail(false);
     this.replayMode = false;
     this.closed = true;
+    clearTimeout(this.hiddenDraw);
+    this.frameRequest?.cancel?.();
+    this.frameRequest = undefined;
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

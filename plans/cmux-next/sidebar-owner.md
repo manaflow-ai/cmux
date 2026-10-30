@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: `sidebar.groupChromeShape` is an off-by-default band-header prototype. Leo's ask:
+  "our group header is a plain rounded pill with a separate thin line; Chrome's colored header chip
+  and vertical rail are one hot shape, with a clipped/notched join, thicker group-colored rail,
+  rounded cap at the last member, and collapsed groups showing only the chip. Keep our glass look."
+  It joins the header to a 4 pt rail with a clipped shoulder and bounds-following rounded terminal
+  cap. The header reaches left to fit the rail; member columns, nesting step, manual order, glass,
+  quiet header styles and existing defaults stay as shipped. The prototype uses the existing
+  group rows and fold animation. `SidebarGroupChromeShapeTests` and `AAGroupLineGalleryTests`
+  cover its geometry and before/after variants. Structural change: HOLD for dogfood.
+  Default rationale: `sidebar.groupChromeShape` defaults to false, so existing sidebar geometry
+  remains unchanged until explicitly enabled. Expanded parent groups retain a rail through their
+  nested members; the gallery's Agent fleet group is not an exception.
 - 2026-10-30: a Cloud machine that ran and then lost its app link (or whose resume failed) reads "Disconnected" in
   its header and workspace rows, with the attention tone, instead of "Failed to start" in red.
   `SidebarMachine.Status.disconnected` is new; "Failed to start" stays for a create or a machine the provider failed.
