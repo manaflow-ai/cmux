@@ -105,7 +105,7 @@ final class PhoneAdmission {
             let account = accountName().isEmpty ? user : accountName()
             let id = UUID()
             let task = Task { [self, waiter] in
-                let answer = await waiter.wait { await ask(phone, account) }
+                let answer = await waiter.wait { await self.ask(phone, account) }
                 guard !Task.isCancelled, admissionGenerations[phone.phoneDeviceID] == selectedAdmissionGeneration,
                       phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {

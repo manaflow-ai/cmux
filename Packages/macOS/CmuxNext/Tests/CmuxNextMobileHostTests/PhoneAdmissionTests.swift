@@ -271,16 +271,29 @@ import Testing
         let gate = PhoneAccessGate()
         host.followPhoneAccess(gate, disconnect: { _ in })
         let admission = try #require(host.phoneAdmission)
-        let questions = AsyncStream<CheckedContinuation<PhoneAdmission.PromptResult, Never>>.makeStream()
-        admission.ask = { _, _ in
-            await withCheckedContinuation { questions.continuation.yield($0) }
+        let dialogHost = CmuxDialogHeadlessHost()
+        let center = CmuxDialogCenter(host: dialogHost)
+        let opened = AsyncStream<CmuxDialogCenter.Record>.makeStream()
+        let observer = center.observe { event in
+            if case .opened(let record) = event { opened.continuation.yield(record) }
         }
-        // task-owner: resume the underlying prompt after removal to model a stale Allow click
+        admission.ask = { phone, account in
+            await PhoneAdmission.askOnThisMac(phone, user: account, timeout: .seconds(120),
+                                              center: center, keyWindow: { nil })
+        }
+        admission.dismissAsk = { _, _ in center.dismissAll() }
+        defer {
+            center.dismissAll()
+            center.stopObserving(observer)
+            opened.continuation.finish()
+        }
+        // task-owner: the prompt is removed before the late Allow press below
         let pending = Task { await gate.admits(rekeyed) }
-        var events = questions.stream.makeAsyncIterator()
-        let answer = try #require(await events.next())
+        var events = opened.stream.makeAsyncIterator()
+        let record = try #require(await events.next())
         await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
-        answer.resume(returning: .allow)
+        #expect(center.records.isEmpty)
+        #expect(!center.press(record.id, button: "allow"))
         #expect(await !pending.value)
         #expect(!store.trusts(Self.phone))
         #expect(!store.trusts(rekeyed))
@@ -295,6 +308,8 @@ import Testing
         try await host.pairedStore.change(for: "one") { $0.approve(Self.phone, at: Date()) }
         #expect(host.pageJSON["phones"]?.arrayValue?.first?["removable"]?.boolValue == true)
         #expect(host.pageJSON["phones"]?.arrayValue?.first?["title"]?.stringValue == "Phone · cmux next")
+        #expect(host.pageJSON["phones"]?.arrayValue?.first?["transport"]?.stringValue == "iroh")
+        #expect(host.pageJSON["phones"]?.arrayValue?.first?["path"]?.isNull == true)
         await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
         #expect(!host.pairedStore.trusts(Self.phone))
         await host.pairedStore.reload()
