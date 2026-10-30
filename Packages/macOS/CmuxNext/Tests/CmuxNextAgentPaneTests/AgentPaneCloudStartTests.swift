@@ -47,6 +47,20 @@ struct AgentPaneCloudStartTests {
         #expect(!model.transport.replacements.beginSandbox())
     }
 
+    @Test func theMachinesChatStartsWithThePromptAgentAndModelThePagePicked() throws {
+        let start = try #require(AgentPaneCloudStart(params: Self.good))
+        let seed = start.seed(cwd: "/home/cmux/work/paint-1a2b3c")
+        #expect(seed.cwd == "/home/cmux/work/paint-1a2b3c")
+        #expect(seed.prompt == "fix the build")
+        #expect(seed.promptBy == .person)
+        #expect(seed.harness == "codex")
+        #expect(seed.model == "gpt-6-astra")
+        // No model from the page: the harness's default on the machine.
+        let unnamed = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
+        #expect(unnamed.seed(cwd: "/w").model == nil)
+        #expect(unnamed.seed(cwd: "/w").harness == nil)
+    }
+
     @Test func aRefusedStartReleasesTheHoldSoTheSendMayBeTriedAgain() async {
         let model = AgentPaneModel(host: NoHost())
         model.onCloudStartChat = { _ in AgentPaneReply.failure(code: "cloud_start_failed", message: "no machine") }
