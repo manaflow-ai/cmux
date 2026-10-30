@@ -111,6 +111,20 @@ const closeHover: Play = async (ctx) => {
   await ctx.hover({ role: "button", name: "Hide Preview" });
 };
 
+/// Full Screen: the app over the whole pane, live, at the largest size that fits.
+const fullScreen: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Full Screen" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cu-viewer__frame[data-fitted]") !== null);
+};
+
+/// Full Screen, then zoomed in twice with the + key.
+const fullScreenZoomed: Play = async (ctx) => {
+  await fullScreen(ctx);
+  await ctx.press("+");
+  await ctx.press("+");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cu-viewer__stage.is-zoomed") !== null);
+};
+
 /// A close plays the card's exit, then the card is gone.
 const close: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Hide Preview" });
@@ -126,6 +140,7 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-cu-preview-fixture]" }],
   covers: [
     "agent-session/acpmux/computerUse/ComputerUsePreviewCard.tsx#ComputerUsePreviewCard",
+    "agent-session/acpmux/computerUse/ComputerUseLightbox.tsx#ComputerUseLightbox",
     "agent-session/acpmux/inspector/underInspector.ts",
   ],
   styles: () =>
@@ -166,6 +181,21 @@ export default componentEntry<Props>({
       note: "The close button hovered: its fill a little brighter, scaled up a little. The card itself does not move on hover.",
       props: { preview: running },
       play: closeHover,
+    },
+    "full-screen": {
+      note: "Full Screen (the button on the window's top right corner): the app over the whole pane at the largest size that fits, on the frame the card already showed, with the agent's cursor and a static Live badge. New frames replace it as they come.",
+      props: { preview: running },
+      play: fullScreen,
+    },
+    "full-screen-zoomed": {
+      note: "Full screen, zoomed in with + (or a pinch, Command-scroll, a double click); a drag pans it. 0 fits it again.",
+      props: { preview: running },
+      play: fullScreenZoomed,
+    },
+    "full-screen-done": {
+      note: "Full screen after the session ended: Done in place of Live, on the last frame.",
+      props: { preview: { ...running, done: true, pointer: undefined } },
+      play: fullScreen,
     },
     close: {
       note: "A close: the card fades and scales down, then it is gone.",

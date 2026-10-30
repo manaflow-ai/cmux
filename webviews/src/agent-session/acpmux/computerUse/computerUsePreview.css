@@ -255,3 +255,61 @@
       transform var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
   }
 }
+
+/* Full Screen: the close button's twin on the window's top right corner (ComputerUseLightbox.tsx). */
+.acpmux-cu-preview__expand {
+  left: auto;
+  right: 6px;
+}
+
+/* The full screen view (ComputerUseLightbox.tsx), on the chat image viewer's surface and bar
+   (conversation.css .acpmux-image-viewer). The stage is a size container: the frame box takes the
+   frame's own shape (--cu-frame-ratio, from the decoded image) at the largest size that fits, so a
+   small frame scales up to fill the pane and the cursor's fractions are fractions of the image. */
+.acpmux-cu-viewer__stage {
+  container-type: size;
+  padding: 16px;
+}
+.acpmux-cu-viewer__frame {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+}
+.acpmux-cu-viewer__frame[data-fitted] {
+  width: min(100cqw, calc(100cqh * var(--cu-frame-ratio)));
+  height: auto;
+  aspect-ratio: var(--cu-frame-ratio);
+}
+.acpmux-cu-viewer__frame > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent)));
+  user-select: none;
+  -webkit-user-select: none;
+}
+.acpmux-cu-viewer__stage:not(.is-zoomed) .acpmux-cu-viewer__frame {
+  cursor: zoom-in;
+}
+/* Live (static: it never pulses) or Done, beside the title. */
+.acpmux-cu-viewer__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+  color: var(--agent-muted);
+}
+.acpmux-cu-viewer__state[data-live] {
+  color: var(--agent-text);
+}
+.acpmux-cu-viewer__state[data-live]::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-status-success);
+}

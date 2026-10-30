@@ -74,6 +74,7 @@ nonisolated enum AgentActivityStrings {
     static var viewerPrevious: String { t("viewer.previous", "Previous") }
     static var viewerNext: String { t("viewer.next", "Next") }
     static var viewerClose: String { t("viewer.close", "Close") }
+    static var viewerFullScreen: String { t("viewer.fullScreen", "Full Screen") }
 
     /// The step that made a frame, by the tool the agent called.
     static var stepClick: String { t("step.click", "Click") }
@@ -101,7 +102,7 @@ nonisolated enum AgentActivityStrings {
             "layoutGrid": layoutGrid, "notStarted": connection(.notStarted) ?? "",
             "notSetUp": connection(.notSetUp) ?? "", "unreachable": connection(.unreachable) ?? "",
             "noFrames": noFrames, "position": viewerPosition, "previous": viewerPrevious, "next": viewerNext,
-            "close": viewerClose, "stepClick": stepClick, "stepType": stepType, "stepKeys": stepKeys,
+            "close": viewerClose, "fullScreen": viewerFullScreen, "stepClick": stepClick, "stepType": stepType, "stepKeys": stepKeys,
             "stepOpenApp": stepOpenApp, "stepReadWindow": stepReadWindow, "stepListWindows": stepListWindows,
             "stepScroll": stepScroll, "stepDrag": stepDrag, "stepScreenshot": stepScreenshot,
         ]

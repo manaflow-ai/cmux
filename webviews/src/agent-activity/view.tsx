@@ -137,7 +137,13 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
                 </button>
               </span>
             </header>
-            <FrameViewer state={state} dispatch={dispatch} session={selected} />
+            <FrameViewer
+              state={state}
+              dispatch={dispatch}
+              session={selected}
+              covered={state.viewing === true}
+              onFullScreen={() => dispatch({ type: "open", id: selected.id, seq: currentFrameEvent(state)?.seq })}
+            />
             <EventList state={state} dispatch={dispatch} />
           </>
         ) : (
@@ -266,9 +272,9 @@ export function ActivityView({
     ) : (
       <Split state={state} dispatch={dispatch} />
     );
-  const viewing =
-    state.viewing && state.layout !== "split"
-      ? Object.values(state.sessionsByMachine)
+  // Over the timeline or grid from a frame clicked there, over the split from its Full Screen.
+  const viewing = state.viewing
+    ? Object.values(state.sessionsByMachine)
           .flat()
           .find((session: ActivitySession) => session.id === state.selectedSessionID)
       : undefined;

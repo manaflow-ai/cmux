@@ -2,13 +2,23 @@
 // a time. Previous and Next (and Left / Right, Home / End) step through them; the bar names the step
 // that made the frame, its time and the position ("4 of 12"); the filmstrip under it shows every
 // frame and opens one on a click. The split layout shows it inline; the timeline and grid open it
-// over the page (FrameDialog). Frames load lazily through the host and stay bounded: the viewer
-// keeps the shown frame and its two neighbours, the filmstrip only the thumbnails in view.
-import { createContext, use, useEffect, useRef, useState } from "react";
+// over the page (FrameDialog), and Full Screen opens it over the whole page. Frames load lazily
+// through the host and stay bounded: the viewer keeps the shown frame and its two neighbours (the
+// shown one asked for first), the filmstrip only the thumbnails in view, and a small cache keeps
+// thumbnails already read (thumbCache).
+// The frame fills the stage at its own shape, however small the capture; until its full image is
+// there, its thumbnail stands in at the same size (never a blank stage). Pinch or Command-scroll
+// zooms about the pointer, a drag or a scroll pans a zoomed frame, a double click zooms in or back,
+// + - 0 from the keys (ui/zoomPan.ts, shared with the chat's image viewer); the zoom stays while
+// stepping, so one spot can be compared across frames. On a live session the bar says Live while
+// the viewer follows the newest frame; stepped back, Live is a button back to it.
+import { createContext, use, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Dialog } from "../ui/Dialog";
 import { keyedIconProps } from "../ui/DialogButton";
+import { FIT, MIN_SCALE, ZOOM_STEP, useZoomPan, zoomAbout, zoomTransform, type ZoomView } from "../ui/zoomPan";
 import {
   displayFrame,
+  isLive,
   frameEvents,
   frameIndex,
   frameWindow,
@@ -67,33 +77,92 @@ function useInView(): [(element: Element | null) => void, boolean] {
   return [setElement, inView];
 }
 
-/** Left / Right (Home / End) step the shown frames wherever focus is not in a field or a control that
- * moves with the arrows: in the split layout and in the dialog over the timeline or grid alike (only
- * one viewer is ever shown). A chord stays the host's. */
-function useFrameKeys(step: (delta: number) => void) {
-  const latest = useRef(step);
-  latest.current = step;
+/** The zoom a key asks for (+ in, - out, 0 back to fitted); undefined for any other key or a chord. */
+export function frameKeyZoom(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey">,
+): ((view: ZoomView) => ZoomView) | undefined {
+  if (event.metaKey || event.ctrlKey || event.altKey) return undefined;
+  if (event.key === "+" || event.key === "=") return (view) => zoomAbout(view, view.scale * ZOOM_STEP, { x: 0, y: 0 });
+  if (event.key === "-") return (view) => zoomAbout(view, view.scale / ZOOM_STEP, { x: 0, y: 0 });
+  if (event.key === "0") return () => FIT;
+  return undefined;
+}
+
+/** Left / Right (Home / End) step the shown frames, and + - 0 zoom, wherever focus is not in a field
+ * or a control that moves with the arrows: in the split layout and in the dialog over the timeline or
+ * grid alike (only one viewer is ever shown). A chord stays the host's. */
+function useFrameKeys(
+  step: (delta: number) => void,
+  zoom: (change: (view: ZoomView) => ZoomView) => void,
+  enabled: boolean,
+) {
+  const latest = useRef({ step, zoom });
+  latest.current = { step, zoom };
   useEffect(() => {
+    if (!enabled) return;
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || ownsArrows(event.target)) return;
       const delta = frameKeyStep(event);
-      if (delta === undefined || event.defaultPrevented || ownsArrows(event.target)) return;
+      const change = delta === undefined ? frameKeyZoom(event) : undefined;
+      if (delta === undefined && !change) return;
       event.preventDefault();
-      latest.current(delta);
+      if (delta !== undefined) latest.current.step(delta);
+      else latest.current.zoom(change!);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [enabled]);
 }
 
-/** A frame's image while `enabled`; dropped again when it is not (out of view). */
+/** The most thumbnails kept read, across sessions (a thumbnail is a few KB). */
+export const THUMB_CACHE_LIMIT = 200;
+type ThumbEntry = { promise: Promise<string>; src?: string };
+const thumbCaches = new WeakMap<FrameLoader, Map<string, ThumbEntry>>();
+
+/** A thumbnail read once and kept (oldest dropped past THUMB_CACHE_LIMIT), by `session|blob`: the
+ * filmstrip, the timeline, the grid and the stage's stand-in share one request, and a thumbnail read
+ * before shows on the first paint. Full frames are never kept here (useFrameWindow bounds them). */
+function thumbCache(load: FrameLoader) {
+  let cache = thumbCaches.get(load);
+  if (!cache) thumbCaches.set(load, (cache = new Map()));
+  const entries = cache;
+  return {
+    cached: (key: string) => entries.get(key)?.src,
+    read(key: string, frame: ActivityFrame, session: string): Promise<string> {
+      const known = entries.get(key);
+      if (known) return known.promise;
+      const entry: ThumbEntry = {
+        promise: load(frame, "thumb", session).then(
+          (src) => {
+            entry.src = src;
+            return src;
+          },
+          (error: unknown) => {
+            if (entries.get(key) === entry) entries.delete(key);
+            throw error;
+          },
+        ),
+      };
+      entries.set(key, entry);
+      while (entries.size > THUMB_CACHE_LIMIT) entries.delete(entries.keys().next().value!);
+      return entry.promise;
+    },
+  };
+}
+
+/** A frame's image while `enabled`; dropped again when it is not (out of view). A thumbnail comes
+ * through thumbCache, so one already read shows at once. */
 function useFrameImage(frame: ActivityFrame | undefined, size: ActivityFrameSize, session: string, enabled: boolean) {
   const load = use(FrameLoaderContext);
   const [image, setImage] = useState<{ key: string; src: string }>();
   const key = frame && !frame.expired && enabled ? `${session}|${size}|${frame.blob}` : undefined;
+  const thumbs = thumbCache(load);
+  const cached = key && size === "thumb" ? thumbs.cached(key) : undefined;
   useEffect(() => {
-    if (!key || !frame) return;
+    if (!key || !frame || cached) return;
     let live = true;
-    load(frame, size, session).then(
+    const read = size === "thumb" ? thumbs.read(key, frame, session) : load(frame, size, session);
+    read.then(
       (src) => live && setImage({ key, src }),
       () => undefined,
     );
@@ -102,8 +171,8 @@ function useFrameImage(frame: ActivityFrame | undefined, size: ActivityFrameSize
       setImage(undefined);
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `key` names the frame, its size and its session.
-  }, [key, load]);
-  return image?.key === key ? image?.src : undefined;
+  }, [key, load, cached]);
+  return cached ?? (image?.key === key ? image?.src : undefined);
 }
 
 /** The full frames of the window around `index` (frameWindow), by `session|blob`: each asked for once
@@ -112,7 +181,11 @@ function useFrameImage(frame: ActivityFrame | undefined, size: ActivityFrameSize
 function useFrameWindow(frames: readonly ActivityEvent[], index: number, session: string): Map<string, string> {
   const load = use(FrameLoaderContext);
   const [images, setImages] = useState<Map<string, string>>(() => new Map());
-  const wanted = frameWindow(frames, index).map((frame) => ({ frame, id: `${session}|${frame.blob}` }));
+  // The shown frame first: the host reads them in turn, and it is the one on screen.
+  const shownBlob = frames[index] && displayFrame(frames[index]!)?.blob;
+  const wanted = frameWindow(frames, index)
+    .map((frame) => ({ frame, id: `${session}|${frame.blob}` }))
+    .sort((a, b) => Number(b.frame.blob === shownBlob) - Number(a.frame.blob === shownBlob));
   const key = wanted.map((entry) => entry.id).join("\n");
   const wantedIDs = useRef<Set<string>>(new Set());
   const pending = useRef<Set<string>>(new Set());
@@ -144,6 +217,14 @@ function Chevron({ back }: { back?: boolean }) {
   return (
     <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
       <path d={back ? "M9.75 4.25 6 8l3.75 3.75" : "M6.25 4.25 10 8l-3.75 3.75"} />
+    </svg>
+  );
+}
+
+function FullScreenGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+      <path d="M9.5 3.5h3v3m0-3L9 7M6.5 12.5h-3v-3m0 3L7 9" />
     </svg>
   );
 }
@@ -212,12 +293,18 @@ export function FrameViewer({
   dispatch,
   session,
   onClose,
+  onFullScreen,
+  covered = false,
 }: {
   state: ActivityState;
   dispatch: (action: any) => void;
   session: ActivitySession;
   /** Shown over the page: a Close button in the bar (the dialog owns the keys). */
   onClose?: () => void;
+  /** Inline: a Full Screen button in the bar opens the viewer over the whole page. */
+  onFullScreen?: () => void;
+  /** Another viewer is over this one (Full Screen): its keys are that one's. */
+  covered?: boolean;
 }) {
   const strings = state.strings;
   const frames = frameEvents(selectedEvents(state));
@@ -231,18 +318,40 @@ export function FrameViewer({
     if (next && next.seq !== event?.seq) dispatch({ type: "scrub", seq: next.seq });
   };
   const step = (delta: number) => goTo(index + delta);
-  useFrameKeys(step);
+  const { view, setView, stageRef, stageHandlers } = useZoomPan();
+  // Another session starts fitted; stepping keeps the zoom.
+  useEffect(() => setView(FIT), [session.id, setView]);
+  useFrameKeys(step, setView, !covered);
+  // The thumbnail stands in until the full frame is there (shared with the filmstrip's).
+  const thumb = useFrameImage(frame, "thumb", session.id, !src);
+  const ratio = frame && frame.width > 0 && frame.height > 0 ? frame.width / frame.height : undefined;
+  const live = isLive(session.status) && frames.length > 0;
+  const following = state.scrubSeq === undefined;
   return (
     <div className="viewer" data-inline={!onClose || undefined}>
-      <div className="viewer-stage">
+      <div
+        ref={stageRef}
+        className={`viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
+        {...(event && frame && !frame.expired ? stageHandlers : {})}
+      >
         {!event ? (
           <span className="viewer-empty">{strings.noFrames}</span>
         ) : frame?.expired ? (
           <span className="viewer-empty">{strings.noFrame}</span>
-        ) : src ? (
-          <img src={src} alt={stepLabel(event, strings)} draggable={false} />
         ) : (
-          <span className="viewer-loading" aria-busy="true" />
+          <span
+            className="viewer-frame"
+            data-fitted={ratio ? "" : undefined}
+            style={{ transform: zoomTransform(view), ...(ratio ? { "--frame-ratio": ratio } : {}) } as CSSProperties}
+          >
+            {src ? (
+              <img src={src} alt={stepLabel(event, strings)} draggable={false} />
+            ) : thumb ? (
+              <img className="viewer-thumb" src={thumb} alt={stepLabel(event, strings)} draggable={false} />
+            ) : (
+              <span className="viewer-loading" aria-busy="true" />
+            )}
+          </span>
         )}
       </div>
       {(event || onClose) && (
@@ -272,10 +381,29 @@ export function FrameViewer({
               <time dateTime={new Date(event.time).toISOString()}>{frameTime(event)}</time>
             </span>
           )}
+          {live &&
+            (following ? (
+              <span className="viewer-live">{strings.live}</span>
+            ) : (
+              <button type="button" className="viewer-live" onClick={() => goTo(frames.length - 1)}>
+                {strings.live}
+              </button>
+            ))}
           {frames.length > 0 && (
             <span className="viewer-position" aria-live="polite">
               {positionText(index, frames.length, strings)}
             </span>
+          )}
+          {onFullScreen && event && (
+            <button
+              type="button"
+              className="viewer-button"
+              aria-label={strings.fullScreen}
+              title={strings.fullScreen}
+              onClick={onFullScreen}
+            >
+              <FullScreenGlyph />
+            </button>
           )}
           {onClose && (
             <button

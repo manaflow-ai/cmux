@@ -79,6 +79,8 @@ export type ActivityState = {
     previous: string;
     next: string;
     close: string;
+    /** The viewer's Full Screen button (the page's own default until the host sends it). */
+    fullScreen: string;
     stepClick: string;
     stepType: string;
     stepKeys: string;
@@ -258,6 +260,8 @@ export function reduceActivity(state: ActivityState, action: any): ActivityState
     next = {
       ...state,
       ...action.state,
+      // A string the host does not send yet keeps the page's own.
+      strings: { ...state.strings, ...action.state?.strings },
       filter: state.filter,
       layout: state.layout,
     };
@@ -348,6 +352,7 @@ export const initialActivityState = (): ActivityState => ({
     previous: "Previous",
     next: "Next",
     close: "Close",
+    fullScreen: "Full Screen",
     stepClick: "Click",
     stepType: "Type",
     stepKeys: "Press Keys",

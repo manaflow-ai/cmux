@@ -261,6 +261,7 @@ section h3 {
   flex: 1;
 }
 
+/* A size container: the frame box below takes the stage's room at the frame's own shape. */
 .viewer-stage {
   display: grid;
   place-items: center;
@@ -269,18 +270,90 @@ section h3 {
   padding: 16px;
   overflow: hidden;
   background: var(--activity-well);
+  container-type: size;
+  touch-action: none;
 }
 
-/* The screenshot as captured: fitted, never cropped. */
-.viewer-stage img {
-  max-width: 100%;
-  max-height: 100%;
-  min-height: 0;
+.viewer-stage.is-zoomed {
+  cursor: grab;
+}
+
+.viewer-stage.is-zoomed:active {
+  cursor: grabbing;
+}
+
+/* The screenshot as captured: as large as the stage allows (a small capture scales up), never
+   cropped. Its box has the frame's shape (--frame-ratio, from the frame's size), so the thumbnail
+   standing in before the full image fills the same box, and nothing moves when the full one comes.
+   The zoom and pan are its transform (ui/zoomPan.ts). */
+.viewer-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+}
+
+.viewer-frame[data-fitted] {
+  width: min(100cqw, calc(100cqh * var(--frame-ratio)));
+  height: auto;
+  aspect-ratio: var(--frame-ratio);
+}
+
+.viewer-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   border-radius: 6px;
   box-shadow: var(--elevation-2);
   -webkit-user-select: none;
   user-select: none;
+}
+
+.viewer-stage:not(.is-zoomed) .viewer-frame img {
+  cursor: zoom-in;
+}
+
+/* Live on a session that is still running: plain text while the viewer follows the newest frame
+   (static: it never pulses), a button back to it once stepped back. */
+.viewer-live {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--cmux-text, CanvasText);
+  font: inherit;
+}
+
+.viewer-live::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--activity-live);
+}
+
+button.viewer-live {
+  border-radius: 5px;
+  color: var(--activity-text-2);
+  cursor: default;
+}
+
+button.viewer-live::before {
+  background: var(--activity-text-2);
+}
+
+button.viewer-live:hover {
+  background: var(--activity-well);
+  color: var(--cmux-text, CanvasText);
+}
+
+button.viewer-live:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--activity-control-line);
+  outline-offset: -1px;
 }
 
 .viewer-empty {

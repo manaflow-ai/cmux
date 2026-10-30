@@ -273,16 +273,19 @@ describe("the viewer in the split", () => {
     expect(position()).toBe("8 of 8");
   });
 
-  test("only the shown frame and its neighbours load; thumbnails out of view never do", async () => {
+  test("only the shown frame and its neighbours load, the shown one first; thumbnails out of view never do", async () => {
     const page = await render(fixture());
-    expect(page.loads.filter((l) => l.size === "thumb")).toHaveLength(0);
-    expect(new Set(page.loads.map((l) => l.blob))).toEqual(new Set(["b10.jpg", "b11.jpg"]));
+    const full = () => page.loads.filter((l) => l.size === "full").map((l) => l.blob);
+    // The filmstrip's thumbnails are out of view: the only thumbnail read is the stage's stand-in
+    // for the shown frame, before its full image came.
+    expect(page.loads.filter((l) => l.size === "thumb").map((l) => l.blob)).toEqual(["b11.jpg"]);
+    expect(full()).toEqual(["b11.jpg", "b10.jpg"]);
     expect(page.loads.every((l) => l.session === "a")).toBe(true);
     await press("Home");
-    expect(new Set(page.loads.map((l) => l.blob))).toEqual(new Set(["b10.jpg", "b11.jpg", "b1.jpg", "b2.jpg"]));
+    expect(full()).toEqual(["b11.jpg", "b10.jpg", "b1.jpg", "b2.jpg"]);
     // One step on asks only for the new neighbour; a frame already loaded is not asked for again.
     await press("ArrowRight");
-    expect(page.loads.map((l) => l.blob)).toEqual(["b10.jpg", "b11.jpg", "b1.jpg", "b2.jpg", "b4.jpg"]);
+    expect(full()).toEqual(["b11.jpg", "b10.jpg", "b1.jpg", "b2.jpg", "b4.jpg"]);
     expect(document.querySelectorAll(".viewer-stage img")).toHaveLength(1);
   });
 
@@ -319,5 +322,154 @@ describe("the viewer over the timeline and grid", () => {
     await click(document.querySelectorAll(".tile")[0]);
     expect(document.querySelector(".activity-viewer-dialog")).not.toBeNull();
     expect(position()).toBe("8 of 8");
+  });
+});
+
+// Leo 2026-10-29, on the computer use view: "why can't I click and drag? And why can't I full screen
+// this picture? ... it loads a little bit slowly, and it... it's kind of blank". The frame fills the
+// stage at its own shape, its thumbnail stands in until the full frame is there (never a blank
+// stage), it zooms and pans, Full Screen shows it over the page, and a live session says Live.
+describe("zoom, full screen, the stand-in and Live", () => {
+  /** A loader whose full frames wait until `release`, as a slow host read does. */
+  async function renderSlow(initial: ActivityState) {
+    const loads: Load[] = [];
+    const waiting: (() => void)[] = [];
+    const loadFrame = (frame: ActivityFrame, size: "thumb" | "full", session: string) => {
+      loads.push({ blob: frame.blob, size, session });
+      const src = `data:image/png;base64,${size}-${frame.blob}`;
+      return size === "thumb" ? Promise.resolve(src) : new Promise<string>((resolve) => waiting.push(() => resolve(src)));
+    };
+    function Page() {
+      const [state, setState] = useState(initial);
+      return (
+        <ActivityView
+          state={state}
+          dispatch={(action) => setState((s) => model.reduceActivity(s, action))}
+          loadFrame={loadFrame}
+        />
+      );
+    }
+    const { createRoot } = await import("react-dom/client");
+    root = createRoot(host);
+    await act(async () => root!.render(<Page />));
+    return {
+      loads,
+      release: () =>
+        act(async () => {
+          for (const resolve of waiting.splice(0)) resolve();
+        }),
+    };
+  }
+
+  test("before its full image comes, the frame's thumbnail shows at the frame's shape, never a blank stage", async () => {
+    const page = await renderSlow(fixture());
+    expect(document.querySelector(".viewer-loading")).toBeNull();
+    const standIn = document.querySelector<HTMLImageElement>(".viewer-stage img.viewer-thumb");
+    expect(standIn?.getAttribute("src")).toBe("data:image/png;base64,thumb-b11.jpg");
+    const box = document.querySelector<HTMLElement>(".viewer-frame")!;
+    expect(box.hasAttribute("data-fitted")).toBe(true);
+    expect(box.style.getPropertyValue("--frame-ratio")).toBe(String(180 / 319));
+    await page.release();
+    expect(shown()).toBe("data:image/png;base64,full-b11.jpg");
+    expect(document.querySelector(".viewer-thumb")).toBeNull();
+  });
+
+  test("+ and - zoom the frame, 0 fits it again, and the zoom stays while stepping", async () => {
+    await render(fixture());
+    const transform = () => document.querySelector<HTMLElement>(".viewer-frame")!.style.transform;
+    expect(transform()).toBe("translate(0px, 0px) scale(1)");
+    await press("+");
+    expect(transform()).toBe("translate(0px, 0px) scale(2)");
+    expect(document.querySelector(".viewer-stage")!.classList.contains("is-zoomed")).toBe(true);
+    await press("ArrowLeft");
+    expect(position()).toBe("7 of 8");
+    expect(transform()).toBe("translate(0px, 0px) scale(2)");
+    await press("-");
+    expect(transform()).toBe("translate(0px, 0px) scale(1)");
+    await press("=");
+    await press("0");
+    expect(transform()).toBe("translate(0px, 0px) scale(1)");
+  });
+
+  test("a drag pans a zoomed frame; a fitted one does not move", async () => {
+    await render(fixture());
+    const stage = document.querySelector<HTMLElement>(".viewer-stage")!;
+    (stage as unknown as { setPointerCapture(): void }).setPointerCapture = () => undefined;
+    const pointer = (type: string, x: number, y: number) =>
+      act(async () => {
+        stage.dispatchEvent(
+          new window.MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 }) as unknown as Event,
+        );
+      });
+    const drag = async () => {
+      await pointer("pointerdown", 10, 10);
+      await pointer("pointermove", 40, 25);
+      await pointer("pointerup", 40, 25);
+    };
+    const transform = () => document.querySelector<HTMLElement>(".viewer-frame")!.style.transform;
+    await drag();
+    expect(transform()).toBe("translate(0px, 0px) scale(1)");
+    await press("+");
+    await drag();
+    expect(transform()).toBe("translate(30px, 15px) scale(2)");
+  });
+
+  test("a Command-scroll zooms in about the pointer", async () => {
+    await render(fixture());
+    const stage = document.querySelector<HTMLElement>(".viewer-stage")!;
+    await act(async () => {
+      const wheel = new window.WheelEvent("wheel", { deltaY: -100, metaKey: true, cancelable: true, bubbles: true });
+      stage.dispatchEvent(wheel);
+      expect(wheel.defaultPrevented).toBe(true);
+    });
+    expect(document.querySelector<HTMLElement>(".viewer-frame")!.style.transform).toMatch(/scale\(2\.7/);
+  });
+
+  test("Full Screen shows the frame over the page, and Close goes back to the split", async () => {
+    const page = await render(fixture());
+    await press("ArrowLeft");
+    await click(document.querySelector('.viewer-bar button[aria-label="Full Screen"]'));
+    expect(page.state().viewing).toBe(true);
+    const dialog = document.querySelector(".activity-viewer-dialog");
+    expect(dialog).not.toBeNull();
+    expect(dialog!.querySelector(".viewer-position")?.textContent).toBe("7 of 8");
+    // Keys step the frame once, in the dialog only (the split's viewer under it keeps still).
+    await press("ArrowLeft");
+    expect(page.state().scrubSeq).toBe(8);
+    expect(dialog!.querySelector(".viewer-position")?.textContent).toBe("6 of 8");
+    await click(dialog!.querySelector('button[aria-label="Close"]'));
+    expect(page.state().viewing).toBe(false);
+    expect(document.querySelector(".activity-viewer-dialog")).toBeNull();
+  });
+
+  test("a live session says Live while it follows the newest frame; stepped back, Live goes back to it", async () => {
+    const page = await render(fixture());
+    expect(document.querySelector("span.viewer-live")?.textContent).toBe("Live");
+    await press("ArrowLeft");
+    const back = document.querySelector<HTMLButtonElement>("button.viewer-live");
+    expect(back?.textContent).toBe("Live");
+    await click(back);
+    expect(page.state().scrubSeq).toBeUndefined();
+    expect(position()).toBe("8 of 8");
+  });
+
+  test("an ended session shows no Live", async () => {
+    const state = fixture();
+    state.sessionsByMachine.local = state.sessionsByMachine.local!.map((s) => ({
+      ...s,
+      status: { ended: "Ended" },
+    }));
+    await render(state);
+    expect(document.querySelector(".viewer-live")).toBeNull();
+  });
+
+  test("a host snapshot without the Full Screen string keeps the page's own", () => {
+    const { fullScreen: _, ...hostStrings } = model.initialActivityState().strings;
+    const state = model.reduceActivity(model.initialActivityState(), {
+      type: "snapshot",
+      state: { strings: { ...hostStrings, close: "Fermer" } },
+    });
+    expect(state.strings.close).toBe("Fermer");
+    expect(state.strings.fullScreen).toBe("Full Screen");
   });
 });

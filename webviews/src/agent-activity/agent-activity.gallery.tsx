@@ -153,6 +153,10 @@ export default componentEntry<Props>({
       note: "The viewer stepped back to the third screenshot (Previous, the Left arrow, or a filmstrip click).",
       props: { state: { ...busy, scrubSeq: 3 } },
     },
+    "split-full-screen": {
+      note: "Full Screen from the split's viewer: the frame over the page, as large as it fits, at the same step.",
+      props: { state: { ...busy, scrubSeq: 5, viewing: true } },
+    },
     "split-no-frames": {
       note: "A session whose steps kept no screenshot: the viewer says so and shows no filmstrip.",
       props: { state: noFrames },
