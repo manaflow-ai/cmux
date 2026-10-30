@@ -474,6 +474,13 @@ fn list_tools(global: GlobalArgs) -> i32 {
 }
 
 /// The stdio JSON-RPC server: one request per line, answered in order.
+/// The session and terminal a planned terminal call names: where
+/// [`Server::wait_past_typed`] remembers what was typed.
+fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
+    let terminal = call.plan.params.get("terminal")?.as_str()?;
+    Some((call.session.clone(), terminal.to_owned()))
+}
+
 pub(super) struct Server<B> {
     backend: B,
     /// The settings file to check before every call; `None` lists only.
@@ -503,6 +510,9 @@ pub(super) struct Server<B> {
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
     renders: std::collections::HashSet<String>,
+    /// The last text `terminal_input_write` typed into each terminal (by the session and
+    /// terminal the call named), for [`Self::wait_past_typed`].
+    typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -521,6 +531,7 @@ impl<B: Backend> Server<B> {
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
+            typed: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -1072,7 +1083,27 @@ impl<B: Backend> Server<B> {
             return tool_error(envelope(error, "not_run", None));
         }
         let page = call.page;
+        let typed = self.wait_past_typed(tool, &mut call);
+        let wrote = (tool.wire == "terminal.input.write")
+            .then(|| typed_key(&call).zip(call.plan.params["text"].as_str().map(str::to_owned)))
+            .flatten();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+            Ok(value) if typed.is_some() => success(
+                {
+                    let mut value = value;
+                    if let (Some(note), Some(object)) = (typed, value.as_object_mut()) {
+                        object.insert("note".into(), json!(note));
+                    }
+                    value
+                },
+                tool.mutation,
+            ),
+            Ok(value) if wrote.is_some() => {
+                if let Some((key, text)) = wrote {
+                    self.typed.borrow_mut().insert(key, text);
+                }
+                success(value, tool.mutation)
+            }
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
@@ -1082,6 +1113,38 @@ impl<B: Backend> Server<B> {
             ),
             Err(failure) => failure_result(failure),
         }
+    }
+
+    /// A `terminal_wait` whose pattern the command this server just typed there also
+    /// matches waits for it at the start of a line: the typed command line stays on the
+    /// screen after the prompt, so `pattern: "DONE"` after `cmd; echo DONE` matched at
+    /// once, before the command ran (tests/tool-evals r3j: GLM models said "done" four
+    /// seconds early). Answers the note the result then carries.
+    fn wait_past_typed(
+        &self,
+        tool: &v2_tools::V2Tool,
+        call: &mut v2_tools::CallPlan,
+    ) -> Option<String> {
+        if tool.wire != "terminal.wait" {
+            return None;
+        }
+        let key = typed_key(call)?;
+        let typed = self.typed.borrow().get(&key).cloned()?;
+        let pattern = call.plan.params.get("pattern")?.as_str()?.to_owned();
+        if pattern.starts_with('^') || pattern.starts_with("(?m)") {
+            return None;
+        }
+        // On screen the typed line follows the prompt, so an output line is the one
+        // that starts with the match.
+        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+            return None;
+        }
+        let anchored = format!("(?m)^\\s*(?:{pattern})");
+        call.plan.params["pattern"] = json!(anchored);
+        Some(format!(
+            "pattern {pattern:?} is also in the command typed here, so this waited for it at \
+             the start of an output line: {anchored:?}"
+        ))
     }
 
     fn call_window_list(&self, arguments: &Map<String, Value>) -> Value {

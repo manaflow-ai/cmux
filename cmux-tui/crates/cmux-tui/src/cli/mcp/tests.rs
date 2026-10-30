@@ -1839,6 +1839,35 @@ fn a_record_works_where_its_id_goes() {
 /// with no scope above it (tests/tool-evals m1: `terminal_wait({terminal: "eval-cmd"})`,
 /// `terminal_screen_read({terminal: tab.tab_id})`).
 #[test]
+fn a_wait_for_text_the_command_echoes_waits_for_the_output_line() {
+    let fake = Fake { resource_result: Some(json!({"matched": true})), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+    let terminal = "term_00000000000000000000000000000abc";
+    for (name, arguments) in [
+        ("terminal_input_write", json!({"terminal": terminal, "text": "sleep 4; echo BUILD_OK\n"})),
+        ("terminal_wait", json!({"terminal": terminal, "pattern": "BUILD_OK"})),
+        ("terminal_wait", json!({"terminal": terminal, "pattern": "Finished"})),
+        (
+            "terminal_wait",
+            json!({"terminal": "term_00000000000000000000000000000def", "pattern": "BUILD_OK"}),
+        ),
+    ] {
+        server.call(&json!({"name": name, "arguments": arguments})).expect("a tool result");
+    }
+    let sent = server.backend.sent.borrow();
+    let waits: Vec<&Value> =
+        sent.iter().filter(|s| s["request"]["operation"] == "terminal.wait").collect();
+    assert_eq!(waits.len(), 3, "{sent:?}");
+    assert_eq!(waits[0]["request"]["params"]["pattern"], "(?m)^\\s*(?:BUILD_OK)", "{}", waits[0]);
+    assert_eq!(waits[1]["request"]["params"]["pattern"], "Finished", "not typed: {}", waits[1]);
+    assert_eq!(
+        waits[2]["request"]["params"]["pattern"], "BUILD_OK",
+        "another terminal: {}",
+        waits[2]
+    );
+}
+
+#[test]
 fn a_terminal_named_by_its_tab_through_terminal() {
     // tab_get answers the record; tab_list (a name lookup) the same record as one item.
     let shown = json!({"id": "tab_1", "name": "eval-cmd", "content_id": "term_00000000000000000000000000000abc"});
