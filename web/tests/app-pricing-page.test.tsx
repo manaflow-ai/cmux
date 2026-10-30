@@ -427,6 +427,22 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Max");
   });
 
+  for (const plan of ["pro", "max"] as const) {
+    test(`offers Plus checkout to a ${plan} subscriber`, async () => {
+      stackConfigured = true;
+      currentUser = proUser;
+      stripeSubscriptionRows = [{ id: `sub_${plan}`, plan }];
+
+      const html = await renderSettled(await AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }));
+
+      expect(html).toContain("Current plan");
+      expect(html).toMatch(/api\/billing\/checkout\?plan=go[^"]*"[^>]*><span>Get Plus/);
+      expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
+    });
+  }
+
   test("routes a granted Pro user's Max CTA through checkout", async () => {
     stackConfigured = true;
     currentUser = { ...proUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } };
