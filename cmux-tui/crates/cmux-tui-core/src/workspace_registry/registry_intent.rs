@@ -241,14 +241,14 @@ impl RegistryConnection {
             };
             anyhow::ensure!(
                 entry.resolved.is_some(),
-                "an earlier session journal registry commit is still indeterminate; retry"
+                "an earlier session journal registry commit is still unanswered; this request is retryable: retry now"
             );
         }
         // A pinned caller's state was settled when it pinned: an answer that
         // committed since is not in it.
         anyhow::ensure!(
             !(held && unsettled.iter().any(|entry| matches!(entry.resolved, Some(Ok(_))))),
-            "an earlier session journal registry commit landed after this request read state; retry"
+            "an earlier session journal registry commit landed after this request read state; this request is retryable: retry now"
         );
         Ok(())
     }
