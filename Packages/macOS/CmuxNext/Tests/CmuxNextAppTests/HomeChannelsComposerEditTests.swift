@@ -13,7 +13,10 @@ struct HomeChannelsComposerEditTests {
     @Test func theChannelsPageEditsItsFieldOnlyOnThePersonsGesture() async throws {
         #expect(PageDescriptor.homeChannels.admits(PageNativeOp.edit))
         var ran: [AgentPaneEditCommand] = []
-        let route = PageFactory.homeChannelsEditRoute { ran.append($0) }
+        // The route the Channels page installs (`PageFactory.homeChannelsWebPage`).
+        let edits = PageEditProvider()
+        edits.run = { ran.append($0) }
+        let route = PageRoute(prefix: PageNativeOp.edit, provider: edits)
         #expect(PageNativeOp.edit.hasPrefix(route.prefix))
 
         let clicked = PageCallContext(page: "cmux.home-channels", userGesture: true, gestureEvent: 100)

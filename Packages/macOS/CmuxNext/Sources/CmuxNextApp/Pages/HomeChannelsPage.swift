@@ -63,16 +63,6 @@ extension PageFactory {
     }
 }
 
-extension PageFactory {
-    /// `cmux.app.edit {command}` on the Channels page: `run` gets the composer menu's command, only
-    /// on the person's click or key in the page (a paste puts their pasteboard into the page).
-    static func homeChannelsEditRoute(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) -> PageRoute {
-        let edits = PageEditProvider()
-        edits.run = run
-        return PageRoute(prefix: PageNativeOp.edit, provider: edits)
-    }
-}
-
 /// Serves ``PageNativeOp/edit`` for a page with its own text-field menu. Each key or click backs one
 /// edit: page script inside the gesture's second cannot paste again on a click the menu already used.
 @MainActor
