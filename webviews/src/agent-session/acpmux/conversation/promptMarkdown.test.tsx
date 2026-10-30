@@ -32,6 +32,9 @@ const LITERAL: [string, string][] = [
   ["c sharp", "C# and F# both"],
   ["indented hash", "  # not a heading here"],
   ["multiline", "first line\nsecond line\n\nafter a blank"],
+  ["rule", "---"],
+  ["star inside bold", "**a*b**"],
+  ["titled link", '[docs](https://example.com "title")'],
 ];
 
 const MARKDOWN: [string, string, string][] = [
@@ -39,12 +42,14 @@ const MARKDOWN: [string, string, string][] = [
   ["star list", "* one\n* two", "<li>"],
   ["ordered list", "1. first\n2. second", "<ol"],
   ["list after prose", "do these:\n- one\n- two", "<li>"],
+  ["indented list", "    - nested item", "<li>"],
   ["fence", "```ts\nconst a_b = 1;\n```", "<pre"],
   ["heading", "# Title\nbody", "<h"],
   ["sub heading", "### Sub head", "<h"],
   ["quote", "> quoted line\nreply", "cv-quote"],
   ["table", "| a | b |\n| --- | --- |\n| 1 | 2 |", "<table"],
   ["bare table", "a | b\n---|---\n1 | 2", "<table"],
+  ["one column table", "| a |\n|---|\n| 1 |", "<table"],
   ["code span", "run `bun test` now", "<code"],
   ["bold", "this is **really** it", "<strong>really</strong>"],
   ["link", "see [the docs](https://example.com/docs)", 'href="https://example.com/docs"'],
@@ -84,6 +89,24 @@ describe("sent prompt Markdown gate", () => {
     expect(literal(html)).toBe(true);
     expect(html).toContain('href="https://example.com/docs_v2"');
     expect(html.replace(/<[^>]+>/g, "")).toBe("look at https://example.com/docs_v2 please");
+  });
+
+  // The gate runs while drawing; a 64k paste of one character must not stall the pane.
+  test("a long run of one marker is tested in linear time", () => {
+    const n = 65_536;
+    const inputs = [
+      "a|".repeat(n / 2),
+      "[".repeat(n),
+      "`".repeat(n),
+      "**a ".repeat(n / 4),
+      `[a](${"b".repeat(n)}`,
+      `${" ".repeat(n)}|x`,
+      `x | y\n|-- ${" ".repeat(n)}x`,
+      `${"- ".repeat(n / 2)}`,
+    ];
+    const started = performance.now();
+    for (const input of inputs) isPromptMarkdown(input);
+    expect(performance.now() - started).toBeLessThan(250);
   });
 
   test("a lone address is one link", () => {
