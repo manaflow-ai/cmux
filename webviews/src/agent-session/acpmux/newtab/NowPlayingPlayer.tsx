@@ -111,7 +111,7 @@ export function NowPlayingCard({
           </div>
           {played !== null && (
             <div className="nt-player-track" aria-hidden="true">
-              <div className="nt-player-played" style={{ width: `${(played * 100).toFixed(2)}%` }} />
+              <div className="nt-player-played" style={{ transform: `scaleX(${played})` }} />
             </div>
           )}
           <div className="nt-player-controls">
