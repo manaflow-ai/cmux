@@ -64,6 +64,7 @@ public nonisolated struct AddDeviceStrings {
         case .otherComputer: s("addDevice.otherComputer", "Other Computer…")
         case .newCloudMachine: s("addDevice.newCloudMachine", "New Cloud VM…")
         case .enterCode: s("addDevice.enterCode", "Enter Code…")
+        case .installTailscale: s("addDevice.installTailscale", "Install Tailscale…")
         case .copyLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
         case .copyJoinLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
         case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
