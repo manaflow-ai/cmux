@@ -262,12 +262,15 @@ export class SubagentFold {
         typeof change.parent === "string" &&
         this.rootThreads.has(change.parent) &&
         (sender === undefined || this.rootThreads.has(sender));
+      // A spawnAgent's sender is the parent of the threads it lists (Rust's spawn_authoritative),
+      // so its parent moves an agent already recorded under a stale or missing one.
+      const authoritative = rootRepair || (sender !== undefined && collaboration?.tool === "spawnAgent");
       const normalized =
         sender === undefined
           ? rootRepair
-            ? { ...change, parent: null, __rootRepair: true }
+            ? { ...change, parent: null, __reparent: true }
             : change
-          : { ...change, parent: this.parentFor(sender), ...(rootRepair ? { __rootRepair: true } : {}) };
+          : { ...change, parent: this.parentFor(sender), ...(authoritative ? { __reparent: true } : {}) };
       this.apply(normalized, event, spawn);
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
@@ -756,6 +759,43 @@ export class SubagentFold {
     return true;
   }
 
+  /// Moves a recorded agent under `parent` (null: the session's own group), out of the parent
+  /// view or group it was in. A parent that is the agent or below it is ignored: no loops.
+  private reparent(agent: Subagent, parent: string | null, event: Event): void {
+    if (parent !== null && (this.isChat(parent) || !this.agents.has(parent))) parent = null;
+    if (agent.parent === parent) return;
+    for (let at = parent, steps = 0; at !== null && steps <= this.agents.size; steps += 1) {
+      if (at === agent.id) return;
+      at = this.agents.get(at)?.parent ?? null;
+    }
+    const oldParent = agent.parent;
+    if (oldParent === null) {
+      const group = this.groupOf.get(agent.id);
+      this.groupOf.delete(agent.id);
+      if (group) {
+        group.ids = group.ids.filter((id) => id !== agent.id);
+        group.version += 1;
+        this.changed.add(group);
+      }
+    } else {
+      const entries = this.own.get(oldParent);
+      if (entries) {
+        const kept = entries.filter((entry) => entry.spawned !== agent.id);
+        if (kept.length !== entries.length) {
+          this.own.set(oldParent, kept);
+          this.bump(oldParent);
+        }
+      }
+    }
+    agent.parent = parent;
+    if (parent === null) {
+      this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
+      if (!this.open.ids.includes(agent.id)) this.open.ids.push(agent.id);
+      this.groupOf.set(agent.id, this.open);
+      this.changed.add(this.open);
+    } else this.record(parent, { event, spawned: agent.id });
+  }
+
   private bump(id: string): void {
     this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
@@ -805,23 +845,7 @@ export class SubagentFold {
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
     } else {
-      if (change.__rootRepair && agent.parent !== null) {
-        const oldParent = agent.parent;
-        const repaired = agent;
-        repaired.parent = null;
-        const entries = this.own.get(oldParent);
-        if (entries) {
-          const kept = entries.filter((entry) => entry.spawned !== repaired.id);
-          if (kept.length !== entries.length) {
-            this.own.set(oldParent, kept);
-            this.bump(oldParent);
-          }
-        }
-        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
-        if (!this.open.ids.includes(repaired.id)) this.open.ids.push(repaired.id);
-        this.groupOf.set(repaired.id, this.open);
-        this.changed.add(this.open);
-      }
+      if (change.__reparent) this.reparent(agent, typeof change.parent === "string" ? change.parent : null, event);
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
