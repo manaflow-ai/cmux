@@ -1,7 +1,6 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
-use crate::cli::select;
 use cmux_json::JsonSet as _;
 use std::io::IsTerminal;
 use std::sync::Arc;
@@ -26,7 +25,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Skill
             | Command::Last { .. }
             | Command::Pending
-            | Command::Ls { .. }
+            | Command::Ls(..)
             | Command::New(..)
             | Command::Send { .. }
             | Command::Inbox(..)
@@ -236,129 +235,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls {
-            mut patterns,
-            name_patterns,
-            status,
-            pending,
-            tag,
-            limit,
-            fields,
-            since,
-            with_tools,
-        } => {
-            patterns.extend(name_patterns);
-            let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
-            let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
-            let fields = fields.as_deref().map(select::parse_fields).transpose()?;
-            let named = !patterns.is_empty();
-            let client = connect(true).await?;
-            // The daemon already sorts pages newest first. Ask it to trim the response when
-            // possible; a `--since` filter must run before the limit, so that combination reads
-            // the complete list and applies both filters locally.
-            let daemon_limit =
-                limit.filter(|_| status.is_none() && !pending && tag.is_none() && !named);
-            let mut params = if since_ms.is_none() {
-                daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
-            } else {
-                json!({})
-            };
-            if with_tools {
-                params["withTools"] = json!(true);
-            }
-            let mut v = client.request(method::MUX_SESSIONS, params).await?;
-            if status.is_some() || pending || tag.is_some() || selected || named {
-                let mut sessions = match v.get_mut("sessions") {
-                    Some(Value::Array(rows)) => std::mem::take(rows),
-                    _ => Vec::new(),
-                };
-                if selected {
-                    sessions.sort_by(|a, b| {
-                        b.get("updatedAt")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0)
-                            .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
-                            .then_with(|| {
-                                a.get("sessionId")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("")
-                                    .cmp(b.get("sessionId").and_then(Value::as_str).unwrap_or(""))
-                            })
-                    });
-                }
-                let cutoff =
-                    since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
-                sessions.retain(|s| {
-                    let pend = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
-                    let st = s.get("status").and_then(Value::as_str).unwrap_or("");
-                    let status_ok = match status.as_deref() {
-                        None => true,
-                        Some("stuck") => s["state"] == "stuck",
-                        Some("waiting") => pend,
-                        Some(want) => st == want,
-                    };
-                    let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
-                    let name_ok = !named || select::name_matches(s, &patterns);
-                    let since_ok = cutoff.is_none_or(|at| {
-                        s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
-                    });
-                    status_ok && (!pending || pend) && tag_ok && name_ok && since_ok
-                });
-                if let Some(limit) = limit {
-                    sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-                }
-                if let Some(fields) = fields.as_deref() {
-                    sessions =
-                        sessions.into_iter().map(|s| select::project_fields(&s, fields)).collect();
-                }
-                v["sessions"] = Value::Array(sessions);
-            }
-            if json_out {
-                print_json(&v);
-                return Ok(());
-            }
-            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
-            if sessions.is_empty() {
-                println!("no sessions (create one: acpmux new -m codex -n my-task)");
-                return Ok(());
-            }
-            if let Some(fields) = fields.as_deref() {
-                println!("{}", fields.join("\t"));
-                for session in sessions {
-                    println!(
-                        "{}",
-                        fields
-                            .iter()
-                            .map(|field| select::text_field(select::field(&session, field)))
-                            .collect::<Vec<_>>()
-                            .join("\t")
-                    );
-                }
-                return Ok(());
-            }
-            println!(
-                "{:<24} {:<8} {:<13} {:>5} {:<6} LAST",
-                "NAME", "AGENT", "STATUS", "TURNS", "AGE"
-            );
-            for s in sessions {
-                let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                let mut status =
-                    s["state"].as_str().map(str::to_owned).unwrap_or_else(|| g("status"));
-                if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
-                    status = "waiting!".into();
-                }
-                println!(
-                    "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
-                    short(&g("name"), 24),
-                    short(&g("harness"), 8),
-                    status,
-                    s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
-                    age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
-                    short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
-                );
-            }
-            Ok(())
-        }
+        Command::Ls(args) => super::ls::run(args, json_out).await,
         Command::New(args) if args.parent.is_some() => {
             super::parent::run(*args, json_out, deadline).await
         }
@@ -1360,56 +1237,6 @@ fn new_requires_tty(
 }
 
 /// Parse the compact durations accepted by `ls --since` (`30m`, `24h`, `7d`, or combinations).
-fn parse_duration_ms(text: &str) -> Result<u64> {
-    let mut rest = text.trim();
-    let mut total = 0u64;
-    if rest.is_empty() {
-        return Err(
-            errors::AppError::usage("--since requires a duration such as 30m or 24h").into()
-        );
-    }
-    while !rest.is_empty() {
-        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-        if digits == 0 {
-            return Err(errors::AppError::usage(format!(
-                "invalid --since duration {text:?}; use values such as 30m or 24h"
-            ))
-            .into());
-        }
-        let (number_text, after_number) = rest.split_at_checked(digits).unwrap_or((rest, ""));
-        let number: u64 = number_text.parse().map_err(|_| {
-            errors::AppError::usage(format!(
-                "invalid --since duration {text:?}; use values such as 30m or 24h"
-            ))
-        })?;
-        rest = after_number;
-        let unit_len = rest.chars().next().map_or(0, char::len_utf8);
-        let unit = rest.get(..unit_len).unwrap_or("");
-        let multiplier = match unit {
-            "s" => 1_000,
-            "m" => 60_000,
-            "h" => 3_600_000,
-            "d" => 86_400_000,
-            "w" => 604_800_000,
-            _ => {
-                return Err(errors::AppError::usage(format!(
-                    "invalid --since duration {text:?}; use values such as 30m or 24h"
-                ))
-                .into());
-            }
-        };
-        total = total
-            .checked_add(number.checked_mul(multiplier).ok_or_else(|| {
-                errors::AppError::usage(format!("--since duration {text:?} is too large"))
-            })?)
-            .ok_or_else(|| {
-                errors::AppError::usage(format!("--since duration {text:?} is too large"))
-            })?;
-        rest = rest.get(unit_len..).unwrap_or("");
-    }
-    Ok(total)
-}
-
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
         receipt.pointer("/to/teamAddress").and_then(Value::as_str).unwrap_or("unresolved");
@@ -1428,10 +1255,7 @@ mod tests {
         assert!(line.contains("@user_42/coordinator"));
         assert!(line.contains("startWork=information"));
     }
-    use super::{
-        new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, send_steers,
-        started_by,
-    };
+    use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
     use serde_json::json;
 
     #[test]
@@ -1458,12 +1282,6 @@ mod tests {
         assert_eq!(started_by(&child).as_deref(), Some("p"));
         assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
         assert_eq!(started_by(&json!({"sessionId": "old"})), None);
-    }
-
-    #[test]
-    fn ls_selection_parses_duration() {
-        assert_eq!(parse_duration_ms("1h30m").unwrap(), 5_400_000);
-        assert!(parse_duration_ms("oops").is_err());
     }
 
     #[test]

@@ -269,43 +269,10 @@ pub enum Command {
         #[arg(long, default_value = "leo")]
         audience: String,
     },
-    /// List sessions on every host.
-    #[command(
-        alias = "list",
-        alias = "list-sessions",
-        after_help = "Examples:\n  acpmux ls review-27*                       sessions whose name matches a glob, on any host\n  acpmux ls huge-blue/* --status running     one peer's running sessions\n  acpmux ls --tag area=acpmux --fields name  just the names of one area's sessions\n  acpmux ls ao-cli-ls --fields status,turn.activity   a nested field, as text"
-    )]
-    Ls {
-        /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/name` for one
-        /// peer's), or with this session id.
-        #[arg(value_name = "PATTERN")]
-        patterns: Vec<String>,
-        /// The same as a PATTERN (repeatable): `--name 'review-*'`.
-        #[arg(long = "name", value_name = "PATTERN")]
-        name_patterns: Vec<String>,
-        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
-        #[arg(long)]
-        with_tools: bool,
-        /// Only sessions in this state: running, ready, idle, closed, waiting.
-        #[arg(long)]
-        status: Option<String>,
-        /// Only sessions with a pending permission request.
-        #[arg(long)]
-        pending: bool,
-        /// Only sessions carrying this tag (key or key=value).
-        #[arg(long)]
-        tag: Option<String>,
-        /// Return at most N sessions, newest first.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
-        limit: Option<u64>,
-        /// Select comma-separated fields from each session record; a dotted path reads a
-        /// nested one (`turn.activity`, `lane.state`).
-        #[arg(long, value_name = "FIELD[,FIELD…]")]
-        fields: Option<String>,
-        /// Only sessions updated within this duration (for example `24h` or `30m`).
-        #[arg(long, value_name = "DURATION")]
-        since: Option<String>,
-    },
+    /// List sessions on every host: by default only live, named lanes, one short line each;
+    /// `--json` with no filter is every session's full record.
+    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
+    Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {
