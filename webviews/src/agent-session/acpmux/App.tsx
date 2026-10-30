@@ -117,6 +117,7 @@ import {
   clearScrollOrigin,
   layoutScrollTop,
   physicalScrollTop,
+  retainScrollOrigin,
   scrollOrigin,
   writeAnchorScrollTop,
 } from "./conversation/scrollCoordinates";
@@ -1940,13 +1941,16 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 /// while it rounds the content's height, so the end as written rested a pixel short of the
 /// scroller's own; past it, the browser clamps the offset to that end.
 function settleFollowBottom(node: HTMLElement, latest: number): boolean {
-  clearScrollOrigin(node);
   const end = Math.ceil(latest - 0.01);
   // Where the write lands: a scroller already clamped there is at its end.
   const lands = Math.min(end, Math.max(0, node.scrollHeight - node.clientHeight));
-  if (Math.abs(lands - node.scrollTop) <= 0.5) return false;
-  node.scrollTop = end;
-  return true;
+  const moved = Math.abs(lands - node.scrollTop) > 0.5;
+  if (moved) node.scrollTop = end;
+  // Measurements above the view can move the logical end by half a pixel while the physical
+  // end stays rounded. Keep that fraction even when the browser already clamped to the end,
+  // so releasing follow before the next wheel does not inherit a half-pixel row jump.
+  retainScrollOrigin(node, latest);
+  return moved;
 }
 
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
@@ -2303,7 +2307,6 @@ export function VirtualTranscript({
   // stack changes height.
   const followingRef = useRef(true);
   const follow = (next: boolean) => {
-    if (next && ref.current) clearScrollOrigin(ref.current);
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -2347,7 +2350,6 @@ export function VirtualTranscript({
     });
   });
   const queueScroll = (top: number, atLatest: boolean) => {
-    if (atLatest && ref.current) clearScrollOrigin(ref.current);
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
@@ -3906,6 +3908,7 @@ export function VirtualTranscript({
     // those values avoids forcing a style/layout flush from the send effect before the new row
     // paints; the following placement pass reconciles any drawn-height correction. A fractional
     // end is rounded up, as settleFollowBottom does, so WebKit's floor never rests a pixel short.
+    clearScrollOrigin(node);
     node.scrollTop = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
     const top = node.scrollTop;
     scrolledTo.current = { top, atLatest: true };
@@ -3965,8 +3968,8 @@ export function VirtualTranscript({
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-      const settled = settleFollowBottom(node, latest);
-      const resting = settled ? latest : next;
+      settleFollowBottom(node, latest);
+      const resting = node.scrollTop;
       scrolledTo.current = { top: resting, atLatest: true };
       followTrace.set(resting);
       queueScroll(resting, true);

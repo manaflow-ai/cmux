@@ -76,6 +76,57 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.close();
     }
   });
+  test("fractional remeasurement while following keeps the painted anchor through upward release", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      await page.evaluate(`window.__debug.seedRows(9000)`);
+      await page.waitForFunction(
+        () => Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")) >= 9000,
+      );
+      const result = await page.evaluate(async () => {
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const view = scroller.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+        const above = rows.find((row) => row.getBoundingClientRect().bottom < view.top)!;
+        const anchor = rows.find((row) => row.getBoundingClientRect().bottom > view.top)!;
+        const originalHeight = above.getBoundingClientRect().height;
+        const originalY = anchor.getBoundingClientRect().top;
+        const drift: number[] = [];
+        const growth: number[] = [];
+        for (const added of [0.5, 0]) {
+          await window.cmuxPaintFrame(() => {
+            above.style.minHeight = `${originalHeight + added}px`;
+          });
+          for (let frame = 0; frame < 3; frame += 1) {
+            drift.push(anchor.getBoundingClientRect().top - originalY);
+            await window.cmuxPaintFrame();
+          }
+          growth.push(above.getBoundingClientRect().height - originalHeight);
+        }
+        let moved = 0;
+        await window.cmuxPaintFrame(() => {
+          const before = scroller.scrollTop;
+          scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -18.25, bubbles: true, cancelable: true }));
+          scroller.scrollTop -= 18.25;
+          moved = scroller.scrollTop - before;
+        });
+        drift.push(anchor.getBoundingClientRect().top - originalY + moved);
+        return { growth, drift };
+      });
+      console.log(`transcript-fractional-follow: ${JSON.stringify(result)}`);
+      expect(result.growth).toEqual([0.5, 0]);
+      for (const drift of result.drift) expect(Math.abs(drift)).toBeLessThanOrEqual(1 / 64);
+    } finally {
+      await page.close();
+    }
+  });
+
   test.each(["top", "bottom"] as const)(
     "the painted oracle detects a blank band at the %s viewport edge",
     async (edge) => {
