@@ -14,7 +14,8 @@
 //! written; one logged but never written leaves `steer_withdrawn`). The hub never cancels
 //! the turn itself.
 //!
-//! The timer: one per session, armed when a turn starts. It wakes once, at the cap, and ends; a
+//! The timer: one per session, armed when a turn starts (a prompt's, a carried one's, or one a
+//! restart adopts, `carried_turn.rs`, `hosts.rs`). It wakes once, at the cap, and ends; a
 //! turn that starts before then aborts the previous turn's timer (`Session::turn_cap_timer`). It
 //! holds the session weakly, so a closed session's timer does nothing.
 
@@ -122,7 +123,8 @@ impl Hub {
         }
     }
 
-    /// Arms the cap's timer for turn `turn_id`, which starts now (module docs).
+    /// Arms the cap's timer for turn `turn_id`, the session's turn, which starts now (module
+    /// docs). A turn a restart adopts started before: its cap counts from that start.
     pub(super) fn arm_turn_cap(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         let mut timer = session.turn_cap_timer.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(previous) = timer.take() {
@@ -131,11 +133,13 @@ impl Hub {
         let Some(cap) = turn_cap_ms(&session.meta.lock().unwrap_or_else(|e| e.into_inner())) else {
             return;
         };
+        let started = session.turn().filter(|t| t.turn_id == turn_id).map(|t| t.started_at);
+        let wait = cap.saturating_sub(started.map_or(0, |at| now_ms().saturating_sub(at)));
         let hub = Arc::downgrade(self);
         let weak: Weak<Session> = Arc::downgrade(session);
         let turn_id = turn_id.to_owned();
         let task = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(cap)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             let Some((running, cap)) = capped_turn(&session, now_ms()) else { return };
             // Another agent's message waits (`queue.rs` keeps its sender as `run.agent`).
