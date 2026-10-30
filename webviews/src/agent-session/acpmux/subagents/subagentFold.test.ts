@@ -691,7 +691,7 @@ test("sender identity keeps a real grandchild under its child", () => {
   ]);
 });
 
-test("an unknown sender does not inherit the wrapper owner during replay", () => {
+test("an unknown sender keeps the persisted parent during replay", () => {
   const fold = new SubagentFold();
   const replay = (update: any, acpmux: Record<string, unknown>, senderThreadId: string) => {
     seq += 1;
@@ -712,10 +712,27 @@ test("an unknown sender does not inherit the wrapper owner during replay", () =>
     "missing-sender",
   );
 
-  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
-    ["known", null],
-    ["unseen", null],
-  ]);
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["known", null], ["unseen", "known"]]);
+});
+
+test("replay reparents a grandchild when its sender spawn arrives later", () => {
+  const fold = new SubagentFold();
+  fold.setRoot("root-native");
+  const replay = (update: any, acpmux: Record<string, unknown>, senderThreadId: string) => {
+    seq += 1;
+    const withCodex = { ...update, _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } } };
+    const msg = { method: "session/update", params: { update: withCodex, _meta: { acpmux } } };
+    return fold.reduce({ seq, at: seq * 1000, msg }, withCodex);
+  };
+  replay(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "grandchild", parent: null }] },
+    "child",
+  );
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["grandchild", null]]);
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: null }] }, "root-native");
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["grandchild", "child"], ["child", null]]);
 });
 
 test("a known child sender in a root-wrapped update remains the grandchild parent", () => {

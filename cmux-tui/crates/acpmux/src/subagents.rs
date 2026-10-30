@@ -52,6 +52,9 @@ pub fn is_subagents(params: &Value) -> bool {
 #[derive(Debug, Default)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
+    /// Children whose sender was not in the replay window yet. Once that sender
+    /// appears, they can be restored as genuine grandchildren.
+    pending: HashMap<String, HashSet<String>>,
     /// Bounded per-child text; projected only on existing lifecycle/progress events.
     previews: HashMap<String, ChildPreview>,
     /// The session's own agent session id (its harness thread), once known:
@@ -358,6 +361,9 @@ impl SubagentTree {
                         Some(sender) => (self.authoritative_parent(sender), true),
                         None => (owner.map(str::to_owned), false),
                     };
+                    if let Some(sender) = sender {
+                        self.remember_pending(sender, id);
+                    }
                     let mut event = if authoritative {
                         self.spawn_authoritative(id, parent.as_deref())?
                     } else {
@@ -490,6 +496,7 @@ impl SubagentTree {
             *stored = parent;
         }
         let current = stored.clone();
+        self.resolve_pending(id);
         let mut event = Map::new();
         event.insert("id".into(), json!(id));
         event.insert("parent".into(), json!(current));
@@ -505,6 +512,7 @@ impl SubagentTree {
         }
         let parent =
             self.parents.entry(id.to_owned()).or_insert_with(|| parent.map(str::to_owned)).clone();
+        self.resolve_pending(id);
         let mut event = Map::new();
         event.insert("id".into(), json!(id));
         event.insert("parent".into(), json!(parent));
@@ -539,6 +547,21 @@ impl SubagentTree {
         }
     }
 
+    fn remember_pending(&mut self, sender: &str, child: &str) {
+        if self.root_thread.as_deref() != Some(sender) && !self.parents.contains_key(sender) {
+            self.pending.entry(sender.to_owned()).or_default().insert(child.to_owned());
+        }
+    }
+
+    fn resolve_pending(&mut self, sender: &str) {
+        let Some(children) = self.pending.remove(sender) else { return };
+        for child in children {
+            if let Some(parent) = self.parents.get_mut(&child) {
+                *parent = Some(sender.to_owned());
+            }
+        }
+    }
+
     /// Record the native root id once, and repair an out-of-order echo that
     /// arrived before session metadata identified the root.
     fn remember_root(&mut self, id: &str) {
@@ -550,6 +573,7 @@ impl SubagentTree {
         }
         self.root_thread = Some(id.to_owned());
         self.parents.remove(id);
+        self.pending.remove(id);
         for parent in self.parents.values_mut() {
             if parent.as_deref() == Some(id) {
                 *parent = None;
@@ -969,6 +993,35 @@ mod codex_tests {
                      "senderThreadId": "unseen-child", "receiverThreadIds": ["grandchild"]}}}}),
         );
         assert_eq!(child[0]["parent"], Value::Null);
+    }
+
+    #[test]
+    fn a_grandchild_replayed_before_its_parent_is_reparented() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        let child = "child-thread";
+        let grandchild = "grandchild-thread";
+        tree.set_root(root);
+
+        let early = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-grandchild",
+                   "rawInput": {"prompt": "Grandchild", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": child, "receiverThreadIds": [grandchild]}}}}),
+        );
+        assert_eq!(early[0]["parent"], Value::Null);
+
+        let _ = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-child",
+                   "rawInput": {"prompt": "Child", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [child]}}}}),
+        );
+        assert_eq!(tree.parents.get(grandchild), Some(&Some(child.to_owned())));
     }
 }
 

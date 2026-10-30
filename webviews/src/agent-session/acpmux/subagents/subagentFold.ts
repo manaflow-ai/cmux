@@ -131,6 +131,9 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
+  /// Replay can show a child's spawn before the sender's own spawn. Keep the
+  /// original record so the child can be moved under that sender later.
+  private readonly pending = new Map<string, Map<string, Event>>();
   /// Native session ids that are the owning chat, rather than subagents. Codex collaboration
   /// metadata names the issuing thread; keeping this identity across replay prevents an echoed
   /// root update from becoming a child of the thread that happened to report it.
@@ -194,6 +197,7 @@ export class SubagentFold {
   setRoot(id: string | undefined): void {
     if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return;
     this.rootThreads.add(id);
+    this.resolvePending(id, null);
     // A live update can arrive before the session summary. Remove that late phantom and promote
     // anything it had already acquired so a later root seed repairs the in-memory tree too.
     const phantom = this.agents.get(id);
@@ -267,7 +271,11 @@ export class SubagentFold {
           ? rootRepair
             ? { ...change, parent: null, __rootRepair: true }
             : change
-          : { ...change, parent: this.parentFor(sender), ...(rootRepair ? { __rootRepair: true } : {}) };
+          : {
+              ...change,
+              parent: this.parentFor(sender, change.parent, change.id, event),
+              ...(rootRepair ? { __rootRepair: true } : {}),
+            };
       this.apply(normalized, event, spawn);
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
@@ -581,8 +589,48 @@ export class SubagentFold {
     if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
-  private parentFor(sender: string): string | null {
-    return this.rootThreads.has(sender) || !this.agents.has(sender) ? null : sender;
+  private parentFor(sender: string, recordedParent: unknown, child: string, event: Event): string | null {
+    if (this.rootThreads.has(sender)) return null;
+    if (this.agents.has(sender)) return sender;
+    if (!this.pending.has(sender)) this.pending.set(sender, new Map());
+    this.pending.get(sender)!.set(child, event);
+    return typeof recordedParent === "string" && !this.rootThreads.has(recordedParent) ? recordedParent : null;
+  }
+
+  private resolvePending(sender: string, parent: string | null): void {
+    const pending = this.pending.get(sender);
+    if (!pending) return;
+    this.pending.delete(sender);
+    for (const [child, event] of pending) {
+      const agent = this.agents.get(child);
+      if (!agent) continue;
+      if (parent === null) {
+        if (agent.parent !== null) {
+          const entries = this.own.get(agent.parent);
+          if (entries) {
+            const kept = entries.filter((entry) => entry.spawned !== child);
+            if (kept.length !== entries.length) {
+              this.own.set(agent.parent, kept);
+              this.bump(agent.parent);
+            }
+          }
+        }
+        agent.parent = null;
+        this.open ??= { id: `${SUBAGENTS}-root-${sender}`, at: agent.startedAt, version: 0, ids: [] };
+        if (!this.open.ids.includes(child)) this.open.ids.push(child);
+        this.groupOf.set(child, this.open);
+        this.changed.add(this.open);
+        continue;
+      }
+      if (agent.parent !== null) continue;
+      const group = this.groupOf.get(child);
+      if (group) {
+        group.ids = group.ids.filter((id) => id !== child);
+        this.changed.add(group);
+      }
+      agent.parent = parent;
+      this.record(parent, { event, spawned: child });
+    }
   }
 
   /// A turn starts: its stop ends the subagents spawned from here on.
@@ -805,6 +853,7 @@ export class SubagentFold {
         this.open.ids.push(agent.id);
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
+      this.resolvePending(agent.id, agent.id);
     } else {
       if (change.__rootRepair && agent.parent !== null) {
         const oldParent = agent.parent;
