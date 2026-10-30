@@ -99,9 +99,9 @@ struct AgentChatTargetAppTests {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appending(path: "index.html")
             try Data("<html><body></body></html>".utf8).write(to: file)
-            let page = try #require(Self.chat(file))
+            let page = try #require(AgentChatTargetAppTests.chat(file))
             services.agentTabs.views[chatTab] = page
-            services.agentTabs.views[parkedTab] = try #require(Self.chat(file))
+            services.agentTabs.views[parkedTab] = try #require(AgentChatTargetAppTests.chat(file))
 
             controller.focus.send(.focusPane(terminal.paneKey, source: .programmatic))
             services.registry.context.remove(.agentPaneFocused)

@@ -199,7 +199,7 @@ extension CloudMachineRepoTests {
         #expect(creation.bootstrapCompletion == nil)
         // The workspace was mirrored: the row leaves and the flow's task is cancelled.
         creations.remove(creation)
-        await flow.value
+        _ = await flow.result // `creation.task` is a throwing task; this body never throws (its sleep is `try?`)
         #expect(creations.all.isEmpty)
         fake.answer(Self.answer(Self.status("done", "0", repo: Self.repoStatus("cloned"))))
         await creation.completionTask?.value

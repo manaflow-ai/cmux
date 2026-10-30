@@ -19,14 +19,21 @@ import Testing
 
     /// A saved key reads signed in by its presence alone, so a key Connect would refuse
     /// (`CredentialResolver.isWellFormedKey`) is refused at Save instead of saved.
-    @Test func aMalformedKeyIsNotSavedToTheKeychain() {
+    @Test func aMalformedKeyIsNotSavedToTheKeychain() async {
         let services = MockAccountsServices()
         let model = AccountsModel(services: services)
-        #expect(model.saveKey("short", for: .openAI) != nil)
-        #expect(model.saveKey("abcdefghijklmnopqrstuvwxyz0123", for: .anthropic) != nil)
+        #expect(await Self.save(model, "short", for: .openAI) != nil)
+        #expect(await Self.save(model, "abcdefghijklmnopqrstuvwxyz0123", for: .anthropic) != nil)
         #expect(!services.calls.contains { $0.hasPrefix("saveKey:") })
-        #expect(model.saveKey("  sk-ant-api03-abcdefghijklmnopqrstuvwxyz \n", for: .anthropic) == nil)
+        #expect(await Self.save(model, "  sk-ant-api03-abcdefghijklmnopqrstuvwxyz \n", for: .anthropic) == nil)
         #expect(services.calls.contains("saveKey:anthropic"))
+    }
+
+    /// `saveKey` answers through `done` (its Keychain write runs off main); this waits for that answer.
+    private static func save(_ model: AccountsModel, _ key: String, for provider: AIProvider) async -> String? {
+        await withCheckedContinuation { (answered: CheckedContinuation<String?, Never>) in
+            model.saveKey(key, for: provider) { answered.resume(returning: $0) }
+        }
     }
 
     @Test func aRemoveBeforeTheScreenEverOpenedRemovesTheAccount() async throws {
