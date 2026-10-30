@@ -3,7 +3,10 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextAppCore
 import CmuxNextBridge
+import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSidebar
 import CmuxNextWorkspaceNaming
 import CmuxNextSettings
 
@@ -97,6 +100,11 @@ final class CaptureSceneRegistry {
                 "window_workspaces": .number(Double(services.windows.registry.members(of: targetWindowID).count)),
                 "agent_tabs": .number(Double(services.showcase.agentTabs.count)),
             ])
+        }
+
+        // The sidebar's machine headers are its picture: the showcase window, then the machines, with no agent turn.
+        if definition.name == Self.cloudMachineDisconnectedScene {
+            return await renderCloudMachineDisconnected(params, definition: definition, windowID: targetWindowID)
         }
 
         let turn = await DebugAgentPane.handle(["action": .string("seed_rows"), "fixture": .string("worked-turn")], services)
@@ -238,6 +246,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: homeChiefScene,
                                description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "cloud-machine-disconnected",
+                               description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
@@ -467,6 +477,108 @@ extension CaptureSceneRegistry {
             && tabFound && sessionOK && hostKnown && generatedOK && painted && pageReady && sidebarRowMatches && !pending
         let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
         return (ready, String(diagnostic.prefix(330)))
+    }
+}
+
+/// Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...". A Cloud machine that ran
+/// for hours and lost its app link read "Failed to start" in red. This scene shows two machine
+/// headers through the real connect path, with no network: a running machine whose link went down
+/// (the app server's `cmux.cloud.link_down`, the error a dropped link ends with), and one whose
+/// connect the provider refused. Each machine has a workspace, as a machine that ran does.
+extension CaptureSceneRegistry {
+    static let cloudMachineDisconnectedScene = "cloud-machine-disconnected"
+    /// The machine whose link dropped, then the one whose connect the provider refused, with each one's connect error.
+    static let endedLinkMachines: [(id: String, name: String, code: String, message: String)] = [
+        ("capture-vm-dropped", "dropped-link-vm", "cmux.cloud.link_down", "the machine's link went down"),
+        ("capture-vm-refused", "refused-vm", "vm_start_failed", "the provider could not start this machine"),
+    ]
+
+    /// Adds both machines to the settled showcase window, with a header per computer
+    /// (`sidebar.groupByComputer`, as `DebugCloudMachineFixture` does), connects each so its link
+    /// ends, waits until both headers draw with their ended link, snapshots the window, then takes the
+    /// machines and the setting back. A header that never draws fails the scene.
+    func renderCloudMachineDisconnected(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
+                                        windowID: String) async -> CmuxNextSettings.JSONValue {
+        let ids = Self.endedLinkMachines.map(\.id)
+        let groupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
+        func removeMachines() {
+            for id in ids {
+                services.machines.remove(id)?.disconnect()
+                services.windows.pendingClaims.removeValue(forKey: "ws-\(id)")
+            }
+            services.windows.reconcileMembership()
+            DesignSettings.shared.sidebarSections.groupsByComputer = groupedBefore
+        }
+        for id in ids { services.machines.remove(id)?.disconnect() }
+        // Machine headers draw only with a section per computer.
+        DesignSettings.shared.sidebarSections.groupsByComputer = true
+        for machine in Self.endedLinkMachines {
+            let (code, message) = (machine.code, machine.message)
+            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: code, message: message) })
+            let session = CloudMachineSession(machine: CloudMachine(id: machine.id, status: .running, displayName: machine.name),
+                                              appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
+                                              localIdentity: { nil }, mainWork: services.mainWork)
+            services.machines.add(session)
+            // The tree a machine that ran leaves: connected once, with a workspace.
+            _ = session.daemon.store.apply(.connected(DaemonIdentity(registryID: "s-\(machine.id)", generation: "capture"),
+                                                      generationChanged: false))
+            session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(machine.id)", workspaces: [
+                WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(machine.id)"), name: "workspace-1"),
+            ]))
+            services.windows.claimNew(workspaceID: "ws-\(machine.id)", window: windowID)
+            // A click's connect: its `cloud.machine.connect` fails, and the link ends.
+            session.connect(origin: .user)
+        }
+        services.windows.reconcileMembership()
+        let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
+            ids.allSatisfy { services.machines.session($0)?.linkEnded != nil && endedLinkHeaderDrawn($0, windowID: windowID) }
+        }
+        let report = endedLinkReport(windowID: windowID)
+        guard shown else {
+            removeMachines()
+            return .object(["error": .string("the Cloud machine headers never drew with their ended link"),
+                            "scene": .string(definition.name), "scene_action": report])
+        }
+        // One more frame for the headers' layout.
+        frames.start()
+        let settled = await frames.settled(until: { true }, start: ContinuousClock.now, window: 300, deadline: 3_000)
+        let frameStats = frames.stop()
+        var snapshotParams = params
+        snapshotParams["window"] = .string(windowID)
+        let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
+        removeMachines()
+        guard case .object(var result) = snapshot else { return snapshot }
+        result["scene"] = .string(definition.name)
+        result["description"] = .string(definition.description)
+        result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
+        result["frames"] = frameStats
+        result["scene_action"] = report
+        return .object(result)
+    }
+
+    /// Whether `windowID`'s sidebar draws the header of machine `id`.
+    func endedLinkHeaderDrawn(_ id: String, windowID: String) -> Bool {
+        guard let sidebar = services.windows.controller(for: windowID)?.sidebar else { return false }
+        #if DEBUG
+        return sidebar.container.machineHeaderFrameInWindow(MachineID(id)) != nil
+        #else
+        return sidebar.model.sections.contains { $0.machine?.id.rawValue == id }
+        #endif
+    }
+
+    /// Each machine's header status and detail as the sidebar holds them, its ended link, and whether its header draws.
+    func endedLinkReport(windowID: String) -> CmuxNextSettings.JSONValue {
+        let headers = services.windows.controller(for: windowID)?.sidebar.model.sections.compactMap(\.machine) ?? []
+        return .array(Self.endedLinkMachines.map { machine in
+            let header = headers.first { $0.id.rawValue == machine.id }
+            return .object([
+                "machine": .string(machine.id),
+                "status": header.map { CmuxNextSettings.JSONValue.string(String(describing: $0.status)) } ?? .null,
+                "detail": header?.detail.map(CmuxNextSettings.JSONValue.string) ?? .null,
+                "link_ended": services.machines.session(machine.id)?.linkEnded.map(CmuxNextSettings.JSONValue.string) ?? .null,
+                "drawn": .bool(endedLinkHeaderDrawn(machine.id, windowID: windowID)),
+            ])
+        })
     }
 }
 #endif
