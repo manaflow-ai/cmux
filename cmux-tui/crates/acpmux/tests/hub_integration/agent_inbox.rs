@@ -436,6 +436,11 @@ async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
     let only = json!({"sessionId": id, "prompt": [{"type": "text", "text": "now"}], "_meta": {"acpmux": only}});
     let refused = c.request(method::SESSION_PROMPT, only).await.unwrap_err();
     assert!(format!("{refused:?}").contains("review box"), "{refused:?}");
+    // One sent with interrupt stops no review: it waits too.
+    let stop = from_agent(&id, "r-4", "coord", "stop and do this", json!({"interrupt": true}));
+    let stop = c.send(method::SESSION_PROMPT, stop).await;
+    let held = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "r-4").await;
+    assert_eq!(held["queued"], true, "{held}");
     // Nor does a digest bundle it: it stays its own prompt.
     let digest = c.request("_acpmux/inbox_digest", json!({"sessionId": id})).await.unwrap_err();
     assert!(digest.contains("inbox_digest.review_box"), "{digest}");
@@ -445,12 +450,13 @@ async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
     assert!(!all.iter().any(|m| m["steer"] == true), "nothing steered into the review: {all:?}");
 
     open(&gate).await;
-    let answered = answers(&mut c, &[review, sent]).await;
+    let answered = answers(&mut c, &[review, sent, stop]).await;
+    assert_eq!(answered[&review]["stopReason"], "end_turn", "never stopped: {}", answered[&review]);
     assert_eq!(answered[&sent]["stopReason"], "end_turn", "its own turn: {}", answered[&sent]);
     let all = prompts(&hub, &id);
     assert!(notices(&hub, &id).is_empty(), "{all:?}");
     let turns: Vec<_> = all.iter().map(|m| m["turnId"].clone()).collect();
-    assert_eq!(turns.len(), 2, "the review, then the message: {all:?}");
+    assert_eq!(turns.len(), 3, "the review, then each message: {all:?}");
     assert_ne!(turns[0], turns[1], "{all:?}");
 
     // Any other chat: the same message goes to its inbox.

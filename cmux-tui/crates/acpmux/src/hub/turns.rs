@@ -435,8 +435,9 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
-            interrupt: opts.interrupt && !capped,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
+            // agent's message stop a review box's review (`inbox.rs`).
+            interrupt: opts.interrupt && !capped && !review_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
