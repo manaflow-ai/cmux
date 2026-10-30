@@ -126,6 +126,8 @@ test("a lost host says so once, in the page's words, not again in a banner above
   const store = new storeModule.HistoryStore(provider, { newKey: () => "k" });
   const strings = createStrings(tableModule.default, ["en"]);
   act(() => root?.unmount());
+  // The page's subscribe starts the store, so the grace's clock is the test's before it renders.
+  jest.useFakeTimers();
   root = createRoot(host);
   await act(async () => {
     root!.render(
