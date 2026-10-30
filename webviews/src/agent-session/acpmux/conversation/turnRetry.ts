@@ -51,9 +51,12 @@ export type OwnedResendDeps<Client, Draft> = {
   send: (draft: Draft) => Promise<unknown>;
 };
 
-/// The prompt sent again, only to the chat the failed row was drawn for.
+/// The prompt sent again, only to the chat the failed row was drawn for: checked before the restore
+/// and again after it, on the same client, as Cloud credential recovery does. A chat switch while the
+/// attachments are restored sends nothing to the next chat.
 export async function resendToOwner<Client, Draft>(deps: OwnedResendDeps<Client, Draft>): Promise<unknown> {
-  if (!deps.owns()) return undefined;
+  if (!deps.owns() || deps.currentClient() !== deps.client) return undefined;
   const draft = await deps.restore();
+  if (!deps.owns() || deps.currentClient() !== deps.client) return undefined;
   return deps.send(draft);
 }
