@@ -10,6 +10,7 @@ use crate::cli::resolve::control_id;
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::json;
 
 #[derive(clap::Args)]
@@ -26,7 +27,7 @@ pub async fn run(args: RetryArgs, json_out: bool) -> Result<()> {
     let id = control_id(&client, &args.session).await?;
     let mut params = json!({"sessionId": id});
     if let Some(subagent) = args.subagent {
-        params["subagentId"] = json!(subagent);
+        params.set("subagentId", json!(subagent));
     }
     let v = client.request(method::MUX_RETRY, params).await?;
     if json_out {

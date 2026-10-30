@@ -184,17 +184,18 @@ pub(crate) fn one_sentence(text: &str) -> String {
     // A closing quote or bracket right after the mark ends with it ("expired." Please).
     let closers = ['"', '\'', '\u{201d}', '\u{2019}', ')', ']'];
     let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find_map(|i| {
-        let word = flat[..i].rsplit(' ').next().unwrap_or_default().to_lowercase();
+        let word =
+            flat.get(..i).unwrap_or_default().rsplit(' ').next().unwrap_or_default().to_lowercase();
         let word = word.trim_start_matches(|c: char| !c.is_alphanumeric());
         let short = word.chars().count() <= 2;
-        let rest = flat[i..].trim_start_matches(closers);
+        let rest = flat.get(i..).unwrap_or_default().trim_start_matches(closers);
         let end = flat.len() - rest.len();
         (rest.starts_with(' ')
             && !short
             && !["e.g.", "i.e.", "etc.", "vs.", "cf.", "approx."].contains(&word))
         .then_some(end)
     });
-    let sentence = end.map_or(flat.as_str(), |i| &flat[..i]);
+    let sentence = end.map_or(flat.as_str(), |i| flat.get(..i).unwrap_or(&flat));
     if sentence.chars().count() <= DETAIL_CHARS {
         return sentence.to_owned();
     }

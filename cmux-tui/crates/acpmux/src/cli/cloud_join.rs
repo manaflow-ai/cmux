@@ -71,7 +71,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
     if !token.starts_with("cmj_")
         || token.len() <= 4
         || token.len() > MAX_TOKEN_BYTES
-        || token[4..].bytes().any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+        || token.bytes().skip(4).any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
     {
         return Err(anyhow!("join token is malformed"));
     }
@@ -115,6 +115,8 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
+        team_messaging: false,
+        control_from: Vec::new(),
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
 }
@@ -158,7 +160,13 @@ fn authority() -> Result<super::machine_consent::Authority> {
     super::machine_consent::Authority::current(consent_home())
 }
 
+/// At daemon start: a daemon whose own state holds a join or consent keeps the account-wide
+/// requirement. One with neither (every Windows daemon: no OS account home is read there)
+/// needs no authority, so the start never depends on it.
 pub(crate) fn retain_own_machine_consent_requirement() -> Result<()> {
+    if !super::machine_consent::has_own_requirement(&consent_home())? {
+        return Ok(());
+    }
     authority()?.retain_own_requirement()
 }
 
@@ -169,13 +177,13 @@ fn load_consent() -> Consent {
 /// Held until redeem and both local writes complete. A competing installer exits
 /// without redeeming; it can safely retry after this process finishes.
 #[cfg(unix)]
-pub(crate) fn join_lock() -> Result<std::fs::File> {
+pub(crate) fn join_lock() -> Result<HeldLock> {
     crate::config::private_state_dir(&state_dir())?;
     join_lock_at(&state_dir())
 }
 
 #[cfg(unix)]
-fn join_lock_at(dir: &std::path::Path) -> Result<std::fs::File> {
+fn join_lock_at(dir: &std::path::Path) -> Result<HeldLock> {
     let file = crate::config::private_state_rw(&dir.join("machine-join.lock"))?;
     #[cfg(unix)]
     {
@@ -186,12 +194,24 @@ fn join_lock_at(dir: &std::path::Path) -> Result<std::fs::File> {
             "another machine join is in progress; retry when it finishes"
         );
     }
-    Ok(file)
+    Ok(HeldLock(file))
 }
 
 #[cfg(not(unix))]
-pub(crate) fn join_lock() -> Result<std::fs::File> {
+pub(crate) fn join_lock() -> Result<HeldLock> {
     anyhow::bail!("machine join requires macOS or Linux")
+}
+
+/// A held `flock`. Dropping it unlocks explicitly: a process spawned meanwhile (an agent, a
+/// tool, a login shell) shares the lock's open file description from its fork until its exec,
+/// so closing this descriptor alone would leave the lock held until then, and the next
+/// nonblocking take would fail as if another holder were still at work.
+pub(crate) struct HeldLock(pub(super) std::fs::File);
+
+impl Drop for HeldLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 pub(crate) fn credential_present() -> Result<bool> {
@@ -402,7 +422,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let first = super::join_lock_at(dir.path()).unwrap();
         assert!(super::join_lock_at(dir.path()).is_err());
+        // A process spawned meanwhile holds a copy from its fork until its exec.
+        let inherited = first.0.try_clone().unwrap();
         drop(first);
         assert!(super::join_lock_at(dir.path()).is_ok());
+        drop(inherited);
     }
 }

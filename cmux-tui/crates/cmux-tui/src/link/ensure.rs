@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 
 use super::state::{DEFAULT_PORT, LinkConfig, LinkState};
 use super::{Flags, print_json};
+use cmux_json::JsonSet as _;
 
 /// How long `ensure` waits for a started link's ready line.
 const START_BUDGET: Duration = Duration::from_secs(20);
@@ -329,8 +330,8 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         if (same_build && same_served && same_identity) || !handoff {
             let mut out = json!({"status": "running", "pid": live.pid, "socket": live.socket});
             if let Some(status) = status {
-                out["build"] = status["build"].clone();
-                out["udp"] = status["udp"].clone();
+                out.set("build", status["build"].clone());
+                out.set("udp", status["udp"].clone());
             }
             print_json(&out);
             return Ok(());
@@ -518,7 +519,7 @@ pub(super) fn run_status(flags: &Flags) -> anyhow::Result<()> {
     };
     let mut out = query_status(&live.socket)
         .unwrap_or_else(|| json!({"pid": live.pid, "socket": live.socket}));
-    out["running"] = json!(true);
+    out.set("running", json!(true));
     if let Some(object) = out.as_object_mut() {
         object.remove("ok");
     }

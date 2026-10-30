@@ -204,7 +204,7 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
 
-    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting to \(mac)…") }
+    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…") }
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
     public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "\(mac) is offline") }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")

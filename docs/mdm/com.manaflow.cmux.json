@@ -252,7 +252,7 @@
     },
     "agents.subsessions.maxChildren" : {
       "default" : 50,
-      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
       "title" : "Open Sub-sessions per Session",
@@ -2492,6 +2492,12 @@
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
       "title" : "Classic Home",
+      "type" : "boolean"
+    },
+    "labs.machineJoin" : {
+      "default" : false,
+      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+      "title" : "Join Any Machine with One Line",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {

@@ -15,6 +15,11 @@ struct RowMotion {
     var lines: SidebarGroupLineViews.LineMotion
     /// The chat history blocks with their frames (`SidebarChatHistoryViews.place`): they move with the rows.
     var companions: [(NSView, NSRect)] = []
+    /// How the rows make room for a new workspace row (`sidebar.insertMotion`); nil for any other change, which
+    /// moves on `.move` over the whole distance.
+    var insert: SidebarInsertMotion?
+    /// How far the rows' edges travel under `insert` (`SidebarInsertMotion.travel`); nil is the whole distance.
+    var travel: CGFloat?
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -27,6 +32,7 @@ struct RowMotion {
         // so every row shows its slot now (`SidebarDragSpring.stop`).
         let views = targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0)
         guard animated else {
+            list.settleOpenings()
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
@@ -40,6 +46,7 @@ struct RowMotion {
         guard Motion.sidebar.animatesMovement else {
             // Reduce Motion: rows take their places in one step, with no crossfade standing in
             // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
+            list.settleOpenings()
             Motion.withoutAnimation {
                 moves()
                 lines.changes()
@@ -57,19 +64,24 @@ struct RowMotion {
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
+        // Out of a window (or where nothing draws) the springs snap (`SidebarDragSpring.move`): no row opens.
+        if list.window == nil || !Motion.canAnimate(in: list) { list.settleOpenings() }
         passOver(in: list, from: old, to: layout)
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
+        let generations = leaving.map(\.0.reuseGeneration)
         list.rowMoves &+= 1
         let move = list.rowMoves
-        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, targets, leavingLines = lines.leaving] in
+        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, generations, targets, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
             // Every line of this move, those that only moved too: an earlier move's tuck they kept ends here at the latest.
             Self.untuck(targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0), move: move)
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
-            for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { Self.closed(view, in: list) }
+            for ((view, _), generation) in zip(leaving, generations) {
+                list.finishLeaving(view, generation: generation)
+            }
             if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         }
@@ -83,7 +95,8 @@ struct RowMotion {
         Self.untuck((appearing + leaving).map(\.0).filter { !tucked.contains(ObjectIdentifier($0)) })
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
                      fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving).filter { !tucked.contains(ObjectIdentifier($0.0)) },
-                     lines: lines.changes, in: list, ended: ended)
+                     lines: lines.changes, in: list, ended: ended,
+                     insert: insert, travel: travel)
     }
 
     /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,
@@ -105,8 +118,13 @@ struct RowMotion {
     /// fades (`lines`). `ended` runs once both have ended, or at once when the display sleeps (`settleAtSleep`).
     /// `companions`: the group lines and chat history blocks, on the same springs in the same transaction, so the
     /// springs' leg (and the display's sleep) waits for them too, even when no row moves (a line growing offscreen).
+    /// `insert`: a new workspace row's motion (`SidebarInsertMotion`): its spring for the frames and the fades, and how far
+    /// the rows travel (`travel`). Snap first takes off the springs an earlier move left, so nothing slides at all.
     private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
-                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd) {
+                                lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil,
+                                travel: CGFloat? = nil) {
+        let token = insert?.token ?? .move
+        if travel == 0 { SidebarDragSpring.stop(frames.map { $0.0 as NSView } + companions.map(\.0)) }
         let settle = Self.settle(list)
         // Nothing draws while the display sleeps: the rows, group lines and history blocks show their places now, the
         // springs gone with the move. Both legs carry it, and it runs once: the opacity leg alone ends at once when
@@ -121,12 +139,12 @@ struct RowMotion {
             settle()
             ended.finish()
         }
-        let springsEnded = Motion.sidebar.trackMove(.move, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
+        let springsEnded = Motion.sidebar.trackMove(token, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
         CATransaction.begin()
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list)
-        Motion.sidebar.animate(.move, in: list, {
+        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel)
+        Motion.sidebar.animate(token, in: list, {
             for (view, alpha) in fades { view.animator().alphaValue = alpha }
             lines()
         }, settleAtSleep: settleAtSleep, completion: { ended.arrive() })
@@ -184,18 +202,20 @@ struct RowMotion {
     }
 
     /// Places a row that scrolled into view. One still opening (the viewport
-    /// held still for an insert above it, then scrolled to it) opens from zero
-    /// height at its slot instead of showing whole over the rows still making
-    /// room (cx-ai79).
-    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: SidebarListView) {
+    /// held still for an insert above it, then scrolled to it) opens at its slot
+    /// as the insert opened it (`SidebarRowOpening`: from zero height on `.move`,
+    /// or the new row motion's start and spring) instead of showing whole over
+    /// the rows still making room (cx-ai79).
+    static func place(_ view: SidebarRowView, at target: NSRect, opening: SidebarRowOpening?, hidden: Bool, in list: SidebarListView) {
         untuck([view]) // a parked tab line kept from a fold comes back in order, not behind the rows
-        guard opening, !hidden, Motion.sidebar.animatesMovement else {
+        guard let opening, !hidden, Motion.sidebar.animatesMovement else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
             return
         }
+        let closed = NSRect(x: target.minX, y: target.minY, width: target.width, height: 0)
         Motion.withoutAnimation {
-            view.frame = NSRect(x: target.minX, y: target.minY, width: target.width, height: 0)
+            view.frame = opening.motion?.openFrame(closed, target: target, nudge: opening.travel ?? 0) ?? closed
             view.alphaValue = 0
             view.clipsToBounds = true
         }
@@ -207,7 +227,8 @@ struct RowMotion {
             if view.opens == open { view.clipsToBounds = false }
             if let list, list.rowMoves == move { Self.land(list) }
         }
-        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended)
+        animate(frames: [(view, target)], companions: [], fades: [(view, 1)], lines: {}, in: list, ended: ended,
+                insert: opening.motion, travel: opening.travel)
     }
 
     /// When the display sleeps mid-move (no frame draws, so the move never ends), the rows
@@ -215,7 +236,10 @@ struct RowMotion {
     /// move captured, which a newer change may have replaced. Rows still leaving go in the
     /// move's completion, which runs right after.
     private static func settle(_ list: SidebarListView) -> @MainActor () -> Void {
-        { [weak list] in list?.reload(animated: false) }
+        { [weak list] in
+            list?.settleOpenings()
+            list?.reload(animated: false)
+        }
     }
 
     /// A moved selected row (with its workspace's tab rows) passes over the
