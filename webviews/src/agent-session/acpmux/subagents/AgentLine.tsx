@@ -131,7 +131,7 @@ export function AgentLine({
         {progress && <span className="acpmux-agent-line__progress">{progress}</span>}
       </span>
       {trayColumns ? (
-        <>
+        <span className="acpmux-agent-line__status">
           {/* Fixed trailing grammar: status, duration, then disclosure as sibling columns. */}
           <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
@@ -142,7 +142,7 @@ export function AgentLine({
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
             </span>
           )}
-        </>
+        </span>
       ) : (
         <>
           {/* Keep every AgentLine family in the same status, duration, disclosure order. */}
