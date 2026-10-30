@@ -52,9 +52,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts"))
-# The pre-push hook runs its installed copy of this file, with swift_source_mask.py beside it (install-git-hooks.sh).
-sys.path.append(str(Path(__file__).resolve().parent))
+# The masker: beside this file first (the pre-push hook's installed copy, install-git-hooks.sh and refresh_checks.py put
+# it there, so a push cannot change how its own imports are read), else the repository's scripts/.
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(ROOT / "scripts")]
 from swift_source_mask import mask_swift_source  # noqa: E402
 DEFAULT_MANIFEST = ROOT / "Packages/macOS/CmuxNext/Package.swift"
 MARKER = "// sorted: scripts/cmux-next/check-package-dependency-lists.py"
