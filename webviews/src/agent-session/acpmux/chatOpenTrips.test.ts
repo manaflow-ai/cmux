@@ -51,19 +51,25 @@ async function openCountingWaves(
   const sent: Sent[] = [];
   const methods = new Map<number, string>();
   let wave = 0;
+  // Wakes the waves loop below when the page sends a request or paints rows.
+  let wake = () => {};
   daemon.send = (raw) => {
     const request = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
     if (request.id === undefined) return answer(raw);
     methods.set(request.id, request.method);
     sent.push({ method: request.method, wave, params: request.params });
     held.push(raw);
+    wake();
   };
   let painted = false;
   const connecting = AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
       const rows = (snapshot as { rows?: unknown[] }).rows;
-      if (Array.isArray(rows) && rows.length > 0) painted = true;
+      if (Array.isArray(rows) && rows.length > 0) {
+        painted = true;
+        wake();
+      }
     },
     undefined,
     () => {
@@ -84,14 +90,15 @@ async function openCountingWaves(
     },
   );
   // The host's tail read (none outside the app) and the socket's open settle with no reply out.
-  for (let idle = 0; !painted && wave < 12;) {
+  while (!painted && wave < 12) {
     for (let i = 0; i < 20; i += 1) await turns();
     if (painted) break;
     if (held.length === 0) {
-      // Nothing out: what the page waits on is not the daemon (at most the host's 250 ms race).
-      idle += 1;
-      if (idle > 40) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Nothing out: what the page waits on is not the daemon (at most the host's 250 ms race), so
+      // no wave is counted until its next request or its first frame.
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
       continue;
     }
     wave += 1;

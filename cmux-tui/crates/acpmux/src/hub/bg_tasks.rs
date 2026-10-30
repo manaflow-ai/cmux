@@ -160,6 +160,12 @@ impl Hub {
         records
     }
 
+    /// Whether a task of the chat runs (`Hub::in_use`).
+    pub(super) fn bg_running(&self, session: &Session) -> bool {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir).iter().any(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+    }
+
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.
     pub fn bg_list(&self, session: &Session) -> Value {
         let dir = self.bg_dir(session);

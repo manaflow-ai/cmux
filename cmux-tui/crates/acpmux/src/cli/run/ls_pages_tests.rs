@@ -219,12 +219,12 @@ async fn a_cursor_a_chat_and_its_peer_copy_share_is_read_past() {
     let list = RefCell::new(rows.clone());
     // Four rows ending on the copy, then a page of one: the copy again, under the same cursor.
     let want = Plan { want: Some(5), ..plan(4) };
-    let got = read_all(&list, want, usize::MAX, &Seen::default()).await.unwrap();
+    let got = read(json!({}), None, want, keep, old_daemon(&list, usize::MAX)).await.unwrap();
     let keys: Vec<_> =
         got.rows.iter().map(|r| (r["sessionId"].clone(), r["peer"].clone())).collect();
     let all: Vec<_> = rows.iter().map(|r| (r["sessionId"].clone(), r["peer"].clone())).collect();
     assert_eq!(keys, all[..5]);
-    let whole = read_all(&list, plan(3), usize::MAX, &Seen::default()).await.unwrap();
+    let whole = read(json!({}), None, plan(3), keep, old_daemon(&list, usize::MAX)).await.unwrap();
     assert_eq!(whole.rows.len(), 7);
 }
 
@@ -261,7 +261,34 @@ async fn a_cursor_against_a_daemon_too_old_for_pages_is_refused() {
     assert!(e.to_string().contains("too old to page"), "{e}");
 }
 
-/// Rows 0 and 1, then a chat here and its copy on a peer in one millisecond, then rows 3 to 5.
+/// A daemon from before #28161, whose cursor names a session's id and time but not its peer (as
+/// the fleet's ran on 2026-10-30): a chat here and its copy on a peer updated in one millisecond
+/// share a cursor, and the page after it starts after the first of them. It refuses, as
+/// `rpc.rs` does, a reply longer than `cap` bytes.
+fn old_daemon(
+    list: &RefCell<Vec<Value>>,
+    cap: usize,
+) -> impl FnMut(Value) -> std::future::Ready<Result<Value>> + '_ {
+    let cursor_of = |row: &Value| format!("{}@{}", row["sessionId"], row["updatedAt"]);
+    move |params| {
+        let rows = list.borrow();
+        let limit = usize::try_from(params["limit"].as_u64().unwrap()).unwrap();
+        let start = params["cursor"].as_str().map_or(0, |c| {
+            rows.iter().position(|r| cursor_of(r) == c).map_or(rows.len(), |at| at + 1)
+        });
+        let page: Vec<Value> = rows.iter().skip(start).take(limit).cloned().collect();
+        let next = (start + page.len() < rows.len()).then(|| cursor_of(page.last().unwrap()));
+        let reply = json!({"sessions": page, "nextCursor": next});
+        let bytes = reply.to_string().len();
+        std::future::ready(if bytes > cap {
+            Err(DaemonError(RpcError::too_large(bytes)).into())
+        } else {
+            Ok(reply)
+        })
+    }
+}
+
+/// Rows 5 and 4, then row 3 here and its copy on a peer in one millisecond, then rows 2 to 0.
 fn with_a_peer_copy() -> Vec<Value> {
     let mut rows = sessions(6, 1);
     for row in &mut rows {
@@ -288,7 +315,7 @@ async fn one_row_pages_by_cursor_get_past_a_peer_copy() {
         calls += 1;
         assert!(calls < 20, "{got:?}");
         let one = Plan { one: true, ..plan(1) };
-        let page = read(json!({}), cursor, one, keep, daemon(&list, usize::MAX)).await.unwrap();
+        let page = read(json!({}), cursor, one, keep, old_daemon(&list, usize::MAX)).await.unwrap();
         got.extend(page.rows.iter().map(key));
         match page.next {
             Some(Value::String(next)) => cursor = Some(next),
@@ -314,7 +341,7 @@ async fn a_widened_page_too_large_to_send_ends_in_an_error() {
     }
     let list = RefCell::new(rows);
     let want = Plan { want: Some(6), ..plan(4) };
-    let e = read_all(&list, want, 10_000, &Seen::default()).await.unwrap_err();
+    let e = read(json!({}), None, want, keep, old_daemon(&list, 10_000)).await.unwrap_err();
     assert!(e.to_string().contains("again and again"), "{e}");
 }
 
@@ -331,7 +358,7 @@ async fn many_peer_copies_are_read_past_one_after_another() {
         rows.extend([row, copy]);
     }
     let list = RefCell::new(rows.clone());
-    let got = read_all(&list, plan(1), usize::MAX, &Seen::default()).await.unwrap();
+    let got = read(json!({}), None, plan(1), keep, old_daemon(&list, usize::MAX)).await.unwrap();
     assert_eq!(
         got.rows.iter().map(key).collect::<Vec<_>>(),
         rows.iter().map(key).collect::<Vec<_>>()

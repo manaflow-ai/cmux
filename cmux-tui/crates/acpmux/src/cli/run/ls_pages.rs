@@ -147,7 +147,7 @@ where
             (None, Some(next)) => next,
         };
         // A cursor that comes again: it names a session id and time, which a chat here and its
-        // copy on a peer may share (`session_pages.rs`, until #28182), so the page after it
+        // copy on a peer share on a daemon from before #28161, so the page after it
         // starts at the copy again. A wider page gets past it: it may hold a row the last page
         // ended on, never skips one. A daemon that keeps giving one cursor is an error, never a
         // loop.

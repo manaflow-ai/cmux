@@ -137,7 +137,7 @@ final class AppServices {
     /// Process-wide widening-switch gate shared by every Settings window.
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
-    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
