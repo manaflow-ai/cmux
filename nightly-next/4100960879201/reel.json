@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "build": "4100960879201",
+  "notes": "notes/4100960879201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27942,
+      "title": "ci(cmux-next): a base push's checks job stays red while its checks are red",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27952,
+      "title": "cmux NEXT: each window gets its own Home (#27880)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27933,
+      "title": "cmux NEXT Chief: renaming a Chief saves, and Move and Scale for its picture (#27915)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27620,
+      "title": "iOS chat: Edit and Resend opens the message in the composer instead of sending it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27935,
+      "title": "cmux NEXT agent chat: a Chief's message shows the Chief's name and avatar (#27914)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24361,
+      "title": "cmux NEXT sidebar: a drag keeps the Done rows folded, so the rows below no longer move down and back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26216,
+      "title": "feat(agent-chat): sandbox HTML artifacts before Run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27523,
+      "title": "acpmux: session inbox NAME --digest drains agent messages into one prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27837,
+      "title": "cmux daemon: a late host token for an in-flight tokenless room delete still deletes the room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27932,
+      "title": "fix(cmux-next): clear four base reds every open PR inherits",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27104,
+      "title": "fix(cloud): resume New Cloud Machine after sign-in once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27691,
+      "title": "fix(mux): recover malformed hook cursors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27981,
+      "title": "cmux-next tests: fake python bridges start without SWIFT_BACKTRACE",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27564,
+      "title": "cmux NEXT: the workspace row copies its link before its ID; test that the link opens it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27794,
+      "title": "fix(webviews): seven react-apps-check base reds (WebKit table drag, empty rows, dev host trust, four stale tests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24777,
+      "title": "[#3676] Reserve minimap keyword for transcript/editor surfaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27749,
+      "title": "cmux NEXT: agent pane state files save off the main thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24136,
+      "title": "cmux NEXT: an agent-opened session workspace records its lineage parent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27163,
+      "title": "fix(web): center chat loading spinner above composer",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
