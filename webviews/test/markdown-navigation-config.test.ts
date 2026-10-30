@@ -1,5 +1,6 @@
 // Another file shown in the same tab (a followed link, Back, Forward) brings its own comments, saved
-// table widths and remote-image grant; nothing of the previous file's stays.
+// table widths and remote-image grant (the host answers none after a file change); nothing of the
+// previous file's stays.
 import { expect, test } from "bun:test";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import { MarkdownStore } from "../src/pages/markdown/store";
@@ -20,7 +21,13 @@ function store() {
   const client = {
     async call<R>(op: string, params: unknown): Promise<R> {
       if (op === "cmux.markdown.config") return files["/a.md"] as R;
-      if (op === "cmux.markdown.open") return files[(params as { path: string }).path] as R;
+      if (op === "cmux.markdown.open") {
+        const path = (params as { path: string }).path;
+        // The host drops the remote-image approval whenever the tab's file changes
+        // (FilePageProvider.open), so a reply to open never carries the previous file's grant.
+        const { remoteImageBase: _grant, ...reply } = files[path]!;
+        return reply as R;
+      }
       return {} as R;
     },
     async subscribe() {
@@ -33,7 +40,7 @@ function store() {
   return new MarkdownStore(client);
 }
 
-test("a followed link and Back swap the file's comments, table widths and remote-image grant", async () => {
+test("a followed link and Back swap the file's comments and table widths, and drop the image grant", async () => {
   const markdown = store();
   await markdown.start();
   expect(markdown.getState().config).toMatchObject({
@@ -53,5 +60,6 @@ test("a followed link and Back swap the file's comments, table widths and remote
   expect(a.path).toBe("/a.md");
   expect(a.comments).toEqual(files["/a.md"]!.comments);
   expect(a.tableWidths).toEqual(files["/a.md"]!.tableWidths);
-  expect(a.remoteImageBase).toBe("/remote/a/");
+  // The grant was dropped with the file change: A asks again, and nothing of B's was kept.
+  expect(a.remoteImageBase).toBeUndefined();
 });
