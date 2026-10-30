@@ -26,6 +26,8 @@ export const FOLD_TOGGLE = [
   "summary",
   ".cv-agentmsg__line > [data-interactive]",
 ].join(", ");
+/// The controls a click lands on: one inside a toggle is its own, not the toggle's.
+const NESTED_CONTROL = 'button, a[href], [role="button"], summary, input, textarea, select, [role="menuitem"]';
 /// What a collapsible's header sends up (bubbling, cancelable) to be held where it is drawn while its
 /// body opens or closes (useAnchoredCollapse.ts); the transcript that holds it cancels it.
 export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
@@ -44,7 +46,10 @@ export type FoldAnchor = {
 export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement): HTMLElement | undefined {
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
   const toggle = element?.closest<HTMLElement>(FOLD_TOGGLE);
-  return toggle && scroller.contains(toggle) && toggle.closest(".acpmux-row") ? toggle : undefined;
+  if (!toggle || !scroller.contains(toggle) || !toggle.closest(".acpmux-row")) return undefined;
+  // A control of its own inside the toggle (a sent line's recipient, its Copy) opens nothing there.
+  const control = element?.closest<HTMLElement>(NESTED_CONTROL);
+  return control && control !== toggle && toggle.contains(control) ? undefined : toggle;
 }
 
 /// The lines that open a body under themselves: a click holds the line itself.

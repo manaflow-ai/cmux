@@ -64,6 +64,13 @@ describe("foldToggleAt", () => {
   test("leaves a menu's trigger alone", () => {
     expect(row('<button aria-expanded="false" aria-haspopup="menu">…</button>').at("button")).toBeUndefined();
   });
+  test("leaves a control inside a toggle alone (a sent line's recipient, its Copy)", () => {
+    const { at } = row(
+      '<div class="cv-tool is-toggle cv-sent" role="button" aria-expanded="false"><button class="to">lane</button><span class="w">Sent</span></div>',
+    );
+    expect(at(".to")).toBeUndefined();
+    expect(at(".w")).toBeDefined();
+  });
   test("leaves plain text alone", () => {
     expect(row("<p>words</p>").at("p")).toBeUndefined();
   });

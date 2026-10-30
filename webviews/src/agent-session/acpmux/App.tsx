@@ -2907,11 +2907,18 @@ export function VirtualTranscript({
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
+    const holding = foldHolding(foldAnchor.current);
+    // A view that follows the latest row again (the reader scrolled back to it) ends at the rows.
+    if (followingRef.current && !holding) {
+      foldRoomRef.current = 0;
+      setFoldRoom(0);
+      return;
+    }
     const next = trimmedFoldRoom(
       kept,
       node.scrollTop + node.clientHeight,
       rowsEndRef.current,
-      foldHolding(foldAnchor.current),
+      holding,
       node.clientHeight,
     );
     if (next === kept) return;
@@ -3396,8 +3403,14 @@ export function VirtualTranscript({
       setScrollAt(moved);
     }
     if (folding && node) {
-      // What opened pushed the latest row out of view: the view is the reader's now, not following.
-      if (followingRef.current && node.scrollTop < layout.totalHeight - height - FOLLOW_BOTTOM_DEADBAND_PX)
+      // What opened pushed the latest row out of view, or what closed left room under it
+      // (`foldRoom`): the view is the reader's now, not following, so a reply that streams on
+      // grows below the view instead of being followed past blank room.
+      if (
+        followingRef.current &&
+        (node.scrollTop < layout.totalHeight - height - FOLLOW_BOTTOM_DEADBAND_PX ||
+          foldRoomRef.current > rowsEndRef.current + 0.5)
+      )
         follow(false);
     } else if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to

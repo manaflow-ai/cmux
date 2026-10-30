@@ -146,5 +146,11 @@ button.cv-agentmsg__name:focus-visible {
    ask-486cb2cec3: "why the fuck did you guys ffucking ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT
    WAS SAID TO SEE"). */
 .cv-agentmsg[data-open] .cv-agentmsg__name {
+  flex: 0 1 auto;
   max-width: 100%;
+  height: auto;
+  min-height: 20px;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
