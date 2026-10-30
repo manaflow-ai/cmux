@@ -129,7 +129,9 @@ public final class SidebarSessionTreeFeed {
             return nil
         }
         /// The daemon's own links (under `host` or another of its keys); none until it reports. Never the
-        /// hostless map (``RemoteAgentSessionLinks/parents``): another daemon's ids may collide there.
+        /// hostless map (``RemoteAgentSessionLinks/parents``): every tab here has a host and every app
+        /// wire notes under it (``AgentTabRemoteHost``), so that map holds only a hostless route's links,
+        /// which no tab's host can claim without borrowing another daemon's reused session ids.
         func daemonLinks(_ host: String) -> [String: String] {
             for key in keys(host) {
                 if let links = remoteParentsByHost[key] { return links }

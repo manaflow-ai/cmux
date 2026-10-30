@@ -42,7 +42,9 @@ extension AgentTabStore {
             throw AgentTabRefusal(message: refusal)
         }
         // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
-        // that machine's own chat, filed under its store, which checks it against its own list.
+        // that machine's own chat, filed under its store, which checks it against its own list. Its
+        // lineage is read under that store's `registry:<id>` (the wire notes it there too); with no
+        // store id yet the tab could not be filed under it either, so the open is refused below.
         let remoteHost = !daemon.isLocal ? Self.registryHost(of: daemon) : nil
         let remoteChild = !daemon.isLocal && host == nil && adopt == nil
             && session.map { id in
