@@ -330,32 +330,6 @@ final class NotificationCenterService {
         interacted(trigger, tab: tab)
     }
 
-    /// A click or key in `window` went into a tab in the workspace shown there. Resolve the tab
-    /// on that workspace's owning machine so identical ids on different machines cannot cross-clear.
-    struct TabInteractionTarget {
-        let tab: TabModel
-        let store: DaemonStore
-        let local: Bool
-        let attentionRequestID: String?
-        /// A mark from a daemon without request ids has only this client's generation to say
-        /// it is still the mark pressed.
-        let attentionGeneration: UInt64
-
-        init(tab: TabModel, store: DaemonStore, local: Bool) {
-            self.tab = tab
-            self.store = store
-            self.local = local
-            attentionRequestID = tab.attention?.requestID
-            attentionGeneration = tab.attentionGeneration
-        }
-
-        /// Whether the tab still shows the mark it showed when pressed.
-        var attentionUnchanged: Bool {
-            guard tab.attention?.requestID == attentionRequestID else { return false }
-            return attentionRequestID != nil || tab.attentionGeneration == attentionGeneration
-        }
-    }
-
     func interactionTarget(tabID: String, in window: NSWindow?) -> TabInteractionTarget? {
         guard let services else { return nil }
         let content = content(of: window)

@@ -65,7 +65,7 @@ import Testing
         let (workspace, tab) = try Self.markedWorkspace(in: store, name: "same time", reason: "Confirm")
         let service = NotificationCenterService()
         let original = try #require(tab.attention)
-        let pressed = NotificationCenterService.TabInteractionTarget(tab: tab, store: store, local: false)
+        let pressed = TabInteractionTarget(tab: tab, store: store, local: false)
         let firstGeneration = tab.attentionGeneration
         service.interacted(.click, tab: tab)
         #expect(service.attentionMarks(for: workspace).isEmpty)
@@ -185,7 +185,7 @@ import Testing
         #expect(service.attentionMarks(for: workspace).count == 1, "a new legacy request did not ring again")
         service.dismissHighlight(workspace)
         #expect(service.attentionMarks(for: workspace).isEmpty, "Dismiss Highlight left the legacy mark's ring")
-        let pressed = NotificationCenterService.TabInteractionTarget(tab: tab, store: store, local: true)
+        let pressed = TabInteractionTarget(tab: tab, store: store, local: true)
         tab.applyState(SessionStateMirror.TabRecord(attention: TabAttention(reason: "Approve the deploy", atMs: 3_000)), progress: nil)
         service.interacted(.click, target: pressed)
         #expect(service.attentionMarks(for: workspace).count == 1, "a press on a replaced legacy mark hid the new ring")
