@@ -176,6 +176,41 @@ struct RemoteVNCReconnectTests {
         #expect(attempts.value == 1)
         #expect(session.source.client === connectedClient)
     }
+
+    @Test(.timeLimit(.minutes(1))) func queuedLossAfterStopSchedulesNoRetry() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
+        let transports = TransportBox()
+        let session = RemoteVNCSession(cloudRecord: record) {
+            let transport = ConnectedRFBTransport()
+            transports.add(transport)
+            return transport
+        }
+        defer { session.close() }
+
+        let statuses = session.source.statusUpdates()
+        session.reconnect(in: nil)
+        for await status in statuses {
+            if status.state == .streaming { transports.closeAll() }
+            if case .ended = status.state { break }
+        }
+        guard case .ended(.connectionLost) = session.source.status.state else {
+            Issue.record("expected a lost connection, got \(session.source.status.state)")
+            return
+        }
+        // Stop (a hidden tab) lands before the loss queued on the main actor. The loss must not
+        // schedule a retry that reconnects the stopped tab.
+        session.stop()
+        session.deliverQueuedLossForTesting()
+        #expect(!session.hasPendingRetryForTesting)
+    }
+}
+
+private nonisolated final class TransportBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var transports: [ConnectedRFBTransport] = []
+
+    func add(_ transport: ConnectedRFBTransport) { lock.withLock { transports.append(transport) } }
+    func closeAll() { lock.withLock { transports }.forEach { $0.close() } }
 }
 
 private nonisolated final class ConnectedRFBTransport: RFBTransport {
