@@ -16,10 +16,11 @@
 //!
 //! The mesh relay is a transport under this outbox, never a way around it. While a peer's link is
 //! down and no attempt has left this daemon, an attempt that fails as not sent hands a text-only
-//! delivery to the team hub, addressed to that peer's host and the session id its last list
-//! named (`mesh_send.rs` `relay`). The hub's receipt settles the delivery as delivered there; a
-//! delivery the relay cannot carry (attachments, `--supersede`, a class) or a hub that does not
-//! take it stays here and is tried again as before.
+//! delivery to the team hub, addressed to the session id the peer's last list named
+//! (`mesh_send.rs` `relay`). The hub's receipt settles the delivery as delivered there; a
+//! delivery the relay cannot carry (attachments, `--supersede`, a class) or a hub that refuses it
+//! stays here and is tried again as before. A post whose answer was lost may have reached the
+//! hub, so that delivery is tried again only through the relay, never on the peer's link too.
 //!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
 //! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
@@ -209,6 +210,17 @@ async fn relayed_status(hub: &Arc<Hub>, conn: &Arc<Conn>, delivery: &Delivery) -
     };
     match super::mesh_send::status(hub, conn, mesh, relay).await {
         Ok(mut status) => {
+            // What `acpmux send` reads of an acceptance: whether it steered, and the session.
+            if let (Some(accepted), Some(kept)) = (
+                status.get_mut("accepted").and_then(Value::as_object_mut),
+                delivery.accepted.as_ref(),
+            ) {
+                for key in ["steer", "sessionId"] {
+                    if let Some(v) = kept.get(key).filter(|v| !v.is_null()) {
+                        accepted.insert(key.into(), v.clone());
+                    }
+                }
+            }
             status["deliveryId"] = json!(delivery.id);
             status["relayDeliveryId"] = json!(relay);
             status["target"] = json!(delivery.target);
@@ -248,7 +260,25 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
-        match attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await {
+        let outcome = if delivery.relay_to.is_some() {
+            // The hub may hold it already: only the relay tries it again.
+            relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
+                Err(("the mesh relay holds it and cannot be reached".into(), Next::Retry))
+            })
+        } else {
+            match attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await {
+                // Nothing has reached the target: the mesh relay carries it when it can.
+                Err((error, Next::Unsent)) if delivery.never_sent => {
+                    match relay_attempt(hub, &delivery).await {
+                        Some(Ok(accepted)) => Ok(accepted),
+                        Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
+                        None => Err((error, Next::Unsent)),
+                    }
+                }
+                outcome => outcome,
+            }
+        };
+        match outcome {
             Ok(accepted) => {
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
@@ -263,24 +293,6 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 return;
             }
             Err((error, next)) => {
-                // Nothing has reached the target: the mesh relay carries it when it can.
-                let error = if next == Next::Unsent && delivery.never_sent {
-                    match super::mesh_send::relay(hub, &delivery).await {
-                        Some(Ok(accepted)) => {
-                            hub.outbox.update(id, |d| {
-                                d.state = State::Delivered;
-                                d.error = None;
-                                d.accepted = Some(accepted);
-                                crate::attach::strip(&mut d.request);
-                            });
-                            return;
-                        }
-                        Some(Err(why)) => format!("{error}; {why}"),
-                        None => error,
-                    }
-                } else {
-                    error
-                };
                 let delay = delays.next().filter(|_| matches!(next, Next::Retry | Next::Unsent));
                 hub.outbox.update(id, |d| {
                     d.never_sent &= next == Next::Unsent;
@@ -304,6 +316,26 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
         }
     }
+}
+
+/// One attempt through the mesh relay (`mesh_send.rs` `relay`): the hub's acceptance, or why
+/// not and what next. A hub that refused it outright never took it, so the peer's link may try
+/// it again (`Next::Unsent`); any other failure may have left it with the hub, so only the relay
+/// does (`Delivery::relay_to`). None when the relay cannot carry it.
+async fn relay_attempt(
+    hub: &Arc<Hub>,
+    delivery: &Delivery,
+) -> Option<Result<Value, (String, Next)>> {
+    let outcome = super::mesh_send::relay(hub, delivery).await?;
+    Some(outcome.map_err(|e| {
+        let next = if e.refused && delivery.relay_to.is_none() {
+            hub.outbox.update(&delivery.id, |d| d.relay_to = None);
+            Next::Unsent
+        } else {
+            Next::Retry
+        };
+        (format!("the mesh relay did not take it: {e}"), next)
+    }))
 }
 
 /// Deletes a settled delivery's kept attachments.

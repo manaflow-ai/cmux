@@ -10,8 +10,8 @@
 //! and one several hosts have lists them.
 //!
 //! [`relay`] is the outbox's other transport (`outbox.rs`): a delivery for a peer whose link is
-//! down, which no attempt has sent, goes to the hub for that peer's host and the session id the
-//! peer's last list named, so the hub never picks a session by a name an id was typed as.
+//! down, which no attempt has sent, goes to the hub for the session id the peer's last list
+//! named, so the hub never picks a session by a name an id was typed as.
 
 use super::*;
 use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Target};
@@ -46,44 +46,46 @@ fn recipient(target: &str) -> Target {
     }
 }
 
-/// Whom the relay reaches for `target` while its peer's link is down: that peer's host and the
-/// session its last list named, by id. A `PEER/KEY` the peer never listed goes by KEY, as an id
-/// when it is one (session ids are UUIDs) and as a name otherwise. None when nothing names a peer
-/// that is down, or `target` is a session here.
+/// Whom the relay reaches for `target` while its peer's link is down: the session the peer's
+/// last list named, by its id alone (the hub matches every field it is given, and the host the
+/// hub knows is the peer's own machine name, which need not be the name this daemon gives it). A
+/// `PEER/KEY` the peer never listed goes by KEY: as that id when it is one (session ids are
+/// UUIDs), else as a name on host PEER, as `HOST/NAME` goes (`recipient`). None when nothing
+/// names a peer that is down, or `target` is a session here.
 fn down_peer_recipient(hub: &Hub, target: &str) -> Option<Target> {
     if hub.resolve(target).is_ok() {
         return None;
     }
     if let Some((peer, id, _)) = hub.resolve_remote(target) {
         let down = !peer.connected.load(std::sync::atomic::Ordering::SeqCst);
-        return down.then(|| Target {
-            session_id: Some(id),
-            host: Some(peer.name.clone()),
-            ..Target::default()
-        });
+        return down.then(|| Target { session_id: Some(id), ..Target::default() });
     }
     hub.peer_down_for(target)?;
     let (host, key) = target.split_once('/')?;
-    let id = uuid::Uuid::try_parse(key).is_ok();
-    Some(Target {
-        session_id: id.then(|| key.to_owned()),
-        name: (!id).then(|| key.to_owned()),
-        host: Some(host.to_owned()),
-        ..Target::default()
-    })
+    if uuid::Uuid::try_parse(key).is_ok() {
+        return Some(Target { session_id: Some(key.to_owned()), ..Target::default() });
+    }
+    Some(Target { name: Some(key.into()), host: Some(host.into()), ..Target::default() })
 }
 
 /// The outbox's delivery through the hub while its peer is down (`outbox.rs`): the hub's
-/// acceptance, in the shape the outbox keeps (`relayDeliveryId` names the hub's message), or why
-/// the hub did not take it. None when the relay is off, the peer is not down, or the delivery
-/// carries what the relay cannot: the outbox keeps it and tries the peer again.
+/// acceptance, in the shape the outbox keeps (`relayDeliveryId` names the hub's message), or the
+/// hub's error. None when the relay is off, the peer is not down, or the delivery carries what
+/// the relay cannot: the outbox keeps it and tries the peer again. A delivery posted before goes
+/// to the recipient it was posted to (`Delivery::relay_to`), down peer or not; each post records
+/// it first, so a restart or a lost answer never leaves the outbox thinking nothing was sent.
 pub(super) async fn relay(
     hub: &Arc<Hub>,
     delivery: &crate::hub::outbox::Delivery,
-) -> Option<Result<Value, String>> {
+) -> Option<Result<Value, HubError>> {
     let mesh = hub.mesh.get()?;
-    let to = down_peer_recipient(hub, &delivery.target)?;
+    let to = match &delivery.relay_to {
+        Some(to) => to.clone(),
+        None => down_peer_recipient(hub, &delivery.target)?,
+    };
     let carried = carried(&delivery.request, &delivery.target).ok()?;
+    let steer = carried.mode == Mode::Now;
+    hub.outbox.update(&delivery.id, |d| d.relay_to = Some(to.clone()));
     let message = OutMessage {
         to,
         from: sender(hub, delivery.caller.as_deref(), carried.named),
@@ -93,15 +95,15 @@ pub(super) async fn relay(
         mode: carried.mode,
         idempotency_key: idempotency_key(&carried.prompt_id),
     };
-    Some(match mesh.send(&message).await {
-        Ok(receipt) => Ok(json!({
+    Some(mesh.send(&message).await.map(|receipt| {
+        json!({
             "via": "mesh",
             "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
             "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
             "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
-        })),
-        Err(e) => Err(format!("the mesh relay did not take it either: {e}")),
-    })
+            "steer": steer,
+        })
+    }))
 }
 
 /// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id and
