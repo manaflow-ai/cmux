@@ -4,11 +4,18 @@ import Observation
 @MainActor
 struct HomeRetryAction {
     let feed: MacHomeFeed
-    let reconnect: ((String) -> Void)?
+    let reconnect: ((String) async -> Void)?
+    let refresh: () -> Void
 
-    func retry(macID: String?, reconnectNeeded: Bool) {
-        if reconnectNeeded, let macID { reconnect?(macID) }
-        feed.refresh()
+    init(feed: MacHomeFeed, reconnect: ((String) async -> Void)? = nil, refresh: (() -> Void)? = nil) {
+        self.feed = feed
+        self.reconnect = reconnect
+        self.refresh = refresh ?? { feed.refresh() }
+    }
+
+    func retry(macID: String?, reconnectNeeded: Bool) async {
+        if reconnectNeeded, let macID { await reconnect?(macID) }
+        refresh()
     }
 }
 
@@ -21,8 +28,9 @@ final class MacConversationLoader {
     private(set) var retryID = 0
     @ObservationIgnored private var generation = 0
 
-    func retry(macID: String?, reconnect: ((String) -> Void)?) {
-        if let macID { reconnect?(macID) }
+    func retry(macID: String?, reconnect: ((String) async -> Void)?, refresh: (@MainActor () async -> Void)? = nil) async {
+        if let macID { await reconnect?(macID) }
+        if let refresh { await refresh() }
         retryID += 1
     }
 

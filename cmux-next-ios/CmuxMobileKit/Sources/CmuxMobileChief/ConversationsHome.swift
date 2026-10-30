@@ -29,7 +29,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     let macFilter: MacFilter
     /// Live: choosing a Mac links it and moves the Mac Chief and Home to it.
     let selectMac: ((String) -> Void)?
-    let reconnect: ((String) -> Void)?
+    let reconnect: ((String) async -> Void)?
     @State private var macText = MacFilterMemo()
     @State private var query = ""
     @State private var unreadOnly = false
@@ -39,7 +39,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
-                reconnect: ((String) -> Void)? = nil,
+                reconnect: ((String) async -> Void)? = nil,
                 selectMac: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
@@ -231,7 +231,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .font(.footnote)
                         .foregroundStyle(theme.colors.label2.color)
                     RetryButton {
-                        HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
+                        await HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
                     }
                     .accessibilityIdentifier("home.retry")
                 }
@@ -594,7 +594,7 @@ struct MacConversationScreen: View {
     let route: MacConversationRoute
     let feed: MacHomeFeed
     let macID: String?
-    let reconnect: ((String) -> Void)?
+    let reconnect: ((String) async -> Void)?
     @State private var loader = MacConversationLoader()
 
     var body: some View {
@@ -608,8 +608,7 @@ struct MacConversationScreen: View {
                     Text(RecoveryMessage.conversation.text)
                 } actions: {
                     RetryButton {
-                        loader.retry(macID: macID, reconnect: reconnect)
-                        feed.refresh()
+                        await loader.retry(macID: macID, reconnect: reconnect, refresh: { await feed.refresh() })
                     }
                     .accessibilityIdentifier("home.conversation.retry")
                 }

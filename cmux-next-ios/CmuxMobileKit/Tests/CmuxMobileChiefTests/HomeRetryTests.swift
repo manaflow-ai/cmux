@@ -14,7 +14,7 @@ import Testing
         #expect(feed.rows == nil)
         var reconnected: [String] = []
 
-        HomeRetryAction(feed: feed, reconnect: { reconnected.append($0) })
+        await HomeRetryAction(feed: feed, reconnect: { reconnected.append($0) })
             .retry(macID: "mac-home", reconnectNeeded: false)
 
         #expect(await MacHomeFeedTests().until { feed.rows?.count == 4 })
@@ -23,15 +23,47 @@ import Testing
         #expect(reconnected.isEmpty)
     }
 
-    @Test func offlineHomeRetryRequestsOnlyItsOwningMac() {
+    @Test func offlineHomeRetryRequestsOnlyItsOwningMac() async {
         let feed = MacHomeFeed()
         var reconnected: [String] = []
         let action = HomeRetryAction(feed: feed, reconnect: { reconnected.append($0) })
-        action.retry(macID: "mac-home", reconnectNeeded: true)
-        action.retry(macID: nil, reconnectNeeded: true)
+        await action.retry(macID: "mac-home", reconnectNeeded: true)
+        await action.retry(macID: nil, reconnectNeeded: true)
         #expect(reconnected == ["mac-home"])
         // No fake success while the link is still absent.
         #expect(feed.rows == nil)
+    }
+
+    @Test func delayedHomeReconnectCompletesBeforeRefresh() async {
+        let feed = MacHomeFeed()
+        var order: [String] = []
+        let action = HomeRetryAction(feed: feed, reconnect: { _ in
+            order.append("reconnect-start")
+            try? await Task.sleep(for: .milliseconds(20))
+            order.append("reconnect-done")
+        }, refresh: {
+            order.append("refresh")
+        })
+
+        await action.retry(macID: "mac-home", reconnectNeeded: true)
+
+        #expect(order == ["reconnect-start", "reconnect-done", "refresh"])
+    }
+
+    @Test func delayedConversationReconnectCompletesBeforeRefresh() async {
+        let loader = MacConversationLoader()
+        var order: [String] = []
+
+        await loader.retry(macID: "mac-home", reconnect: { _ in
+            order.append("reconnect-start")
+            try? await Task.sleep(for: .milliseconds(20))
+            order.append("reconnect-done")
+        }, refresh: {
+            order.append("refresh")
+        })
+
+        #expect(order == ["reconnect-start", "reconnect-done", "refresh"])
+        #expect(loader.retryID == 1)
     }
 
     @Test func conversationRetryInvokesSessionLoaderAgainAfterFailure() async throws {
@@ -54,7 +86,7 @@ import Testing
         #expect(calls == 1)
         var reconnected: [String] = []
 
-        loader.retry(macID: "mac-conversation", reconnect: { reconnected.append($0) })
+        await loader.retry(macID: "mac-conversation", reconnect: { reconnected.append($0) })
         #expect(loader.retryID == 1)
         #expect(reconnected == ["mac-conversation"])
         await loader.load(load)
