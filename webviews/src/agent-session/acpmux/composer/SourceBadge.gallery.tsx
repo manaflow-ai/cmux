@@ -6,8 +6,9 @@
 // whatever."). The composer's chips and the sent prompt's thumbnails and files, each with its source
 // app's icon at the top-right corner. `corner` is what ships; the others are the designs it was
 // picked over. The app icons are drawn stand-ins (the host draws the real ones).
-import { useState } from "react";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import type { AttachmentSource, ComposerAttachment } from "../attachments";
 import type { PromptImage } from "../model";
 
@@ -73,19 +74,81 @@ const DESIGNS = `
   [data-source-design=labelled] .acpmux-attachment-image > .acpmux-source-badge,
   [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge {
     display: flex; align-items: center; gap: 3px; width: auto; aspect-ratio: auto;
+    box-sizing: border-box; max-width: calc(100% - 8px); overflow: hidden;
     padding: 2px 6px 2px 2px; border-radius: 9px; filter: none;
     background: color-mix(in srgb, var(--acpmux-composer-bg, var(--agent-page-bg)) 86%, transparent);
     box-shadow: 0 0 0 0.5px var(--agent-border-strong);
     color: var(--agent-text); font-size: var(--text-caption); line-height: 14px; white-space: nowrap;
   }
+  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge { max-width: calc(100% - 12px); }
   [data-source-design=labelled] .acpmux-attachment-image > .acpmux-source-badge > img,
-  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge > img { width: 14px; height: 14px; }
+  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge > img { flex: none; width: 14px; height: 14px; }
   [data-source-design=labelled] .acpmux-attachment-image > .acpmux-source-badge::after,
-  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge::after { content: attr(data-label); }
+  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge::after {
+    content: attr(data-label); min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  }
+  [data-source-design=labelled] .acpmux-source-badge[data-icon-only] { padding: 2px; }
+  [data-source-design=labelled] .acpmux-source-badge[data-icon-only]::after { content: none; }
   [data-source-design=outside] .acpmux-attachment-image > .acpmux-source-badge { width: 18px; top: -5px; right: -5px; }
   [data-source-design=outside] .cv-user__sourced > .acpmux-source-badge { width: 18px; top: -5px; right: -5px; }
   [data-source-design=outside] .acpmux-attachments { overflow: visible; padding-top: 6px; }
 `;
+
+/// The narrowest label the labelled design draws beside the icon (about three characters); a tile
+/// with no room for it wears the icon alone.
+const LABEL_MIN_PX = 24;
+/// The labelled pill's own width around its label: padding, the 14px icon and the gap.
+const LABEL_CHROME_PX = 2 + 14 + 3 + 6;
+
+/// The labelled design's pills that would show less than ``LABEL_MIN_PX`` of their label: icon only.
+/// Re-fitted as tiles load, resize or gain their badge; the observers stop when the stage unmounts.
+function useLabelFit(root: RefObject<HTMLElement | null>, enabled: boolean) {
+  useLayoutEffect(() => {
+    const stage = root.current;
+    if (!enabled || !stage) return;
+    const fit = () => {
+      for (const badge of stage.querySelectorAll<HTMLElement>(
+        ".acpmux-attachment-image > .acpmux-source-badge, .cv-user__sourced > .acpmux-source-badge",
+      )) {
+        const tile = badge.parentElement!;
+        const inset = 2 * (parseFloat(getComputedStyle(badge).right) || 0);
+        const narrow = tile.clientWidth - inset < LABEL_CHROME_PX + LABEL_MIN_PX;
+        if (narrow !== badge.hasAttribute("data-icon-only")) badge.toggleAttribute("data-icon-only", narrow);
+        sizes.observe(tile);
+      }
+    };
+    const sizes = new ResizeObserver(fit);
+    const added = new MutationObserver(fit);
+    added.observe(stage, { childList: true, subtree: true });
+    fit();
+    return () => {
+      sizes.disconnect();
+      added.disconnect();
+    };
+  }, [root, enabled]);
+}
+
+/// Every badge drawn inside its own tile (the outside design: over the tile's corner by at most
+/// half its own size, which is that design's point). The play fails the variant otherwise.
+const badgesFit: Play = async (ctx) => {
+  const badges = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-source-badge")];
+  await ctx.waitFor(() => {
+    const all = badges();
+    return all.length > 0 && all.every((badge) => badge.querySelector("img")?.complete);
+  });
+  const stray = badges().flatMap((badge) => {
+    const own = badge.getBoundingClientRect();
+    const tile = badge.parentElement!.getBoundingClientRect();
+    const slack = badge.closest("[data-source-design=outside]") ? own.width / 2 : 0.5;
+    const inside =
+      own.left >= tile.left - slack &&
+      own.top >= tile.top - slack &&
+      own.right <= tile.right + slack &&
+      own.bottom <= tile.bottom + slack;
+    return inside ? [] : [`${badge.dataset.label}: ${JSON.stringify(own)} outside ${JSON.stringify(tile)}`];
+  });
+  if (stray.length) throw new Error(`source badges outside their tiles: ${stray.join("; ")}`);
+};
 
 /// The chips and sent images for `design`, with the host's icon answer stood in for.
 function useFixtures(design: Design) {
@@ -198,11 +261,14 @@ export default componentEntry<Props>({
       ([{ AttachmentStrip }, { SentImages, UserBubble }, { TurnActionsContext }, { ImageViewerContext }]) =>
         function Gallery({ design }: Props) {
           const fixtures = useFixtures(design);
+          const stage = useRef<HTMLDivElement>(null);
+          useLabelFit(stage, design === "labelled");
           const [actions] = useState(() => ({
             promptImage: (id: string) => Promise.resolve(fixtures.images.find((image) => image.id === id)?.src),
           }));
           return (
             <div
+              ref={stage}
               className="acpmux-shell"
               style={{ padding: 20, display: "block", height: "auto" }}
               data-source-design={design}
@@ -280,18 +346,22 @@ export default componentEntry<Props>({
     corner: {
       note: "Shipped. The source app's own 16px icon in the tile's top-right corner (a web image from Google Chrome, a Screenshot capture, cmux's Attach Screenshot, a screen recording's poster), on the file glyph's corner for a file from Finder, in the legacy bands and in a prompt whose attachments sit in its text; the fourth image's source is unknown, so it wears none. In the composer the × takes that corner while the pointer is on the tile. The tooltip names the source (\"From Google Chrome · github.com\").",
       props: { design: "corner" },
+      play: badgesFit,
     },
     small: {
       note: "A 12px icon: quieter, but at Retina it reads as a coloured dot rather than an app.",
       props: { design: "small" },
+      play: badgesFit,
     },
     labelled: {
-      note: "Icon and the app's name in a glass pill: names it without hovering, but covers a wide strip of a small thumbnail and repeats on every chip.",
+      note: "Icon and the app's name in a glass pill, kept inside its tile: the name ends in an ellipsis where the tile is narrower, and a tile too narrow for a few characters wears the icon alone. Names it without hovering, but covers a wide strip of a small thumbnail and repeats on every chip.",
       props: { design: "labelled" },
+      play: badgesFit,
     },
     outside: {
       note: "Spotlight's straddle: an 18px icon over the tile's corner. It needs the strip to stop clipping its top edge and crowds the next chip.",
       props: { design: "outside" },
+      play: badgesFit,
     },
   },
 });
