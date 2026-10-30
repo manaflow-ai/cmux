@@ -3,9 +3,13 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
-// rewrites the pane fixtures the tests check (`adopt.rs`).
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
+// rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_UPDATE_FIXTURES",
+    "LS_LATENCY_SESSIONS",
+    "LS_LATENCY_RUNS",
+]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;

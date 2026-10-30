@@ -501,6 +501,8 @@ impl Hub {
             lane: None,
             lifecycle_receipt: None,
             peer: None,
+            // What its harness spent and holds, as the last read found it (`usage_view.rs`).
+            usage_stats: self.usage_stats_of(session, &m),
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
