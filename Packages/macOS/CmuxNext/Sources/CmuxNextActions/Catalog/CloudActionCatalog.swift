@@ -273,13 +273,14 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.machineConfigString], targets: [.machine], cliName: "cloud apply-machine-config"
             ),
             // `cmux cloud deliver-secrets --target machine:<id>`: values of the declared secret names, over the
-            // machine's daemon link (CloudMachineSecrets); `cmux cloud secret set` stores them (Rust CLI).
+            // machine's daemon link (CloudMachineSecrets), or of `--names` to an own machine over ssh
+            // (SSHMachineSecrets); `cmux cloud secret set` stores them (Rust CLI).
             ActionDescriptor(
                 id: "cloudDeliverSecrets",
                 title: String(localized: "action.cloudDeliverSecrets", defaultValue: "Deliver Secrets to Machine", bundle: .module),
                 keywords: ["vm", "cloud", "secrets", "env", "keychain", "config"], category: .cloud,
                 symbol: "lock.rectangle.stack", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
-                arguments: [CatalogArgument.secretRepoString], targets: [.machine], cliName: "cloud deliver-secrets"
+                arguments: [CatalogArgument.secretRepoString, CatalogArgument.secretNamesString], targets: [.machine], cliName: "cloud deliver-secrets"
             ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",

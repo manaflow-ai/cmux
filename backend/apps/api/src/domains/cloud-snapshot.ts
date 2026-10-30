@@ -2,7 +2,7 @@ import type { ReduceContext, ReduceResult, RowWrite, StoredRow } from "@cmux/own
 import { CloudSnapshotCreate, CloudSnapshotDelete, CloudSnapshotRestore, planRequiredDetails, type CloudDriverResultParams, type CloudSnapshot } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import { limitDetails, providerName, teamPlan, type CloudConfig } from "./cloud-plan.ts"
-import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
+import { ledgerKey, machineRow, PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_SNAPSHOT, mayManage, next, noChangePower, PENDING_SAFETY_MS, unavailable, upsertLedger, withoutPending, type CloudState, type LedgerRow } from "./cloud.ts"
 
 /**
  * Snapshots (state-placement.md 7 item 4; CLOUDDO-MONEY-OPS). A snapshot row is private; the public
@@ -11,6 +11,8 @@ import { ledgerKey, machineRow, TABLE_LEDGER, TABLE_SNAPSHOT, mayManage, next, n
  */
 
 export interface SnapshotRow {
+  /** Created by a platform snapshot operation; survives ledger pruning and source-machine deletion. */
+  readonly platform?: true
   /** This intent requires the journaled VM API capture protocol before it can send. */
   readonly capture_protocol?: 1
   /** A VM API deletion still holds its saved slot until verified cleanup. */
@@ -31,7 +33,7 @@ export interface SnapshotRow {
 }
 
 export const publicSnapshot = (r: SnapshotRow): typeof CloudSnapshot.Type => {
-  const { transport: _t, provider_name: _p, size: _s, creator: _c, capture_protocol: _cp, saved_reserved: _sr, ...view } = r
+  const { transport: _t, provider_name: _p, size: _s, creator: _c, capture_protocol: _cp, saved_reserved: _sr, platform: _pf, ...view } = r
   return view
 }
 const counts = (s: SnapshotRow["status"]) => (s === "creating" || s === "ready" ? 1 : 0)
@@ -56,7 +58,7 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   const id = ctx.newId("snap")
   const size = { cpu: m.size.cpu ?? 0, memory_mb: m.size.memory_mb ?? 0, disk_mb: m.size.disk_mb ?? 0 }
   const protocol = m.transport === "vm-api" ? { capture_protocol: 1 as const } : {}
-  const row: SnapshotRow = { ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
+  const row: SnapshotRow = { ...(ctx.principal.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {}), ...protocol, transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { ...protocol, transport: m.transport ?? "direct", key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
   const s = next(state, { saved: state.saved + 1, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false, snapshot: id })

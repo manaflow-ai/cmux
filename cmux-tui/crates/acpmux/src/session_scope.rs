@@ -23,11 +23,16 @@
 //! `ACPMUX_SESSION_MEMORY_HIGH_MB` (default nine tenths of that),
 //! `ACPMUX_SESSION_TASKS_MAX` (default 4096) and `ACPMUX_SESSION_CPU_WEIGHT`
 //! (default 50; systemd's own is 100). 0 turns one off. The sessions slice
-//! uses `ACPMUX_SESSIONS_SWAP_MAX` (default 75% of the machine's swap). Where `systemd-run` is
+//! uses `ACPMUX_SESSIONS_SWAP_MAX` (default 75% of the machine's swap). The
+//! two task caps, a scope's and the slice's, are read in one order for both
+//! ([`knob_reader`]): the daemon config's `session.tasksMax` and
+//! `session.sessionsTasksMax`, then the env, then the computed default, so
+//! profiles that disagree in their env never take turns rewriting the
+//! shared slice once the config names a cap. Where `systemd-run` is
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
-//! (cx-t2sqm.3).
+//! (cx-t2sqm.3); its harnesses start at background CPU class (`cpu_class.rs`).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::collections::BTreeMap;
@@ -90,7 +95,7 @@ fn prefix(
     continued_without_swap.extend(["-p".to_owned(), "OOMPolicy=continue".to_owned()]);
     let properties = [continued, properties.clone(), continued_without_swap, without_swap]
         .into_iter()
-        .find(|properties| can_scope(&runner, properties, env))?;
+        .find(|properties| can_scope(&runner, properties, env, limits))?;
     let description = format!("acpmux session {session}");
     Some(scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties))
 }
@@ -148,6 +153,8 @@ fn scope_argv(
 pub(crate) struct SessionLimits {
     pub memory_mb: Option<u64>,
     pub swap_mb: Option<u64>,
+    pub tasks_max: Option<u64>,
+    pub sessions_tasks_max: Option<u64>,
 }
 
 fn daemon_limits() -> SessionLimits {
@@ -159,17 +166,31 @@ fn daemon_limits() -> SessionLimits {
 }
 
 fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
-    SessionLimits { memory_mb: config.session.memory_mb, swap_mb: config.session.swap_mb }
+    let session = &config.session;
+    SessionLimits {
+        memory_mb: session.memory_mb,
+        swap_mb: session.swap_mb,
+        tasks_max: session.tasks_max,
+        sessions_tasks_max: session.sessions_tasks_max,
+    }
 }
 
-/// A knob's value: the profile's env, then daemon config, then daemon env.
+/// A knob's value. The task caps: the daemon config, then the profile's env,
+/// then the daemon's, the same for a scope and the shared slice. The memory
+/// knobs: the profile's env, then daemon config, then daemon env.
 fn knob_reader(
     env: &BTreeMap<String, String>,
     limits: SessionLimits,
 ) -> impl Fn(&str) -> Option<String> + '_ {
     move |key| {
-        env.get(key)
-            .cloned()
+        let typed_first = match key {
+            "ACPMUX_SESSION_TASKS_MAX" => limits.tasks_max,
+            "ACPMUX_SESSIONS_TASKS_MAX" => limits.sessions_tasks_max,
+            _ => None,
+        };
+        typed_first
+            .map(|n| n.to_string())
+            .or_else(|| env.get(key).cloned())
             .or_else(|| match key {
                 "ACPMUX_SESSION_MEMORY_MB" => limits.memory_mb.map(|n| n.to_string()),
                 "ACPMUX_SESSION_SWAP_MB" => limits.swap_mb.map(|n| n.to_string()),
@@ -177,6 +198,68 @@ fn knob_reader(
             })
             .or_else(|| std::env::var(key).ok())
     }
+}
+
+/// A session scope's `TasksMax` with the profile's `env` and the daemon
+/// config's `limits` ([`knob_reader`]); None is no cap.
+pub(crate) fn scope_tasks_max(
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+) -> Option<u64> {
+    tasks_max(&knob_reader(env, limits))
+}
+
+/// An agent host scope's `TasksMax`: the daemon's, read as a session scope
+/// reads it, without a profile's env (a host is placed before its session's
+/// profile reaches it).
+pub(crate) fn host_tasks_max() -> Option<u64> {
+    scope_tasks_max(&BTreeMap::new(), daemon_limits())
+}
+
+/// The fewest tasks the sessions slice defaults to, the fixed cap it had.
+pub(crate) const SESSIONS_TASKS_FLOOR: u64 = 16_384;
+/// The most tasks the sessions slice defaults to, however large the machine.
+pub(crate) const SESSIONS_TASKS_CEILING: u64 = 262_144;
+
+/// The sessions slice's default `TasksMax` on a machine whose kernel allows
+/// `threads_max` threads: a quarter of them, between [`SESSIONS_TASKS_FLOOR`]
+/// and [`SESSIONS_TASKS_CEILING`]; the floor when it is unknown. A fixed
+/// 16384 was hit on a 32-core, 64 GiB host with 105 sessions while memory and
+/// the kernel had room to spare (threads-max 514402: 128600 here).
+pub(crate) fn sessions_tasks_default(threads_max: Option<u64>) -> u64 {
+    threads_max.map_or(SESSIONS_TASKS_FLOOR, |n| {
+        (n / 4).clamp(SESSIONS_TASKS_FLOOR, SESSIONS_TASKS_CEILING)
+    })
+}
+
+/// `/proc/sys/kernel/threads-max` text as a count.
+fn parse_threads_max(text: &str) -> Option<u64> {
+    text.trim().parse().ok()
+}
+
+/// The kernel's thread limit, None when unreadable.
+fn threads_max() -> Option<u64> {
+    std::fs::read_to_string("/proc/sys/kernel/threads-max")
+        .ok()
+        .as_deref()
+        .and_then(parse_threads_max)
+}
+
+/// What the sessions slice should have, from the profile's `env` and the
+/// daemon config's `limits`, read as a scope reads them ([`knob_reader`]).
+fn sessions_slice_wanted(
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+    memory: u64,
+    swap: u64,
+    threads_max: Option<u64>,
+) -> Vec<(&'static str, String)> {
+    slice_settings_with_swap(
+        &knob_reader(env, limits),
+        memory,
+        swap,
+        sessions_tasks_default(threads_max),
+    )
 }
 
 /// The default `TasksMax` of a session scope: processes and threads
@@ -252,7 +335,8 @@ fn without_swap(properties: &[String]) -> Vec<String> {
 /// with `memory` bytes, from the profile's env, then the daemon's:
 /// `ACPMUX_SESSIONS_MEMORY_MAX`
 /// (default 85% of the memory), `ACPMUX_SESSIONS_MEMORY_HIGH` (default 80%)
-/// and `ACPMUX_SESSIONS_TASKS_MAX` (default 16384). A memory value is bytes,
+/// and `ACPMUX_SESSIONS_TASKS_MAX` (default `tasks_default`, from
+/// [`sessions_tasks_default`]). A memory value is bytes,
 /// optionally with `K`/`M`/`G`/`T` (powers of 1024) or `%` (1 to 100), a
 /// task value a count; either may be `infinity`. 0 turns a limit off, which
 /// is set as `infinity` so a limit set earlier goes; anything else is the
@@ -264,13 +348,14 @@ fn slice_settings(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
 ) -> Vec<(&'static str, String)> {
-    slice_settings_with_swap(get, memory, 0)
+    slice_settings_with_swap(get, memory, 0, SESSIONS_TASKS_FLOOR)
 }
 
 fn slice_settings_with_swap(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
     swap_bytes: u64,
+    tasks_default: u64,
 ) -> Vec<(&'static str, String)> {
     let size = |total: u64, v: &str| -> Option<String> {
         if v == "infinity" || v == "0" {
@@ -304,7 +389,7 @@ fn slice_settings_with_swap(
     if let Some(v) = pick("ACPMUX_SESSIONS_MEMORY_HIGH", &bytes, "80%") {
         out.push(("MemoryHigh", v));
     }
-    if let Some(v) = pick("ACPMUX_SESSIONS_TASKS_MAX", &count, "16384") {
+    if let Some(v) = pick("ACPMUX_SESSIONS_TASKS_MAX", &count, &tasks_default.to_string()) {
         out.push(("TasksMax", v));
     }
     let swap_value = |v: &str| size(swap_bytes, v);
@@ -348,6 +433,7 @@ fn can_scope(
     runner: &std::path::Path,
     properties: &[String],
     env: &BTreeMap<String, String>,
+    limits: SessionLimits,
 ) -> bool {
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
@@ -377,7 +463,7 @@ fn can_scope(
         if ok {
             // The capability is cached; the shared slice's current settings
             // are not. Another profile may have changed them since our probe.
-            limit_sessions_slice(runner, env);
+            limit_sessions_slice(runner, env, limits);
         }
         ok
     };
@@ -395,12 +481,13 @@ fn can_scope(
 /// answers) and before the session's scope joins the slice. Best effort: a
 /// failure is logged, and each session still has its own scope's limits.
 #[cfg(target_os = "linux")]
-fn limit_sessions_slice(runner: &std::path::Path, env: &BTreeMap<String, String>) {
-    let wanted = slice_settings_with_swap(
-        &|key| env.get(key).cloned().or_else(|| std::env::var(key).ok()),
-        physical_memory(),
-        swap_memory(),
-    );
+fn limit_sessions_slice(
+    runner: &std::path::Path,
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+) {
+    let wanted =
+        sessions_slice_wanted(env, limits, physical_memory(), swap_memory(), threads_max());
     let systemctl = runner.with_file_name("systemctl");
     if !systemctl.is_file() {
         tracing::warn!(
@@ -640,7 +727,11 @@ mod tests {
 
     #[test]
     fn profile_env_wins_over_daemon_config_then_daemon_env() {
-        let config = SessionLimits { memory_mb: Some(6144), swap_mb: Some(2048) };
+        let config = SessionLimits {
+            memory_mb: Some(6144),
+            swap_mb: Some(2048),
+            ..SessionLimits::default()
+        };
         let profile =
             BTreeMap::from([(String::from("ACPMUX_SESSION_MEMORY_MB"), String::from("4096"))]);
         let get = knob_reader(&profile, config);
@@ -663,15 +754,24 @@ mod tests {
 
     #[test]
     fn the_sessions_slice_gets_a_larger_fraction_of_swap() {
-        let got = slice_settings_with_swap(&from(&[]), 8 * GIB, 4 * GIB);
+        let got = slice_settings_with_swap(&from(&[]), 8 * GIB, 4 * GIB, SESSIONS_TASKS_FLOOR);
         assert!(
             got.iter()
                 .any(|(key, value)| *key == "MemorySwapMax" && value == &(3 * GIB).to_string())
         );
-        let off = slice_settings_with_swap(&from(&[("ACPMUX_SESSIONS_SWAP_MAX", "0")]), 0, 4 * GIB);
+        let off = slice_settings_with_swap(
+            &from(&[("ACPMUX_SESSIONS_SWAP_MAX", "0")]),
+            0,
+            4 * GIB,
+            SESSIONS_TASKS_FLOOR,
+        );
         assert!(off.iter().any(|(key, value)| *key == "MemorySwapMax" && value == "infinity"));
-        let sized =
-            slice_settings_with_swap(&from(&[("ACPMUX_SESSIONS_SWAP_MAX", "4G")]), 0, 8 * GIB);
+        let sized = slice_settings_with_swap(
+            &from(&[("ACPMUX_SESSIONS_SWAP_MAX", "4G")]),
+            0,
+            8 * GIB,
+            SESSIONS_TASKS_FLOOR,
+        );
         assert!(
             sized
                 .iter()
@@ -910,15 +1010,130 @@ mod tests {
             ("FAKE_SCOPE_LOG".to_owned(), log.to_string_lossy().into_owned()),
             ("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "1M".to_owned()),
         ]);
-        assert!(can_scope(&runner, &[], &env));
+        assert!(can_scope(&runner, &[], &env, SessionLimits::default()));
         env.insert("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "0".to_owned());
-        assert!(can_scope(&runner, &[], &env));
+        assert!(can_scope(&runner, &[], &env, SessionLimits::default()));
         env.insert("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "1M".to_owned());
-        assert!(can_scope(&runner, &[], &env));
+        assert!(can_scope(&runner, &[], &env, SessionLimits::default()));
         let calls = std::fs::read_to_string(log).unwrap();
         let sets: Vec<_> = calls.lines().filter(|line| line.contains("set-property")).collect();
         assert_eq!(sets.len(), 3, "a cache hit must still reconcile: {calls}");
         assert!(sets[1].ends_with("MemorySwapMax=infinity"));
         assert!(sets[2].ends_with("MemorySwapMax=1048576"));
+    }
+
+    fn limits(tasks: Option<u64>, sessions: Option<u64>) -> SessionLimits {
+        SessionLimits { tasks_max: tasks, sessions_tasks_max: sessions, ..SessionLimits::default() }
+    }
+
+    fn slice_tasks(wanted: &[(&'static str, String)]) -> Option<String> {
+        wanted.iter().find(|(key, _)| *key == "TasksMax").map(|(_, value)| value.clone())
+    }
+
+    #[test]
+    fn typed_config_task_caps_win_over_env() {
+        let profile = BTreeMap::from([
+            ("ACPMUX_SESSION_TASKS_MAX".to_owned(), "1000".to_owned()),
+            ("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "20000".to_owned()),
+        ]);
+        let config = limits(Some(2048), Some(50_000));
+        assert_eq!(scope_tasks_max(&profile, config), Some(2048));
+        let props = properties(&knob_reader(&profile, config), 0);
+        assert!(joined(&props).contains("-p TasksMax=2048 "), "{props:?}");
+        let wanted = sessions_slice_wanted(&profile, config, 64 * GIB, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("50000"));
+    }
+
+    #[test]
+    fn env_task_caps_win_over_the_computed_default() {
+        let profile = BTreeMap::from([
+            ("ACPMUX_SESSION_TASKS_MAX".to_owned(), "1000".to_owned()),
+            ("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "20000".to_owned()),
+        ]);
+        let none = SessionLimits::default();
+        assert_eq!(scope_tasks_max(&profile, none), Some(1000));
+        let wanted = sessions_slice_wanted(&profile, none, 64 * GIB, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("20000"));
+        // Nothing set: the computed defaults.
+        let empty = BTreeMap::new();
+        assert_eq!(scope_tasks_max(&empty, none), Some(SESSION_TASKS_MAX));
+        let wanted = sessions_slice_wanted(&empty, none, 64 * GIB, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("128600"));
+    }
+
+    #[test]
+    fn the_slice_task_default_scales_with_threads_max_between_a_floor_and_a_ceiling() {
+        // A 64 GiB, 32-core fleet host: threads-max 514402, a quarter of it.
+        assert_eq!(sessions_tasks_default(Some(514_402)), 128_600);
+        // A small machine: never below the old fixed cap.
+        assert_eq!(sessions_tasks_default(Some(30_000)), 16_384);
+        assert_eq!(sessions_tasks_default(Some(65_536)), 16_384);
+        assert_eq!(sessions_tasks_default(Some(0)), 16_384);
+        // A very large machine: at most 262144.
+        assert_eq!(sessions_tasks_default(Some(4_194_304)), 262_144);
+        assert_eq!(sessions_tasks_default(Some(u64::MAX)), 262_144);
+        // threads-max unreadable: the old fixed cap.
+        assert_eq!(sessions_tasks_default(None), 16_384);
+        assert_eq!(parse_threads_max("514402\n"), Some(514_402));
+        assert_eq!(parse_threads_max("lots"), None);
+        assert_eq!(parse_threads_max(""), None);
+        let pair = |k: &'static str, v: &str| (k, v.to_owned());
+        let got = slice_settings_with_swap(&from(&[]), 0, 0, sessions_tasks_default(Some(514_402)));
+        assert_eq!(got, [pair("TasksMax", "128600")]);
+        // A junk env value takes the computed default, not 16384.
+        let junk = from(&[("ACPMUX_SESSIONS_TASKS_MAX", "lots")]);
+        let got = slice_settings_with_swap(&junk, 0, 0, sessions_tasks_default(Some(514_402)));
+        assert_eq!(got, [pair("TasksMax", "128600")]);
+    }
+
+    #[test]
+    fn zero_and_infinity_still_turn_a_task_cap_off() {
+        let empty = BTreeMap::new();
+        // Typed config 0: no cap, written as `infinity`.
+        let off = limits(Some(0), Some(0));
+        assert_eq!(scope_tasks_max(&empty, off), None);
+        let props = properties(&knob_reader(&empty, off), 0);
+        assert!(joined(&props).contains("-p TasksMax=infinity "), "{props:?}");
+        let wanted = sessions_slice_wanted(&empty, off, 0, 0, Some(514_402));
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("infinity"));
+        // The env's 0 and `infinity` as before.
+        for value in ["0", "infinity"] {
+            let env = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), value.to_owned())]);
+            let wanted = sessions_slice_wanted(&env, SessionLimits::default(), 0, 0, Some(514_402));
+            assert_eq!(slice_tasks(&wanted).as_deref(), Some("infinity"), "{value}");
+        }
+        let env = BTreeMap::from([("ACPMUX_SESSION_TASKS_MAX".to_owned(), "0".to_owned())]);
+        assert_eq!(scope_tasks_max(&env, SessionLimits::default()), None);
+        // A typed cap beats an env that turns it off, and the other way round.
+        let env = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "0".to_owned())]);
+        let wanted = sessions_slice_wanted(&env, limits(None, Some(40_000)), 0, 0, None);
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("40000"));
+        let env = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "40000".to_owned())]);
+        let wanted = sessions_slice_wanted(&env, limits(None, Some(0)), 0, 0, None);
+        assert_eq!(slice_tasks(&wanted).as_deref(), Some("infinity"));
+    }
+
+    #[test]
+    fn the_slice_and_every_scope_read_the_task_caps_from_one_source() {
+        // Two profiles that disagree in their env: with the typed config set,
+        // both ask the shared slice for the same cap, so neither rewrites it.
+        let a = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "20000".to_owned())]);
+        let b = BTreeMap::from([("ACPMUX_SESSIONS_TASKS_MAX".to_owned(), "30000".to_owned())]);
+        let config = limits(Some(3000), Some(100_000));
+        let wa = sessions_slice_wanted(&a, config, 64 * GIB, 0, Some(514_402));
+        let wb = sessions_slice_wanted(&b, config, 64 * GIB, 0, Some(514_402));
+        assert_eq!(wa, wb);
+        assert!(
+            slice_changes("TasksMax=100000\n", &[("TasksMax", slice_tasks(&wb).unwrap())])
+                .is_empty()
+        );
+        // The host scope (no profile env yet) and a session scope agree.
+        assert_eq!(scope_tasks_max(&BTreeMap::new(), config), Some(3000));
+        assert_eq!(scope_tasks_max(&a, config), Some(3000));
+        // The CLI's typed setting reaches both.
+        let mut cfg = crate::config::Config::default();
+        cfg.set_session_resource("session.tasks_max", "3000").unwrap();
+        cfg.set_session_resource("session.sessions_tasks_max", "100000").unwrap();
+        assert_eq!(session_limits_from_config(&cfg), config);
     }
 }

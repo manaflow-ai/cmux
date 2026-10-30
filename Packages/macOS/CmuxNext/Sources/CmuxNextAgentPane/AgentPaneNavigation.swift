@@ -20,7 +20,9 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
             for: action.request.url,
             source: view.source,
             userClicked: action.navigationType == .linkActivated,
-            mainFrame: action.targetFrame?.isMainFrame ?? true
+            mainFrame: action.targetFrame?.isMainFrame ?? true,
+            sourceFrameURL: action.sourceFrame.request.url,
+            targetFrameURL: action.targetFrame?.request.url
         ) {
         case .allow:
             decisionHandler(.allow)
@@ -69,13 +71,33 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case cancel
     }
 
-    static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true) -> Decision {
+    static func decision(for url: URL?, source: AgentPaneSource, userClicked: Bool, mainFrame: Bool = true,
+                         sourceFrameURL: URL? = nil, targetFrameURL: URL? = nil) -> Decision {
+        // CSP blocks resource loads, but not self-navigation. An artifact may never navigate
+        // itself, a sibling or the pane, including to the otherwise allowed loopback previews.
+        if AgentPaneRenderFrame.isArtifact(sourceFrameURL) || AgentPaneRenderFrame.isArtifact(targetFrameURL) {
+            return .cancel
+        }
+        // A passive artifact is a sandboxed srcdoc frame. Its initial about:srcdoc load is allowed,
+        // but a navigation originating there must not reach an allowed loopback preview or the pane.
+        if sourceFrameURL?.absoluteString == "about:srcdoc" {
+            return .cancel
+        }
+        if targetFrameURL?.absoluteString == "about:srcdoc", url?.absoluteString != "about:srcdoc" {
+            return .cancel
+        }
         guard let url else { return .cancel }
         if mainFrame, source.isPageDocument(url) { return .allow }
         // A preview frame stays on loopback pages; a click inside it does not leave the frame. It
         // never loads the pane's own page (a dev-server pane is on loopback too), which would make
         // it same-origin with the pane.
         if !mainFrame {
+            // Only the pane may create an artifact's script-capable frame. A loopback preview
+            // must not acquire that endpoint by creating a nested frame of its own.
+            if AgentPaneRenderFrame.isArtifact(url) {
+                if case .bundled = source, source.isTrusted(sourceFrameURL) { return .allow }
+                return .cancel
+            }
             if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
             // A question's HTML option preview (question/HtmlPreview.tsx): the pane's own
             // document, written into a sandboxed frame with no scripts. It loads nothing itself.

@@ -38,6 +38,11 @@
   --ds-glass-plain-blur: blur(20px) saturate(1.4);
   --ds-glass-lens-tint: 40%;
   --ds-glass-lens-blur: blur(6px) saturate(1.3);
+  /* A select's menu over a dense settings row (Leo 2026-10-30: the Check Every slider and its
+     "3600" read through the Update Channel menu): more frost and a stronger tint, still glass
+     (below the surface roles' near-opaque 0.9). leo-workspace design/settings.md, "Glass". */
+  --ds-glass-menu-tint: 78%;
+  --ds-glass-menu-blur: blur(32px) saturate(1.6);
   --ds-glass-edge: var(--cmux-hairline);
   /* The theme accent: the text color by default (no system blue), the theme's hue with
      appearance.accent. */
@@ -655,4 +660,13 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   to {
     background-position: -50% 0;
   }
+}
+/* Hidden pages own no running animation loop; visible styles are unchanged. */
+:root[data-cmux-page-hidden],
+:root[data-cmux-page-hidden] *,
+:root[data-cmux-page-hidden]::before,
+:root[data-cmux-page-hidden]::after,
+:root[data-cmux-page-hidden] *::before,
+:root[data-cmux-page-hidden] *::after {
+  animation-play-state: paused !important;
 }
