@@ -238,6 +238,10 @@ class GitHub:
         self.token = token
         self.dry_run = dry_run
         self.unavailable = False  # a read already failed every attempt
+        # Every call that still failed in transit or with a retryable status. Some
+        # helpers swallow their own errors (published_commit, ref_commit, started), so
+        # the exit decision reads this list, not only what propagates.
+        self.failures: list[str] = []
 
     def call(self, method: str, path: str, body: dict | None = None):
         if self.dry_run and method != "GET":
@@ -259,6 +263,7 @@ class GitHub:
                 if attempt == attempts:
                     if method == "GET":
                         self.unavailable = True
+                    self.failures.append(f"{method} {path.split('?', 1)[0]} ({error})")
                     raise
                 print(f"::notice::GitHub {method} {path} failed ({error}); retry {attempt} of {attempts - 1}")
                 time.sleep(API_RETRY_PAUSES[min(attempt, len(API_RETRY_PAUSES)) - 1])
@@ -861,6 +866,8 @@ def main(argv: list[str]) -> int:
             print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
         except TRANSPORT as error:  # retried in GitHub.call; the next check runs in 10 minutes
             skipped.append(f"the feed-lag alarm or its stale issue ({error})")
+    if gh.failures:
+        skipped.append("GitHub calls that failed every retry: " + "; ".join(dict.fromkeys(gh.failures)))
     if skipped:
         report_unknown(skipped)
     if stage is not None and stage.stale:
