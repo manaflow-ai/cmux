@@ -1743,6 +1743,7 @@ jobs:
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
+            python3 tests/test_webviews_test_history.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
