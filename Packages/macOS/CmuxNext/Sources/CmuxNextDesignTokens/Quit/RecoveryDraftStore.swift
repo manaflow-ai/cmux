@@ -1,3 +1,4 @@
+internal import CmuxNextCompat
 package import CmuxNextWakeups
 package import CryptoKit
 public import Foundation
@@ -8,7 +9,8 @@ package import os
 /// written crash-safe (temp file, fsync, rename) off the main actor, in a
 /// 0700 directory as a 0600 file. `remove` (a normal save, a quit save, or
 /// Don't Save) cancels a pending update first, so a stale draft never comes
-/// back. The next launch reads `drafts()` and shows the restore notice.
+/// back. The next launch reads `unannouncedDrafts()` and shows the restore
+/// notice once per draft.
 @MainActor
 public final class RecoveryDraftStore {
     public static let defaultMaxDraftBytes = 8 * 1024 * 1024
@@ -84,6 +86,14 @@ public final class RecoveryDraftStore {
         await RecoveryDraftFiles.readAll(in: directory)
     }
 
+    /// The drafts on disk whose restore notice has not shown yet (read at
+    /// launch). Each is recorded as announced next to its draft, by id and
+    /// `savedAt`, so a later launch shows only a newer draft of that document.
+    /// The drafts stay on disk, still restorable.
+    public func unannouncedDrafts() async -> [RecoveryDraft] {
+        await RecoveryDraftFiles.takeUnannounced(in: directory)
+    }
+
     /// Whether the document's file differs from the draft's base, or (with
     /// no base) changed after the draft was written. A draft of another host
     /// is never compared with a local file.
@@ -108,12 +118,35 @@ package nonisolated struct RecoveryDraftFiles {
     }
 
     package static func fileName(_ id: String) -> String {
+        "\(stem(id)).draft"
+    }
+
+    /// The record that a draft's restore notice showed: `<stem>.announced`,
+    /// next to its `.draft`.
+    package static func announcementName(_ id: String) -> String {
+        "\(stem(id)).\(announcementExtension)"
+    }
+
+    package static let announcementExtension = "announced"
+
+    private static func stem(_ id: String) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in id.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x0100_0000_01b3
         }
-        return String(format: "%016llx.draft", hash)
+        return String(format: "%016llx", hash)
+    }
+
+    /// Which draft of a document the notice announced: its id and `savedAt`.
+    package nonisolated struct Announcement: Codable, Equatable {
+        package var id: String
+        package var savedAt: Date
+
+        package init(_ draft: RecoveryDraft) {
+            id = draft.id
+            savedAt = draft.savedAt
+        }
     }
 
     /// With no base, records the file's date and size now; then writes
@@ -134,18 +167,25 @@ package nonisolated struct RecoveryDraftFiles {
         var backupless = directory
         try? backupless.setResourceValues(excluded)
         let target = directory.appendingPathComponent(fileName(draft.id))
+        guard writeAtomically(data, to: target, in: directory) else { return }
+        evictOldest(in: directory, keeping: target, maxTotalBytes: maxTotalBytes)
+    }
+
+    /// Writes `data` to `target` as a 0600 file: temp + fsync + rename in
+    /// `directory`. False (and no temp file left) when a step failed.
+    package static func writeAtomically(_ data: Data, to target: URL, in directory: URL) -> Bool {
         let temp = directory.appendingPathComponent(".\(UUID().uuidString).tmp")
         let fd = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
-        guard fd >= 0 else { return }
-        // concurrency-allow: @concurrent RecoveryDraftFiles.write, never on the main actor
+        guard fd >= 0 else { return false }
+        // concurrency-allow: called only from @concurrent write and takeUnannounced, never on the main actor
         let written = data.withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
         let synced = fsync(fd) == 0
         close(fd)
         guard written == data.count, synced, rename(temp.path, target.path) == 0 else {
             unlink(temp.path)
-            return
+            return false
         }
-        evictOldest(in: directory, keeping: target, maxTotalBytes: maxTotalBytes)
+        return true
     }
 
     /// Over the total cap: the oldest drafts go first (never the one just
@@ -160,13 +200,40 @@ package nonisolated struct RecoveryDraftFiles {
         for file in files.sorted(by: { date($0) < date($1) }) where total > maxTotalBytes && file.standardizedFileURL != kept.standardizedFileURL {
             total -= size(file)
             unlink(file.path)
+            unlink(file.deletingPathExtension().appendingPathExtension(announcementExtension).path)
             Logger(subsystem: "com.cmuxterm.app.next", category: "recovery-drafts")
                 .notice("evicted recovery draft \(file.deletingPathExtension().lastPathComponent, privacy: .public) (store over its size cap)")
         }
     }
 
+    /// Deletes the draft of `id` and the record that its notice showed.
     @concurrent package static func delete(id: String, in directory: URL) async {
         unlink(directory.appendingPathComponent(fileName(id)).path)
+        unlink(directory.appendingPathComponent(announcementName(id)).path)
+    }
+
+    /// The drafts whose notice has not shown for their current `savedAt`;
+    /// records each as announced. A record whose draft is gone is deleted.
+    @concurrent package static func takeUnannounced(in directory: URL) async -> [RecoveryDraft] {
+        let drafts = await readAll(in: directory)
+        let live = Set(drafts.map { announcementName($0.id) })
+        let files = (try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == announcementExtension && !live.contains(file.lastPathComponent) {
+            unlink(file.path)
+        }
+        var unannounced: [RecoveryDraft] = []
+        for draft in drafts {
+            let record = directory.appendingPathComponent(announcementName(draft.id))
+            if let data = try? Data(blockingContentsOf: record),
+               let seen = try? JSONDecoder().decode(Announcement.self, from: data), seen == Announcement(draft) {
+                continue
+            }
+            unannounced.append(draft)
+            if let data = try? JSONEncoder().encode(Announcement(draft)) {
+                _ = writeAtomically(data, to: record, in: directory)
+            }
+        }
+        return unannounced
     }
 
     @concurrent package static func readAll(in directory: URL) async -> [RecoveryDraft] {

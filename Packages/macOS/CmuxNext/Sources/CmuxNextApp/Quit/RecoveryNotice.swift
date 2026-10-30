@@ -5,10 +5,12 @@ import CmuxNextDesign
 /// unsaved changes in <title>", with Open (the editor side's
 /// `RecoveryDraftStore.restoreHandler`). When the file changed on disk after
 /// the draft, the toast says so; a draft never overwrites a file silently.
+/// Each draft is announced once: a later launch with the same draft shows
+/// nothing (the draft stays restorable), a newer draft of it toasts again.
 @MainActor
 enum RecoveryNotice {
     static func show(store: RecoveryDraftStore, toasts: CmuxToastCenter = .shared, in window: NSWindow) async {
-        for draft in await store.drafts() {
+        for draft in await store.unannouncedDrafts() {
             let message = await message(for: draft, store: store)
             let action = store.restoreHandler.map { _ in CmuxToast.Action(title: QuitStrings.recoveredOpen) }
             let handle = toasts.show(CmuxToast(id: "recovery:\(draft.id)", message: message, action: action, duration: .seconds(12)),
