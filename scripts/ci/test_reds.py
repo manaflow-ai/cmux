@@ -126,7 +126,10 @@ BUN_RUN = re.compile(r"^bun test v\d")
 BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
 # A stack frame of the failure: `at <anonymous> (/abs/webviews/test/x.test.ts:12:5)`.
 BUN_AT = re.compile(r"^\s*at .*?\(?(\S+\.[cm]?[jt]sx?):(\d+):\d+\)?$")
-BUN_ERROR = re.compile(r"^error: (.+)$")
+# A failure's headline: `error: ...` (an assertion or a thrown Error), or a native exception bun prints by its class
+# (`TypeError: ...`, `ReferenceError: ...`), kept with that class.
+BUN_ERROR = re.compile(r"^(?:error: (.+)|((?:[A-Z]\w*)?Error(?: \[[\w-]+\])?: .+))$")
+BUN_RULE = re.compile(r"^-{5,}$")  # the rules around an unhandled error
 BUN_TIMED_OUT = re.compile(r"^\s*\^ this test timed out after (\d+)ms")
 BUN_UNHANDLED = re.compile(r"^# Unhandled error between tests")
 BUN_RECAP = re.compile(r"^\d+ tests? failed:$")
@@ -300,7 +303,7 @@ def read_bun(lines: list[str], result: Result) -> None:
     """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
     names), or `TEST` when the recap is all that names it, with its diagnostics (bun_diagnostic, or its timeout; every
     distinct one when the name fails more than once) as its message. An unhandled error between tests is a failure
-    named by its error. Each bun invocation is whole only once it prints its ` N fail` count: one that started
+    named by its headline, with its whole block and location as its diagnostic. Each bun invocation is whole only once it prints its ` N fail` count: one that started
     (`bun test v…`, a file header or a result) and reached the next invocation (`bun test v…`, the wrapper's retry) or
     the log's end with no count was cut short, wherever it sits in the log."""
     file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
@@ -308,6 +311,7 @@ def read_bun(lines: list[str], result: Result) -> None:
     run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
     diagnostics: dict = {}  # name: its distinct diagnostics
     added = None  # the diagnostic the last result line added, which its timeout note replaces
+    pending = False  # an unhandled error whose block is being read: recorded when it ends
 
     def fail(name: str, message: str) -> str | None:
         result.failed.add(name)
@@ -317,6 +321,15 @@ def read_bun(lines: list[str], result: Result) -> None:
             return message
         return None
 
+    def flush() -> None:
+        """Record the unhandled error being read, named by its headline, with its whole block as its diagnostic."""
+        nonlocal pending, said, where, block
+        if pending:
+            headline = bun_diagnostic(said[:1])  # the checkout's path differs from run to run
+            fail(f"{file} > unhandled error: {headline}" if file else f"unhandled error: {headline}",
+                 bun_diagnostic(said, where))
+            pending, said, where, block = False, [], "", False
+
     def end_run(why: str) -> None:
         nonlocal open_run
         if open_run:
@@ -324,6 +337,9 @@ def read_bun(lines: list[str], result: Result) -> None:
         open_run = False
 
     for text in lines:
+        if BUN_RUN.match(text) or BUN_FILE.match(text) or text == WEB_RETRY or BUN_TEST.match(text) or \
+                BUN_UNHANDLED.match(text) or BUN_COUNT.match(text):
+            flush()
         if BUN_RUN.match(text):
             end_run("the next bun test run started")
             open_run = True
@@ -352,16 +368,16 @@ def read_bun(lines: list[str], result: Result) -> None:
         elif BUN_UNHANDLED.match(text):
             unhandled = True
         elif match := BUN_ERROR.match(text):
+            headline = match.group(1) or match.group(2)
             if unhandled:
-                said_where = bun_diagnostic([match.group(1)])  # the checkout's path differs from run to run
-                fail(f"{file} > unhandled error: {said_where}" if file else f"unhandled error: {said_where}", "")
-                unhandled = False
+                said, where, block, pending, unhandled = [headline], "", True, True, False
             elif not said:
-                said, block = [match.group(1)], True
+                said, block = [headline], True
             else:
                 block = False  # a later error of the same test: the first one names it
-        elif block and (text.lstrip().startswith("at ") or text.startswith(("##[error]", "::error"))):
-            block = False  # the stack, or GitHub's annotation repeating the block
+        elif block and (text.lstrip().startswith("at ") or text.startswith(("##[error]", "::error"))
+                        or BUN_RULE.match(text)):
+            block = False  # the stack, GitHub's annotation repeating the block, or an unhandled error's closing rule
             if (match := BUN_AT.match(text)) and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
                 where = f"{file}:{match.group(2)}"
         elif block and text.strip():
@@ -380,6 +396,7 @@ def read_bun(lines: list[str], result: Result) -> None:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")
             file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
             block = False
+    flush()
     end_run("the log ended")
     for name, found in diagnostics.items():
         if found:
