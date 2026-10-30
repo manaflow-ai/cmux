@@ -6778,6 +6778,8 @@ function AcpmuxPane() {
       setHarnessesOpen(false);
       setReplaying(undefined);
       setNewTab(undefined);
+      // The side tab is a full-height overlay on the right: Background tasks gives it the side.
+      setBackgroundPanel(undefined);
       setWorkflowSideTabId(id);
     },
     [closeInspector],
@@ -9449,8 +9451,11 @@ function AcpmuxPane() {
               key: "backgroundTasks",
               label: t("backgroundTasks.title"),
               icon: "task.status.backlog",
-              onSelect: () =>
-                setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set() }),
+              // A workflow's side tab would cover the panel (a full-height overlay): it closes.
+              onSelect: () => {
+                clearWorkflowSideTab();
+                setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set() });
+              },
             },
           ]),
       ...(checkpoints.supported
