@@ -718,6 +718,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // The host's replay carries the shell's last directory and progress
+        // reports, pending until the terminal is live: publish them now, as
+        // a reconnect does. An idle shell prints nothing that would.
+        surface.publish_pending_directory();
+        surface.publish_pending_progress();
         self.publish_adopted_detached_terminal(terminal_id);
         // Clients read tab liveness from the tree: an adopting tab is live now.
         if self.clear_pending_terminal(terminal_id) {

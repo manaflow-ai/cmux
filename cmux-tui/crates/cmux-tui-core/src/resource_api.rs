@@ -864,6 +864,10 @@ fn public_workspace_values(
 /// registry lock, not state.
 pub(crate) fn public_workspaces(mux: &Mux) -> Result<Vec<Value>, ResourceError> {
     let registry = mux.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // One connection hold for the whole read, as the snapshot's pin: no
+    // late writer commit lands between the rows, the frame and the
+    // decorations. The registry methods below re-enter it.
+    let _connection = registry.connection.get();
     (|| -> anyhow::Result<Vec<Value>> {
         let registry_snapshot = registry.snapshot()?;
         let frame = registry.resource_topology_frame()?;
