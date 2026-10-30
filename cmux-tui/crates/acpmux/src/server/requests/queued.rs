@@ -34,7 +34,15 @@ pub(super) async fn handle(
         // Only its sender takes a prompt back (`author.rs`), checked as it leaves.
         let author = crate::author::author(params)?;
         let editor = crate::author::editor(author.as_ref());
-        reply["removed"] = json!(hub.withdraw_queued(&s, prompt_id, editor)?);
+        // `acpmux session queue clear --from-agents`: only while it is another agent's
+        // message, checked as it leaves, so an edit meanwhile keeps the person's prompt.
+        let agents_only = params.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
+        let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only)?;
+        reply["removed"] = json!(w == crate::hub::Withdrawn::Removed);
+        if agents_only {
+            reply["fromAgentsOnly"] = json!(true);
+            reply["notFromAgent"] = json!(w == crate::hub::Withdrawn::NotFromAgent);
+        }
         return Ok(reply);
     }
     crate::author::owner_only(params)?;
