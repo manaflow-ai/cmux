@@ -382,35 +382,44 @@ impl Hub {
         cut: Option<CutTurn<'_>>,
         restored_at: Option<u64>,
     ) {
-        let mut pending = self.auto_resumes.lock();
-        let ending = match pending.get(&session.id) {
-            Some(Mark::Ending(t)) if t == turn_id => Some(true),
-            Some(Mark::Stopped(t)) if t == turn_id => Some(false),
-            _ => None,
-        };
-        let reason = cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
-        let reason = reason.and_then(RetryReason::from_cause);
-        let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
-            if ending.is_some() {
-                pending.remove(&session.id);
-                drop(pending);
-                // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
-                if ending == Some(true) {
-                    self.settled_unretried(session, turn_id, "not_retried");
+        let (wake, reason, root, done, turn_id, error, control, trust_gate, not_before, from) = {
+            let mut pending = self.auto_resumes.lock();
+            let ending = match pending.get(&session.id) {
+                Some(Mark::Ending(t)) if t == turn_id => Some(true),
+                Some(Mark::Stopped(t)) if t == turn_id => Some(false),
+                _ => None,
+            };
+            let reason =
+                cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
+            let reason = reason.and_then(RetryReason::from_cause);
+            let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
+                if ending.is_some() {
+                    pending.remove(&session.id);
+                    // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
+                    if ending == Some(true) {
+                        self.settled_unretried(session, turn_id, "not_retried");
+                    }
                 }
-            }
-            return;
+                return;
+            };
+            let wake = Arc::new(Notify::new());
+            let mark =
+                Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
+            pending.insert(session.id.clone(), mark);
+            let (root, done) = split_attempt(cut.prompt_id);
+            (
+                wake,
+                reason,
+                root.to_owned(),
+                done,
+                cut.turn_id.to_owned(),
+                cut.error.to_owned(),
+                cut.control,
+                cut.trust_gate,
+                cut.not_before,
+                cut.from.map(str::to_owned),
+            )
         };
-        let wake = Arc::new(Notify::new());
-        let mark =
-            Mark::Waiting { turn: turn_id.to_owned(), retry: None, _wake: Wake(wake.clone()) };
-        pending.insert(session.id.clone(), mark);
-        drop(pending);
-        let (root, done) = split_attempt(cut.prompt_id);
-        let (root, turn_id, error) =
-            (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
-        let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
-        let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         let delays = {
             let cfg = hub.config.read().await;
