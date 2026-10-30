@@ -139,6 +139,18 @@ impl Mux {
         }
     }
 
+    /// The socket watch saw the socket change: the notices thread looks again.
+    fn hint_agent_chat_notices(&self) {
+        if let Some(hint) = &*self.agent_chat_notice_hints.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = hint.send(());
+        }
+    }
+
+    /// Shutdown: drops the notices thread's hint sender, so its wait for the socket ends.
+    pub(super) fn stop_agent_chat_notices(&self) {
+        drop(self.agent_chat_notice_hints.lock().unwrap_or_else(|e| e.into_inner()).take());
+    }
+
     fn read_agent_chat_notices(&self, session: &str) {
         for (surface, _) in self.agent_chat_tabs(session) {
             if self.acknowledge_tab_notifications(surface).is_err() {
@@ -168,8 +180,21 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
         return;
     }
     let (hint, hints) = mpsc::channel::<()>();
+    // The Mux holds the only sender and drops it at shutdown (or when it is dropped), so
+    // `recv` below returns then even when no file event ever comes.
+    {
+        let Some(live) = mux.upgrade() else { return };
+        let mut slot = live.agent_chat_notice_hints.lock().unwrap_or_else(|e| e.into_inner());
+        if live.shutting_down.load(std::sync::atomic::Ordering::Acquire) {
+            return;
+        }
+        *slot = Some(hint);
+    }
+    let hinted = mux.clone();
     let watcher = cmux_config::watch::Watcher::start(vec![socket.to_path_buf()], move || {
-        let _ = hint.send(());
+        if let Some(live) = hinted.upgrade() {
+            live.hint_agent_chat_notices();
+        }
     });
     let _watcher = match watcher {
         Ok(watcher) => watcher,
@@ -188,6 +213,9 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
     while hints.recv().is_ok() {
         // Hints that queued meanwhile are one change.
         while hints.try_recv().is_ok() {}
+        if !daemon_runs(mux) {
+            return;
+        }
         if socket.symlink_metadata().is_ok() && !follow_while_listening(mux, socket, &mut chats) {
             return;
         }
