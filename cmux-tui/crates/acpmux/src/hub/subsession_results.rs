@@ -3,7 +3,8 @@
 //! another harness family than its parent (a Claude chat's Codex child, say).
 //!
 //! Both are `mux` records of kind `subsession` (`RECORD_KIND`) on the parent's log, the same
-//! record the parent already gets when a child closes or reopens; there is no other event family:
+//! record the parent gets when a child stops or resumes holding a live width slot; there is no
+//! other event family:
 //!
 //! - `{event: "started", childSessionId, shortName, startedBy, depth, harness, model, effort,
 //!   title, prompt, state: "running"}` once the child's first prompt is accepted. `model` and
