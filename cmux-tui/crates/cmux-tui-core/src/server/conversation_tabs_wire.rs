@@ -572,18 +572,32 @@ fn downgrade_closed_tabs(value: &mut Value) -> bool {
     {
         changed |= downgrade_closed_groups(closed);
     }
-    if let Some(changes) = object.get_mut("changes").and_then(Value::as_array_mut) {
-        for change in changes {
-            let is_closed_upsert = change.get("resource").and_then(Value::as_str) == Some("closed")
-                && change.get("kind").and_then(Value::as_str) == Some("state_upsert");
-            if is_closed_upsert && let Some(value) = change.get_mut("value") {
-                changed |= downgrade_closed_group(value);
-            }
-        }
+    if let Some(changes) = object.get_mut("changes") {
+        changed |= downgrade_closed_changes(changes);
+    }
+    // Journal stream records wrap the same state changes under `payload`.
+    // This is a known journal envelope; do not recurse through arbitrary payload fields.
+    if let Some(payload) = object.get_mut("payload").and_then(Value::as_object_mut)
+        && let Some(changes) = payload.get_mut("changes")
+    {
+        changed |= downgrade_closed_changes(changes);
     }
     // A resource stream item is itself a history row. Do not recurse into its
     // arbitrary fields; only the closed-row discriminator is a known schema.
     changed |= downgrade_closed_history_entry_object(object);
+    changed
+}
+
+fn downgrade_closed_changes(value: &mut Value) -> bool {
+    let Some(changes) = value.as_array_mut() else { return false };
+    let mut changed = false;
+    for change in changes {
+        let is_closed_upsert = change.get("resource").and_then(Value::as_str) == Some("closed")
+            && change.get("kind").and_then(Value::as_str) == Some("state_upsert");
+        if is_closed_upsert && let Some(value) = change.get_mut("value") {
+            changed |= downgrade_closed_group(value);
+        }
+    }
     changed
 }
 

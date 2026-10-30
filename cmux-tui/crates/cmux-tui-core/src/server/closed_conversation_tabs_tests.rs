@@ -121,6 +121,21 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
         // A non-closed state resource carrying a similar value is opaque.
         assert_eq!(read["changes"][2]["value"], message["changes"][2]["value"]);
         assert_eq!(read["projection"], message["projection"], "opaque projection data changed");
+        // A standalone journal record has no root-level changes. Its two closed
+        // upserts must match the event projection, while opaque payload fields
+        // and the non-closed upsert remain unchanged for every capability set.
+        let journal = json!({
+            "kind":"tab.close", "class":"state", "sequence":"1",
+            "payload":{"changes":message["changes"], "projection":message["projection"]}
+        });
+        let expected_journal = json!({
+            "kind":"tab.close", "class":"state", "sequence":"1",
+            "payload":{"changes":read["changes"], "projection":message["projection"]}
+        });
+        assert_eq!(writer.project_conversation_tab_item(journal.clone()), expected_journal);
+        writer.send_control(&journal).unwrap();
+        let read_journal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(read_journal, expected_journal);
         assert_eq!(writer.project_conversation_tab_item(message), read);
     }
     mux.shutdown();
