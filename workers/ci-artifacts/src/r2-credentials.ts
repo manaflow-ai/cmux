@@ -23,7 +23,10 @@ export type Grant = {
   repository: string;
   repositoryId: string;
   ownerId: string;
-  // Exact workflow_ref and job_workflow_ref (a reusable workflow cannot borrow it).
+  // Exact workflow_ref (the top-level workflow file @ its ref). GitHub's OIDC
+  // docs define job_workflow_ref only "for jobs using a reusable workflow", so
+  // an ordinary job's token may lack it: when present it must equal this too,
+  // which keeps a reusable workflow from borrowing the grant.
   workflowRef: string;
   ref: string;
   environment: string;
@@ -81,7 +84,7 @@ function matchesGrant(claims: JsonObject, grant: Grant): Identity | undefined {
       || String(claims.repository_id ?? "") !== grant.repositoryId
       || String(claims.repository_owner_id ?? "") !== grant.ownerId
       || claims.workflow_ref !== grant.workflowRef
-      || claims.job_workflow_ref !== grant.workflowRef
+      || (claims.job_workflow_ref !== undefined && claims.job_workflow_ref !== grant.workflowRef)
       || claims.ref !== grant.ref
       || claims.environment !== grant.environment
       || typeof claims.event_name !== "string" || !grant.events.includes(claims.event_name)) {

@@ -158,7 +158,8 @@ temporary credentials that expire after 15 minutes.
 
 - The Worker verifies GitHub's signature, issuer, audience and token lifetime,
   then the grant's exact repository, repository and owner IDs, `workflow_ref`
-  and `job_workflow_ref`, `ref`, deployment `environment` and event. Grants are
+  (and `job_workflow_ref` when the token carries it, which GitHub documents only
+  for reusable-workflow jobs), `ref`, deployment `environment` and event. Grants are
   the committed `GRANTS` table; there is no wildcard grant.
 - The requested prefix must sit inside the grant's prefix. A run-scoped grant
   also requires the last folder to end in `-<run_id>-<run_attempt>`, so one

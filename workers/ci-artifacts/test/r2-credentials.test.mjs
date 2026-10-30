@@ -118,6 +118,15 @@ test("issues 15-minute credentials scoped to one run's prefix for the HQ nightly
   assert.ok(!JSON.stringify(body).includes("parent-api-token-value"));
 });
 
+test("an ordinary job's token without job_workflow_ref gets credentials", async () => {
+  // GitHub's docs define job_workflow_ref only for jobs that use a reusable workflow.
+  const { fetcher, calls } = fakeCloudflare();
+  const response = await handleCredentialRequest(request(undefined, token({ job_workflow_ref: undefined })), env, fetcher, now);
+  assert.equal(response.status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal((await response.json()).identity.workflowRef, workflowRef);
+});
+
 test("a manual dispatch on main is allowed", async () => {
   const { fetcher } = fakeCloudflare();
   const response = await handleCredentialRequest(request(undefined, token({ event_name: "workflow_dispatch" })), env, fetcher, now);
@@ -134,6 +143,9 @@ for (const [name, overrides, status] of [
   ["repository id (renamed or recreated repo)", { repository_id: "1" }, 403],
   ["owner id", { repository_owner_id: "1" }, 403],
   ["workflow file", { workflow_ref: "manaflow-ai/cmuxterm-hq/.github/workflows/other.yml@refs/heads/main" }, 403],
+  ["workflow file with no job_workflow_ref", { workflow_ref: "manaflow-ai/cmuxterm-hq/.github/workflows/other.yml@refs/heads/main", job_workflow_ref: undefined }, 403],
+  ["workflow ref on another branch", { workflow_ref: workflowRef.replace("main", "feature"), job_workflow_ref: undefined }, 403],
+  ["missing workflow_ref", { workflow_ref: undefined }, 403],
   ["reusable workflow", { job_workflow_ref: "manaflow-ai/cmuxterm-hq/.github/workflows/reusable.yml@refs/heads/main" }, 403],
   ["ref", { ref: "refs/heads/feature", workflow_ref: workflowRef.replace("main", "feature"), job_workflow_ref: workflowRef.replace("main", "feature") }, 403],
   ["ref claim alone", { ref: "refs/pull/1/merge" }, 403],
