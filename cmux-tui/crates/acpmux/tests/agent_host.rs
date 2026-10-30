@@ -106,6 +106,45 @@ async fn read_until(
     }
 }
 
+/// A link's taker of entries, on its own task, as a daemon's reader of the link is
+/// (`ChildAgent::start_reader`): a link reads at most `entry_queue::QUEUE_BYTES` ahead of what
+/// is taken (65561f72b2b), so a receipt behind a line's own large entry reaches the link
+/// only once that entry is taken. [`Taker::stop`] gives back the last entry taken.
+struct Taker {
+    stop: tokio::sync::oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<u64>,
+}
+
+/// Takes and acknowledges `link`'s entries, contiguous from the first, until stopped.
+fn take_entries(link: std::sync::Arc<Link>) -> Taker {
+    let (stop, mut stopped) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let mut after = 0;
+        let mut rx = link.entries.lock().await;
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut stopped => return after,
+                next = rx.recv() => {
+                    let Some((h, e)) = next else { return after };
+                    assert_eq!(h, after + 1, "entries must be contiguous and never repeat: {e:?}");
+                    after = h;
+                    link.ack(h).await.unwrap();
+                }
+            }
+        }
+    });
+    Taker { stop, task }
+}
+
+impl Taker {
+    /// Stops taking; the next entry is the one after the returned one.
+    async fn stop(self) -> u64 {
+        let _ = self.stop.send(());
+        self.task.await.expect("the taker ran")
+    }
+}
+
 fn is_response(e: &Entry, id: i64) -> bool {
     matches!(e, Entry::In { msg } if msg.get("id") == Some(&json!(id)) && msg.get("method").is_none())
 }
@@ -764,7 +803,8 @@ async fn a_fenced_line_settles_once_the_harness_has_it() {
     launch.args.clear();
     let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
     let lock = live_lock(&dir, &record);
-    let (owner, _) = connected(&record, 0).await;
+    let owner: std::sync::Arc<Link> = connected(&record, 0).await.0.into();
+    let taker = take_entries(owner.clone());
     let fence = acpmux::agent::Fence::default();
     let msg = json!({"jsonrpc": "2.0", "method": "note", "params": {"text": "x".repeat(1 << 20)}});
     owner.line_fenced(msg, Some(fence.clone())).await.unwrap();
@@ -777,7 +817,7 @@ async fn a_fenced_line_settles_once_the_harness_has_it() {
     tokio::time::timeout(Duration::from_secs(20), settled)
         .await
         .expect("the line settles once its harness reads it");
-    let mut logged = 0;
+    let mut logged = taker.stop().await;
     owner.terminate(Duration::from_millis(500)).await.unwrap();
     read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
     wait_dead(lock).await;
@@ -804,7 +844,8 @@ async fn a_fenced_line_keeps_its_receipt_across_a_new_connection() {
     first.line_fenced(msg, Some(fence.clone())).await.unwrap();
     // The frame is in the host before its connection is replaced.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let (second, _) = connected(&record, 0).await;
+    let second: std::sync::Arc<Link> = connected(&record, 0).await.0.into();
+    let taker = take_entries(second.clone());
     drop(first);
     let settled = fence.settled();
     tokio::pin!(settled);
@@ -815,7 +856,7 @@ async fn a_fenced_line_keeps_its_receipt_across_a_new_connection() {
     tokio::time::timeout(Duration::from_secs(20), settled)
         .await
         .expect("the line settles through the new connection once its harness reads it");
-    let mut logged = 0;
+    let mut logged = taker.stop().await;
     second.terminate(Duration::from_millis(500)).await.unwrap();
     read_until(&second, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
     wait_dead(lock).await;
@@ -914,14 +955,15 @@ async fn a_fenced_line_to_a_closed_stdin_settles() {
     launch.args.clear();
     let record = link::spawn(&launcher(), &launch).await.unwrap();
     let lock = live_lock(&dir, &record);
-    let (owner, _) = connected(&record, 0).await;
+    let owner: std::sync::Arc<Link> = connected(&record, 0).await.0.into();
+    let taker = take_entries(owner.clone());
     tokio::time::sleep(Duration::from_millis(500)).await;
     let fence = acpmux::agent::Fence::default();
     owner.line_fenced(big_line(), Some(fence.clone())).await.unwrap();
     tokio::time::timeout(Duration::from_secs(5), fence.settled())
         .await
         .expect("a line its harness can not take settles");
-    let mut logged = 0;
+    let mut logged = taker.stop().await;
     owner.terminate(Duration::from_millis(500)).await.unwrap();
     read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
     wait_dead(lock).await;
