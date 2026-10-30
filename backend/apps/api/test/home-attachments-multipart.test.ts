@@ -985,3 +985,32 @@ describe("Home attachments: a multipart intent that failed before any upload liv
     expect(await usage(alice.user)).toEqual([])
   })
 })
+
+describe("Home attachments: a stalled part whose claim was taken never writes, however long it waited", { timeout: 120_000 }, () => {
+  afterEach(() => void vi.useRealTimers())
+
+  it("the claim lapses and the retry stores the part; seconds later the stalled body arrives: it is refused before R2, and the file completes", async () => {
+    const alice = await signIn("att-stalled-heartbeat")
+    const { id } = await group(alice)
+    const { PART_CLAIM_MS } = await import("../src/home-attachment-store.ts")
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 31) % 241)
+    const m = await multipart(alice, id, body)
+    const vanished = gatedBody(new Uint8Array(m.size).fill(0x6b))
+    const t0 = Date.now()
+    const stalled = handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: vanished.stream, headers: { "content-length": String(m.size), "x-cmux-part-number": "1" } }), testEnv, id, m.token)
+    await vanished.started
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(t0 + PART_CLAIM_MS + 1_000)
+    expect((await m.putPart(1)).status).toBe(200)
+    // Real seconds pass while the stalled request waits (a renewal tick of its own may run meanwhile).
+    await new Promise((r) => setTimeout(r, 2_500))
+    vanished.open()
+    expect((await stalled).status).toBe(409)
+    vi.useRealTimers()
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
