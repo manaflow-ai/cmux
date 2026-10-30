@@ -14,7 +14,7 @@ struct DaemonRequestExecutor: Sendable {
             // Rule (b): a request that names a stand-in is never sent. A create resolves its target first (the DEBUG
             // check above stops one that did not); any other pane verb on a pane still opening fails here, at once,
             // with no daemon round trip, and its refusal shows (``PaneNotReady``, `DaemonService.onPaneNotReady`).
-            if Self.mayNameStandIn(line), let leak = Self.standInReference(inLine: line) {
+            if !(R.self is any TargetResolvedCreate.Type), Self.mayNameStandIn(line), let leak = Self.standInReference(inLine: line) {
                 throw PaneNotReady(command: R.command, reference: leak)
             }
             return line
@@ -22,11 +22,29 @@ struct DaemonRequestExecutor: Sendable {
         return try WireCoding.decodeResponse(R.Response.self, from: response.line)
     }
 
-    /// The decimal prefix every stand-in id starts with (2^62 = 4611686018427387904; stand-ins count up from it), so a
-    /// line without it names no stand-in: one byte scan per request, a JSON parse only on a hit.
-    private static let standInPrefix = Data("4611686018427".utf8)
+    /// Whether `line` may name a stand-in: it holds a decimal number of at least 2^62 = 4611686018427387904 (every stand-in
+    /// lives there: a split's or New Terminal Tab's pane and surface from 2^62, Cmd-N's workspace pane from 2^62 + 2^61;
+    /// no daemon id does). One byte pass with no allocation; a JSON parse (``standInReference(inLine:)``) only on a hit.
+    static func mayNameStandIn(_ line: Data) -> Bool {
+        let floor = Self.standInFloor
+        var length = 0
+        // While the run has 19 digits or fewer: how it compares with the floor's prefix of the same length.
+        var order = 0 // -1 below, 0 equal so far, 1 above
+        for byte in line {
+            guard byte >= 0x30, byte <= 0x39 else {
+                if length > 19 || (length == 19 && order >= 0) { return true }
+                length = 0
+                order = 0
+                continue
+            }
+            if length < floor.count, order == 0 { order = byte < floor[length] ? -1 : byte > floor[length] ? 1 : 0 }
+            length += 1
+        }
+        return length > 19 || (length == 19 && order >= 0)
+    }
 
-    static func mayNameStandIn(_ line: Data) -> Bool { line.range(of: standInPrefix) != nil }
+    /// 2^62 in decimal, the lowest stand-in id.
+    private static let standInFloor = Array("4611686018427387904".utf8)
 
     /// ``standInReference(in:)`` for an encoded request line.
     static func standInReference(inLine line: Data) -> String? {
@@ -45,11 +63,11 @@ struct DaemonRequestExecutor: Sendable {
     /// (``PaneNotReady``; follow-up: one seam where every pane verb waits for its pane).
     static func checkNoStandIn<R: DaemonRequest>(_ request: R) {
         guard let leak = standInReference(in: request) else { return }
-        if R.self is any TerminalSpawningRequest.Type {
+        if R.self is any TargetResolvedCreate.Type {
             // crash-allow: DEBUG-only invariant check (rule b): these creates resolve their target before they send
             assertionFailure("\(R.command) names stand-in \(leak): resolve it with DaemonStore.daemonTarget(_:) first")
         } else {
-            logger.info("\(R.command, privacy: .public) names stand-in \(leak, privacy: .public); refused locally (PaneNotReady)")
+            logger.info("\(R.command, privacy: .public) names stand-in \(leak, privacy: .public); refused before it is sent (PaneNotReady)")
         }
     }
     #endif

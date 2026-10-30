@@ -461,15 +461,28 @@ public final class DaemonService {
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return ActionWorkFailure(label, error)
+            let failure = workFailure(label, error)
+            // A pane verb on a pane still opening: a run nobody captures (a key, the menu) shows nothing for a failed
+            // `send`, so this one says why, once (rule a). A capturing caller gets the typed refusal instead.
+            if error is PaneNotReady, ticket == nil { onPaneNotReady?(failure.message) }
+            return failure
         }
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
-    /// Shows a pane verb refused because its pane is still opening (``PaneNotReady``); the app sets it (the refusal HUD).
-    @ObservationIgnored public var onPaneNotReady: ((_ label: String) -> Void)?
+    /// Shows a pane verb refused because its pane is still opening (``PaneNotReady``) when no caller captures the run;
+    /// the app sets it (the refusal HUD). Gets the localized reason.
+    @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
+    /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
+    @ObservationIgnored public var paneNotReadyText: (() -> String)?
+
+    /// The failure of command `label` as the person reads it: ``PaneNotReady`` as a typed refusal in the app's language.
+    public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        guard error is PaneNotReady, let text = paneNotReadyText?() else { return ActionWorkFailure(label, error) }
+        return ActionWorkFailure(refusal: .unavailable, reason: text)
+    }
 
     public func shutdownConnection() {
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).

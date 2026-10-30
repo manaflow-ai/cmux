@@ -19,7 +19,7 @@ extension DaemonService {
         return .applied(ActionConfirmation(send: {
             switch await send() {
             case .success: return nil
-            case .failure(let error): return ActionWorkFailure(label, error)
+            case .failure(let error): return workFailure(label, error)
             }
         }))
     }

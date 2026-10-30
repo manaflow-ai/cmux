@@ -61,7 +61,7 @@ extension ActionRegistry {
             track(result: Task { [weak self] in
                 let answer = await result()
                 if case .failure(let failure) = answer, !reported {
-                    self?.remoteFailureObserver?(id, failedText(title, failure.message))
+                    self?.remoteFailureObserver?(id, failedText(title, failure))
                 }
                 return answer
             })
@@ -83,7 +83,7 @@ extension ActionRegistry {
         // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
         track(Task { [weak self] in
             guard let failure = await work.value else { return nil }
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure)) }
             return failure
         })
     }
@@ -97,7 +97,7 @@ extension ActionRegistry {
         let task: ActionWork = Task { [weak self] in
             guard let failure = await send() else { return nil }
             rollback?(failure)
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure)) }
             return failure
         }
         track(task)
@@ -105,6 +105,12 @@ extension ActionRegistry {
 }
 
 /// The notice for a failed remote half (Localizable.xcstrings).
+private func failedText(_ title: String, _ failure: ActionWorkFailure) -> String {
+    // A typed refusal (the pane is still opening) is already the person's sentence; a daemon error gets its frame.
+    if failure.refusal != nil { return failure.message }
+    return failedText(title, failure.message)
+}
+
 private func failedText(_ title: String, _ reason: String) -> String {
     String(format: String(localized: "action.effect.failed", defaultValue: "%1$@ did not apply: %2$@", bundle: .module), title, reason)
 }
