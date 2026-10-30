@@ -63,9 +63,31 @@ fn base_tools() -> Value {
                     "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
                     "text": {"type": "string", "description": "The message, self-contained."},
                     "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
-                    "class": {"type": "string", "enum": ["block", "question", "result", "fyi"], "description": "What the message asks of the receiver: block (you cannot go on until it acts), question (you wait for its answer), result (work you finished; the default) or fyi. A coordinator is woken by blocks and questions only; results and FYIs wait for its next turn's inbox digest."}
+                    "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
+                    "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
+                    "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."}
                 },
                 "required": ["to", "text"]
+            }
+        },
+        {
+            "name": "inbox_read",
+            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours: a notice lists threads with new messages at your next tool step. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
+            }
+        },
+        {
+            "name": "inbox_reply",
+            "description": "Answer in an inbox thread: the message goes to the thread's newest sender, into their inbox under the same thread, and takes no turn of theirs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "thread": {"type": "string", "description": "The threadId."},
+                    "text": {"type": "string", "description": "The answer, self-contained."}
+                },
+                "required": ["thread", "text"]
             }
         },
         {
@@ -144,10 +166,13 @@ pub async fn run() -> Result<()> {
         tools(),
         Some(BG_STEER.to_owned()),
         |daemon, session, params| async move {
-            let name = params["name"].as_str().unwrap_or_default();
+            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
             if bg::TOOLS.contains(&name) {
-                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 return bg::call(&daemon, &session, name, &args).await;
+            }
+            if matches!(name, "inbox_read" | "inbox_reply") {
+                return inbox_tool(&daemon, &session, name, &args).await;
             }
             call(&daemon, &params).await
         },
@@ -284,6 +309,8 @@ async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
     };
     let mut prompt = PromptId::new(None);
     prompt.class = class;
+    prompt.pr = args.get("pr").and_then(Value::as_u64);
+    prompt.thread = arg(args, "thread").map(str::to_owned);
     let request = prompt.params(&key, text, steer, None);
     let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
         Ok(queued) => queued,
@@ -328,6 +355,35 @@ delivering it, retrying while the target is slow or its peer is down. Do not sen
     ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
 }
 
+/// `inbox_read` and `inbox_reply`, for this server's own chat (`hub/inbox.rs`).
+async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+    if session.is_empty() {
+        return error_result("this server runs in no acpmux chat".to_owned());
+    }
+    let thread = arg(args, "thread");
+    let reply = match (name, thread) {
+        ("inbox_reply", Some(thread)) => {
+            let Some(text) =
+                args.get("text").and_then(Value::as_str).filter(|t| !t.trim().is_empty())
+            else {
+                return error_result("thread and text are required".to_owned());
+            };
+            let params = json!({"sessionId": session, "threadId": thread, "text": text});
+            daemon.request(method::MUX_INBOX_REPLY, params).await
+        }
+        ("inbox_reply", None) => return error_result("thread and text are required".to_owned()),
+        (_, Some(thread)) => {
+            let params = json!({"sessionId": session, "threadId": thread, "markRead": true});
+            daemon.request(method::MUX_INBOX_THREAD, params).await
+        }
+        (_, None) => daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await,
+    };
+    match reply {
+        Ok(v) => ok(crate::cli::session_inbox::describe(&v), v),
+        Err(e) => refusal(e),
+    }
+}
+
 /// `send`'s `class` (`prompt_class.rs`), checked here too, so a wrong one is this call's error and
 /// not a failed delivery.
 fn send_class(args: &Value) -> Result<Option<String>, String> {
@@ -342,7 +398,7 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
-    let all = match daemon.request(method::MUX_SESSIONS, json!({})).await {
+    let all = match daemon.whole_list(method::MUX_SESSIONS, json!({})).await {
         Ok(v) => v,
         Err(e) => return refusal(e),
     };

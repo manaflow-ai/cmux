@@ -160,6 +160,34 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// Watches the Chief started with `watch` (brain/watches.rs), oldest
+    /// first. At most `WATCHES_KEPT`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watches: Vec<Watch>,
+    /// The number of the last watch started (`w<N>`); ids never repeat.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub last_watch: u64,
+}
+
+/// One watch the Chief started with `watch`: the host runs `command` off
+/// the turn until a line of its output matches `until` (or, without
+/// `until`, it exits), or `deadline_ms` passes, then a note wakes the Chief.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Watch {
+    /// `w<N>`.
+    pub id: String,
+    /// The shell command (`sh -c`).
+    pub command: String,
+    /// A regex on its output lines; None: fire when the command exits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    /// The Chief's own words, shown in the note.
+    #[serde(default)]
+    pub note: String,
+    /// When the Chief started it (ms since the epoch).
+    pub asked_ms: u64,
+    /// When it fires as timed out (ms since the epoch).
+    pub deadline_ms: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -356,6 +384,10 @@ pub struct SubRecord {
     /// `subagents.showWorkspaces` off, #26386, or closed by `control hide`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_slot: Option<WorkspaceSlot>,
+    /// That workspace's public id (`ws_…`), when its place can name it: its
+    /// report's work is shown there (show.rs `block_in`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ws_id: Option<String>,
     /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
     /// local subagents count against the live cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]

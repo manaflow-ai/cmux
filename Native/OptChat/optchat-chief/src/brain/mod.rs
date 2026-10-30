@@ -50,6 +50,7 @@ mod steer;
 mod transcript;
 mod turns;
 mod wakes;
+mod watches;
 pub use reaction_wake::{JudgeAsk, ReactionJudge};
 pub use replies::{REACTIONS, reaction, tapback};
 pub use steer::STEER_DEADLINE;
@@ -172,6 +173,8 @@ pub enum Input {
         id: String,
         key: String,
         name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
     },
     /// Where a subagent's workspace opens (`control show`), sent at its
     /// start whether or not it opens then (`subagents.showWorkspaces`).
@@ -185,6 +188,8 @@ pub enum Input {
         id: String,
         key: String,
         name: String,
+        /// Its public id (`ws_…`), when the place can name it.
+        ws: Option<String>,
     },
     /// Workspace `key` is gone (it could not open, or a short task's idle
     /// close closed it): the subagent stays hidden until `control show`.
@@ -302,6 +307,13 @@ pub enum Input {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
     },
+    /// `watch(...)` (watches.rs): start, cancel or list watches.
+    Watch {
+        call: crate::tools::WatchCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A watch's command ended it (watches.rs): the Chief wakes once.
+    WatchFired(Box<crate::watch::Fired>),
     /// A message from a Chief on another machine (peer_chiefs.rs), already
     /// framed as `[chief:<name>] ...`: queued as a note that wakes the Chief.
     PeerChiefNote {
@@ -699,6 +711,9 @@ pub struct Brain {
     state: HostState,
     tx: Sender<Input>,
     log: Log,
+    /// The running watches by id (watches.rs); dropping one kills its
+    /// process group, so a stopping host leaves none behind.
+    watch_runs: HashMap<String, crate::watch::Running>,
     daemon: Option<Box<dyn ConversationPort>>,
     reconnect: Option<Box<dyn Fn() + Send>>,
     summary: Option<Summary>,
@@ -722,6 +737,8 @@ pub struct Brain {
     stop_wanted: bool,
     /// The owner stopped the running turn (chief.stop): its end posts nothing.
     owner_stopped: bool,
+    /// This turn's send was refused for length once; its next send posts.
+    length_refused: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
@@ -945,6 +962,7 @@ impl Brain {
             state,
             tx,
             log,
+            watch_runs: HashMap::new(),
             daemon: None,
             reconnect: None,
             summary: None,
@@ -959,6 +977,7 @@ impl Brain {
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
+            length_refused: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
@@ -1265,6 +1284,7 @@ impl Brain {
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
         self.rearm_auto_resumes();
+        self.rearm_watches();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
@@ -1365,13 +1385,15 @@ impl Brain {
                 self.stop_if_cancelled(&id);
             }
             Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
-            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentWorkspace { id, key, name, ws } => {
+                self.sub_workspace(&id, key, name, ws)
+            }
             Input::SubagentWorkspaceSlot { id, name, slot } => {
                 self.sub_workspace_slot(&id, name, slot)
             }
             Input::SubagentWorkspaceFailed { id, key } => self.sub_workspace_failed(&id, &key),
-            Input::SubagentWorkspaceShown { id, key, name } => {
-                self.sub_workspace_opened(&id, key, name, false)
+            Input::SubagentWorkspaceShown { id, key, name, ws } => {
+                self.sub_workspace_opened(&id, key, name, ws, false)
             }
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAgentKey { id, key_id } => self.sub_agent_key(&id, key_id),
@@ -1435,6 +1457,10 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::Watch { call, reply } => {
+                let _ = reply.send(self.watch(call));
+            }
+            Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.queue(text, Source::Note),
             Input::EscalateAuth {
                 agent,
@@ -1723,6 +1749,19 @@ impl Brain {
             self.trace.set_full(on);
             (self.log)(&format!("setting {key} = {on}"));
             return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::REPLY_MAX_WORDS {
+            let words: usize = value
+                .trim()
+                .parse()
+                .map_err(|_| format!("{key}: a whole number of words (0: off)"))?;
+            let mut next = self.chief;
+            next.reply_max_words = words;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {words}"));
+            return Ok(format!("{key} = {words}"));
         }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;

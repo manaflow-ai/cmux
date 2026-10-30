@@ -171,7 +171,7 @@ pub(super) fn prompt_parts(request: &Value) -> (String, Vec<(String, String)>) {
 pub(super) fn retire_slot_key(sub: &mut SubRecord) {
     let slot = sub.workspace_slot.get_or_insert_with(|| WorkspaceSlot {
         key: String::new(),
-        group: crate::workspaces::topic_group(&sub.task),
+        group: crate::workspaces::spawn_group(&sub.task).to_owned(),
         cwd: std::env::var_os("HOME")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("/")),
@@ -298,6 +298,7 @@ impl Brain {
             };
             if let Some(s) = self.state.sub_mut(&id) {
                 s.workspace = None;
+                s.ws_id = None;
                 retire_slot_key(s);
             }
             self.save();
@@ -348,15 +349,21 @@ impl Brain {
         std::thread::spawn(move || {
             let answer = match workspaces.open(&slot.key, &session, &name, &slot.group, &slot.cwd) {
                 Ok(key) => {
+                    // No group unless the task named the user's "Chief agents" (#27712).
+                    let group = if slot.group.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" in group \"{}\"", slot.group)
+                    };
                     let mut note = format!(
-                        "{id} has its workspace \"{name}\" in group \"{}\" in {}",
-                        slot.group,
+                        "{id} has its workspace \"{name}\"{group} in {}",
                         workspaces.place()
                     );
-                    if let Some(r) = workspaces.locate(&key) {
-                        note.push_str(&format!(" (id {})", r.id));
+                    let ws = workspaces.locate(&key).map(|r| r.id);
+                    if let Some(ws) = &ws {
+                        note.push_str(&format!(" (id {ws})"));
                     }
-                    let _ = tx.send(Input::SubagentWorkspaceShown { id, key, name });
+                    let _ = tx.send(Input::SubagentWorkspaceShown { id, key, name, ws });
                     outcome("done", note)
                 }
                 Err(e) => {

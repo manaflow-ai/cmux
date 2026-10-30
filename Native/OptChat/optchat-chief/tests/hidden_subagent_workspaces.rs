@@ -200,10 +200,8 @@ fn by_default_a_subagent_runs_hidden_and_show_and_hide_toggle_its_workspace() {
     let (key, name, group) = opened[0].clone();
     assert_eq!(key.to_uppercase(), session_env);
     assert_eq!(name, "PR confidence check");
-    assert_eq!(
-        group,
-        optchat_chief::workspaces::topic_group("Title: PR confidence check\nsay hello")
-    );
+    // No `Group:` line: no sidebar group (#27712).
+    assert_eq!(group, "");
     assert_eq!(workspace(&h, "a1").as_deref(), Some(key.as_str()));
     // A second show is a noop, never a second workspace.
     assert!(
