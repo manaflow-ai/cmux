@@ -611,7 +611,7 @@ def summary_whats_new_digest(args, lines):
         full = " ".join(line["title"].split()).rstrip(". ")
         description = _validated_description(line.get("description", ""))
         if not description:
-            description = _validated_description(sentence(full))
+            description = _validated_description(sentence(title_tail(full, title) if title != full else full))
         entry = {"id": f"summary-{index}", "category": categories[line["group"]],
                  "title": {"en": title},
                  "summary": {"en": sentence(description or (title_tail(full, title) if title != full else full))},

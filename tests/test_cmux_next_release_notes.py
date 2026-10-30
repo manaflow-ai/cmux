@@ -289,6 +289,30 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertIsNotNone(digest)
         self.assertEqual(digest["entries"][0]["summary"]["en"], "Tabs stay put.")
 
+    def test_long_digest_title_fallback_only_describes_what_the_title_leaves_out(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+        title = "Sidebar rows keep their order, even when a workspace is renamed while another one is dragged"
+        for description in (None, "", "fix: keep rows in place.", "See issue #12345."):
+            with self.subTest(description=description):
+                line = {"group": "fixed", "title": title}
+                if description is not None:
+                    line["description"] = description
+                digest = notes.summary_whats_new_digest(args, [line])
+                self.assertIsNotNone(digest)
+                self.assertEqual(len(digest["entries"]), 1)
+                entry = digest["entries"][0]
+                self.assertEqual(entry["title"]["en"], "Sidebar rows keep their order")
+                self.assertEqual(entry["summary"]["en"],
+                                 "Even when a workspace is renamed while another one is dragged.")
+        description = "Your layout stays stable as you rename workspaces."
+        digest = notes.summary_whats_new_digest(args, [
+            {"group": "fixed", "title": title, "description": description}])
+        self.assertEqual(digest["entries"][0]["summary"]["en"], description)
+
     def test_digest_titles_are_unique_when_long_lines_share_a_first_clause(self):
         # Review of #22099: short_title cuts both lines to "Sidebar rows keep their order",
         # and the pre-publish check rejects a digest that shows one title twice.
