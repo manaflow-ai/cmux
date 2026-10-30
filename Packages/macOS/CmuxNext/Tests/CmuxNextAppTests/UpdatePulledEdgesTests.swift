@@ -102,6 +102,40 @@ import Testing
         #expect(installs.count == 0, "the click installed pulled build 300")
     }
 
+    /// The list says running build 100 was pulled while a check runs: once that check ends with
+    /// nothing, the newest good build is still fetched.
+    @Test func aPulledRunningBuildReadDuringACheckIsNotMissed() async throws {
+        let h = UpdateStagedYieldsToNewerTests.make(ring: "nightly", replaceable: false, pulled: ["100"])
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        h.updater.debugIndicatorPhase = .checking
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.backgroundChecks == 0)
+        h.updater.debugIndicatorPhase = .hidden
+        #expect(h.sparkle.backgroundChecks == 1, "the pulled running build was missed until the next update cycle")
+        #expect(h.updater.newestFetch == .runningPulled)
+    }
+
+    /// A legacy feed reads two lists: both are read at once, so the click waits one request's time, not two.
+    @Test func theLegacyFeedsListsAreReadAtOnce() async {
+        let legacy = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+        let started = Started()
+        let watch = PulledBuildWatch(build: "300", feedURL: { legacy }, fetch: { _ in
+            await started.add()
+            try? await Task.sleep(for: .milliseconds(400))
+            return nil
+        })
+        let clock = ContinuousClock(), begin = clock.now
+        await watch.refresh().value
+        #expect(await started.count == 2)
+        #expect(clock.now - begin < .milliseconds(750), "the two lists were read one after the other")
+    }
+
+    actor Started {
+        var count = 0
+        func add() { count += 1 }
+    }
+
     /// A staged build known pulled that no installer this app holds can cancel: no card or footer
     /// pill offers it, and a quit with install on quit on cancels it instead of installing it.
     @Test func aPulledStagedBuildNoOneCanCancelIsNotOffered() async throws {
