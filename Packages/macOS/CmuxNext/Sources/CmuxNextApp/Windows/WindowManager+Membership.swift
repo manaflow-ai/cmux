@@ -449,9 +449,11 @@ extension WindowManager {
     }
 
     /// The signed-in account's Cloud machine list has loaded: a machine it does not list left the account.
+    /// The list must be this user's and team's (`hasLoadedCurrentMachines`): after a team switch the
+    /// store keeps the previous team's list until the new one lands, and the new team's machines are not in it.
     private var accountMachineListLoaded: Bool {
         let list = cloudList(services.cloud)
-        return list.isSignedIn && !list.isRestoring && list.hasLoadedMachines
+        return list.isSignedIn && !list.isRestoring && list.hasLoadedCurrentMachines
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
