@@ -113,6 +113,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .saveFile: "saveFile"
         case .composerSetting: "composerSetting"
         case .displaySetting: "displaySetting"
+        case .featureTips: "featureTips"
         case .toolCard: "toolCard"
         case .computerUsePreview: "computerUsePreview"
         case .upload: "upload"

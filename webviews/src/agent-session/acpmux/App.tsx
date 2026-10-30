@@ -567,6 +567,7 @@ import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
+import { PaneFeatureTips } from "./featureTips";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -11515,6 +11516,8 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
+                {/* A feature tip under its header control (featureTips.tsx; it portals out). */}
+                {!quick && !showNewTab && snapshot.sessionId && <PaneFeatureTips streaming={turnWorking} />}
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
