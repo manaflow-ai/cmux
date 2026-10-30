@@ -190,6 +190,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", upload)
         self.assertIn("continue-on-error: true", upload)
         self.assertIn("name: webviews-test-history-shard${{ matrix.shard }}", upload)
+        gate = shard[shard.index("      - name: Fail on the gate checks"):]
+        self.assertIn("HISTORY_UPLOAD: ${{ steps.history-upload.outcome }}", gate)
+        self.assertNotIn('"HISTORY_UPLOAD|', gate)  # read as a warning, never one of the failing gates
         base = self.job("react-apps-base-check")
         restore = base[base.index("      - name: Restore the base's webview test history"):]
         restore = restore[:restore.index("\n      - name:", 10)]
