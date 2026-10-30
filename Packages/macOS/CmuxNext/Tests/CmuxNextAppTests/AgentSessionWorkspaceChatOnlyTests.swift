@@ -84,7 +84,17 @@ struct AgentSessionWorkspaceChatOnlyTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
         let store = services.daemon.store
-        defer { try? FileManager.default.removeItem(at: root) }
+        var daemonPID: Int32?
+        defer {
+            // Detach the reconnecting connection before signaling the owned daemon, even when an
+            // assertion exits the test while the process is stopped.
+            services.daemon.shutdownConnection()
+            if let daemonPID {
+                _ = kill(daemonPID, SIGCONT)
+                _ = kill(daemonPID, SIGTERM)
+            }
+            try? FileManager.default.removeItem(at: root)
+        }
         let tabs = services.agentTabs
         tabs.localHost = AgentSessionRef.host(installID: "chat-only-late-test")
         tabs.holdsTabs = { _ in true }
@@ -94,12 +104,7 @@ struct AgentSessionWorkspaceChatOnlyTests {
         }
         try #require(tabs.canHostChat, "this build has no agent page")
         let pid = try #require(services.daemon.identity?.pid)
-        defer {
-            // If an assertion or timeout below fails while the daemon is stopped, leave no
-            // child behind to poison the serialized app suite.
-            _ = kill(pid, SIGCONT)
-            _ = kill(pid, SIGTERM)
-        }
+        daemonPID = pid
         let key = WorkspaceKey.generate()
         let work = try AgentSessionWorkspace.open(session: "s-chat-only-late", name: "late lane", key: key, cwd: "/tmp", services: services)
 
