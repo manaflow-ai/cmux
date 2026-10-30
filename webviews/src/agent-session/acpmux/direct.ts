@@ -2502,9 +2502,14 @@ export class AcpmuxDirectClient {
     this.historyExhausted = kept.historyExhausted;
     this.configSeq = kept.configSeq;
     this.usageFromSeq = kept.usageFromSeq;
+    // Seed replay from the kept session identity before rebuilding: SubagentFold must know the
+    // native root while it consumes the historical events, not after the malformed tree is drawn.
+    const keptSummary = { ...kept.summary, ...listed };
+    this.summary = keptSummary;
     this.rebuild();
-    // After the replay, not before: a `session_changed` the tail holds would take the live state back.
-    this.summary = { ...kept.summary, ...listed };
+    // A session_changed can carry newer live state than the kept tail. Restore it after replay;
+    // only the root identity needs to be visible during the fold rebuild itself.
+    this.summary = keptSummary;
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
@@ -2619,6 +2624,20 @@ export class AcpmuxDirectClient {
     // A new chat's start mode may have changed (a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
+    // acpmux refused this pane's Stop, which as a notification has no answer of its own.
+    else if (notification.method === "_acpmux/cancel_refused") this.stopRefused(notification.params);
+  }
+
+  /// A Stop acpmux refused (`_acpmux/cancel_refused`: a chat on another machine that only its owner
+  /// can stop, a mode a paired device cannot stop): the turn runs on, so it no longer reads as
+  /// stopping, and the chat says why instead of looking as if Stop did nothing.
+  private stopRefused(params: any): void {
+    if (typeof params?.sessionId !== "string" || params.sessionId !== this.actingSessionId) return;
+    this.stopAfterSeq = undefined;
+    this.stoppingEnded();
+    const reason =
+      typeof params.message === "string" && params.message ? params.message : translate("transport.refused");
+    this.notice(translate("queue.stopRefused", { reason }));
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -3958,13 +3977,17 @@ export class AcpmuxDirectClient {
   /// when an older acpmux recorded that thread as one of its own subagents, a parent or an owner (a Codex child reporting its parent thread), they are
   /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
   private learnChatThread(): void {
+    const thread = this.chatThread();
+    if (thread) {
+      this.subagents.setRoot(thread);
+      this.takeSubagentRows();
+    }
     // A shell call that started another family's agent before the chat's harness was known draws
     // as that agent now (subagentFold.ts ``deferredRun``).
     if (this.summary?.harness && !this.subagents.harness && this.subagents.deferredRun) {
       this.rebuildKeepingLiveState();
       return;
     }
-    const thread = this.chatThread();
     if (!thread || this.subagents.chat === thread || !this.subagents.names(thread)) return;
     this.rebuildKeepingLiveState();
   }
@@ -4013,6 +4036,9 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
+    // Replay knows the native harness id from the session summary. Seed it before any persisted
+    // acpmux records so an echoed root thread cannot be reconstructed as a child of its reporter.
+    this.subagents.setRoot(text(this.summary?.agentSessionId));
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -4426,6 +4452,12 @@ export class AcpmuxDirectClient {
   /// The subagent group rows that changed, into the transcript.
   private takeSubagentRows(): void {
     for (const row of this.subagents.takeRows()) {
+      // A late root seed can empty a previously emitted group after removing a phantom root.
+      // Remove that stale row instead of leaving a blank disclosure in the transcript.
+      if (!row.subagents?.length) {
+        this.rows.delete(row.id);
+        continue;
+      }
       // A new group ends the text and tool calls before it, like a tool call does.
       if (!this.rows.has(row.id)) {
         this.endAssistantSegment();
@@ -4440,7 +4472,10 @@ export class AcpmuxDirectClient {
             agent.state !== previous?.[index]?.state ||
             agent.name !== previous?.[index]?.name,
         );
+      const current = this.rows.current;
+      if (!this.rows.has(row.id) && row.seq !== undefined) this.rows.current = row.seq;
       this.rows.set(row.id, row, changed ?? false);
+      this.rows.current = current;
     }
   }
 
@@ -7639,6 +7674,8 @@ export class AcpmuxDirectClient {
     this.toolRows = new Map();
     this.planCalls = new Set();
     this.subagents = new SubagentFold(this.subagentStops);
+    // An older page replays persisted records too: seed the native root as the full replay does.
+    this.subagents.setRoot(text(this.summary?.agentSessionId));
     this.groupedPermissions = new Map();
     this.waitingPermissions = new Map();
     this.openQuestions = new Set();
