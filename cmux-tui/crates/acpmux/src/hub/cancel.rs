@@ -34,6 +34,7 @@
 //! turn reads `stopping`, and its prompt never reaches the agent that comes (`turns.rs`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::AtomicU64;
 
 /// Listed in `initialize`'s features by a daemon that takes a peer's person's Stop as its own
@@ -52,7 +53,7 @@ const INTERRUPT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 pub(super) fn forced_answer(restarted: bool) -> Value {
     let mut mux = json!({"cancelForced": true});
     if restarted {
-        mux["restarted"] = json!(true);
+        mux.set("restarted", json!(true));
     }
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
 }
