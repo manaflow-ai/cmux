@@ -287,6 +287,11 @@ impl Mux {
         }
     }
 
+    /// Fold the journal tail into the roster and save its cursor, so a start
+    /// does not replay records that change nothing. Not yet: a no-op.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(super) fn catch_up_agent_roster(&self) {}
+
     /// Repair public projections whose plugin roster event was folded before
     /// the daemon stopped. The roster is the canonical live view; the
     /// projection is a separately committed compatibility view for clients.
