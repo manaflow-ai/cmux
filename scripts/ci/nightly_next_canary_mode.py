@@ -246,6 +246,8 @@ def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author
 GATE_MARKER = "Hold publication"
 # A job not listed yet right after both jobs were queued is given this long to appear.
 MISSING_GRACE_S = 300
+# How late past the budget await_gate's last look may start and still count a hold (a sleep's jitter).
+DEADLINE_SLACK_S = 5
 
 
 def gate_action(jobs: Iterable[Mapping[str, Any]], job_name: str, elapsed_s: float, queue_budget_s: float,
@@ -308,8 +310,12 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
         errors = 0
         action, verdict, blocks, why = gate_action(jobs, job_name, elapsed, queue_budget_s, run_budget_s)
         if action == "done":
+            if blocks and elapsed > run_budget_s + DEADLINE_SLACK_S:
+                # Seen only after the budget ran out: publication was promised it would not wait this long.
+                return "unavailable", False, f"{why}, but only after the {int(run_budget_s // 60)} min budget"
             return verdict, blocks, why
-        sleep(interval_s)
+        # The last look lands on the budget itself, never a whole interval past it.
+        sleep(max(0.0, min(interval_s, run_budget_s - (clock() - start))))
     return "unavailable", False, f"gave up after {polls} looks: {why}"
 
 

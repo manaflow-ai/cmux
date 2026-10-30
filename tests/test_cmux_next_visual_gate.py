@@ -755,6 +755,29 @@ class AwaitGateTests(unittest.TestCase):
         self.assertEqual((verdict, blocks), ("fail", True))
         self.assertEqual(looks[-1], 50 * 60)
 
+    def test_the_last_look_is_on_the_budget_and_a_later_hold_counts_for_nothing(self):
+        queue, hold = 5 * 60, 10 * 60
+        held = [gate_job("completed", "failure", "mac", marker="success")]
+        running = [gate_job("in_progress", runner="mac")]
+        # Looks drift off the minute (each read takes time): the last one is still on the budget.
+        now, looks = [0.0], []
+
+        def fetch():
+            looks.append(now[0])
+            now[0] += 7
+            return self.OTHERS + (held if now[0] > hold - 1 else running)
+        verdict, blocks, _ = self.mode.await_gate(fetch, "visual-gate-nightly", queue, hold,
+                                                  clock=lambda: now[0],
+                                                  sleep=lambda s: now.__setitem__(0, now[0] + s))
+        self.assertEqual((verdict, blocks), ("fail", True))
+        self.assertEqual(looks[-1], hold)
+        # A hold seen only well past the budget (a slow read, a stalled runner) holds nothing.
+        clock = iter([0.0, hold + 60, hold + 60])
+        verdict, blocks, why = self.mode.await_gate(lambda: self.OTHERS + held, "visual-gate-nightly", queue, hold,
+                                                    clock=lambda: next(clock), sleep=lambda s: None)
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertIn("after the 10 min budget", why)
+
     def test_an_unreadable_api_blocks_nothing_and_a_blip_is_retried(self):
         (verdict, blocks, why), looks = self.poll(lambda now: RuntimeError("HTTP 502"))
         self.assertEqual((verdict, blocks), ("unavailable", False))
