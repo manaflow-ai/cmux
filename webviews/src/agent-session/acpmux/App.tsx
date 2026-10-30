@@ -6439,11 +6439,9 @@ function AcpmuxPane() {
   // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
+  // Rows publish their own progress into this pane-scoped store. Usage-only snapshots therefore
+  // update only mounted rows whose progress changed; the App never scans the whole agent list.
   const progressStore = useMemo(() => new AgentProgressStore(freshAgents), [shownSessionId]);
-  const seenProgressVersions = useRef<Map<string, number | undefined>>(new Map());
-  useLayoutEffect(() => {
-    progressStore.updateChanged(freshAgents, seenProgressVersions.current);
-  }, [progressStore, freshAgents]);
   const structureRef = useRef<{ agents: readonly typeof freshAgents[number][]; key: string }>({ agents: [], key: "" });
   let structureChanged = structureRef.current.agents.length !== freshAgents.length;
   if (!structureChanged) {

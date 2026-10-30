@@ -28,13 +28,6 @@ export class AgentProgressStore {
   update(agents: readonly Subagent[]): void {
     for (const agent of agents) this.updateAgent(agent);
   }
-  updateChanged(agents: readonly Subagent[], seen: Map<string, number | undefined>): void {
-    for (const agent of agents) {
-      if (seen.get(agent.id) === agent.progressVersion) continue;
-      seen.set(agent.id, agent.progressVersion);
-      this.updateAgent(agent);
-    }
-  }
   updateAgent(agent: Subagent): void {
     if (same(this.get(agent.id), agent)) return;
     this.values.set(agent.id, {
