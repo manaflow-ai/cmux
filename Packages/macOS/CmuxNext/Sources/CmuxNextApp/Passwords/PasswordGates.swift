@@ -10,7 +10,7 @@ protocol DeviceOwnerAuthenticating: AnyObject {
 }
 
 private final class AuthContextBox: @unchecked Sendable {
-    let context: LAContext
+    nonisolated(unsafe) let context: LAContext
     init(_ context: LAContext) { self.context = context }
 }
 
@@ -19,13 +19,13 @@ private final class AuthReply: @unchecked Sendable {
     private var continuation: CheckedContinuation<Bool, Never>?
     private var finished = false
 
-    func install(_ continuation: CheckedContinuation<Bool, Never>) {
+    nonisolated func install(_ continuation: CheckedContinuation<Bool, Never>) {
         lock.lock()
         defer { lock.unlock() }
         if finished { continuation.resume(returning: false) } else { self.continuation = continuation }
     }
 
-    func finish(_ answer: Bool) {
+    nonisolated func finish(_ answer: Bool) {
         lock.lock()
         guard !finished else { lock.unlock(); return }
         finished = true
