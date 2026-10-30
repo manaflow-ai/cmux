@@ -19,9 +19,11 @@
 //!
 //! The caller decides when an owner is stuck: an owner also holds connections
 //! unanswered while it restores its session (up to `RESTORE_DEADLINE`), and
-//! this probe cannot tell the two apart. The app offers the option only after
-//! a plain ensure has failed (`server.restore_timeout` or no answer), so the
-//! restore bound has passed. Replacing a slow restore costs restore time, not
+//! this probe cannot tell the two apart. A stopped listener is the exception
+//! (`listener_is_stopped`): plain ensure reports it unavailable at once.
+//! The app offers the option only after a plain ensure has failed
+//! (`server.restore_timeout` or no answer), so the restore bound has passed,
+//! or the owner is stopped. Replacing a slow restore costs restore time, not
 //! terminals: the hosts survive and the next owner adopts them.
 //!
 //! Stop: SIGTERM and SIGCONT (a stopped process acts on SIGTERM only after it
@@ -135,6 +137,36 @@ pub(crate) fn replace_if_unresponsive(spec: &OwnerSpec) -> Result<Option<Replace
         return Ok(Some(Replaced { pid: listener.pid }));
     }
     Err(ReplaceError::StillRunning)
+}
+
+/// Whether the process listening on the session socket (`key`, from
+/// `transport::Stream::peer_process_key`) is stopped: SIGSTOP or a debugger
+/// holds it, so it answers nothing and restores nothing until continued.
+/// False when the listener or its state is unknown (a restoring owner is
+/// never called stopped).
+pub(super) fn listener_is_stopped(key: Option<&str>) -> bool {
+    listener_of(key.map(str::to_owned)).is_ok_and(|listener| process_is_stopped(listener.pid))
+}
+
+#[cfg(target_os = "macos")]
+fn process_is_stopped(pid: u32) -> bool {
+    /// `SSTOP` from `<sys/proc.h>`.
+    const SSTOP: u32 = 4;
+    let Ok(pid) = i32::try_from(pid) else { return false };
+    // SAFETY: an all-zero proc_bsdinfo is a valid out-buffer.
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let Ok(size) = i32::try_from(size_of::<libc::proc_bsdinfo>()) else { return false };
+    // SAFETY: the out-buffer is valid for `size` bytes.
+    let read =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
+    read == size && info.pbi_status == SSTOP
+}
+
+/// Linux would read the state from `/proc/<pid>/stat`, which the no-process-scan guard keeps out
+/// of product code: a stopped owner there waits out the restore bound as before.
+#[cfg(not(target_os = "macos"))]
+fn process_is_stopped(_pid: u32) -> bool {
+    false
 }
 
 /// Parses `token:<pid>.<version>` (`transport::Stream::peer_process_key`).

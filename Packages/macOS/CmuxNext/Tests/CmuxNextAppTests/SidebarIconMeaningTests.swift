@@ -111,35 +111,38 @@ import Testing
 
     // MARK: Update Available button
 
-    /// The quiet Update Available button sits left of the bell and the + button and never
-    /// crosses the titlebar's leading reserve: with no room for both, the update notice takes the
-    /// bell's slot.
-    @Test func theUpdateButtonNeverOverlapsTheLeadingReserve() {
-        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+    /// Leo 2026-10-28: "Also, the update button, don't put at the top. Put on the bottom. The bottom has room. The
+    /// bottom of the sidebar area." The quiet Update Available button sits at the footer line's end, on the Search
+    /// button's line, inside the sidebar; the titlebar row keeps only the bell and +, and the spaces strip ends before it.
+    @Test(arguments: [false, true])
+    func theUpdateButtonSitsAtTheBottom(_ noFade: Bool) {
+        let design = DesignSettings()
+        design.sidebarSections.noFade = noFade
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: design)
         sidebar.showPriority(SidebarPriorityPanel(entries: [], shown: false))
-        sidebar.showUpdateAvailable("Update Available")
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
-        let update = sidebar.updateAvailableButton, bell = sidebar.priorityButton
+        let bellBefore = sidebar.priorityButton.frame
+        sidebar.showUpdateAvailable("Update Available")
+        sidebar.layoutSubtreeIfNeeded()
+        let update = sidebar.updateAvailableButton, bounds = sidebar.bounds
         #expect(!update.isHidden)
         #expect(update.accessibilityLabel() == "Update Available")
-        #expect(update.frame.maxX <= bell.frame.minX, "the update button overlaps the bell")
-        // A narrow sidebar whose reserve leaves room for one button only.
-        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - Metrics.space1 - sidebar.newButton.frame.width - 1
+        #expect(sidebar.priorityButton.frame == bellBefore, "the update button moved the bell")
+        // The sidebar is flipped: the bottom line is its largest y.
+        #expect(update.frame.midY > bounds.height * 0.85, "the update button is not on the bottom line: \(update.frame) in \(bounds)")
+        #expect(update.frame.maxY <= bounds.maxY && update.frame.maxX <= bounds.maxX, "the update button leaves the sidebar")
+        if !sidebar.searchButton.isHidden {
+            // Search holds the line's right end (f004cef0aa9); the update button sits just left of it, on its line.
+            #expect(abs(update.frame.midY - sidebar.searchButton.frame.midY) <= 1, "the update button is off the Search button's line")
+            #expect(abs(sidebar.searchButton.frame.minX - Metrics.space1 - update.frame.maxX) <= 0.5, "the update button is not just left of Search")
+        }
+        // Codex review: a sidebar too narrow for both never covers Search or the avatar; the update button steps out of the line.
+        sidebar.frame.size.width = 80
         sidebar.layoutSubtreeIfNeeded()
-        #expect(update.frame.minX >= sidebar.titlebarLeadingReserve, "the update button crossed the leading reserve")
-        #expect(update.frame.width > 0, "the update notice lost its slot")
-        #expect(bell.frame == .zero, "the bell kept a slot over the update button")
-        // No bell (Priority off) and no room left of +: no slot to take, so the update button steps out of the row.
-        sidebar.showPriority(nil)
-        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - 1
-        sidebar.layoutSubtreeIfNeeded()
-        #expect(update.frame == .zero, "the update button crossed the leading reserve without a bell")
-        // A bell that crosses the reserve itself gives no slot either.
-        sidebar.showPriority(SidebarPriorityPanel(entries: [], shown: false))
-        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - 1
-        sidebar.layoutSubtreeIfNeeded()
-        #expect(update.frame == .zero || update.frame.minX >= sidebar.titlebarLeadingReserve, "the update button took a bell slot across the reserve")
+        if !sidebar.searchButton.isHidden {
+            #expect(update.frame == .zero || update.frame.maxX <= sidebar.searchButton.frame.minX, "the update button covers Search at 80 pt")
+        }
         sidebar.showUpdateAvailable(nil)
         #expect(update.isHidden)
     }

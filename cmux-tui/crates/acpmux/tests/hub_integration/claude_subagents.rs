@@ -28,6 +28,15 @@ async fn claude_subagents_carry_their_kind() {
         .cloned()
         .unwrap_or_else(|| panic!("no subagent spawned: {mux:?}"));
     assert_eq!(spawn["kind"], "Explore");
+    assert_eq!(spawn["model"], "haiku");
+    assert_eq!(spawn["effort"], "high");
+    let ended = mux
+        .iter()
+        .filter_map(|m| m.get("subagents").and_then(Value::as_array))
+        .flatten()
+        .find(|s| s["state"] == "completed")
+        .unwrap();
+    assert_eq!(ended["lastMessage"], "Found one test file");
     assert_eq!(spawn["name"], "Find the tests");
     assert!(mux.iter().any(|m| m.get("subagent") == Some(&spawn["id"])), "{mux:?}");
     let _ = std::fs::remove_dir_all(root);

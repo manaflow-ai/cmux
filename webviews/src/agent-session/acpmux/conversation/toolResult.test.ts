@@ -44,6 +44,108 @@ test("envelopes inside envelopes and JSON text inside text unwrap too", () => {
 test("Markdown text reads as Markdown", () => {
   const text = "## Open issues\n\n- **#12** Crash on launch";
   expect(toolResult(JSON.stringify([{ type: "text", text }]))).toEqual({ text, lang: "markdown" });
+  expect(toolResult(text)).toEqual({ text, lang: "markdown" });
+  expect(toolResult("The **service** is healthy.").lang).toBe("markdown");
+  expect(toolResult(text, undefined, false, { kind: "execute" }).lang).toBe("text");
+});
+
+test("clear emphasis is Markdown, and a web reader can opt prose into the renderer", () => {
+  const emphasis = "The **service** is healthy.";
+  expect(toolResult(JSON.stringify([{ type: "text", text: emphasis }])).lang).toBe("markdown");
+  expect(
+    toolResult(JSON.stringify([{ type: "text", text: "The service is healthy." }]), undefined, false, {
+      markdown: true,
+    }),
+  ).toEqual({ text: "The service is healthy.", lang: "markdown" });
+  expect(
+    toolResult(JSON.stringify([{ type: "text", text: "row 0\nrow 1" }]), undefined, false, { markdown: true }).lang,
+  ).toBe("text");
+  expect(toolResult(JSON.stringify({ ok: true }), undefined, false, { markdown: true }).lang).toBe("json");
+});
+
+test("fetch log lines stay monospace, including a single line, and title punctuation is literal", () => {
+  for (const text of ["[INFO] downloaded", "[ERROR] fetch failed", "[INFO] **literal log**"]) {
+    expect(toolResult(text, undefined, false, { kind: "fetch" })).toEqual({ text, lang: "text" });
+  }
+  const source = 'const path = "fetch.ts";\nconst html = "<div>raw</div>";';
+  for (const title of ["Read fetch.ts", "Read web_read.ts", "Search fetch callers"]) {
+    expect(toolResult(source, undefined, false, { kind: "read", title })).toEqual({ text: source, lang: "text" });
+  }
+  for (const title of ["Fetch https://example.test", "WebRead https://example.test", "web_read"]) {
+    expect(toolResult("A service summary.", undefined, false, { title }).lang).toBe("markdown");
+  }
+});
+
+test("fetched timestamped log lines stay monospace", () => {
+  const log = [
+    "2026-10-21T09:00:12.481Z retry attempt=1 url=https://api.example.test/v2/uploads?part=1 status=503 delayMs=250",
+    "2026-10-21T09:01:12.481Z retry attempt=2 url=https://api.example.test/v2/uploads?part=2 status=503 delayMs=500",
+  ].join("\n");
+  expect(toolResult(log, undefined, false, { kind: "fetch" })).toEqual({ text: log, lang: "text" });
+  const spaced = "2026-10-21 09:00:12 connected\n[2026-10-21 09:00:13] *ready*\n09:00:14.002 done";
+  expect(toolResult(spaced, undefined, false, { kind: "fetch" })).toEqual({ text: spaced, lang: "text" });
+  // A dated prose line is not a log line.
+  expect(toolResult("2026-10-21 was a quiet day.", undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+});
+
+test("fetched logs with stack trace continuation lines stay monospace", () => {
+  const trace = [
+    "2026-10-21T09:00:12.481Z [INFO] starting upload",
+    "2026-10-21T09:00:13.002Z [ERROR] upload failed",
+    "  Error: socket hang up",
+    "    at connResetException (node:internal/errors:720:14)",
+    "Caused by: ECONNRESET",
+  ].join("\n");
+  expect(toolResult(trace, undefined, false, { kind: "fetch" })).toEqual({ text: trace, lang: "text" });
+  const spaced = "[ERROR] request failed\n\n    at foo (file:1:2)\n[INFO] retrying";
+  expect(toolResult(spaced, undefined, false, { kind: "fetch" })).toEqual({ text: spaced, lang: "text" });
+  const frames = "[ERROR] boom\n    at a (x.ts:1:1)\n    at b (x.ts:2:2)\n    at c (x.ts:3:3)";
+  expect(toolResult(frames, undefined, false, { kind: "fetch" })).toEqual({ text: frames, lang: "text" });
+  // Prose with an indented line, or one log-looking line over indented code, is still Markdown.
+  const prose = "A short summary.\n  indented detail";
+  expect(toolResult(prose, undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+  const code = "[INFO] usage notes\n\n    npm install\n    npm run build\n    npm test";
+  expect(toolResult(code, undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+});
+
+test("source-looking underscores stay literal while structural and fetched Markdown still renders", () => {
+  const python = `class Worker:\n    def __init__(self):\n        self.__ready__ = True`;
+  expect(toolResult(python)).toEqual({ text: python, lang: "text" });
+  expect(toolResult(python, undefined, false, { kind: "fetch", title: "Fetch https://example.test/source" })).toEqual({
+    text: python,
+    lang: "text",
+  });
+  expect(toolResult("## Heading\n\n- **clear** structure")).toEqual({
+    text: "## Heading\n\n- **clear** structure",
+    lang: "markdown",
+  });
+  expect(toolResult("A fetched page summary.", undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+});
+
+test("code inside a fenced block does not make a Markdown result plain text", () => {
+  const doc = [
+    "## Usage",
+    "",
+    "Install it, then:",
+    "",
+    "```ts",
+    'import { start } from "./server";',
+    "const port = 8080;",
+    "export default start(port);",
+    "```",
+    "",
+    "~~~python",
+    "class Worker:",
+    "    def __init__(self):",
+    "        self.ready = True",
+    "~~~",
+  ].join("\n");
+  expect(toolResult(doc)).toEqual({ text: doc, lang: "markdown" });
+  expect(toolResult(JSON.stringify([{ type: "text", text: doc }]))).toEqual({ text: doc, lang: "markdown" });
+  expect(toolResult(doc, undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+  // Code outside a fence still keeps the result literal, and so does an unclosed fence.
+  expect(toolResult(`${doc}\nconst leaked = true;`).lang).toBe("text");
+  expect(toolResult("## Notes\n\n```js\nconst open = 1;").lang).toBe("text");
 });
 
 const PNG = "iVBORw0KGgo=";

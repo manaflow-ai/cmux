@@ -20,4 +20,6 @@ public protocol ComputerUsePermissionSource: AnyObject {
     func enable()
     /// Restarts the helper and reads its grants again.
     func restart()
+    /// Reads the grants again now (the helper app was dropped into a list).
+    func recheck()
 }
