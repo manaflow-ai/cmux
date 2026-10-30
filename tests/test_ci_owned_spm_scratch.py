@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import owned_spm_scratch as scratch  # noqa: E402
 
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
+NEXT_WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 RUNNER = "mini-glaeda-2"
 
 
@@ -30,6 +31,12 @@ def make_entry(root: Path, name: str, size: int, built: float) -> Path:
     scratch.lock_path(entry).touch()
     os.utime(scratch.lock_path(entry), (built, built))  # its last use
     return entry
+
+
+def git(workspace: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(workspace), *args], check=True, capture_output=True,
+                   env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@t"})
 
 
 class Scratch(unittest.TestCase):
@@ -44,7 +51,12 @@ class Scratch(unittest.TestCase):
             (self.workspace / package).mkdir(parents=True)
             (self.workspace / package / "Package.swift").write_text("// swift-tools-version:5.9\n")
 
+        # Plenty of disk unless a test says otherwise.
+        self.reserve = unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=0)
+        self.reserve.start()
+
     def tearDown(self):
+        self.reserve.stop()
         for holder in scratch.HOLDERS:
             holder.kill()
             holder.wait()
@@ -241,6 +253,136 @@ class Scratch(unittest.TestCase):
         self.assertIn("starts cold (first on host, 0.0 GiB kept)", result.stdout)
         payload = json.loads((temp / scratch.WARM_START_FILE).read_text())
         self.assertEqual((payload["state"], payload["reason"], payload["run_id"]), ("cold", "first on host", "7"))
+
+    def checkout(self) -> Path:
+        git(self.workspace, "init", "-q")
+        (self.workspace / "Packages/macOS/B/Sources").mkdir(parents=True)
+        (self.workspace / "Packages/macOS/B/Sources/b.swift").write_text("let b = 1\n")
+        (self.workspace / "tool.sh").write_text("#!/bin/sh\n")
+        os.chmod(self.workspace / "tool.sh", 0o755)
+        os.symlink("Packages/macOS/B", self.workspace / "b-link")
+        (self.workspace / ".gitignore").write_text(".build\nignored/\n")
+        (self.workspace / "ignored").mkdir()
+        (self.workspace / "ignored/huge").write_text("not mirrored")
+        git(self.workspace, "add", "-A")
+        git(self.workspace, "commit", "-qm", "one")
+        return self.workspace
+
+    def lease(self, fingerprints=("root-0", "root-1"), verdict=None):
+        return scratch.lease(self.workspace, self.store, RUNNER, verdict=verdict, fingerprints=list(fingerprints))
+
+    def test_a_lease_mirrors_the_checkout_and_links_the_roots_packages(self):
+        self.checkout()
+        verdict = {}
+        source = self.lease(verdict=verdict)
+        self.assertEqual(source, self.scratch / "root-0" / scratch.SHARED_SOURCE)
+        self.assertEqual((source / "Packages/macOS/B/Sources/b.swift").read_text(), "let b = 1\n")
+        self.assertTrue(os.access(source / "tool.sh", os.X_OK))
+        self.assertEqual(os.readlink(source / "b-link"), "Packages/macOS/B")
+        self.assertTrue((source / ".git/HEAD").is_file())
+        self.assertFalse((source / "ignored").exists())  # ignored outputs of other jobs stay in the workspace
+        self.assertEqual((source / "Packages/macOS/B/.build").resolve(),
+                         (self.scratch / "root-0/Packages__macOS__B").resolve())
+        self.assertEqual(verdict, {"state": "cold", "reason": "first on host", "bytes": 0})
+
+    def test_an_unchanged_file_keeps_its_time_in_the_root_and_a_changed_one_is_newer(self):
+        self.checkout()
+        source = self.lease()
+        old = source / "Packages/Shared/A/Package.swift"
+        changed = source / "Packages/macOS/B/Sources/b.swift"
+        for path in (old, changed):
+            os.utime(path, (1000, 1000))
+        scratch.release_holders()
+        (self.workspace / "Packages/macOS/B/Sources/b.swift").write_text("let b = 2\n")
+        os.utime(self.workspace / "Packages/Shared/A/Package.swift", (5_000_000, 5_000_000))  # another slot's checkout time
+        self.assertEqual(self.lease(), source)
+        self.assertEqual(old.stat().st_mtime, 1000)
+        self.assertEqual(changed.read_text(), "let b = 2\n")
+        self.assertGreater(changed.stat().st_mtime, 1000)
+
+    def test_a_file_gone_from_the_checkout_goes_from_the_root_but_the_kept_build_stays(self):
+        self.checkout()
+        source = self.lease()
+        built = source / "Packages/macOS/B/.build/product"
+        built.write_text("built")
+        (source / "stray").mkdir()
+        (source / "stray/file").write_text("x")
+        scratch.release_holders()
+        git(self.workspace, "rm", "-q", "tool.sh")
+        self.lease()
+        self.assertFalse((source / "tool.sh").exists())
+        self.assertFalse((source / "stray").exists())
+        self.assertEqual(built.read_text(), "built")
+
+    def test_a_root_another_job_holds_is_never_shared_and_a_second_root_is_made(self):
+        self.checkout()
+        first = self.lease()
+        second = self.lease()
+        self.assertEqual(first.parent.name, "root-0")
+        self.assertEqual(second.parent.name, "root-1")
+        self.assertIsNone(self.lease())  # both held: the caller links its own workspace
+        scratch.release_holders()
+        self.assertEqual(self.lease().parent.name, "root-0")  # the lowest free root, the warmest
+
+    def test_a_kept_root_starts_warm(self):
+        self.checkout()
+        self.lease()
+        self.built("root-0")
+        scratch.release_holders()
+        verdict = {}
+        self.lease(verdict=verdict)
+        self.assertEqual((verdict["state"], verdict["reason"]), ("warm", "kept"))
+
+    def test_no_new_root_without_room_above_the_reserve(self):
+        self.checkout()
+        self.lease()
+        self.built("root-0")
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=10), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=10):
+            self.assertIsNone(self.lease())
+        self.assertFalse((self.scratch / "root-1").exists())
+
+    def test_a_leased_root_is_held_against_prune_and_glaeda_disk(self):
+        self.checkout()
+        self.lease()
+        self.assertEqual(scratch.evict(self.store), [])
+        with open(scratch.lock_path(self.scratch / "root-0"), "a") as handle:
+            with self.assertRaises(OSError):
+                fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)  # exclusive: not even a link shares it
+        scratch.release_holders()
+        self.assertEqual(scratch.evict(self.store), [str(self.scratch / "root-0")])
+
+    def test_the_cap_is_the_free_space_above_the_reserve(self):
+        make_entry(self.scratch, "old", 100, 1)
+        make_entry(self.scratch, "new", 100, 5)
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=1000), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=1050):
+            scratch.prune(self.scratch)  # 50 bytes short: the older one goes
+        self.assertEqual([path.name for path in scratch.entries(self.scratch)], ["new"])
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=10**12):
+            make_entry(self.scratch, "again", 100, 1)
+            scratch.prune(self.scratch)
+        self.assertEqual(len(scratch.entries(self.scratch)), 2)
+
+    def test_the_reserve_is_glaedas_floor_plus_one_jobs_growth_from_the_host_manifest(self):
+        self.reserve.stop()
+        try:
+            manifest = Path(self.tmp.name) / "mini-fleet.json"
+            manifest.write_text(json.dumps({"defaults": {"disk": {"min_free_gib": 30, "job_growth_gib": 20,
+                                                                   "cleanup_start_gib": 120}},
+                                            "hosts": {"m": {"overrides": {"disk": {"min_free_gib": 40}}}}}))
+            self.assertEqual(scratch.disk_reserve_bytes((manifest,)), 60 * 1024**3)
+            self.assertEqual(scratch.disk_reserve_bytes((Path(self.tmp.name) / "missing.json",)), 50 * 1024**3)
+        finally:
+            self.reserve.start()
+
+    def test_the_fast_tier_builds_in_the_leased_root(self):
+        text = NEXT_WORKFLOW.read_text()
+        job = text[text.index("\n  fast-tier:\n"):text.index("\n  fast-tier-cargo:\n")]
+        self.assertIn("owned_spm_scratch.py lease", job)
+        self.assertNotIn("owned_spm_scratch.py link", job)
+        self.assertIn('--root "${{ steps.spm-root.outputs.root || github.workspace }}"', job)
+        self.assertLess(job.index("owned_spm_scratch.py lease"), job.index("scripts/cmux-next/fast-tier.py"))
 
     def test_the_workflow_links_before_the_package_tests(self):
         text = WORKFLOW.read_text()
