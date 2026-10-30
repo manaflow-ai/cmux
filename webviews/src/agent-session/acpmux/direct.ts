@@ -4194,6 +4194,12 @@ export class AcpmuxDirectClient {
         const fallbackPromptId =
           promptId ??
           (text ? [...this.optimisticPromptTexts.entries()].find(([, value]) => value === text)?.[0] : undefined);
+        // Capture the queue metadata before acceptance removes its row: an older or capped
+        // user_message may carry only text, while the queue still holds its paste/file parts.
+        const knownParts = fallbackPromptId
+          ? (this.optimisticPromptParts.get(fallbackPromptId) ??
+            this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
+          : undefined;
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, {
           ...msg,
           promptId: fallbackPromptId,
@@ -4275,10 +4281,6 @@ export class AcpmuxDirectClient {
         // A new list, never one changed in place: the snapshot names its rows by the list's identity.
         if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: `user-${event.seq}`, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
-        const knownParts = fallbackPromptId
-          ? (this.optimisticPromptParts.get(fallbackPromptId) ??
-            this.queue.find((entry) => entry.id === fallbackPromptId)?.inlineParts)
-          : undefined;
         const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
