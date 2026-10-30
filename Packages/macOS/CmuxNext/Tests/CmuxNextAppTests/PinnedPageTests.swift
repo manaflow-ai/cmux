@@ -27,8 +27,11 @@ actor AppTestDaemonOwner {
         let id = UUID()
         // task-owner: one bounded ensure; both its caller and reap join it before dropping ownership
         let ensure = Task { try await self.ensureEndpoint() }
+        // Keep every launch attempt registered until reap() has joined it. The caller may be
+        // cancelled while ensureEndpoint() is still starting a daemon; removing it here lets
+        // teardown report success and delete its state directory before that launch records its
+        // ownership.
         ensures[id] = ensure
-        defer { ensures[id] = nil }
         return try await ensure.value
     }
 
@@ -60,6 +63,7 @@ actor AppTestDaemonOwner {
         stopping = true
         // Reject new requests and join admitted ensures before taking the ownership census.
         for ensure in Array(ensures.values) { _ = try? await ensure.value }
+        ensures.removeAll()
         var resolved = true
         if let running = await launcher.runningOwner() {
             record(running.endpoint)
