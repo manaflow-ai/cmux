@@ -24,7 +24,10 @@ that an older head's SHIP carries across a base merge, not a verdict: it counts 
 independent verdict names the head and the newest independent verdict on the pull request is a SHIP (next-autoland's ship_receipt, cmuxterm-hq#4975). cmux#27189 landed 2026-10-29 on
 "Review (Astra; carried): SHIP at 127a023e" while the box review of its pre-merge head had returned BLOCK.
 Carried receipts also require both history windows to be below their limits: a full window could hide a verdict naming
-the target head, which a carry cannot replace.
+the target head, which a carry cannot replace. A risk:high pull request never merges on a carried receipt: it needs an
+independent verdict of its own on the exact head (cmux-ad, 2026-10-30, decision 788, as docs/ci/risk-tiers.md says;
+a base merge can change what a risk:high patch does even with no conflict). next-autoland applies the same rule
+(cmuxterm-hq#5420, exact_receipt).
 
 Before that, as next-autoland's review_state() judges it, the newest review-like word on any head must not say wait:
 a change request, "Review (codex): BLOCK", "Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do
@@ -75,7 +78,7 @@ RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship
 CARRIED = re.compile(r"^\W*(?:independent\s+)?review\s*\([^)\n]*\bcarr(?:y|ies|ied|ying)\b[^)\n]*\)\s*:"
                      r"|\bcarried\s+(?:from|over)\b", re.I)
 QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
-         "headRefOid "
+         "headRefOid labels(first:100){nodes{name}} "
          f"reviews(last:{REVIEWS_WINDOW})"
          "{nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
          f"comments(last:{COMMENTS_WINDOW})"
@@ -207,7 +210,13 @@ def newest_independent(pr: dict) -> tuple[str, str, str] | None:
     return max(found, key=lambda f: f[0]) if found else None
 
 
-def ship_receipt(pr: dict, head: str) -> tuple[str, str] | None:
+def high_risk(pr: dict) -> bool:
+    """The pull request carries the risk:high tier label (any case)."""
+    return any(((node or {}).get("name") or "").lower() == "risk:high"
+               for node in (pr.get("labels") or {}).get("nodes") or [])
+
+
+def ship_receipt(pr: dict, head: str, exact: bool = False) -> tuple[str, str] | None:
     """(since, who) for the head's SHIP, else None. The newest independent verdict naming the head must be a SHIP
     that no independent BLOCK on any head is newer than; with none naming the head, a carried SHIP naming it stands
     only while the newest independent verdict on the pull request is a SHIP. `since` is when the independent SHIP
@@ -222,8 +231,8 @@ def ship_receipt(pr: dict, head: str) -> tuple[str, str] | None:
             return None
         return at, detail
     carry = [f for f in found if f[1] == "carried"]
-    if not carry or not latest or latest[1] != "ship" or window_cut_off(pr, None):
-        return None
+    if exact or not carry or not latest or latest[1] != "ship" or window_cut_off(pr, None):
+        return None  # `exact`: a carried SHIP is no receipt at all (risk:high, decision 788)
     return latest[0], max(carry, key=lambda f: f[0])[2]
 
 
@@ -251,12 +260,14 @@ def decide(pr: dict, head: str) -> tuple[str, str]:
     state, detail = review_state(pr)
     if state in ("blocked", "held"):
         return "", f"no SHIP review receipt on {head} can merge while the newest review says wait: {detail}"
-    found = ship_receipt(pr, head)
+    high = high_risk(pr)
+    found = ship_receipt(pr, head, exact=high)
     if not found:
         latest = newest_independent(pr)
         newer = (f"; the newest independent verdict is a BLOCK ({latest[2]}), so no older or carried SHIP stands"
                  if latest and latest[1] == "block" else "")
-        return "", f"no SHIP review receipt on {head}{newer}"
+        exact = "; risk:high needs an independent review of this exact head, and no carried SHIP counts" if high else ""
+        return "", f"no SHIP review receipt on {head}{newer}{exact}"
     cut = window_cut_off(pr, found[0])
     if cut:
         size = REVIEWS_WINDOW if cut == "reviews" else COMMENTS_WINDOW
