@@ -77,9 +77,11 @@ struct CloudWorkspaceRestoreTests {
         windows.rememberMachines(of: WindowStateDocument(windows: [record]))
         #expect(!windows.isDead(Self.cloudWorkspace), "its machine is paused, not gone: the workspace waits for it")
 
-        // A machine that left the account takes its workspaces with it.
+        // Signed out, a machine missing from the registry is not connected, not gone (P-AUSTIN B7b):
+        // the workspace stays. A machine that left the account (a loaded list of the signed-in
+        // account without it) takes its workspaces with it: `aMachineLeftOnlyWhenTheAccountListSaysSo`.
         _ = services.machines.remove(machine.machineID)
-        #expect(windows.isDead(Self.cloudWorkspace))
+        #expect(!windows.isDead(Self.cloudWorkspace), "signed out, a Cloud workspace is pruned for its connection state")
     }
 
     /// P-AUSTIN B7b: Cloud VM workspaces stay in the window record, shown as disconnected, while the
