@@ -370,6 +370,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
+    originalFailures,
     unsettled,
     videoReading,
     cancel,
@@ -1449,6 +1450,7 @@ export function NewTabScreen(props: Props) {
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {!pill && !split && pickers}

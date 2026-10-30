@@ -15,7 +15,6 @@ import {
   type AttachmentIntakeOptions,
 } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
-import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -172,17 +171,24 @@ test("a staged image whose original failed shows Retry beside its preview", () =
     mimeType: "image/png",
     size: 3,
     data: btoa("pixels"),
-    originalFailed: "The disk is full.",
   };
-  const html = renderToStaticMarkup(<AttachmentStrip attachments={[chip]} onRemove={() => {}} onRetry={() => {}} />);
+  const failures = { shot: "The disk is full." };
+  const html = renderToStaticMarkup(
+    <AttachmentStrip attachments={[chip]} onRemove={() => {}} onRetry={() => {}} originalFailures={failures} />,
+  );
   expect(html).toContain("<img");
   expect(html).toContain('class="acpmux-attachment-original-retry"');
   expect(html).toContain("The disk is full.");
-  // Without a Retry to offer, the preview shows as it did.
-  const plain = renderToStaticMarkup(<AttachmentStrip attachments={[chip]} onRemove={() => {}} />);
-  expect(plain).not.toContain("acpmux-attachment-original-retry");
-  // A kept draft brings the preview back without a Retry it has no file for.
-  expect(keptChips([chip])[0]).not.toHaveProperty("originalFailed");
+  // Without a Retry to offer, or without this page's failure (a draft, a wake or another chat brought
+  // the chip back), the preview shows as it did.
+  const noRetry = renderToStaticMarkup(
+    <AttachmentStrip attachments={[chip]} onRemove={() => {}} originalFailures={failures} />,
+  );
+  const noFailure = renderToStaticMarkup(
+    <AttachmentStrip attachments={[chip]} onRemove={() => {}} onRetry={() => {}} />,
+  );
+  expect(noRetry).not.toContain("acpmux-attachment-original-retry");
+  expect(noFailure).not.toContain("acpmux-attachment-original-retry");
 });
 
 type Intake = ReturnType<typeof useAttachmentIntake>;
@@ -195,6 +201,7 @@ function Harness({ options, handle }: { options: AttachmentIntakeOptions; handle
       pending={intake.pending}
       onRemove={() => {}}
       onRetry={intake.retry}
+      originalFailures={intake.originalFailures}
     />
   );
 }
@@ -220,9 +227,11 @@ test("Retry on a staged image uploads its original again; the preview sends mean
   root = createRoot(host);
   act(() => root!.render(<Harness options={options} handle={handle} />));
   await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => Boolean(handle.current!.attachments[0]?.originalFailed));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   const chip = handle.current!.attachments[0]!;
-  expect(chip.originalFailed).toBe("The disk is full.");
+  expect(handle.current!.originalFailures).toEqual({ [chip.id]: "The disk is full." });
+  // The chip itself carries nothing of it: a draft or a wake takes the preview without a dead Retry.
+  expect(chip).not.toHaveProperty("originalFailed");
   expect(handle.current!.pending).toEqual([]);
   // The preview still goes as an image block, without its original.
   expect(promptBlocks("", [chip]).map((block) => block.type)).toEqual(["image"]);
@@ -230,7 +239,7 @@ test("Retry on a staged image uploads its original again; the preview sends mean
   expect(retry).not.toBeNull();
   act(() => retry!.click());
   await until(() => handle.current!.attachments[0]?.originalPath === "/remote/shot.png");
-  expect(handle.current!.attachments[0]!.originalFailed).toBeUndefined();
+  expect(handle.current!.originalFailures).toEqual({});
   expect(uploaded).toEqual([["shot.png"], ["shot.png"]]);
   expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
 });
@@ -260,7 +269,7 @@ test("Retry's upload stops when its carried chip leaves the strip", async () => 
   root = createRoot(host);
   act(() => root!.render(<Harness options={options("A")} handle={handle} />));
   await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => Boolean(handle.current!.attachments[0]?.originalFailed));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   // A harness switch: the composer, its strip with this chip, moves to the new chat.
   act(() => root!.render(<Harness options={options("B")} handle={handle} />));
   act(() => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!.click());
@@ -287,7 +296,7 @@ test("a failed original whose chip left with a switch to another chat keeps no f
   root = createRoot(host);
   act(() => root!.render(<Harness options={options("A")} handle={handle} />));
   await act(() => handle.current!.attach([png("shot.png")], true));
-  await until(() => Boolean(handle.current!.attachments[0]?.originalFailed));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
   const chip = handle.current!.attachments[0]!;
   // Another chat shows: its strip has its own chips (the composer's kept drafts swap them).
   act(() => root!.render(<Harness options={options("B")} handle={handle} />));
