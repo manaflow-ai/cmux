@@ -776,6 +776,40 @@ test("a prompt put back after its send keeps its inline attachment, and sends it
   expect(sent[1]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
 });
 
+// Review of #26545 at 6c074193: only a command goes first with its attachments after it. A prompt
+// that only starts with "/" (a path) keeps its image where it was put.
+test.each([
+  ["/tmp", true],
+  ["/plan", false],
+] as const)("a prompt starting %s keeps its inline image in place: %p", async (head, keeps) => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: `slash-${keeps}`,
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`${head} ${inlineToken(image.id)} exists`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  if (keeps) {
+    // The words around the image, the image between them.
+    expect(blocks.map((block) => block.type)).toEqual(["text", "image", "text"]);
+    expect(blocks[0]).toEqual({ type: "text", text: `${head} ` });
+    expect(blocks[2]).toEqual({ type: "text", text: " exists" });
+  } else {
+    // A command: its words first, whole, the image after them.
+    expect(blocks.map((block) => block.type)).toEqual(["text", "image"]);
+    expect((blocks[0] as { text: string }).text.replace(/\s+/g, " ")).toBe(`${head} exists`);
+  }
+});
+
 // Review of #26545 at 81dbee21: a failed upload placed in the text is not sent; the send clears the
 // text from outside (no edit), so its node goes, and it must stay reachable: its failed chip with
 // Retry and × in the strip, never hidden as "placed" with no node to draw it.

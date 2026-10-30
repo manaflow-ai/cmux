@@ -1083,8 +1083,16 @@ export function Composer({
     });
     // A slash command reads from the words' start, wherever the attachments sit: it goes first and
     // its attachments after it, as from the strip, so the command and the host both still see it.
+    // Only a command: cmux's own or a terminal-only spelling (counted as it reads with no
+    // attachments), or one the agent offers by name. Other text that starts with "/" (a path) is an
+    // ordinary prompt and keeps its attachments where they were put.
     const words = withoutInlineTokens(inText.text, attachmentId).trim();
-    const placed = words.startsWith("/")
+    const slash = /^\/(\S+)/.exec(words)?.[1];
+    const isCommand =
+      slash !== undefined &&
+      (composerCommand(words, snapshot.summary?.harness) !== undefined ||
+        (commands ?? []).some((command) => command.name === slash));
+    const placed = isCommand
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
     const prompt = placed.text;
