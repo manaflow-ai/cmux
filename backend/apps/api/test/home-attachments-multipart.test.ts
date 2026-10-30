@@ -350,11 +350,11 @@ describe("Home attachments: an R2 multipart upload is never left without a recor
     const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
     const conv = stub as unknown as {
       createUploadSlot(e: string, actor: string, quotaUser: string, meta: unknown, mode: string, id: string): Promise<{ id: string; object_key: string }>
-      setMultipartUpload(e: string, id: string, uploadId: string): Promise<boolean>
+      setMultipartUpload(e: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
     }
     const slot = await conv.createUploadSlot(g.id, alice.user, alice.user, { hash: sha(new Uint8Array([2])), byte_count: 40_000_000, mime_type: "application/octet-stream" }, "multipart", crypto.randomUUID().replaceAll("-", ""))
     const upload = await testEnv.HOME_ATTACHMENTS.createMultipartUpload(slot.object_key)
-    expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId)).toBe(true)
+    expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId, slot.object_key)).toBe(true)
     await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
     const gc = await import("../src/home-attachment-gc.ts")
     const bucket = testEnv.HOME_ATTACHMENTS
@@ -386,14 +386,18 @@ describe("Home attachments: an R2 multipart upload is never left without a recor
 /** The env with a bucket whose uploads' `abort` fails with no R2 code (a dropped connection: transient). */
 const abortFailing = (): TestEnv => {
   const bucket = testEnv.HOME_ATTACHMENTS
-  const failing = (u: R2MultipartUpload) => new Proxy(u, { get: (x, q) => (q === "abort" ? async () => { throw new Error("connection reset") } : (Reflect.get(x, q) as Function).bind(x)) })
+  const own = (x: object, q: string | symbol) => {
+    const v = Reflect.get(x, q)
+    return typeof v === "function" ? v.bind(x) : v
+  }
+  const failing = (u: R2MultipartUpload) => new Proxy(u, { get: (x, q) => (q === "abort" ? async () => { throw new Error("connection reset") } : own(x, q)) })
   return {
     ...testEnv,
     HOME_ATTACHMENTS: new Proxy(bucket, {
       get(t, p) {
         if (p === "createMultipartUpload") return async (key: string, options?: R2MultipartOptions) => failing(await t.createMultipartUpload(key, options))
         if (p === "resumeMultipartUpload") return (key: string, uploadId: string) => failing(t.resumeMultipartUpload(key, uploadId))
-        return (Reflect.get(t, p) as Function).bind(t)
+        return own(t, p)
       }
     })
   }
@@ -438,9 +442,9 @@ describe("Home attachments: an upload the intent could not hand to a slot is sti
     const env = {
       ...base,
       CONVERSATION_DO: ownerWith({
-        setMultipartUpload: async (stub, e: string, slot: string, uploadId: string) => {
-          await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET state = 'uploading' WHERE id = ?", slot))
-          return stub.setMultipartUpload(e, slot, uploadId)
+        setMultipartUpload: async (stub, ...args: Array<string>) => {
+          await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET state = 'uploading' WHERE id = ?", args[1]))
+          return stub.setMultipartUpload(...args)
         }
       }).CONVERSATION_DO
     }
