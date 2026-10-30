@@ -25,6 +25,8 @@ public enum WorkspaceSlot: Hashable, Sendable {
     /// A position the sidebar already resolved without the workspace (a
     /// tab dropped on a gap makes a new workspace there).
     case at(DropPosition)
+    /// A sidebar gap's neighbors, captured before its asynchronous create.
+    case gap(WorkspaceGap)
 
     /// The drop position that puts `moving` at this slot of `section` in
     /// `sections`, counted after `moving`'s own rows are removed
@@ -53,6 +55,8 @@ public enum WorkspaceSlot: Hashable, Sendable {
             return DropPosition(section: section, index: index + offset)
         case .at(let position):
             return position.section == section ? position : nil
+        case .gap(let gap):
+            return gap.section == section ? gap.position(moving: moving, in: sections) : nil
         case .endOfGroup(let group):
             guard let node = nodes.lazy.compactMap(\.group).first(where: { $0.id == group }) else { return nil }
             return DropPosition(section: section, group: group, index: Self.members(node, moving).count)

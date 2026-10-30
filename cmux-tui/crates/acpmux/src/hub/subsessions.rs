@@ -77,6 +77,7 @@
 
 use super::*;
 use crate::store::{SubsessionLimits, SubsessionLink};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeSet;
 
 /// The settings keys (schemas/settings/source/subsessions.json).
@@ -770,7 +771,7 @@ impl Hub {
         });
         if let Some(kept) = &worktree {
             let w = &kept.made;
-            reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
+            reply.set("worktree", json!({"root": w.root, "branch": w.branch, "base": w.base}));
         }
         Ok((probe, reply, worktree))
     }
@@ -841,7 +842,7 @@ impl Hub {
             "fromRole": super::subsession_send::family_role(&fm, &to.meta()),
         });
         if let Some(link) = &fm.subsession {
-            provenance["fromShortName"] = json!(link.short_name);
+            provenance.set("fromShortName", json!(link.short_name));
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         // An agent a remote device drove (its turn, or its last one, is a Web
@@ -892,11 +893,11 @@ impl Hub {
         let mut summary = self.session_summary(s);
         // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
         if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
-            summary["turn"]["prompt"] = json!(t.masked_preview);
+            summary.set_path(&["turn", "prompt"], json!(t.masked_preview));
             t.doing.mask_into(&mut summary["turn"]);
         }
         if summary["waitingPrompt"].is_string() {
-            summary["waitingPrompt"] = json!(super::subsession_send::masked_waiting_prompt(s));
+            summary.set("waitingPrompt", json!(super::subsession_send::masked_waiting_prompt(s)));
         }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
@@ -929,7 +930,7 @@ impl Hub {
             "questions": self.subsession_questions(s), // ancestors may answer them
         });
         if with_reply {
-            row["lastReply"] = json!(self.last_reply(s));
+            row.set("lastReply", json!(self.last_reply(s)));
         }
         // The tools hand this to another session's agent: a secret in the
         // child's text (one it read from a file, say) is masked.

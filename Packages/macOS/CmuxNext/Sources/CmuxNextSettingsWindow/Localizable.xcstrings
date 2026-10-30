@@ -60646,6 +60646,138 @@
         }
       }
     },
+    "settingsWindow.computerUse.hostUnverified": {
+      "comment": "Settings > Computer Use status line: the legacy helper refused this app because the build is not signed by cmux's team.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy Computer Use is off: this cmux build isn't team-signed, so the helper can't verify it. Use the built-in Computer Use (driver: upstream) or a signed cmux build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use القديم متوقف: إصدار cmux هذا غير موقّع من الفريق، لذا لا يستطيع المساعد التحقق منه. استخدم Computer Use المدمج (driver: upstream) أو إصدار cmux موقّعًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stari Computer Use je isključen: ova cmux verzija nije potpisana od tima, pa je pomoćni program ne može provjeriti. Koristite ugrađeni Computer Use (driver: upstream) ili potpisanu cmux verziju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ældre Computer Use er slået fra: denne cmux-build er ikke signeret af teamet, så hjælperen kan ikke bekræfte den. Brug den indbyggede Computer Use (driver: upstream) eller en signeret cmux-build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das alte Computer Use ist aus: Dieser cmux-Build ist nicht vom Team signiert, daher kann der Helfer ihn nicht prüfen. Nutze das integrierte Computer Use (driver: upstream) oder einen signierten cmux-Build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use heredado está desactivado: esta compilación de cmux no está firmada por el equipo, así que el asistente no puede verificarla. Usa Computer Use integrado (driver: upstream) o una compilación de cmux firmada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'ancien Computer Use est désactivé : ce build de cmux n'est pas signé par l'équipe, l'assistant ne peut donc pas le vérifier. Utilisez le Computer Use intégré (driver: upstream) ou un build de cmux signé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il Computer Use legacy è disattivato: questa build di cmux non è firmata dal team, quindi l'helper non può verificarla. Usa il Computer Use integrato (driver: upstream) o una build di cmux firmata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "従来の Computer Use はオフです: この cmux ビルドはチーム署名されていないため、ヘルパーが検証できません。内蔵の Computer Use (driver: upstream) か署名済みの cmux ビルドを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use ចាស់ត្រូវបានបិទ៖ កំណែ cmux នេះមិនមានហត្ថលេខាពីក្រុមទេ ដូច្នេះកម្មវិធីជំនួយមិនអាចផ្ទៀងផ្ទាត់វាបានទេ។ ប្រើ Computer Use ដែលភ្ជាប់មកជាមួយ (driver: upstream) ឬកំណែ cmux ដែលមានហត្ថលេខា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기존 Computer Use가 꺼져 있습니다: 이 cmux 빌드는 팀 서명이 없어 도우미가 확인할 수 없습니다. 내장 Computer Use(driver: upstream)나 서명된 cmux 빌드를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eldre Computer Use er av: denne cmux-builden er ikke signert av teamet, så hjelperen kan ikke bekrefte den. Bruk innebygd Computer Use (driver: upstream) eller en signert cmux-build."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starszy Computer Use jest wyłączony: ta kompilacja cmux nie jest podpisana przez zespół, więc pomocnik nie może jej zweryfikować. Użyj wbudowanego Computer Use (driver: upstream) lub podpisanej kompilacji cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Computer Use legado está desligado: esta build do cmux não é assinada pela equipe, então o assistente não consegue verificá-la. Use o Computer Use integrado (driver: upstream) ou uma build assinada do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Старый Computer Use выключен: эта сборка cmux не подписана командой, поэтому помощник не может её проверить. Используйте встроенный Computer Use (driver: upstream) или подписанную сборку cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use แบบเดิมปิดอยู่: บิลด์ cmux นี้ไม่ได้ลงนามโดยทีม ตัวช่วยจึงตรวจสอบไม่ได้ ใช้ Computer Use ในตัว (driver: upstream) หรือบิลด์ cmux ที่ลงนามแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eski Computer Use kapalı: bu cmux derlemesi ekip tarafından imzalanmadığı için yardımcı onu doğrulayamıyor. Yerleşik Computer Use'u (driver: upstream) veya imzalı bir cmux derlemesini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Старий Computer Use вимкнено: ця збірка cmux не підписана командою, тож помічник не може її перевірити. Використовуйте вбудований Computer Use (driver: upstream) або підписану збірку cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use cũ đang tắt: bản dựng cmux này không được nhóm ký, nên trình trợ giúp không thể xác minh. Hãy dùng Computer Use tích hợp (driver: upstream) hoặc một bản dựng cmux đã ký."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "旧版 Computer Use 已关闭：此 cmux 构建未经团队签名，助手无法验证它。请使用内置 Computer Use（driver: upstream）或已签名的 cmux 构建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "舊版 Computer Use 已關閉：此 cmux 建置未經團隊簽署，輔助程式無法驗證它。請使用內建 Computer Use（driver: upstream）或已簽署的 cmux 建置。"
+          }
+        }
+      }
+    },
     "settingsWindow.computerUse.restartHelper": {
       "extractionState": "manual",
       "localizations": {

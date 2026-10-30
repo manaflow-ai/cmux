@@ -103,7 +103,6 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
   await act(async () => root.render(null));
 });
 
-
 test("Resume retries incomplete reads and refuses a same-tick double attach", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   let listReads = 0;
@@ -127,7 +126,9 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
               return {
                 ok: true,
                 value: {
-                  signedIn: true, loaded: true, complete: true,
+                  signedIn: true,
+                  loaded: true,
+                  complete: true,
                   account: ["user", null],
                   machines: [{ id: "vm-demo", name: "Demo machine", stage: "connecting" }],
                 },
@@ -136,7 +137,9 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
             return {
               ok: true,
               value: {
-                signedIn: true, loaded: true, complete: true,
+                signedIn: true,
+                loaded: true,
+                complete: true,
                 account: ["user", null],
                 machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
               },
@@ -146,18 +149,34 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
       },
     },
   });
-  const recheck = async () => { rechecks += 1; };
+  const recheck = async () => {
+    rechecks += 1;
+  };
   function Recovery() {
     const recovery = useCloudChatRecovery({
       cloud: { id: "vm-demo", account: ["user", null] },
-      session: "chat-demo", active: true, recheck,
+      session: "chat-demo",
+      active: true,
+      recheck,
     });
     return (
       <div>
-        <button data-action="test-wake" onClick={() => { recovery.resume(); recovery.resume(); }}>Resume</button>
-        <span data-action="test-state">{JSON.stringify({
-          state: recovery.state, resuming: recovery.resuming, error: recovery.error,
-        })}</span>
+        <button
+          data-action="test-wake"
+          onClick={() => {
+            recovery.resume();
+            recovery.resume();
+          }}
+        >
+          Resume
+        </button>
+        <span data-action="test-state">
+          {JSON.stringify({
+            state: recovery.state,
+            resuming: recovery.resuming,
+            error: recovery.error,
+          })}
+        </span>
       </div>
     );
   }
@@ -168,8 +187,10 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
   expect(attaches).toBe(1);
   expect(mount.querySelector('[data-action="test-state"]')?.textContent).toContain('"resuming":true');
 
-  // The poll interval is 1 s. A successful recovery must outlive both transient reads.
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_400)); });
+  // fixed-wait: exercise two real 1 s recovery intervals so both transient reads are retried.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2_400));
+  });
   expect(listReads).toBeGreaterThanOrEqual(3);
   expect(rechecks).toBeGreaterThanOrEqual(1);
   expect(attaches).toBe(1);
@@ -178,7 +199,6 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
   expect(mount.querySelector('[data-action="test-state"]')?.textContent).not.toContain("resumeFailed");
   await act(async () => root.render(null));
 }, 10_000);
-
 
 test("a nonretryable inventory refusal ends recovery without repeated polls", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
@@ -197,10 +217,16 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
               listReads += 1;
               return { ok: false, error: { code: "auth.forbidden", retryable: false, origin: "native" } };
             }
-            return { ok: true, value: {
-              signedIn: true, loaded: true, complete: true, account: ["user", null],
-              machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
-            } };
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+              },
+            };
           },
         },
       },
@@ -210,14 +236,21 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
   function Recovery() {
     const recovery = useCloudChatRecovery({
       cloud: { id: "vm-demo", account: ["user", null] },
-      session: "chat-demo", active: true, recheck,
+      session: "chat-demo",
+      active: true,
+      recheck,
     });
     return (
       <div>
-        <button data-action="refused-wake" onClick={recovery.resume}>Resume</button>
-        <span data-action="refused-state">{JSON.stringify({
-          resuming: recovery.resuming, error: recovery.error,
-        })}</span>
+        <button data-action="refused-wake" onClick={recovery.resume}>
+          Resume
+        </button>
+        <span data-action="refused-state">
+          {JSON.stringify({
+            resuming: recovery.resuming,
+            error: recovery.error,
+          })}
+        </span>
       </div>
     );
   }

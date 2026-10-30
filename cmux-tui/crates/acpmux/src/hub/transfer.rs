@@ -2,6 +2,7 @@
 
 use super::transfer_guard::plain_agent_session;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
 /// True when `id` is a single plain path component, so it can name a
@@ -126,7 +127,7 @@ impl Hub {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
             }
-            manifest["native"] = Value::Array(copied);
+            manifest.set("native", Value::Array(copied));
         }
         std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
         Ok(dir)
@@ -156,6 +157,13 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // A bundle does not carry the source daemon's transcript authorization. Never import
+        // historical native ids or parent links that could collide with local sessions.
+        meta.previous_agent_session_ids.clear();
+        meta.agent_session_family = None;
+        meta.parent_id = None;
+        meta.fork_seq = None;
+        meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
         // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).
@@ -326,7 +334,7 @@ impl Hub {
         let Some(split) = bytes.iter().position(|b| *b == b'\n') else {
             return Err(anyhow::anyhow!("Pi session file has no header"));
         };
-        let mut header: Value = serde_json::from_slice(&bytes[..split])?;
+        let mut header: Value = serde_json::from_slice(bytes.get(..split).unwrap_or_default())?;
         let id = header.get("id").and_then(Value::as_str);
         if header.get("type").and_then(Value::as_str) != Some("session")
             || header.get("cwd").and_then(Value::as_str).is_none()
@@ -336,10 +344,10 @@ impl Hub {
                 "Pi session header is not a valid session for this ACP id"
             ));
         }
-        header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
+        header.set("cwd", Value::String(cwd.to_string_lossy().into_owned()));
         let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');
-        out.extend_from_slice(&bytes[split + 1..]);
+        out.extend_from_slice(bytes.get(split + 1..).unwrap_or_default());
         Ok(out)
     }
 
@@ -723,7 +731,7 @@ impl Hub {
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
         let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
-        marker["phase"] = json!("committed");
+        marker.set("phase", json!("committed"));
         write_json_atomic(&state, &marker)
     }
 
@@ -736,7 +744,7 @@ impl Hub {
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
         let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
-        marker["phase"] = json!("committed");
+        marker.set("phase", json!("committed"));
         write_json_atomic(&state, &marker)?;
         let filename = marker.get("piFilename").and_then(Value::as_str).unwrap_or("");
         if !filename.is_empty() {

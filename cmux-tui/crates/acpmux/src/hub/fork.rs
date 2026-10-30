@@ -11,6 +11,7 @@
 //! cancelled, a tool call still running shown failed. The chat is not touched.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.
@@ -229,6 +230,14 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
+            // A fork is a new chat. Its parent transcript is authorized through parent_id; it
+            // must not inherit the parent's historical native session ids as its own.
+            previous_agent_session_ids: Vec::new(),
+            // The id was produced by this fork's actual harness, not by the parent's creation
+            // family (which can be stale after a profile switch).
+            agent_session_family: new_sid
+                .as_ref()
+                .map(|_| if is_claude { "claude".to_owned() } else { "non-claude".to_owned() }),
             agent_session_id: new_sid,
             status: SessionStatus::Idle,
             created_at: now,
@@ -236,6 +245,7 @@ impl Hub {
             last_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: Some(fork_seq),
+            fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
@@ -282,6 +292,7 @@ impl Hub {
             hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
+            harness_failures: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
@@ -322,6 +333,9 @@ impl Hub {
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
             lineage: None,
             subagent_retry_open: false,
+            // The person's setting for the chat it came from, not for the fork.
+            turn_cap_ms: None,
+            turn_cap_noticed: None,
         };
         let new = self.make_session(meta);
         match made {
@@ -330,7 +344,18 @@ impl Hub {
             Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
             Made::Copy(_) | Made::Agent(..) => {}
         }
-        self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
+        if let Err(e) = self.store.save(&new.meta()) {
+            // Never published: no session owns the conversation this fork copied or its agent
+            // made, so remove it rather than leave a discoverable orphan (an inline /btw's fork
+            // asks about a chat that must not outlive the question).
+            if let Some(copied) = new.meta().agent_session_id.filter(|copied| *copied != sid) {
+                let family =
+                    parent_meta.family.clone().unwrap_or_else(|| parent_meta.harness.clone());
+                let homes = self.harness_homes().with_env(&[&fork_env]);
+                super::btw::remove_transcript_in(&homes, &family, &copied);
+            }
+            return Err(RpcError::internal(e.to_string()));
+        }
         // The fork copies transcript records, never the parent's reported Git branch.
         self.restore_git_branch(&new, new.meta().git_branch);
         {
@@ -340,6 +365,7 @@ impl Hub {
         }
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
+        let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[
@@ -413,14 +439,20 @@ impl Hub {
             let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "forked", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": running_turn_seq});
             self.append(&new, "mux", "turn_result", result);
         }
+        // The copied turn results are the parent's attempts, not the fork's: it starts unstuck,
+        // and a restore scans only past them.
+        {
+            let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+        }
         let mut forked = json!({"parentId": session.id, "forkSeq": fork_seq});
         if running.is_some() {
-            forked["midTurn"] = json!(true);
+            forked.set("midTurn", json!(true));
         }
         if let Some(note) = &note {
-            forked["note"] = json!(note);
-            forked["from"] = json!("transcript");
-            forked["harness"] = json!(parent_meta.harness);
+            forked.set("note", json!(note));
+            forked.set("from", json!("transcript"));
+            forked.set("harness", json!(parent_meta.harness));
         }
         self.append(&new, "mux", "forked", forked);
         self.append(session, "mux", "fork_child", json!({"childId": id}));
@@ -431,6 +463,7 @@ impl Hub {
             Err(e) => tracing::warn!(session = %new.id, "fork child start failed: {e}"),
         }
         self.save_meta(&new);
+        creation_guard.disarm();
         Ok(new)
     }
 }

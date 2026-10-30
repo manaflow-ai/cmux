@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 747,
-    "mcp": 665
+    "verbs": 750,
+    "mcp": 668
   },
   "nouns": [
     {
@@ -96,6 +96,13 @@
           "id": "agentPane.editInstructions",
           "mcp": true,
           "mcpTool": "app_agent_edit_instructions"
+        },
+        {
+          "command": "cmux agent fork-conversation",
+          "title": "Fork Conversation",
+          "id": "palette.forkAgentConversation",
+          "mcp": true,
+          "mcpTool": "app_agent_fork_conversation"
         },
         {
           "command": "cmux agent fork-conversation-above",
@@ -986,6 +993,13 @@
     {
       "noun": "chat",
       "verbs": [
+        {
+          "command": "cmux chat colors",
+          "title": "Chat Colors…",
+          "id": "home.chatColors",
+          "mcp": true,
+          "mcpTool": "app_chat_colors"
+        },
         {
           "command": "cmux chat create",
           "title": "New Group Chat…",
@@ -2163,10 +2177,17 @@
         },
         {
           "command": "cmux pane new-column",
-          "title": "New Column",
+          "title": "New Column Right",
           "id": "newColumn",
           "mcp": true,
           "mcpTool": "app_pane_new_column"
+        },
+        {
+          "command": "cmux pane new-column-left",
+          "title": "New Column Left",
+          "id": "newColumnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_column_left"
         },
         {
           "command": "cmux pane new-row",
@@ -4199,7 +4220,7 @@
         },
         {
           "command": "cmux tab new-mac-screen",
-          "title": "New Mac Screen Tab",
+          "title": "Screen Sharing",
           "id": "macScreen.open",
           "mcp": true,
           "mcpTool": "app_tab_new_mac_screen"

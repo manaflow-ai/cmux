@@ -66,10 +66,10 @@ import Testing
         return false
     }
 
-    /// The chevron's view (the header's one `DecorativeImageView` at the chevron's frame).
+    /// The chevron's view (the header's one `DisclosureChevronView` at the chevron's frame).
     static func chevronView(_ header: GroupHeaderRowView) -> NSView? {
         guard let frame = header.debugDisclosure?.frame else { return nil }
-        return header.subviews.first { $0 is DecorativeImageView && $0.frame == frame }
+        return header.subviews.first { $0 is DisclosureChevronView && $0.frame == frame }
     }
 
     static func chevron(_ header: GroupHeaderRowView) throws -> CGRect {
