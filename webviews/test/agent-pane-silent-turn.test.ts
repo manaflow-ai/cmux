@@ -247,3 +247,30 @@ test("a newer summary start replaces a previous live turn before its start event
     client.close();
   }
 });
+
+test("an idle summary ends a summary-only turn when its terminal event was missed", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "old prompt" }]]), {
+    turn: { turnId: "t2", startedAt: START + 30_000 },
+  });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(true);
+    await client.cancel();
+    daemon.change({ status: "idle", turn: undefined });
+    await until(() => snapshot.isWorking === false, "the idle summary");
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
+    expect(client.turnRunning()).toBe(false);
+    expect(snapshot.stopping).toBeUndefined();
+    await client.continueIn("claude").catch(() => undefined);
+    expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(1);
+  } finally {
+    client.close();
+  }
+});
