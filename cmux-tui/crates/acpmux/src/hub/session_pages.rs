@@ -98,8 +98,9 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 /// A page of `sorted` cut by bytes rather than by count, for a reply that has no `limit` to
 /// page by (ACP's `session/list`): the rows from `cursor` on (a `nextCursor` of this list)
 /// whose `size`s fit in `budget`, at least one, and the cursor after the last of them when
-/// rows are left. Rows a cursor cannot tell apart (one id and one `updatedAt`) never straddle
-/// a page's edge, and a cursor starts after all of them, so each comes once.
+/// rows are left. Rows the session cursor cannot tell apart (one id and one `updatedAt`) are
+/// told apart by their order: a page that ends on the n-th of them names it `<cursor>.<n>`,
+/// so each comes once and no page has to hold them all.
 pub(crate) fn byte_page(
     sorted: &[Value],
     cursor: Option<&str>,
@@ -109,14 +110,15 @@ pub(crate) fn byte_page(
     let start = match cursor {
         None => 0,
         Some(text) => {
-            let cursor = SessionCursor::parse(text).ok_or_else(|| {
-                RpcError::invalid_params(format!("cursor {text:?} is not a cursor"))
-            })?;
-            let mut at = cursor.start(sorted);
-            while sorted.get(at).is_some_and(|s| SessionCursor::after(s) == cursor) {
-                at += 1;
-            }
-            at
+            let bad = || RpcError::invalid_params(format!("cursor {text:?} is not a cursor"));
+            let (key, nth) = match text.split('.').count() {
+                3 => {
+                    let (key, nth) = text.rsplit_once('.').ok_or_else(bad)?;
+                    (key, nth.parse::<usize>().ok().filter(|n| *n >= 2).ok_or_else(bad)?)
+                }
+                _ => (text, 1),
+            };
+            SessionCursor::parse(key).ok_or_else(bad)?.start_after(sorted, nth)
         }
     };
     let (mut end, mut used) = (start, 0);
@@ -129,25 +131,11 @@ pub(crate) fn byte_page(
         used += bytes;
         end += 1;
     }
-    // Keep rows one cursor names on one page: end before them, or past them when they are
-    // all the page holds.
-    let same = |i: usize| SessionCursor::after(&sorted[i]) == SessionCursor::after(&sorted[i - 1]);
-    if end < sorted.len() && same(end) {
-        let mut group = end - 1;
-        while group > start && same(group) {
-            group -= 1;
-        }
-        if group > start {
-            end = group;
-        } else {
-            while end < sorted.len() && same(end) {
-                end += 1;
-            }
-        }
-    }
-    let next = (end < sorted.len())
-        .then(|| sorted.get(end - 1).map(|last| SessionCursor::after(last).to_text()))
-        .flatten();
+    let next = (end < sorted.len()).then(|| {
+        let last = SessionCursor::after(&sorted[end - 1]);
+        let nth = sorted[..end].iter().filter(|s| SessionCursor::after(s) == last).count();
+        if nth > 1 { format!("{}.{nth}", last.to_text()) } else { last.to_text() }
+    });
     Ok((start..end, next))
 }
 
@@ -292,6 +280,19 @@ impl SessionCursor {
                 sorted.iter().position(|s| stamp(s) <= self.updated_ms).unwrap_or(sorted.len())
             })
     }
+
+    /// [`Self::start`] after the `nth` row the cursor names, or after the last of them when
+    /// fewer are left.
+    fn start_after(self, sorted: &[Value], nth: usize) -> usize {
+        let named = |s: &&Value| stamp(s) == self.updated_ms && id_hash(session_id(s)) == self.key;
+        sorted
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| named(s))
+            .take(nth)
+            .last()
+            .map_or_else(|| self.start(sorted), |(at, _)| at + 1)
+    }
 }
 
 fn updated_ms(session: &Value) -> u64 {
@@ -338,6 +339,8 @@ mod tests {
             let (mut ids, mut cursor) = (Vec::new(), None::<String>);
             loop {
                 let (range, next) = byte_page(&rows, cursor.as_deref(), budget, size).unwrap();
+                // Over budget only with one row: the pair never has to share a page.
+                assert!(range.len() == 1 || range.len() * 11 <= budget, "{range:?} in {budget}");
                 ids.extend(rows[range].iter().map(|r| r["sessionId"].as_str().unwrap()));
                 assert!(ids.len() <= rows.len(), "{ids:?}");
                 match next {
@@ -346,7 +349,7 @@ mod tests {
                 }
             }
         };
-        // A page edge between the two, one inside the pair, a page per row, all in one.
+        // A page edge before the pair, inside it, a page per row (the pair split), all in one.
         for budget in [25, 35, 5, 100] {
             assert_eq!(read(budget), ["a", "dup", "dup", "z"], "budget {budget}");
         }
