@@ -126,7 +126,7 @@ pub fn argv(pid: u32) -> Option<Vec<String>> {
     if read != 0 {
         return None;
     }
-    procargs2_argv(&buffer[..filled])
+    procargs2_argv(buffer.get(..filled)?)
 }
 
 /// The exact argv of `pid` from `/proc/<pid>/cmdline`; `None` when it cannot be read.
