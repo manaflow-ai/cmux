@@ -30,9 +30,14 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
     let release = () => {};
     const open = new Promise<void>((resolve) => (release = resolve));
     gates[method] = { open, release };
+    return release;
   };
   const release = (method: string) => {
     gates[method]?.release();
+    gates[method] = undefined;
+  };
+  /// Later reads of `method` answer at once; the ones already held stay held.
+  const free = (method: string) => {
     gates[method] = undefined;
   };
   if (holdPeers) hold("_acpmux/peers");
@@ -47,8 +52,10 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
       if (method === "initialize")
         return { protocolVersion: 1, _meta: { acpmux: { origin, features: supported ? ["peerStateEvents"] : [] } } };
       if (method === "_acpmux/status") {
+        // The daemon answers with what it knew when the read reached it.
+        const said = status;
         await gates[method]?.open;
-        return { peers: status };
+        return { peers: said };
       }
       if (method === "_acpmux/peers") {
         await gates[method]?.open;
@@ -97,6 +104,9 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
     releasePeers: () => release("_acpmux/peers"),
     hold,
     release,
+    free,
+    peerConnected: () => (client as unknown as { peerConnected: Record<string, boolean> }).peerConnected,
+    peerStatus: () => (client as unknown as { peerStatus: Record<string, Record<string, unknown>> }).peerStatus,
     /// What the client holds now, drawn or not.
     peerStates: () => (client as unknown as { peerStates: Record<string, string> }).peerStates,
     /// The client's own `_acpmux/peers` read, awaited (what a lag notice or a reconnect starts).
@@ -304,6 +314,26 @@ test("an older status read that lands after a newer snapshot never erases it", a
     f.release("_acpmux/status");
     await status;
     expect(f.peerStates()["studio-mac"]).toBe("restarting");
+  } finally {
+    f.client.close();
+  }
+});
+
+test("an older status read that lands after a newer one never overwrites it", async () => {
+  const f = await fixture("local");
+  try {
+    f.status([{ name: "studio-mac", transport: "ssh", connected: false, state: "offline", lastSeen: 1 }]);
+    const resume = f.hold("_acpmux/status");
+    const older = f.client.refreshPeers();
+    f.free("_acpmux/status");
+    // Asked later, answered first: the machine came back.
+    f.status([{ name: "studio-mac", transport: "ssh", connected: true, state: "connected", lastSeen: 50 }]);
+    await f.client.refreshPeers();
+    resume();
+    await older;
+    expect(f.peerStates()["studio-mac"]).toBe("connected");
+    expect(f.peerConnected()["studio-mac"]).toBe(true);
+    expect(f.peerStatus()["studio-mac"]).toMatchObject({ connected: true, state: "connected", lastSeen: 50 });
   } finally {
     f.client.close();
   }
