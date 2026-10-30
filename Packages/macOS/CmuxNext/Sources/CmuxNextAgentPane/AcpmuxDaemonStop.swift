@@ -54,10 +54,10 @@ nonisolated final class AcpmuxDaemonStop: Sendable {
         guard let daemon = await daemon(environment) else { return false }
         let pid = daemon.pid
         let home = environment.home.standardizedFileURL.path
-        guard terminate(daemon) else { return false }
-        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public): a person asked to restart it; sent SIGTERM")
+        // The cause first, then its effect: the lookup that the exit ends writes its own line.
+        Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public): a person asked to restart it; sending SIGTERM")
         AcpmuxFailureLog(logPath: environment.logPath).record(.personRestart, detail: "pid \(pid)")
-        return true
+        return terminate(daemon)
     }
 
     /// SIGTERM to the process `daemon` names, checked right before it with the exit watch already on

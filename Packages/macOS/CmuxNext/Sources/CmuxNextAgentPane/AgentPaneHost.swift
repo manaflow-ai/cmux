@@ -259,8 +259,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func chatPeers() async throws -> [AgentChatPeer] {
         // Validate the app's daemon/home just as a composer handshake does. Listing never
         // starts another daemon; the tab store already prewarms its own host.
-        // A list for a picker: this caller stops waiting after 2 s (its own bound; the shared lookup
-        // goes on for the panes that wait on it, and nothing decides the daemon is dead).
+        // A list for a picker: this caller stops waiting after 2 s, the status deadline it had before
+        // #28083, so a slow acpmux does not hold the palette's or the CLI's destinations (Cloud
+        // machines come after this list). It is the caller's own bound only: the shared lookup goes
+        // on for the panes that wait on it, and nothing decides the daemon is dead. Past it the
+        // list throws and the picker shows this Mac and the Cloud machines.
         _ = try await withAgentPaneDeadline(.seconds(2), label: "acpmux lookup for chat peers") {
             try await self.endpoint(startsDaemon: false)
         }
@@ -566,6 +569,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw error
         } catch let refusal as AcpmuxServerPeer.Refusal {
             throw Self.refused(refusal, environment, startsDaemons: owned)
+        } catch AcpmuxStatusClient.Failure.closed where crashed(environment.home) {
+            // The daemon exited while this lookup waited for its answer (the wait has no deadline,
+            // so its close is how the wait ends). The pane asks again, and that lookup starts one.
+            logger.error("acpmux exited while a lookup waited socket=\(environment.socketPath, privacy: .public)")
+            throw failure(environment, .exited, detail: "it exited while the app waited for its answer")
         } catch {
             logger.error("acpmux status failed error=\(String(describing: error), privacy: .public)")
             throw failure(environment, .other, detail: String(describing: error))
