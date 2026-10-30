@@ -178,6 +178,19 @@ import Testing
         #expect(parse.lastParsedLines < 5, "parsed \(parse.lastParsedLines) lines")
     }
 
+    @Test func incrementalParseHandlesUnicodeTailOffsets() {
+        let answer = "🌍 Intro\n\n## Café *résumé*\n\n尾部 **未完"
+        var parse = MarkdownStreamParse()
+        for end in answer.indices {
+            let prefix = String(answer[...end])
+            parse.update(prefix, isStreaming: true)
+            #expect(parse.blocks == MarkdownDocument(parsing: prefix).blocks)
+        }
+        #expect(parse.source == answer)
+        parse.update(answer, isStreaming: false)
+        #expect(parse.blocks == MarkdownDocument(parsing: answer).blocks)
+    }
+
     @Test func aRewrittenMessageParsesFromTheStart() {
         var parse = MarkdownStreamParse("one\n\ntwo", isStreaming: true)
         parse.update("other text", isStreaming: false)
