@@ -27,6 +27,7 @@ private final class AuthContextBox: Sendable {
     }
 }
 
+// app-type-allow: private LAContext callback state must stay beside the app-owned authenticator.
 private final class AuthReply: Sendable {
     private let state = Mutex<(continuation: CheckedContinuation<Bool, Never>?, finished: Bool)>((nil, false))
 
