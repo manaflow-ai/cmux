@@ -84,24 +84,53 @@ def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None
 
 def visible_markdown(body: str) -> str:
     """Remove HTML comments and Markdown code blocks before matching proof lines."""
-    text = COMMENT.sub("", body or "")
     visible: list[str] = []
-    fence: tuple[str, int] | None = None
-    for line in text.splitlines(keepends=True):
-        # Normalize any depth of blockquote prefix, so nested quoted examples are
-        # handled just like top-level fenced or indented code.
-        content = line.rstrip("\n")
-        while quote := re.match(r"^ {0,3}>[ \t]?", content):
-            content = content[quote.end():]
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
+    fence: tuple[str, int, int] | None = None
+    in_comment = False
+
+    def quote_content(line: str) -> tuple[int, str]:
+        depth = 0
+        while quote := re.match(r"^ {0,3}>[ \t]?", line):
+            depth += 1
+            line = line[quote.end():]
+        return depth, line
+
+    for original in (body or "").splitlines(keepends=True):
+        depth, content = quote_content(original.rstrip("\n"))
+        if fence is not None and depth < fence[2]:
+            fence = None  # leaving a blockquote ends its contained code block
         if fence is not None:
-            if (marker and marker.group(1)[0] == fence[0]
-                    and len(marker.group(1)) >= fence[1]
-                    and not marker.group(2).strip()):
+            marker = re.match(r"^ {0,3}(`{3,}|~{3,})[ \t]*$", content)
+            if (depth == fence[2] and marker and marker.group(1)[0] == fence[0]
+                    and len(marker.group(1)) >= fence[1]):
                 fence = None
             continue
+
+        # Comments are recognized only outside code, so a literal comment opener
+        # in a fenced example cannot consume visible proof after the example.
+        line = ""
+        rest = original
+        while rest:
+            if in_comment:
+                end = rest.find("-->")
+                if end < 0:
+                    rest = ""
+                else:
+                    in_comment = False
+                    rest = rest[end + 3:]
+            else:
+                start = rest.find("<!--")
+                if start < 0:
+                    line += rest
+                    rest = ""
+                else:
+                    line += rest[:start]
+                    rest = rest[start + 4:]
+                    in_comment = True
+        depth, content = quote_content(line.rstrip("\n"))
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
         if marker and not (marker.group(1)[0] == "`" and "`" in marker.group(2)):
-            fence = (marker.group(1)[0], len(marker.group(1)))
+            fence = (marker.group(1)[0], len(marker.group(1)), depth)
             continue
         if content.startswith("    ") or content.startswith("\t"):
             continue

@@ -112,6 +112,10 @@ class CaptureCheckTests(unittest.TestCase):
         self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
         body = CAPTURE + "````\n```\n" + REVIEW + "```\n````\n"
         self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "```\n> ```\n" + REVIEW + "```\n"
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
+        body = CAPTURE + "```\n<!--\n```\n" + REVIEW
+        self.assertEqual(self.run_check(body, [SWIFT])[0], 0)
 
     def test_marker_alone_or_in_a_code_block_is_not_a_capture(self):
         marker_only = f"<!-- cmux-capture sha={SHA} state=x -->\n"
