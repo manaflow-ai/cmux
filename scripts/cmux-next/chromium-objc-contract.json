@@ -1,0 +1,831 @@
+{
+ "reviewed_for": "cef-154.0.28-cmux.28",
+ "selectors": [
+  {
+   "receiver": "NSApp",
+   "selector": "_customizeFileMenuIfNeeded",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Private AppKit method that AppKit calls on its own NSApp; BrowserCrApplication overrides it, and the engine has no send of it (no objc_msgSend stub for it in cef-154.0.28-cmux.28)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "accessibilityFocusedUIElement",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (NSAccessibility, macOS 10.0+; the app supports macOS 14+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "accessibilityRole",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (NSAccessibility role API, macOS 10.10+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "accessibilitySetValue:forAttribute:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (NSAccessibility informal protocol, macOS 10.0+, deprecated not removed)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "addNativeEventProcessorObserver:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "guarded",
+   "reason": "Static scan of cef-154.0.28-cmux.28 (2026-10-20): content::responsiveness::BrowserUINativeEventObserver checks [NSApp conformsToProtocol:@protocol(NativeEventProcessor)] first (send at 0x3b2edb8)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "appleScriptWindows",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "bookmarkFolders",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "bookmarksBar",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "cancelTerminate:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "implemented",
+   "reason": "NSApplication extension, CmuxNextBrowser/CEF/CEFCancelTerminate.swift (no-op: cmux's quit never waits on Chromium's terminate). Static scan of cef-154.0.28-cmux.28 (2026-10-20): unguarded send at 0x47e5f20 (chrome_browser_application_mac::CancelTerminate).",
+   "owner": "NSApplication"
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "enableScreenReaderCompleteMode",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Sent only by BrowserCrApplication's own methods to self (accessibility and VoiceOver observers, tests); static scan of cef-154.0.28-cmux.28 (2026-10-20): no send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "enableScreenReaderCompleteMode:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Sent only by BrowserCrApplication's own methods to self (accessibility and VoiceOver observers, tests); static scan of cef-154.0.28-cmux.28 (2026-10-20): no send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "enableScreenReaderCompleteModeAfterDelay:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Sent only by BrowserCrApplication's own methods to self (accessibility and VoiceOver observers, tests); static scan of cef-154.0.28-cmux.28 (2026-10-20): no send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "finishLaunching",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "insertInAppleScriptWindows:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "insertInAppleScriptWindows:atIndex:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "insertInBookmarksFolders:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "insertInBookmarksFolders:atIndex:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "isHandlingSendEvent",
+   "chromium_class": "CrApplication",
+   "verdict": "implemented",
+   "reason": "CmuxApplication (CrAppProtocol). Static scan of cef-154.0.28-cmux.28 (2026-10-20): unguarded sends at 0x68e806c, 0x68e8088, 0x68f9bb8.",
+   "owner": "CmuxApplication"
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "nextEventMatchingMask:untilDate:inMode:dequeue:",
+   "chromium_class": "CrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "objectSpecifier",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSObject answers it (NSScriptObjectSpecifiers, macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "observeValueForKeyPath:ofObject:change:context:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSObject answers it (NSKeyValueObserving, macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "orderFrontCharacterPalette:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (macOS 10.3+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "otherBookmarks",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "removeFromAppleScriptWindowsAtIndex:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "removeFromBookmarksFoldersAtIndex:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Key of Chrome's scripting dictionary. cmux NEXT has no OSAScriptingDefinition (NSAppleScriptEnabled with AppKit's standard suite only), so Cocoa Scripting never asks NSApp for it; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "removeNativeEventProcessorObserver:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "guarded",
+   "reason": "Static scan of cef-154.0.28-cmux.28 (2026-10-20): content::responsiveness::BrowserUINativeEventObserver checks [NSApp conformsToProtocol:@protocol(NativeEventProcessor)] first (send at 0x3b2ee04)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "sendAction:to:from:",
+   "chromium_class": "CrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "sendEvent:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (macOS 10.0+); CmuxApplication overrides it."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "setHandlingSendEvent:",
+   "chromium_class": "CrApplication",
+   "verdict": "implemented",
+   "reason": "CmuxApplication (CrAppControlProtocol).",
+   "owner": "CmuxApplication"
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "terminate:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "appkit",
+   "reason": "NSApplication answers it (macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "voiceOverStateChanged:",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Sent only by BrowserCrApplication's own methods to self (accessibility and VoiceOver observers, tests); static scan of cef-154.0.28-cmux.28 (2026-10-20): no send to NSApp."
+  },
+  {
+   "receiver": "NSApp",
+   "selector": "voiceOverStateForTesting",
+   "chromium_class": "BrowserCrApplication",
+   "verdict": "not-reachable",
+   "reason": "Sent only by BrowserCrApplication's own methods to self (accessibility and VoiceOver observers, tests); static scan of cef-154.0.28-cmux.28 (2026-10-20): no send to NSApp."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "allowApplicationToTerminate",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "application:continueUserActivity:restorationHandler:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "application:didFailToContinueUserActivityWithType:error:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "application:openURLs:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "application:willContinueUserActivityWithType:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "applicationDidFinishLaunching:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "applicationDockMenu:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "applicationShouldHandleReopen:hasVisibleWindows:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "applicationSupportsSecureRestorableState:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "applicationWillFinishLaunching:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "applicationWillTerminate:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "NSApplicationDelegate method: AppKit sends it only after respondsToSelector:; static scan of cef-154.0.28-cmux.28 (2026-10-20): no Chromium send to NSApp.delegate."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "beginHandlingWebAuthenticationSessionRequest:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "bookmarkMenuBridge",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "canOpenNewBrowser",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "canRestoreTab",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "cancelConfirmQuitPanel",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "cancelWebAuthenticationSessionRequest:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "checkForAnyKeyWindows",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "cmdWMenuItem",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "commandDispatch:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "An action method: it reaches NSApp.delegate only through AppKit's responder chain for a nil-targeted action, which checks respondsToSelector: before it sends; no direct Chromium send to NSApp.delegate in cef-154.0.28-cmux.28."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "commandDispatchUsingKeyModifiers:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "An action method: it reaches NSApp.delegate only through AppKit's responder chain for a nil-targeted action, which checks respondsToSelector: before it sends; no direct Chromium send to NSApp.delegate in cef-154.0.28-cmux.28."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "commandFromDock:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "configureMenuItemForCloseTab:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "configureMenuItemForCloseWindow:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "confirmQuitIfNeeded",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "confirmQuitPanelControllerForTesting",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "dealloc",
+   "chromium_class": "AppController",
+   "verdict": "appkit",
+   "reason": "NSObject answers it."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "didEndMainMessageLoop",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "executeCommand:withProfile:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "fileMenu",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "handoffContentsChanged:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "hideMenuItem:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "historyMenuBridge",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "init",
+   "chromium_class": "AppController",
+   "verdict": "appkit",
+   "reason": "NSObject answers it."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "initMenuState",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "initProfileMenu",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "initShareMenu",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "isHandoffEligible:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "isProfileReady",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "keyWindowIsModal",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "lastActiveColorProvider",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "lastProfile",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "lastProfileIfLoaded",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "mainMenuCreated",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "menuNeedsUpdate:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "observeValueForKeyPath:ofObject:change:context:",
+   "chromium_class": "AppController",
+   "verdict": "appkit",
+   "reason": "NSObject answers it (NSKeyValueObserving, macOS 10.0+)."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "onVerticalTabStripModeChanged:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "openStartupTabsReplacingNTP:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "openStartupUrls",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "orderFrontStandardAboutPanel:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "An action method: it reaches NSApp.delegate only through AppKit's responder chain for a nil-targeted action, which checks respondsToSelector: before it sends; no direct Chromium send to NSApp.delegate in cef-154.0.28-cmux.28."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "orderFrontStandardAboutPanelForProfile:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "profileWasRemoved:forIncognito:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "registerServicesMenuTypesTo:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "resetKeepAliveWhileHidden",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "safeProfileForNewWindows:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "setCmdWMenuItemForTesting:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "setLastProfile:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "setLastProfileForTesting:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "setMainWindowForTesting:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "setShiftCmdWMenuItemForTesting:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "setUpdateCheckInterval",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "shiftCmdWMenuItem",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "shouldEnableConfirmToQuitPrefMenuItem",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "shouldQuitWithInProgressDownloads",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "showPreferences:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "An action method: it reaches NSApp.delegate only through AppKit's responder chain for a nil-targeted action, which checks respondsToSelector: before it sends; no direct Chromium send to NSApp.delegate in cef-154.0.28-cmux.28."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "showPreferencesForProfile:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "startupComplete",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "stopTryingToTerminateApplication",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "tabMenuBridge",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "targetForPerformClose",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "toggleConfirmToQuit:",
+   "chromium_class": "AppController",
+   "verdict": "guarded",
+   "reason": "An action method: it reaches NSApp.delegate only through AppKit's responder chain for a nil-targeted action, which checks respondsToSelector: before it sends; no direct Chromium send to NSApp.delegate in cef-154.0.28-cmux.28."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "tryToTerminateApplication",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "unregisterEventHandlers",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "updateConfirmToQuitPrefMenuItem:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "updateHandoffManager:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "updateHandoffManagerWithURL:title:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "updateMenuItemKeyEquivalents",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "userWillWaitForInProgressDownloads:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "validateUserInterfaceItem:",
+   "chromium_class": "AppController",
+   "verdict": "implemented",
+   "reason": "AppDelegate: disables Chromium's commandDispatch: items (no AppController runs them). Static scan of cef-154.0.28-cmux.28 (2026-10-20): unguarded send at 0x80a644c (-[CommandDispatcher validateUserInterfaceItem:forHandler:]).",
+   "owner": "AppDelegate"
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "willPowerOff:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "windowDidBecomeMain:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "windowDidResignKey:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "windowForPerformClose",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  },
+  {
+   "receiver": "NSApp.delegate",
+   "selector": "windowHasBrowserTabs:",
+   "chromium_class": "AppController",
+   "verdict": "not-reachable",
+   "reason": "Sent to Chromium's AppController (self, or +[AppController sharedController], which installs its own AppController as NSApp.delegate first at 0x47da1c8), never to cmux's AppDelegate; static scan of cef-154.0.28-cmux.28 (2026-10-20): the only direct NSApp.delegate sends are validateUserInterfaceItem: and isKindOfClass:."
+  }
+ ],
+ "application_classes": {
+  "AppShimApplication": "ignored: the NSApp class of Chrome's app-shim process (PWA shims), which cmux never starts",
+  "BrowserCrApplication": "NSApp",
+  "CrApplication": "NSApp",
+  "MockCrApp": "ignored: test-only NSApp class"
+ },
+ "reviewed_sha256": "e9f47e038195bd2c4d5d2d000736ee5b8ee9a6a5690822109670addb8806da34",
+ "assumptions": [
+  "+[AppController sharedController] never runs in cmux: on its first call it installs Chromium's AppController as NSApp.delegate (cef-154.0.28-cmux.28: setDelegate: at 0x47da1c8) and later calls CHECK that the delegate is unchanged. The not-reachable AppController verdicts rely on that path; it is not checked here."
+ ]
+}

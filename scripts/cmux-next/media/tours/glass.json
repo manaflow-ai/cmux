@@ -1,0 +1,26 @@
+{
+  "title": "Glass and themes",
+  "settings": {"appearance": {"background": "hokusai-great-wave", "theme": "Clay Orange"}},
+  "steps": [
+    {"title": "Launch over art", "wait": 4},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Glass"]},
+    {"title": "Show the Glass workspace (a new workspace takes no focus)", "cmux": ["workspace", "name:Glass", "focus"], "shot": false},
+    {"title": "Terminal text and ANSI colors over art", "daemon": true,
+     "cmux": ["workspace", "name:Glass", "screen", "current", "pane", "current", "tab", "current",
+              "terminal", "current", "write", "--text",
+              "clear; echo 'cmux glass tour: plain text stays readable over the art'; for c in 1 2 3 4 5 6 7; do printf '\\033[3%sm color %s \\033[1m bold \\033[0m' $c $c; done; echo\r"],
+     "wait": 3},
+    {"title": "Split right", "cmux": ["action", "run", "splitRight"]},
+    {"title": "Agent chat beside the terminal", "cmux": ["agent", "new-chat"], "wait": 4,
+     "optional": "agent chat views are not ported yet"},
+    {"title": "Command palette on glass over art", "cmux": ["action", "run", "commandPalette"], "wait": 2},
+    {"title": "Close the palette", "cmux": ["action", "run", "commandPalette"], "wait": 1},
+    {"title": "Soft Blue over art", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 3},
+    {"title": "Soft Blue Light over art", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 3},
+    {"title": "Clay Orange Light over art", "cmux": ["settings", "set", "appearance.theme", "Clay Orange Light"], "wait": 3},
+    {"title": "Art off: Clay Orange Light", "cmux": ["settings", "unset", "appearance.background"], "wait": 3},
+    {"title": "Clay Orange", "cmux": ["settings", "set", "appearance.theme", "Clay Orange"], "wait": 3},
+    {"title": "Soft Blue", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 3},
+    {"title": "Soft Blue Light", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 3}
+  ]
+}

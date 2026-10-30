@@ -1,0 +1,472 @@
+{
+ "aivazovsky-along-coast": {
+  "mode": "auto"
+ },
+ "aivazovsky-ninth-wave": {
+  "mode": "auto"
+ },
+ "aivazovsky-ship-stormy-seas": {
+  "mode": "auto"
+ },
+ "aivazovsky-winter-landscape": {
+  "mode": "auto"
+ },
+ "altdorfer-battle-of-issus": {
+  "mode": "auto"
+ },
+ "arbo-wild-hunt": {
+  "mode": "auto"
+ },
+ "beard-his-majesty": {
+  "mode": "auto"
+ },
+ "biard-magdalena-bay": {
+  "mode": "auto"
+ },
+ "bierstadt-storm-rockies": {
+  "mode": "auto"
+ },
+ "bonheur-wounded-eagle": {
+  "mode": "auto"
+ },
+ "bosch-ascent-blessed": {
+  "mode": "auto"
+ },
+ "bosch-garden-central": {
+  "mode": "auto"
+ },
+ "bosch-garden-fragment": {
+  "mode": "auto"
+ },
+ "bosch-garden-left": {
+  "mode": "auto"
+ },
+ "bosschaert-wan-li-vase": {
+  "mode": "auto"
+ },
+ "botticelli-birth-of-venus": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "botticelli-primavera": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "bouguereau-virgin-lilies": {
+  "mode": "auto"
+ },
+ "bruegel-fall-rebel-angels": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "bruegel-hunters-snow": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "bruegel-tower-babel": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "brueghel-wooden-vessel": {
+  "mode": "auto"
+ },
+ "cabanel-fallen-angel": {
+  "mode": "auto"
+ },
+ "cole-voyage-childhood": {
+  "mode": "auto"
+ },
+ "cole-voyage-manhood": {
+  "mode": "auto"
+ },
+ "cole-voyage-old-age": {
+  "mode": "auto"
+ },
+ "cole-voyage-youth": {
+  "mode": "auto"
+ },
+ "cot-springtime": {
+  "mode": "auto"
+ },
+ "cot-storm": {
+  "mode": "auto"
+ },
+ "cross-pink-cloud": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "dahl-cloud-study": {
+  "mode": "auto"
+ },
+ "dahl-dresden-moonlight": {
+  "mode": "auto"
+ },
+ "danielson-gambogi-self": {
+  "mode": "auto"
+ },
+ "david-death-of-marat": {
+  "mode": "auto"
+ },
+ "degas-blue-dancers": {
+  "mode": "auto"
+ },
+ "degas-green-dancers": {
+  "mode": "auto"
+ },
+ "delacroix-liberty": {
+  "mode": "auto"
+ },
+ "dore-empyrean": {
+  "mode": "auto"
+ },
+ "dore-fall-of-satan": {
+  "mode": "auto"
+ },
+ "dore-leviathan": {
+  "mode": "auto"
+ },
+ "dore-moses-tables": {
+  "mode": "auto"
+ },
+ "dore-paradise-lost-book-vi": {
+  "mode": "auto"
+ },
+ "dore-raven": {
+  "mode": "auto"
+ },
+ "dore-wolves-sheep": {
+  "mode": "auto"
+ },
+ "durer-praying-hands": {
+  "mode": "auto"
+ },
+ "el-greco-view-of-toledo": {
+  "mode": "auto"
+ },
+ "fragonard-swing": {
+  "mode": "auto"
+ },
+ "friedrich-abbey-oakwood": {
+  "mode": "auto"
+ },
+ "friedrich-forest-moonlight": {
+  "mode": "auto"
+ },
+ "friedrich-monk-by-the-sea": {
+  "mode": "auto"
+ },
+ "friedrich-two-men-moon": {
+  "mode": "auto"
+ },
+ "friedrich-wanderer": {
+  "mode": "auto"
+ },
+ "gerome-botsaris": {
+  "mode": "auto"
+ },
+ "goya-burial-sardine": {
+  "mode": "auto"
+ },
+ "goya-sleep-of-reason": {
+  "mode": "auto"
+ },
+ "goya-witches-flight": {
+  "mode": "auto"
+ },
+ "grimshaw-blackman-street": {
+  "mode": "auto"
+ },
+ "grimshaw-silver-moonlight": {
+  "mode": "auto"
+ },
+ "hesselbom-dusk": {
+  "mode": "auto"
+ },
+ "hiroshige-hota-coast": {
+  "mode": "auto"
+ },
+ "hiroshige-zoshigaya": {
+  "mode": "auto"
+ },
+ "hogai-nio": {
+  "mode": "auto"
+ },
+ "hokusai-great-wave": {
+  "mode": "crop",
+  "box": [
+   0,
+   0,
+   0.72,
+   1
+  ],
+  "quiet": "right"
+ },
+ "hokusai-umezawa": {
+  "mode": "auto"
+ },
+ "holbein-ambassadors": {
+  "mode": "auto"
+ },
+ "kandinsky-composition-viii": {
+  "mode": "auto"
+ },
+ "kandinsky-deepened-impulse": {
+  "mode": "auto"
+ },
+ "kandinsky-yellow-red-blue": {
+  "mode": "auto"
+ },
+ "klee-fish-magic": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "klimt-adele": {
+  "mode": "auto"
+ },
+ "klimt-garden-sunflowers": {
+  "mode": "auto"
+ },
+ "klimt-mada-primavesi": {
+  "mode": "auto"
+ },
+ "klimt-the-kiss": {
+  "mode": "auto"
+ },
+ "klimt-tree-of-life": {
+  "mode": "auto"
+ },
+ "korovin-place-opera": {
+  "mode": "auto"
+ },
+ "kramskoi-christ-in-the-desert": {
+  "mode": "auto"
+ },
+ "kramskoi-unknown-woman": {
+  "mode": "auto"
+ },
+ "laurence-mckinley": {
+  "mode": "auto"
+ },
+ "lemoyne-apotheosis-hercules": {
+  "mode": "auto"
+ },
+ "leonardo-vitruvian-man": {
+  "mode": "auto"
+ },
+ "marc-foxes": {
+  "mode": "auto"
+ },
+ "martin-great-day-wrath": {
+  "mode": "auto"
+ },
+ "martin-joshua": {
+  "mode": "auto"
+ },
+ "martin-pandemonium": {
+  "mode": "auto"
+ },
+ "matejko-stanczyk": {
+  "mode": "auto"
+ },
+ "matisse-red-room": {
+  "mode": "auto"
+ },
+ "michelangelo-creation-of-adam": {
+  "mode": "auto"
+ },
+ "michelangelo-sistine-ceiling": {
+  "mode": "auto"
+ },
+ "millais-joan-of-arc": {
+  "mode": "auto"
+ },
+ "modigliani-nude-divan": {
+  "mode": "auto"
+ },
+ "mondrian-composition-red-plane": {
+  "mode": "auto"
+ },
+ "monet-cliff-pourville": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "monet-impression-sunrise": {
+  "mode": "auto"
+ },
+ "monet-water-lilies": {
+  "mode": "auto"
+ },
+ "monet-water-lilies-1907": {
+  "mode": "auto"
+ },
+ "monet-water-lilies-setting-sun": {
+  "mode": "auto"
+ },
+ "monet-waterlily-pond": {
+  "mode": "auto"
+ },
+ "monet-woman-parasol": {
+  "mode": "auto"
+ },
+ "moran-burning-philadelphia": {
+  "mode": "auto"
+ },
+ "mucha-job": {
+  "mode": "auto"
+ },
+ "munch-madonna": {
+  "mode": "auto"
+ },
+ "munch-scream": {
+  "mode": "auto"
+ },
+ "popova-painterly-architectonic": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "raphael-sistine-madonna": {
+  "mode": "auto"
+ },
+ "redon-butterflies": {
+  "mode": "auto"
+ },
+ "rembrandt-night-watch": {
+  "mode": "auto"
+ },
+ "rembrandt-prodigal-son": {
+  "mode": "auto"
+ },
+ "rembrandt-storm-galilee": {
+  "mode": "auto"
+ },
+ "renoir-vase-roses": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "roerich-himalayas": {
+  "mode": "auto"
+ },
+ "rosso-musical-angel": {
+  "mode": "auto"
+ },
+ "rothaug-melpomene": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "rubens-st-francis-xavier": {
+  "mode": "auto"
+ },
+ "ruysch-flowers": {
+  "mode": "auto"
+ },
+ "sargent-madame-x": {
+  "mode": "side",
+  "side": "right",
+  "inset": [
+   0.13,
+   0.08,
+   0.13,
+   0.07
+  ]
+ },
+ "schiele-kneeling-orange": {
+  "mode": "auto"
+ },
+ "schiele-moa": {
+  "mode": "auto"
+ },
+ "sohlberg-flower-meadow": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "spilliaert-vertigo": {
+  "mode": "auto"
+ },
+ "spilliaert-woman-shoreline": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "steinlen-chat-noir": {
+  "mode": "auto"
+ },
+ "toulmouche-reluctant-bride": {
+  "mode": "auto"
+ },
+ "toulmouche-vanity": {
+  "mode": "auto"
+ },
+ "turner-temeraire": {
+  "mode": "auto"
+ },
+ "van-gogh-almond-blossom": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "van-gogh-cafe-terrace": {
+  "mode": "auto"
+ },
+ "van-gogh-fishing-boats": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "van-gogh-flowering-plum": {
+  "mode": "auto"
+ },
+ "van-gogh-irises": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "van-gogh-starry-night": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "van-gogh-starry-night-rhone": {
+  "mode": "auto"
+ },
+ "van-gogh-sunflowers": {
+  "mode": "auto"
+ },
+ "van-gogh-sunflowers-munich": {
+  "mode": "auto"
+ },
+ "van-gogh-wheat-field-cypresses": {
+  "mode": "auto",
+  "quality": 38
+ },
+ "velazquez-las-meninas": {
+  "mode": "auto"
+ },
+ "velde-cannon-shot": {
+  "mode": "auto"
+ },
+ "velde-close-hauled": {
+  "mode": "auto"
+ },
+ "velde-gale": {
+  "mode": "auto"
+ },
+ "velde-small-ship-storm": {
+  "mode": "auto"
+ },
+ "vermeer-pearl-earring": {
+  "mode": "auto"
+ },
+ "vigee-lebrun-madame-grand": {
+  "mode": "auto"
+ },
+ "waterhouse-lady-shalott": {
+  "mode": "auto"
+ },
+ "waterhouse-ophelia": {
+  "mode": "auto"
+ },
+ "whistler-falling-rocket": {
+  "mode": "auto"
+ },
+ "wood-american-gothic": {
+  "mode": "auto"
+ },
+ "wright-vesuvius": {
+  "mode": "auto"
+ }
+}

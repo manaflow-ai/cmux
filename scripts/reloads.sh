@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/stop-app-instances.sh"
 
 APP_NAME="cmux STAGING"
 BUNDLE_ID="com.cmuxterm.app.staging"
@@ -31,6 +33,46 @@ write_last_socket_path() {
   mkdir -p "$LAST_SOCKET_PATH_DIR"
   echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
   echo "$socket_path" > "$tmp_marker" || true
+}
+
+# The control socket the staging app listens on (per-build isolation,
+# cx-is1kf.4; CmuxNextCompat BuildIdentity+AppNames.swift, Rust
+# build_identity.rs, vectors schemas/build-identity/vectors.json): the untagged
+# staging build keeps cmux-staging.sock; a tagged one
+# (com.cmuxterm.app.staging.<tag>) has cmux-staging--<key hash>.sock, the key
+# being the bundle id (plus --<fnv1a32 of the id> when it is not a path
+# component). Both live in the account's ~/.local/state/cmux unless the path
+# is too long for sun_path (ControlSocketPath.moved). The app ignores an
+# inherited CMUX_SOCKET_PATH, so this must name the socket the app picks.
+staging_control_socket() {
+  python3 -I - "$1" "${_cmux_account_home:-$HOME}" <<'PY'
+import sys
+bundle, home = sys.argv[1], sys.argv[2]
+
+def fnv1a32(text):
+    value = 0x811C9DC5
+    for byte in text.encode():
+        value = ((value ^ byte) * 0x01000193) & 0xFFFFFFFF
+    return "%08x" % value
+
+def component(raw):
+    out = ""
+    for ch in raw:
+        if ch.isascii() and (ch.isalnum() or ch in "._"):
+            out += ch
+        elif not out.endswith("-"):
+            out += "-"
+    return out.strip("-.") or None
+
+if bundle == "com.cmuxterm.app.staging":
+    name = "cmux-staging.sock"
+else:
+    key = component(bundle)
+    key = key if key == bundle else "%s--%s" % (key or "unbundled", fnv1a32(bundle))
+    name = "cmux-staging--%s.sock" % fnv1a32(key)
+moved = home + "/.local/state/cmux/" + name
+print(moved if len(moved.encode()) <= 103 else "/tmp/" + name)
+PY
 }
 
 staging_slug_from_bundle_id() {
@@ -143,6 +185,13 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
+# staging_control_socket knows only staging identities; another bundle id
+# would get a socket name its app never uses.
+if [[ ! "$BUNDLE_ID" =~ ^com\.cmuxterm\.app\.staging(\.[A-Za-z0-9._-]+)?$ ]]; then
+  echo "error: --bundle-id must be com.cmuxterm.app.staging or com.cmuxterm.app.staging.<tag> (got '$BUNDLE_ID')" >&2
+  exit 1
+fi
+
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
@@ -159,6 +208,9 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+# A staging app never claims http/https at Default rank (Resources/Info.plist;
+# tests/test_web_url_handler_rank.py). Every bundle id here is a staging one.
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK=Alternate)
 XCODEBUILD_ARGS+=(build)
 
 xcodebuild "${XCODEBUILD_ARGS[@]}"
@@ -218,17 +270,17 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 
-  # Inject staging socket paths via LSEnvironment so the Release binary
-  # (which defaults to the per-user stable socket) uses isolated sockets instead.
+  # Record the staging build's own control socket in LSEnvironment and the
+  # markers. The app picks its socket from its bundle id (LaunchIdentity), so
+  # these name that socket for tools; they do not choose it.
   STAGING_SLUG="$(staging_slug_from_bundle_id "$BUNDLE_ID")"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
   if [[ -n "$STAGING_SLUG" ]]; then
     CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
-    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging-${STAGING_SLUG}.sock"
   else
     CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-staging.sock"
-    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging.sock"
   fi
+  CMUX_SOCKET_PATH_VALUE="$(staging_control_socket "$BUNDLE_ID")"
   write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_BUNDLE_ID \"${BUNDLE_ID}\"" "$INFO_PLIST" 2>/dev/null \
@@ -250,12 +302,8 @@ if [[ -f "$INFO_PLIST" ]]; then
 fi
 APP_PATH="$STAGING_APP_PATH"
 
-# Ensure any running instance is fully terminated, regardless of DerivedData path.
-/usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-sleep 0.3
 # Kill any running staging instance; allow side-by-side with the main and dev apps.
-pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-sleep 0.3
+cmux_stop_app_instances "$BUNDLE_ID" "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
@@ -289,8 +337,8 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
-# Always inject staging socket paths via env to ensure they take effect
-# (LSEnvironment requires app restart to pick up plist changes).
+# The launch environment names the staging build's own socket for tools in
+# it; the app picks its socket from its bundle id and ignores this value.
 "${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.

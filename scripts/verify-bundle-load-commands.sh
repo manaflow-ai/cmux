@@ -89,10 +89,20 @@ is_allowed_load_path() {
   esac
 }
 
+# otool reads "name(member)" as an archive member, so a path with parentheses
+# (CEF's "<app> Helper (GPU).app" helpers) is inspected through a plain alias.
+OTOOL_ALIAS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-load-commands.XXXXXX")"
+trap 'rm -rf "$OTOOL_ALIAS_DIR"' EXIT
+
 check_macho() {
   local binary="$1"
   local load_commands
-  if ! load_commands="$("$OTOOL_TOOL" -arch all -l "$binary" 2>&1)"; then
+  local inspected="$binary"
+  if [[ "$binary" == *"("* || "$binary" == *")"* ]]; then
+    inspected="$OTOOL_ALIAS_DIR/macho"
+    ln -sf "$binary" "$inspected"
+  fi
+  if ! load_commands="$("$OTOOL_TOOL" -arch all -l "$inspected" 2>&1)"; then
     echo "error: could not inspect Mach-O load commands: $binary" >&2
     echo "$load_commands" >&2
     return 1

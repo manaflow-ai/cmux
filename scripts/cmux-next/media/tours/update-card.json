@@ -1,0 +1,11 @@
+{
+  "title": "Update Ready card and What's New popup",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A staged nightly: the compact Update Ready card", "cmux": ["app", "call", "debug.updater", "{\"action\": \"stage\", \"version\": \"1.0.0-nightly.3932981759301\", \"changes\": 3}"], "wait": 2},
+    {"title": "Hovering the card: What's new in nightly 3932981, menu-sized", "cmux": ["app", "call", "debug.update_surfaces", "{\"action\": \"show-popover\"}"], "wait": 2},
+    {"title": "A light theme", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 2},
+    {"title": "The popup again in the light theme", "cmux": ["app", "call", "debug.update_surfaces", "{\"action\": \"show-popover\"}"], "wait": 2},
+    {"title": "Unstage", "cmux": ["app", "call", "debug.updater", "{\"action\": \"unstage\"}"], "wait": 1, "shot": false}
+  ]
+}

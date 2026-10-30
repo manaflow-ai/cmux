@@ -4,12 +4,11 @@
 # compile-app-host-test-product.sh build <derived-data> <source-packages> <cas-path> [log]
 #
 # Compiles the app-host test product with Xcode's compilation cache on for
-# every target except cmuxTests, and except the app before Xcode 26.6 (see
-# build()). cmuxTests also emits no Swift module. Owned minis add the deployed
-# fleet-cas node's remote settings; other runners use the local CAS path and
-# the scheduled seed writer. A cache entry is keyed on the whole compiler
-# invocation and on absolute paths, so both jobs must build through this
-# script or they stop sharing hits without anything failing.
+# every target except the app before Xcode 26.6 (see build()). ci.yml
+# `macos-compile-admission` restores that cache read-only and nightly.yml
+# `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
+# whole compiler invocation and on absolute paths, so both jobs must build
+# through this script or they stop sharing hits without anything failing.
 #
 # `fingerprint` keys the cache. A cache entry bakes in the absolute source and
 # derived-data paths, so which paths the build used decides whether a seed can
@@ -61,6 +60,15 @@ XCBUILD_FILE_SYSTEM_MODE=checksum-only
 # does not honor -file-prefix-map.
 FILE_PATH_ROOT=/private/tmp/cmux-test-source
 
+# The ghostty pin the checkout builds against (its gitlink, so no submodule
+# checkout is needed). Xcode keeps its processed copy of the prebuilt
+# GhosttyKit.xcframework in DerivedData, so a seed or kept build from another
+# pin compiles against that pin's headers: after #19443's bump every main pull
+# request that adopted an older nightly seed failed with "cannot find
+# ghostty_surface_set_link_filter". Read before `canonical-*` enters the
+# canonical root, which holds no checkout at fingerprint time.
+GHOSTTY_PIN="$(git rev-parse HEAD:ghostty 2>/dev/null || echo none)"
+
 fingerprint() {
   local derived_data="$1"
   # Canonical only when both paths are fixed: the source at the canonical
@@ -75,6 +83,7 @@ fingerprint() {
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      printf 'ghostty=%s\n' "$GHOSTTY_PIN"
       # The default root adds nothing, so every existing seed and cache key
       # stays the same. Another root (an owned Mac's second compile slot)
       # compiles different absolute paths into every entry, so it gets keys
@@ -90,6 +99,7 @@ fingerprint() {
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
     printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+    printf 'ghostty=%s\n' "$GHOSTTY_PIN"
   } | shasum -a 256 | cut -c1-32
 }
 
@@ -101,7 +111,7 @@ fingerprint() {
 # evaluating all 91 again, which took 18 to 44 s per admission.
 #
 # `build` disables package resolution, so a resolve that reports success
-# without the Sparkle and Sentry binary artifacts would fail it. A restored
+# without the Sentry binary artifact would fail it. A restored
 # source-packages cache can do that, and a failed resolve can leave a partial
 # clone behind, so every retry starts from an empty package directory.
 #
@@ -141,13 +151,12 @@ resolve() {
   if [ -n "$offline" ]; then
     mkdir -p "$source_packages" "$derived_data"
     if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
-      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
       -skipPackageUpdates \
       -resolvePackageDependencies \
-      && [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
       && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
       [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
       return 0
@@ -157,13 +166,12 @@ resolve() {
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
     if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
-      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
       -resolvePackageDependencies; then
-      if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
-        && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+      if [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
         [ -z "$stamp" ] || printf '%s\n' "$stamp" > "$source_packages/$RESOLVED_STAMP"
         return 0
       fi
@@ -207,32 +215,14 @@ build() {
   # cannot quietly cover fewer schemes than its key claims. $CMUX_PRODUCT_PROFILE
   # selects it; see PRODUCT_PROFILES in product_input_identity.py, which also
   # documents the ordering.
-  local -a schemes=()
+  local -a schemes=() actions=()
   read -r -a schemes <<<"$(python3 "$SCRIPT_DIR/product_input_identity.py" schemes)"
+  read -r -a actions <<<"$(python3 "$SCRIPT_DIR/product_input_identity.py" actions)"
   [ "${#schemes[@]}" -gt 0 ] || { echo "empty product profile scheme list" >&2; exit 1; }
-  # cmuxTests builds without the compilation cache. Under the cache its driver
-  # regenerates cmuxTests-*-ChainedBridgingHeader.h (the app's bridging header,
-  # reached through @testable import) on every build, and that newer header
-  # invalidates all ~1,100 inputs: a one-test-file edit recompiled every file
-  # (1,355 CPU s). Without the cache the driver's incremental build works: the
-  # same edit compiled one task and cmuxTests took 31 s instead of 139 s
-  # (#14249, run 36081880621, 12vcpu). Command-line settings are evaluated per
-  # target, so every other target keeps the cache and its arguments.
-  #
-  # cmuxTests also emits no Swift module. Nothing imports cmuxTests.swiftmodule,
-  # but its separate emit-module job type-checks every declaration in ~1,000
-  # files and expands every @Test macro: 26 s of a 31 s one-test-file rebuild,
-  # serial. Xcode's integrated driver always emits the module separately; the
-  # standalone driver with -no-emit-module-separately emits none. The project
-  # sets an empty SWIFT_OBJC_INTERFACE_HEADER_NAME for cmuxTests in every
-  # build, because the generated header was the one output that needed the
-  # module job and nothing includes it. The same edit took cmuxTests 4.1 s and a
-  # full cmuxTests rebuild 105 s instead of 137 s, with the same 11,758
-  # enumerated tests (#14352, run 36089490735, 12vcpu).
+  [ "${#schemes[@]}" -eq "${#actions[@]}" ] || { echo "product profile schemes and actions disagree" >&2; exit 1; }
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
-    CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
     # Keep cache keys stable when a PR runner's checkout and DerivedData live
     # under a different absolute root than the fleet CAS writer.
     SWIFT_ENABLE_PREFIX_MAPPING=YES
@@ -242,23 +232,28 @@ build() {
     # Xcode 26.6 emits one bounded remark per cache query. The build metrics
     # receipt turns those remarks into cacheable-task and hit counters.
     COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES
-    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
-    CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
-    'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' -Xfrontend -debug-prefix-map -Xfrontend '"$CANONICAL_BUILD_ROOT=$FILE_PATH_ROOT"' $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
-    CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
-    # A clean build has no module for Xcode's Copy tasks to install (#14371).
-    'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)'
-    CMUX_CI_INSTALL_MODULE_cmuxTests=NO
   )
-  # Before Xcode 26.6 the app target has the same defect: under the cache the
-  # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH
-  # (identical bytes, newer mtime) on every build, so a body-only edit to one
-  # file recompiled all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode
-  # 26.3). With the cache off for `cmux` the same edit compiled 2 tasks in 41 s
-  # (#14351, run 36086596738). On Xcode 26.6 the app compiles incrementally
-  # with the cache on (1 task, run 36081880621), so it keeps the cache there.
-  if xcode_older_than 26 6; then
-    cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  # Xcode's explicit-module dependency graph can survive a clean DerivedData
+  # rebuild when a reused CAS entry is incomplete. Admission recovery sets
+  # this only after seeing that diagnostic, so normal builds keep the faster
+  # explicit-module path while the recovery build avoids the broken graph.
+  if [ "${CMUX_CI_DISABLE_EXPLICIT_MODULES:-}" = 1 ]; then
+    cache_setting+=(SWIFT_ENABLE_EXPLICIT_MODULES=NO)
+  fi
+  # The legacy `cmux` app target has a cache defect: the driver rewrites
+  # cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH (identical bytes,
+  # newer mtime) on every build, so a body-only edit to one file recompiled
+  # all ~5,200 files, 448-495 s on the macOS 15 pool (Xcode 26.3). With the
+  # cache off for `cmux` the same edit compiled 2 tasks in 41 s (#14351, run
+  # 36086596738). Xcode 26.6 kept the cache for the app after one incremental
+  # run (36081880621), but admission on 26.6 recompiles every app file from a
+  # restored DerivedData whatever the distance to the seed: 1 hit of 2,735
+  # cacheable tasks with 56 changed inputs (run 38232844046), 1 of 2,713 (run
+  # 38318336606) and 76 of 2,856 (run 38201033789), 2,711-2,844 SwiftCompile
+  # tasks each. So the app builds without the cache on every Xcode.
+  cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    cache_setting+=(COMPILATION_CACHE_ENABLE_CACHING=NO)
   fi
   # Owned minis carry the fleet-cas node installed by glaeda. Its settings
   # select the node's fixed CAS and Unix socket; Blacksmith and unprovisioned
@@ -291,9 +286,12 @@ build() {
       done <<< "$fleet_settings"
     fi
   fi
+  if [ "${CMUX_CI_DISABLE_COMPILATION_CACHE:-}" = 1 ]; then
+    fleet_cache_setting=()
+  fi
   # xcodebuild runs under the resolve's fixed environment (see resolve()), but
   # the app's script phases still need the caller's: PATH for cargo, rustup,
-  # go and zig (Nucleo FFI, the diff sidecar, wireguard-go, bundled
+  # go and zig (the diff sidecar, wireguard-go, bundled
   # resources), HOME for ~/.cargo, CI and CMUX_SKIP_ZIG_BUILD for what they
   # build. Command-line build settings reach every script phase's environment
   # without entering SwiftPM's key. Swift Build builds a script's PATH from its
@@ -312,7 +310,9 @@ build() {
     esac
   done < <(compgen -e)
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in "${schemes[@]}"; do
+  local index scheme
+  for index in "${!schemes[@]}"; do
+    scheme="${schemes[$index]}"
     FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
       xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
@@ -328,7 +328,7 @@ build() {
       ${fleet_cache_setting[@]+"${fleet_cache_setting[@]}"} \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
       -showBuildTimingSummary \
-      build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
+      "${actions[$index]}" 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
 

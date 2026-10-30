@@ -60,6 +60,16 @@ PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
 WORKSPACE_GROUP_LOCATION_RE = re.compile(r'\blocation\s*=\s*"group:([^"]+)"')
+# The manifest gate of the Linux package jobs (swift-packages-linux.yml), the
+# only builds that set CMUX_SWIFTPM_TARGET_LINUX. A dependency appended inside
+# it exists only in a build for Linux: no Apple build (Xcode, the app, the
+# fleet's app compile, Mac `swift test`) resolves it, so it is no input of any
+# tracked Package.resolved. Only this exact form counts; anything else is read.
+LINUX_TARGET_GATE_RE = re.compile(
+    r'^[ \t]*if[ \t]+ProcessInfo\.processInfo\.environment\["CMUX_SWIFTPM_TARGET_LINUX"\]'
+    r'[ \t]*==[ \t]*"1"[ \t]*\{[ \t]*$',
+    re.MULTILINE,
+)
 
 SKIPPED_DIRS = {
     ".build",
@@ -141,6 +151,7 @@ def package_graph(
         )
         if not text:
             continue
+        text = without_linux_target_blocks(text)
         path_dependencies: list[str] = []
         url_calls: set[str] = set()
         for dependency in PACKAGE_DEPENDENCY_RE.findall(text):
@@ -159,7 +170,44 @@ def package_graph(
     return graph
 
 
+def without_linux_target_blocks(text: str) -> str:
+    """``text`` without its CMUX_SWIFTPM_TARGET_LINUX gates.
+
+    A gate is dropped only when its matching brace closes it alone on a line at
+    the gate's indentation and its body holds no brace in a string literal or a
+    comment. Any other gate is kept whole, so it is read as usual.
+    """
+    kept: list[str] = []
+    position = 0
+    for gate in LINUX_TARGET_GATE_RE.finditer(text):
+        if gate.start() < position:
+            continue
+        depth = 1
+        end = gate.end()
+        while end < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            end += 1
+        body = text[gate.end():end]
+        indent = gate.group(0)[: len(gate.group(0)) - len(gate.group(0).lstrip())]
+        line_start = text.rfind("\n", 0, end - 1) + 1
+        line_end = text.find("\n", end)
+        closing_line = text[line_start:len(text) if line_end < 0 else line_end]
+        if depth or closing_line != indent + "}" or _hidden_brace(body):
+            continue
+        kept.append(text[position:gate.start()])
+        position = end
+    kept.append(text[position:])
+    return "".join(kept)
+
+
+def _hidden_brace(body: str) -> bool:
+    """True when a string literal or a line comment in ``body`` holds a brace."""
+    hidden = re.findall(r'"[^"\n]*"|//[^\n]*|/\*.*?\*/', body, re.DOTALL)
+    return any("{" in part or "}" in part for part in hidden)
+
+
 def package_dependency_calls(text: str) -> list[str]:
+    text = without_linux_target_blocks(text)
     return [" ".join(dependency.split()) for dependency in PACKAGE_DEPENDENCY_RE.findall(text)]
 
 
@@ -278,7 +326,12 @@ def merge_base_with_base_ref() -> str | None:
         if os.environ.get("GITHUB_BASE_REF") or os.environ.get(
             "PACKAGE_RESOLVED_POLICY_BASE_REF"
         ):
-            raise
+            # A named base must be compared, never skipped: fail, and say why.
+            shallow = git_stdout("rev-parse", "--is-shallow-repository").strip() == "true"
+            raise SystemExit(
+                f"SwiftPM lockfile policy: no merge base between {base_ref()} and HEAD"
+                + (" (the checkout is shallow: fetch enough history to connect them)" if shallow else "")
+            )
         return None
 
 

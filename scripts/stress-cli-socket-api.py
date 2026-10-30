@@ -130,6 +130,7 @@ TOP_LEVEL_COMMANDS = {
     "mark-notification-read",
     "open-notification",
     "jump-to-unread",
+    "jump-to-last-prompt",
     "clear-notifications",
     "right-sidebar",
     "set-status",
@@ -961,6 +962,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("mark-notification-read", argv("mark-notification-read", "--all"), expect_codes=any_code, covered_command="mark-notification-read"),
         CliCase("open-notification-help", argv("open-notification", "--help"), no_socket=True, covered_command="open-notification"),
         CliCase("jump-to-unread", argv("jump-to-unread"), expect_codes=any_code, covered_command="jump-to-unread"),
+        CliCase("jump-to-last-prompt", argv("jump-to-last-prompt"), covered_command="jump-to-last-prompt"),
         CliCase("clear-notifications", ctx_argv(lambda c: ["clear-notifications", "--workspace", require(c.workspace_id, "workspace")]), expect_codes=any_code, covered_command="clear-notifications"),
         CliCase("right-sidebar-mode", argv("right-sidebar", "mode"), expect_codes=any_code, covered_command="right-sidebar"),
         CliCase("set-status", ctx_argv(lambda c: ["set-status", "stress", "running", "--workspace", require(c.workspace_id, "workspace"), "--icon", "hammer", "--color", "#ff9500"]), expect_codes=any_code, covered_command="set-status"),
@@ -1152,6 +1154,7 @@ def build_socket_cases(ctx: StressContext, capabilities: set[str]) -> list[Socke
         SocketCase("notification.mark_read", "notification.mark_read", lambda c: {"all": True}, expect_ok=None),
         SocketCase("notification.open", "notification.open", lambda c: {"id": c.create_notification_for_case("open")}, expect_ok=None),
         SocketCase("notification.jump_to_unread", "notification.jump_to_unread", lambda c: {}, expect_ok=None),
+        SocketCase("surface.jump_to_last_prompt", "surface.jump_to_last_prompt", lambda c: {}),
         SocketCase("agent.message.send", "agent.message.send", lambda c: {"target": require(c.surface_id, "surface"), "from": "stress", "body": "socket"}),
         SocketCase("agent.message.list", "agent.message.list", lambda c: {"surface": require(c.surface_id, "surface"), "limit": 5}),
         SocketCase("agent.message.claim", "agent.message.claim", lambda c: {"surface_id": require(c.surface_id, "surface"), "via": "stress"}),
@@ -1553,12 +1556,16 @@ def resolve_cli_path(raw: str | None, tag: str | None) -> str:
     if tag:
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app/Contents/Resources/bin/cmux"))
         candidates.append(os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux"))
-    last_cli = pathlib.Path("/tmp/cmux-last-cli-path")
-    if last_cli.exists():
-        try:
-            candidates.append(last_cli.read_text(encoding="utf-8").strip())
-        except OSError:
-            pass
+    # The app opened last writes its CLI path; reload.sh's /tmp pointer is legacy.
+    for last_cli in (
+        pathlib.Path.home() / "Library/Application Support/cmux/last-app-cli",
+        pathlib.Path("/tmp/cmux-last-cli-path"),
+    ):
+        if last_cli.exists():
+            try:
+                candidates.append(last_cli.read_text(encoding="utf-8").strip())
+            except OSError:
+                pass
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug/cmux"), recursive=True))
     for candidate in candidates:
         if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):

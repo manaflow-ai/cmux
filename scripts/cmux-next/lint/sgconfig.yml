@@ -1,0 +1,4 @@
+# ast-grep (tree-sitter) rules for the cmux-next pre-push gate (scripts/cmux-next/prepush-gate.py).
+# Syntax-shaped rules: they match code, never comments, strings or `case .alert(...)` patterns.
+ruleDirs:
+  - ast-grep-rules

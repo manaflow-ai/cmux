@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1, "version": "0.66.0", "channel": "stable", "date": "2026-10-07",
+  "headline": {"en": "Agents everywhere", "ja": "どこでもエージェント"},
+  "entries": [
+    {"id": "agents", "category": "new", "title": {"en": "Agents in every pane"},
+     "summary": {"en": "Run an agent next to any terminal."}, "tryIt": {"action": "palette.newAgentChat"},
+     "platforms": ["macos"], "audience": "all"}
+  ]
+}

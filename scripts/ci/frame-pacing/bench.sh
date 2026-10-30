@@ -4,12 +4,12 @@
 # usage: bench.sh WORK_DIR [FLINGS]
 #   WORK_DIR holds the tagged app (app/*.app), VDisplay.app (built from
 #   vdisplay.m) and an out/ directory. Run it in the console user's GUI session
-#   (scripts/ci/run-in-console-session.sh); CMUX_TAG is the app's baked tag.
+#   (scripts/ci/frame-pacing/console-session.sh); CMUX_TAG is the app's baked tag.
 #
 # For each render rate (CMUX_NEXT_AGENT_PANE_FULL_RATE=0 capped, =1 full) it
 # launches the app with the mock agent pane, seeds 5000 rows, runs one warm-up
 # fling and FLINGS measured flings (3 by default; an argument, because
-# run-in-console-session.sh forwards only a fixed list of variables), and writes out/<mode>-<n>.json with the
+# console-session.sh forwards only a fixed list of variables), and writes out/<mode>-<n>.json with the
 # fling_stats and perf_stats debug results. out/display.txt records the virtual
 # display's measured tick interval. The virtual display and every app this
 # script launched are gone when it exits, however it exits.
@@ -23,13 +23,22 @@ out="$work/out"
 mkdir -p "$out"
 app="$(ls -d "$work"/app/*.app 2>/dev/null | head -1)"
 [ -n "$app" ] || { echo "no app under $work/app" >&2; exit 1; }
-cli="$app/Contents/Resources/bin/cmux"
 # The debug socket follows the tag's path slug (scripts/cmux-debug-cli.sh).
 slug="$(printf '%s' "$tag" | tr '[:upper:]' '[:lower:]' | sed -E -e 's/[^a-z0-9]+/-/g' -e 's/^-+//' -e 's/-+$//')"
 socket="/tmp/cmux-debug-$slug.sock"
 
+# shellcheck source=SCRIPTDIR/../../lib/stop-cmux-tui-owners.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../lib/stop-cmux-tui-owners.sh"
+
+# Quit the app by its executable and stop its cmux-tui owners by socket. A
+# pattern on "$app/" also matched every terminal host and killed its shell.
+stop_app() {
+  pkill -f "$app/Contents/MacOS/" 2>/dev/null || true
+  cmux_stop_cmux_tui_owners "$app/Contents/Resources/bin"
+}
+
 teardown() {
-  pkill -f "$app/" 2>/dev/null || true
+  stop_app
   pkill -f "$work/VDisplay.app/" 2>/dev/null || true
   sleep 1
   system_profiler SPDisplaysDataType 2>/dev/null | grep -m1 'UI Looks like' | sed 's/^ */main display after teardown: /' || true
@@ -45,7 +54,10 @@ cp "$out/vdisplay.out" "$out/display.txt" 2>/dev/null || echo "error: the virtua
 cat "$out/display.txt"
 grep -q '^ready' "$out/display.txt" || exit 0
 
-rpc() { CMUX_SOCKET_PATH="$socket" "$cli" rpc debug.agent_pane "$1" 2>&1; }
+# bin/cmux is the cmux-tui binary, which has no command for the app's debug
+# methods, so requests go to the app socket directly.
+app_rpc="$(dirname "${BASH_SOURCE[0]}")/app-rpc.py"
+rpc() { python3 "$app_rpc" "$socket" debug.agent_pane "$1" 2>&1; }
 
 for mode in 0 1; do
   rm -f "$socket"
@@ -55,11 +67,15 @@ for mode in 0 1; do
   for _ in $(seq 90); do [ -S "$socket" ] && break; sleep 1; done
   if [ ! -S "$socket" ]; then
     echo "mode $mode: no socket at $socket" | tee "$out/$mode-error.txt"
-    pkill -f "$app/" 2>/dev/null || true
+    stop_app
     continue
   fi
   sleep 3
-  CMUX_SOCKET_PATH="$socket" "$cli" agent new-chat >/dev/null 2>&1
+  if ! opened="$(python3 "$app_rpc" "$socket" action.run '{"action":"palette.newAgentChat"}' 2>&1)"; then
+    echo "mode $mode: no agent chat opened: $opened" | tee "$out/$mode-error.txt"
+    stop_app
+    continue
+  fi
   sleep 4
   rpc '{"action":"seed_rows","count":5000}' >/dev/null
   sleep 3
@@ -70,6 +86,6 @@ for mode in 0 1; do
     [ "$n" = 0 ] && continue
     printf '{"fling":%s,"perf":%s}\n' "$(rpc '{"action":"fling_stats"}')" "$(rpc '{"action":"perf_stats"}')" > "$out/$mode-$n.json"
   done
-  pkill -f "$app/" 2>/dev/null || true
+  stop_app
   sleep 2
 done

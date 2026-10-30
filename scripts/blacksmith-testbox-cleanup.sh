@@ -60,9 +60,14 @@ if receipt.get("confirmation_token") != expected_token:
 # warmup_ref is what `blacksmith testbox list` shows and is always main in the
 # broker lane. source_ref is the branch being benchmarked and never appears in
 # the inventory. Conflating them made every receipt-bound cleanup exit 66.
-for field in ("workflow", "job", "warmup_ref", "source_ref", "source_sha", "source_tree_sha", "ghostty_gitlink_sha"):
+for field in ("workflow", "job", "warmup_ref", "source_ref", "source_sha", "source_tree_sha"):
     if not receipt.get(field):
         raise SystemExit(f"warmup ownership receipt is missing {field}")
+# cmux-tui builds from the ghostty-next gitlink (ghostty_next_gitlink_sha). A
+# receipt from before that switch names the classic ghostty_gitlink_sha; accept
+# it for one transition (drop with CMUX-TUI-TREE-KEY-V2 B3).
+if not (receipt.get("ghostty_next_gitlink_sha") or receipt.get("ghostty_gitlink_sha")):
+    raise SystemExit("warmup ownership receipt is missing ghostty_next_gitlink_sha")
 PY
 receipt_workflow="$(python3 - "$receipt_path" <<'PY'
 import json
@@ -106,11 +111,21 @@ import sys
 print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["source_tree_sha"])
 PY
 )"
-receipt_ghostty_sha="$(python3 - "$receipt_path" <<'PY'
+# The preview repeats the Ghostty field the receipt used, so a classic SHA is
+# never relabeled as a ghostty-next SHA.
+receipt_ghostty_field="$(python3 - "$receipt_path" <<'PY'
 import json
 import pathlib
 import sys
-print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["ghostty_gitlink_sha"])
+receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+print("ghostty_next_gitlink_sha" if receipt.get("ghostty_next_gitlink_sha") else "ghostty_gitlink_sha")
+PY
+)"
+receipt_ghostty_sha="$(python3 - "$receipt_path" "$receipt_ghostty_field" <<'PY'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))[sys.argv[2]])
 PY
 )"
 
@@ -236,13 +251,13 @@ if (( status_absent == 0 )) && ! is_active "$status_value" && ! is_terminal "$st
 fi
 
 preview_path="$evidence_dir/cleanup-preview.json"
-python3 - "$preview_path" "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref" "$receipt_source_ref" "$receipt_source_sha" "$receipt_source_tree_sha" "$receipt_ghostty_sha" <<'PY'
+python3 - "$preview_path" "$testbox_id" "${status_value:-absent}" "$inventory_row_present" "$receipt_workflow" "$receipt_job" "$receipt_ref" "$receipt_source_ref" "$receipt_source_sha" "$receipt_source_tree_sha" "$receipt_ghostty_field" "$receipt_ghostty_sha" <<'PY'
 import json
 import pathlib
 import sys
 
 (path, testbox_id, status, inventory_present, workflow, job, warmup_ref,
- source_ref, source_sha, source_tree_sha, ghostty_sha) = sys.argv[1:]
+ source_ref, source_sha, source_tree_sha, ghostty_field, ghostty_sha) = sys.argv[1:]
 payload = {
     "schema": 2,
     "testbox_id": testbox_id,
@@ -257,7 +272,7 @@ payload = {
     "source_ref": source_ref,
     "source_sha": source_sha,
     "source_tree_sha": source_tree_sha,
-    "ghostty_gitlink_sha": ghostty_sha,
+    ghostty_field: ghostty_sha,
 }
 out = pathlib.Path(path)
 out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

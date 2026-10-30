@@ -20,8 +20,7 @@ API error) prints why and leaves
 also never drops a file the pull request's own diff needs: every file the
 pull request changes against main must either differ since H1 or have been
 part of the pull request's diff at H1, which H1's green run covered. And
-it never routes more than the pull request's own diff, nor main's
-cmuxUITests/ edits, which would fail the pull request's suite-coverage check.
+it never routes more than the pull request's own diff.
 
 Stdlib only: ci.yml runs the copy on the base revision, like the trusted
 router, so a pull request cannot change how its own diff is chosen.
@@ -54,10 +53,6 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 CI_POLICY_PREFIXES = (".github/", "scripts/ci/")
 CI_POLICY_TEST_PREFIXES = ("tests/test_ci_",)
 CI_POLICY_FILES = frozenset({"tests/test-execution.toml"})
-# choose_ci_suite.py fails a pull request run whose routed diff touches these
-# (UNJUDGED_BY_ANY_PR_JOB_PREFIXES): no pull request job executes them. Main's
-# edits there, carried in by the delta, would fail the pull request for them.
-UNJUDGED_PREFIXES = ("cmuxUITests/",)
 # The GitHub Actions app, which owns every workflow check suite.
 ACTIONS_APP_ID = 15368
 CONCLUSIVE = frozenset({"success", "failure", "timed_out", "action_required", "startup_failure"})
@@ -223,8 +218,12 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
         listed = ", ".join(policy[:3]) + (", ..." if len(policy) > 3 else "")
         raise Skip(f"the pull request changes CI policy ({listed}), which routes from its whole diff")
 
-    # Commits only, no trees: enough to read the chain's shape.
-    git.fetch("--filter=tree:0", f"--depth={MAX_CHAIN + 2}", git.remote, head_sha)
+    # Commits only, no trees: enough to read the chain's shape. Depth-limited
+    # only in a shallow checkout: --depth in a full clone (a developer's, or a
+    # worktree of one) writes .git/shallow and truncates history for every
+    # worktree sharing it.
+    depth = [f"--depth={MAX_CHAIN + 2}"] if git.is_shallow() else []
+    git.fetch("--filter=tree:0", *depth, git.remote, head_sha)
     chain = git.first_parent_chain(head_sha, MAX_CHAIN + 1)
     green, merges = find_green_head(chain, verdicts)
 
@@ -255,15 +254,10 @@ def decide(git: Git, merge_sha: str, head_sha: str, verdicts: Verdicts) -> Decis
                    f"{short(green.oid)} and did not change since: {listed}")
     # The delta exists to route less than the pull request diff. It carries
     # everything main gained since H1, which main's own runs judge, so when
-    # main moved further than the pull request it routes more, and main's
-    # cmuxUITests/ edits would read as this pull request's coverage gap.
+    # main moved further than the pull request it routes more.
     if len(delta) > len(own_now):
         raise Skip(f"the delta since {short(green.oid)} ({len(delta)} files) is larger than "
                    f"the pull request diff ({len(own_now)} files)")
-    unjudged = sorted(path for path in delta - own_now if path.startswith(UNJUDGED_PREFIXES))
-    if unjudged:
-        listed = ", ".join(unjudged[:3]) + (", ..." if len(unjudged) > 3 else "")
-        raise Skip(f"main's edits since {short(green.oid)} touch files no pull request job runs: {listed}")
     return Decision(
         green.oid,
         f"delta since green head {short(green.oid)}: {len(delta)} files "

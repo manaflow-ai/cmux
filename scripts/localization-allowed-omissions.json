@@ -1,4 +1,16 @@
 {
+  "cloud.workspaceSetup.setupClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "cloud.workspaceSetup.setupCodex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "cloud.welcome.title.eyebrow": {
+    "class": "brand",
+    "source": "cmux cloud"
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
@@ -21,6 +33,31 @@
       }
     }
   },
+  "argument.appStore.tab": {
+    "source": "Tab",
+    "identityLocales": {
+      "de": "Tab is the standard German UI word for a tab (Apple and browsers use it), spelled as in English."
+    }
+  },
+  "store.feature.category.layout": {
+    "source": "Layout",
+    "identityLocales": {
+      "de": "Layout is the standard German UI term; cmux NEXT's German strings use it for the same window and pane layout features (menu.folder.layout, settings.diff.layout, layout.title)."
+    }
+  },
+  "store.feature.category.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "fr": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ar": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "es": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "zh-Hant": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "zh-Hans": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ko": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ja": "Chief is the product name of cmux's lead agent and stays untranslated."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {
@@ -33,30 +70,6 @@
       "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
       "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
       "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
-    }
-  },
-  "cli.socketControlStatus.command": {
-    "source": "socket-status [--json]",
-    "identityLocales": {
-      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
-      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   },
   "CFBundleDisplayName": {
@@ -136,6 +149,30 @@
       "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
     }
   },
+  "agent.muse.displayName": {
+    "source": "Muse Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
   "agent.ollama.displayName": {
     "source": "Ollama",
     "identityLocales": {
@@ -158,118 +195,6 @@
       "uk": "Agent product names are invariant brand names; the translated entry is still required.",
       "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
       "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.panel.title": {
-    "class": "format",
-    "source": "%@ · %@"
-  },
-  "agentSession.provider.claude": {
-    "source": "Claude Code",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.provider.codex": {
-    "source": "Codex",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.provider.opencode": {
-    "source": "OpenCode",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "agentSession.renderer.react": {
-    "class": "brand",
-    "source": "React"
-  },
-  "agentSession.renderer.solid": {
-    "class": "brand",
-    "source": "Solid"
-  },
-  "agentSession.web.mentionMenuTitle": {
-    "source": "Mention",
-    "identityLocales": {
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "agentSession.web.planSuggestion.shortcut": {
-    "class": "syntax",
-    "source": "Shift + Tab"
-  },
-  "agentSession.web.shellLabel": {
-    "class": "technical",
-    "source": "Shell"
-  },
-  "agentSession.web.skillMenuTitle": {
-    "source": "Skills",
-    "identityLocales": {
-      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "agentSession.web.skillPlan": {
-    "source": "Plan",
-    "identityLocales": {
-      "de": "Plan is the German noun for an implementation plan.",
-      "fr": "Plan is the French noun for an implementation plan.",
-      "es": "Plan is the Spanish noun for an implementation plan."
     }
   },
   "alert.invalidColor.ok": {
@@ -356,224 +281,6 @@
     "source": "Browser",
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "cli.browser.designMode.help": {
-    "class": "syntax",
-    "source": "browser design-mode enable|disable|toggle|status [--surface <id>]"
-  },
-  "cli.browser.engine.option": {
-    "source": "[--engine <webkit|chromium>]",
-    "class": "syntax"
-  },
-  "cli.browser.help.viewportUsage": {
-    "class": "syntax",
-    "source": "viewport <width> <height> | reset"
-  },
-  "cli.browser.profile.option": {
-    "class": "syntax",
-    "source": "[--profile <name|uuid>]"
-  },
-  "cli.claude-hook.notification.title": {
-    "source": "Claude Code",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "cli.codexMonitor.notification.title": {
-    "source": "Codex",
-    "identityLocales": {
-      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
-      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
-      "da": "Agent product names are invariant brand names; the translated entry is still required.",
-      "de": "Agent product names are invariant brand names; the translated entry is still required.",
-      "es": "Agent product names are invariant brand names; the translated entry is still required.",
-      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "it": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
-      "km": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
-      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
-      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
-      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
-      "th": "Agent product names are invariant brand names; the translated entry is still required.",
-      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
-      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
-      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
-    }
-  },
-  "cli.error.clearNotificationsUsage": {
-    "class": "syntax",
-    "source": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
-  },
-  "cli.help.fork": {
-    "class": "syntax",
-    "source": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]"
-  },
-  "cli.help.ios": {
-    "class": "syntax",
-    "source": "ios <subcommand> [args] [--surface <id|ref|index>]"
-  },
-  "cli.help.restore": {
-    "class": "syntax",
-    "source": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
-  },
-  "cli.help.simulator": {
-    "class": "syntax",
-    "source": "simulator <subcommand> [args] [--surface <id|ref|index>]"
-  },
-  "cli.localTmux.output.attached": {
-    "source": "OK session=%@ surface=%@ mode=local-tmux",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.idSuffix": {
-    "source": " id=%@",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.record": {
-    "source": "OK session=%@ id=%@ state=%@ socket=%@",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.sessionRow": {
-    "source": "%@ [%@] clients=%lld",
-    "class": "syntax"
-  },
-  "cli.localTmux.output.status": {
-    "source": "%@ [%@] clients=%lld socket=%@",
-    "class": "syntax"
-  },
-  "cli.localZellij.output.attached": {
-    "source": "OK session=%@ surface=%@ mode=local-zellij",
-    "class": "syntax"
-  },
-  "cli.localZellij.output.idSuffix": {
-    "source": " id=%@",
-    "class": "syntax"
-  },
-  "cli.localZellij.output.record": {
-    "source": "OK session=%@ id=%@ state=%@ socket=%@",
-    "class": "syntax"
-  },
-  "cli.localZellij.output.sessionRow": {
-    "source": "%@ [%@]",
-    "class": "syntax"
-  },
-  "cli.localZellij.output.status": {
-    "source": "%@ [%@] socket=%@",
-    "class": "syntax"
-  },
-  "cli.readSelection.output.url": {
-    "class": "format",
-    "source": "URL: %@"
-  },
-  "cli.sessions.command": {
-    "class": "syntax",
-    "source": "sessions [list] [options]"
-  },
-  "cli.sidebar.report.error": {
-    "source": "ERROR %@ [%@] %@: %@",
-    "class": "syntax"
-  },
-  "cli.sidebar.report.ok": {
-    "source": "OK %@ [%@] %@",
-    "class": "format"
-  },
-  "cli.usage.record": {
-    "class": "syntax",
-    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
-  },
-  "cli.usage.shot": {
-    "class": "syntax",
-    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
-  },
-  "cli.usage.readScreen": {
-    "class": "syntax",
-    "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
-  },
-  "cli.usage.readSelection": {
-    "class": "syntax",
-    "source": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
-  },
-  "cli.vm.list.planMeter": {
-    "source": "%1$d of %2$d machines on the %3$@ plan",
-    "identityLocales": {
-      "fr": {
-        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
-        "values": [
-          "%d machine",
-          "%d machines"
-        ]
-      }
-    }
-  },
-  "cli.vm.tree.agent": {
-    "source": "[agent %@]",
-    "identityLocales": {
-      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
-  "cli.vm.tree.browsers": {
-    "class": "syntax",
-    "source": "browsers/"
-  },
-  "cli.vm.tree.displays": {
-    "class": "syntax",
-    "source": "VNC Displays/"
-  },
-  "cli.vm.tree.localSummary": {
-    "source": "%1$d terminals · %2$d browsers",
-    "identityLocales": {
-      "fr": {
-        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
-        "values": [
-          "%d terminal"
-        ]
-      },
-      "es": {
-        "reason": "Terminal, byte and bytes are valid Spanish technical nouns with the same spelling. Only these exact plural leaf values are exempt.",
-        "values": [
-          "%d terminal"
-        ]
-      }
-    }
-  },
-  "cli.vm.tree.ports": {
-    "class": "syntax",
-    "source": "ports/"
-  },
-  "cli.vm.tree.terminals": {
-    "class": "syntax",
-    "source": "terminals/"
-  },
-  "cli.vm.tree.workspaces": {
-    "class": "syntax",
-    "source": "workspaces/"
-  },
-  "cli.vpn.status.backend": {
-    "source": "Backend: %@",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
-      "es": "Reviewed shared native developer term, abbreviation, or borrowed technical noun. The translated entry is still required."
     }
   },
   "clipboard.sshError.item": {
@@ -737,6 +444,13 @@
     "source": "Status",
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.cloud.button": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
     }
   },
   "command.cloudVM.subtitle": {
@@ -2079,6 +1793,19 @@
       "de": "Reviewed native word, technical abbreviation, or SaaS tier name with the same spelling in this context."
     }
   },
+  "pricing.native.compare.concurrent.free": {
+    "source": "1",
+    "identityLocales": {
+      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
+      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
+    }
+  },
   "pricing.native.compare.concurrent.paid": {
     "source": "5",
     "identityLocales": {
@@ -2490,6 +2217,132 @@
     "identityLocales": {
       "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "settingsWindow.backdropPicker.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German writes Video as English does; an explicit translated entry remains required."
+    }
+  },
+  "home.engine.effort.minimal": {
+    "source": "Minimal",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required."
+    }
+  },
+  "home.chief.name": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "home.compose.source.agent": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "home.list.section.chiefs": {
+    "source": "Chiefs",
+    "identityLocales": {
+      "de": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "fr": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "ar": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "es": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters."
+    }
+  },
+  "home.title": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
+  "argument.home.view.messages": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
+  "home.list.title": {
+    "source": "Conversations",
+    "identityLocales": {
+      "fr": "Conversations is the French word for conversations, spelled as in English."
+    }
+  },
+  "home.list.untitled": {
+    "source": "Conversation",
+    "identityLocales": {
+      "fr": "Conversation is the French word for a conversation, spelled as in English."
+    }
+  },
+  "home.compose.source.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "home.compose.source.connection": {
+    "source": "Contact",
+    "identityLocales": {
+      "fr": "Contact is the French word for a contact, spelled as in English."
+    }
+  },
+  "home.chief.new.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "home.engine.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "home.chief.new.backend": {
+    "source": "Backend",
+    "identityLocales": {
+      "de": "Backend is the established German IT noun (in the Duden), spelled as in English."
+    }
+  },
+  "home.info.title.direct": {
+    "source": "Info",
+    "identityLocales": {
+      "de": "Info is the standard German short word for information, spelled as in English."
+    }
+  },
+  "home.info.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.engine.section.agent).",
+      "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.engine.section.agent)."
+    }
+  },
+  "home.info.role.admin": {
+    "source": "Admin",
+    "identityLocales": {
+      "de": "Admin is the standard German short word for an administrator (in the Duden), spelled as in English."
+    }
+  },
+  "home.list.chief.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the cmux Cloud product area (as sidebar.cloud.button).",
+      "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button)."
+    }
+  },
+  "home.engine.effort": {
+    "source": "Effort",
+    "identityLocales": {
+      "fr": "Effort is the French word for effort, spelled as in English (as the effort level home.engine.effort.minimal)."
+    }
+  },
+  "home.engine.harness": {
+    "source": "Harness",
+    "identityLocales": {
+      "de": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); German developer UIs keep the English word, as Klassifikator-Harness does.",
+      "fr": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); French developer UIs keep the English word, as Harness du classificateur does.",
+      "es": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Spanish developer UIs keep the English word, as Harness del clasificador does.",
+      "zh-Hans": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分类器 Harness does.",
+      "zh-Hant": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分類器 Harness does."
     }
   },
   "settings.automation.kiro.notificationLevel.minimal": {
@@ -3095,16 +2948,6 @@
     "class": "brand",
     "source": "Discord"
   },
-  "sidebar.help.feedback.emailPlaceholder": {
-    "class": "syntax",
-    "source": "you@example.com"
-  },
-  "sidebar.help.feedback.message": {
-    "source": "Message",
-    "identityLocales": {
-      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
-    }
-  },
   "sidebar.help.githubIssues": {
     "source": "GitHub Issues",
     "identityLocales": {
@@ -3139,6 +2982,14 @@
       "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "sidebar.remoteMachines.cpu": {
+    "class": "technical",
+    "source": "CPU %1$lld/%2$lld"
+  },
+  "sidebar.remoteMachines.resourcesLabel": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
   "sidebar.status.compactLabel": {
     "source": "Status: %@",
     "identityLocales": {
@@ -3148,6 +2999,10 @@
   "sidebar.tree.group.remote.subtitle": {
     "class": "technical",
     "source": "SSH"
+  },
+  "sidebar.workspace.titleWithHost": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
   },
   "simulator.action.siri": {
     "class": "brand",
@@ -3893,12 +3748,6 @@
     "class": "technical",
     "source": "URL"
   },
-  "update.popover.version": {
-    "source": "Version:",
-    "identityLocales": {
-      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
-    }
-  },
   "workspaceTodoPane.title": {
     "source": "Todos",
     "identityLocales": {
@@ -3915,10 +3764,6 @@
       "de": "Displays is the established German plural for computer displays; the translated entry remains required."
     }
   },
-  "cli.vm.env.set": {
-    "source": "vm env set: %1$@",
-    "class": "syntax"
-  },
   "sudo.cli.global_usage.run": {
     "source": "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)",
     "class": "syntax"
@@ -3930,38 +3775,6 @@
   "sudo.cli.global_usage.setup_touch_id": {
     "source": "sudo setup-touch-id",
     "class": "syntax"
-  },
-  "cli.vm.push.secretDelivered": {
-    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
-    "identityLocales": {
-      "de": {
-        "reason": "Byte/Bytes are the established German computing unit; only the exact unit leaf may share English spelling.",
-        "values": [
-          "%ld Byte",
-          "%ld Bytes"
-        ]
-      },
-      "es": {
-        "reason": "byte/bytes are the established Spanish computing unit; the surrounding sentence remains translated.",
-        "values": [
-          "%ld byte",
-          "%ld bytes"
-        ]
-      }
-    }
-  },
-  "cli.billing.global_usage": {
-    "source": "billing checkout --plan <go|pro|max> [--no-open]",
-    "identityLocales": {
-      "de": "Command syntax is intentionally identical in this locale.",
-      "fr": "Command syntax is intentionally identical in this locale.",
-      "ar": "Command syntax is intentionally identical in this locale.",
-      "es": "Command syntax is intentionally identical in this locale.",
-      "zh-Hant": "Command syntax is intentionally identical in this locale.",
-      "zh-Hans": "Command syntax is intentionally identical in this locale.",
-      "ko": "Command syntax is intentionally identical in this locale.",
-      "ja": "Command syntax is intentionally identical in this locale."
-    }
   },
   "machines.new.plan.name.max": {
     "source": "Max",
@@ -4180,6 +3993,310 @@
       }
     }
   },
+  "cloudMenu.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Standard German UI term with the same spelling."
+    }
+  },
+  "cloudMenu.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "menu.cloud.title": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Product name cmux Cloud keeps its English spelling in this language.",
+      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
+      "es": "Product name cmux Cloud keeps its English spelling in this language."
+    }
+  },
+  "sidebar.agentStatus.glyph.tooltip": {
+    "source": "%1$@: %2$@",
+    "identityLocales": {
+      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
+      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+    }
+  },
+  "terminalSharing.device.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "terminalSharing.device.iphone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "terminalSharing.device.ipad": {
+    "class": "brand",
+    "source": "iPad"
+  },
+  "terminalSharing.participant.personDevice": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
+  "terminalSharing.device.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
+    }
+  },
+  "settings.section.textBox": {
+    "source": "TextBox",
+    "identityLocales": {
+      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
+      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
+    }
+  },
+  "cli.socketControlStatus.command": {
+    "source": "socket-status [--json]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
+  "cli.browser.designMode.help": {
+    "class": "syntax",
+    "source": "browser design-mode enable|disable|toggle|status [--surface <id>]"
+  },
+  "cli.browser.engine.option": {
+    "source": "[--engine <webkit|chromium>]",
+    "class": "syntax"
+  },
+  "cli.browser.help.viewportUsage": {
+    "class": "syntax",
+    "source": "viewport <width> <height> | reset"
+  },
+  "cli.browser.profile.option": {
+    "class": "syntax",
+    "source": "[--profile <name|uuid>]"
+  },
+  "cli.claude-hook.notification.title": {
+    "source": "Claude Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "cli.codexMonitor.notification.title": {
+    "source": "Codex",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "cli.error.clearNotificationsUsage": {
+    "class": "syntax",
+    "source": "clear_notifications [--tab=X] [--panel=ID] [--correlation-key=UUID]"
+  },
+  "cli.help.fork": {
+    "class": "syntax",
+    "source": "fork [--surface <id|ref>] <kind> <checkpoint-id> | fork --surface [id|ref]"
+  },
+  "cli.help.restore": {
+    "class": "syntax",
+    "source": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+  },
+  "cli.localTmux.output.attached": {
+    "source": "OK session=%@ surface=%@ mode=local-tmux",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.idSuffix": {
+    "source": " id=%@",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.record": {
+    "source": "OK session=%@ id=%@ state=%@ socket=%@",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.sessionRow": {
+    "source": "%@ [%@] clients=%lld",
+    "class": "syntax"
+  },
+  "cli.localTmux.output.status": {
+    "source": "%@ [%@] clients=%lld socket=%@",
+    "class": "syntax"
+  },
+  "cli.readSelection.output.url": {
+    "class": "format",
+    "source": "URL: %@"
+  },
+  "cli.sessions.command": {
+    "class": "syntax",
+    "source": "sessions [list] [options]"
+  },
+  "cli.usage.record": {
+    "class": "syntax",
+    "source": "record [start] [--format mp4|gif] [--gif] [--fps <n>] [--max-seconds <n>] [--scale <n>] [--max-width <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--no-captions] [--window <id|ref|index>] | record stop|status [--id <id>] | record note [--id <id>] <text> | record list"
+  },
+  "cli.usage.shot": {
+    "class": "syntax",
+    "source": "shot [--format png|jpg] [--jpg] [--scale <n>] [--max-width <n>] [--quality <n>] [--region <x,y,w,h>] [--out <path>] [--label <text>] [--caption <text>] [--window <id|ref|index>]"
+  },
+  "cli.usage.readScreen": {
+    "class": "syntax",
+    "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+  },
+  "cli.usage.readSelection": {
+    "class": "syntax",
+    "source": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+  },
+  "cli.vm.list.planMeter": {
+    "source": "%1$d of %2$d machines on the %3$@ plan",
+    "identityLocales": {
+      "fr": {
+        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
+        "values": [
+          "%d machine",
+          "%d machines"
+        ]
+      }
+    }
+  },
+  "cli.vm.tree.agent": {
+    "source": "[agent %@]",
+    "identityLocales": {
+      "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "cli.vm.tree.browsers": {
+    "class": "syntax",
+    "source": "browsers/"
+  },
+  "cli.vm.tree.displays": {
+    "class": "syntax",
+    "source": "VNC Displays/"
+  },
+  "cli.vm.tree.localSummary": {
+    "source": "%1$d terminals · %2$d browsers",
+    "identityLocales": {
+      "fr": {
+        "reason": "These French count nouns have the same spelling as English. Only the listed leaf text may be identical; the surrounding sentence must still be translated.",
+        "values": [
+          "%d terminal"
+        ]
+      },
+      "es": {
+        "reason": "Terminal, byte and bytes are valid Spanish technical nouns with the same spelling. Only these exact plural leaf values are exempt.",
+        "values": [
+          "%d terminal"
+        ]
+      }
+    }
+  },
+  "cli.vm.tree.ports": {
+    "class": "syntax",
+    "source": "ports/"
+  },
+  "cli.vm.tree.terminals": {
+    "class": "syntax",
+    "source": "terminals/"
+  },
+  "cli.vm.tree.workspaces": {
+    "class": "syntax",
+    "source": "workspaces/"
+  },
+  "cli.vpn.status.backend": {
+    "source": "Backend: %@",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required.",
+      "es": "Reviewed shared native developer term, abbreviation, or borrowed technical noun. The translated entry is still required."
+    }
+  },
+  "cli.vm.env.set": {
+    "source": "vm env set: %1$@",
+    "class": "syntax"
+  },
+  "cli.vm.push.secretDelivered": {
+    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
+    "identityLocales": {
+      "de": {
+        "reason": "Byte/Bytes are the established German computing unit; only the exact unit leaf may share English spelling.",
+        "values": [
+          "%ld Byte",
+          "%ld Bytes"
+        ]
+      },
+      "es": {
+        "reason": "byte/bytes are the established Spanish computing unit; the surrounding sentence remains translated.",
+        "values": [
+          "%ld byte",
+          "%ld bytes"
+        ]
+      }
+    }
+  },
+  "cli.billing.global_usage": {
+    "source": "billing checkout --plan <go|pro|max> [--no-open]",
+    "identityLocales": {
+      "de": "Command syntax is intentionally identical in this locale.",
+      "fr": "Command syntax is intentionally identical in this locale.",
+      "ar": "Command syntax is intentionally identical in this locale.",
+      "es": "Command syntax is intentionally identical in this locale.",
+      "zh-Hant": "Command syntax is intentionally identical in this locale.",
+      "zh-Hans": "Command syntax is intentionally identical in this locale.",
+      "ko": "Command syntax is intentionally identical in this locale.",
+      "ja": "Command syntax is intentionally identical in this locale."
+    }
+  },
   "cli.workflow.literal.codex": {
     "source": "codex",
     "class": "syntax",
@@ -4280,36 +4397,114 @@
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
   },
-  "cloudMenu.team": {
-    "source": "Team",
+  "agentPane.handoff.plan": {
+    "source": "Plan",
     "identityLocales": {
-      "de": "Standard German UI term with the same spelling."
+      "de": "Plan is the established German UI word for a plan; the translated catalog entry remains explicit.",
+      "fr": "Plan is the established French UI word for a plan; the translated catalog entry remains explicit.",
+      "es": "Plan is the established Spanish UI word for a plan; the translated catalog entry remains explicit."
     }
   },
-  "cloudMenu.title": {
-    "source": "Cloud",
+  "agentPane.checkpoint.base": {
+    "source": "Base",
     "identityLocales": {
-      "de": "Product name cmux Cloud keeps its English spelling in this language.",
-      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
-      "es": "Product name cmux Cloud keeps its English spelling in this language."
+      "fr": "Base is the established French UI word for a base; the translated catalog entry remains explicit.",
+      "es": "Base is the established Spanish UI word for a base; the translated catalog entry remains explicit.",
+      "it": "Base is the established Italian word for a base; the translated catalog entry remains explicit.",
+      "pt-BR": "Base is the established Portuguese word for a base; the translated catalog entry remains explicit."
     }
   },
-  "menu.cloud.title": {
-    "source": "Cloud",
+  "onboarding.projects.folder.iCloudDrive": {
+    "source": "iCloud Drive",
+    "class": "brand"
+  },
+  "onboarding.projects.folder.documents": {
+    "source": "Documents",
     "identityLocales": {
-      "de": "Product name cmux Cloud keeps its English spelling in this language.",
-      "fr": "Product name cmux Cloud keeps its English spelling in this language.",
-      "es": "Product name cmux Cloud keeps its English spelling in this language."
+      "fr": "The macOS Documents folder is named \"Documents\" in French."
     }
   },
-  "sidebar.agentStatus.glyph.tooltip": {
-    "source": "%1$@: %2$@",
+  "onboarding.projects.folder.downloads": {
+    "source": "Downloads",
     "identityLocales": {
-      "ar": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
-      "de": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
-      "es": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required.",
-      "ko": "Name: value separator between two runtime placeholders; the colon and spacing are correct unchanged in this locale. The translated entry is still required."
+      "de": "The macOS Downloads folder is named \"Downloads\" in German."
     }
+  },
+  "argument.value.editor": {
+    "source": "Editor",
+    "identityLocales": {
+      "de": "\"Editor\" is the standard German word for a text editor.",
+      "es": "\"Editor\" is the standard Spanish word for a text editor."
+    }
+  },
+  "argument.value.tab": {
+    "source": "Tab",
+    "identityLocales": {
+      "de": "\"Tab\" is the standard German word for a browser or app tab."
+    }
+  },
+  "settings.choice.newTabAgent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "\"Agent\" is spelled the same in German and is the term used for AI agents.",
+      "fr": "\"Agent\" is spelled the same in French and is the term used for AI agents."
+    }
+  },
+  "settings.choice.newTabBrowser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "\"Browser\" is the standard German word for a web browser."
+    }
+  },
+  "settings.choice.newTabTerminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "\"Terminal\" is spelled the same in German and is the standard term for a terminal app.",
+      "es": "\"Terminal\" is spelled the same in Spanish and is the standard term for a terminal app.",
+      "fr": "\"Terminal\" is spelled the same in French and is the standard term for a terminal app."
+    }
+  },
+  "settings.group.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
+  "settings.tabs.commandDigits.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
+  "accounts.group.anthropic": {
+    "class": "brand",
+    "source": "Anthropic"
+  },
+  "accounts.linked.count": {
+    "source": "In CodeRouter: %lld",
+    "identityLocales": {
+      "de": "CodeRouter is a product name and the short German phrase is identical; the catalog entry remains explicit."
+    }
+  },
+  "cli.localZellij.output.attached": {
+    "source": "OK session=%@ surface=%@ mode=local-zellij",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.idSuffix": {
+    "source": " id=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.record": {
+    "source": "OK session=%@ id=%@ state=%@ socket=%@",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.sessionRow": {
+    "source": "%@ [%@]",
+    "class": "syntax"
+  },
+  "cli.localZellij.output.status": {
+    "source": "%@ [%@] socket=%@",
+    "class": "syntax"
   },
   "cli.vm.tree.vcpu": {
     "source": "%.0f vCPU",
@@ -4320,37 +4515,6 @@
       "ar": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
       "ja": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale.",
       "ko": "vCPU is an invariant resource unit symbol; the placeholder is identical in this locale."
-    }
-  },
-  "terminalSharing.device.mac": {
-    "class": "brand",
-    "source": "Mac"
-  },
-  "terminalSharing.device.iphone": {
-    "class": "brand",
-    "source": "iPhone"
-  },
-  "terminalSharing.device.ipad": {
-    "class": "brand",
-    "source": "iPad"
-  },
-  "terminalSharing.participant.personDevice": {
-    "class": "format",
-    "source": "%1$@ · %2$@"
-  },
-  "terminalSharing.device.browser": {
-    "source": "Browser",
-    "identityLocales": {
-      "de": "Browser is the standard German UI term with the same spelling; a translated entry is still required."
-    }
-  },
-  "settings.section.textBox": {
-    "source": "TextBox",
-    "identityLocales": {
-      "fr": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
-      "ko": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
-      "ja": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed.",
-      "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
   },
   "settings.betaFeatures.dock": {
@@ -4440,19 +4604,6 @@
       "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
-    }
-  },
-  "pricing.native.compare.concurrent.free": {
-    "source": "1",
-    "identityLocales": {
-      "de": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "fr": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "ar": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "es": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "zh-Hant": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "zh-Hans": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
-      "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
     }
   },
   "machines.new.plan.retry": {
@@ -4937,6 +5088,1964 @@
     "source": "Question %lld",
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
+    }
+  },
+  "diffViewer.commit": {
+    "source": "Commit",
+    "identityLocales": {
+      "de": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      },
+      "fr": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      },
+      "es": {
+        "reason": "Commit is the established Git term in this locale.",
+        "values": [
+          "Commit"
+        ]
+      }
+    }
+  },
+  "diffViewer.sourceBranch": {
+    "source": "Branch",
+    "identityLocales": {
+      "de": {
+        "reason": "Branch is the established Git term in this locale.",
+        "values": [
+          "Branch"
+        ]
+      }
+    }
+  },
+  "gallery.experimental": {
+    "source": "Experimental",
+    "identityLocales": {
+      "es": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Experimental is the standard adjective in this language and shares its spelling with English.",
+        "values": [
+          "Experimental"
+        ]
+      }
+    }
+  },
+  "inspector.bytes": {
+    "source": "{value} B",
+    "identityLocales": {
+      "de": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "es": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "ja": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "bs": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "da": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "it": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "km": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "nb": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "pl": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "pt-BR": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "th": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "tr": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      },
+      "vi": {
+        "reason": "B is the standard byte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} B"
+        ]
+      }
+    }
+  },
+  "inspector.filter": {
+    "source": "Filter",
+    "identityLocales": {
+      "bs": {
+        "reason": "Filter is the Bosnian word for this control.",
+        "values": [
+          "Filter"
+        ]
+      }
+    }
+  },
+  "inspector.kilobytes": {
+    "source": "{value} KB",
+    "identityLocales": {
+      "de": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "es": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "ja": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "bs": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "da": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "it": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "km": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "nb": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "pl": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "pt-BR": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "th": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "tr": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      },
+      "vi": {
+        "reason": "KB is the kilobyte unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} KB"
+        ]
+      }
+    }
+  },
+  "inspector.latencyValue": {
+    "source": "p50 {p50} ms · max {max} ms",
+    "identityLocales": {
+      "fr": {
+        "reason": "p50, max, ms, and the numeric placeholders are standard latency notation in this locale.",
+        "values": [
+          "p50 {p50} ms · max {max} ms"
+        ]
+      },
+      "it": {
+        "reason": "p50, max, ms, and the numeric placeholders are standard latency notation in this locale.",
+        "values": [
+          "p50 {p50} ms · max {max} ms"
+        ]
+      }
+    }
+  },
+  "inspector.milliseconds": {
+    "source": "{value} ms",
+    "identityLocales": {
+      "de": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "fr": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "es": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "ja": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "bs": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "da": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "it": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "km": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "nb": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "pl": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "pt-BR": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "th": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "tr": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      },
+      "vi": {
+        "reason": "ms is the standard millisecond unit symbol; the value placeholder is invariant.",
+        "values": [
+          "{value} ms"
+        ]
+      }
+    }
+  },
+  "inspector.session": {
+    "source": "Session",
+    "identityLocales": {
+      "fr": {
+        "reason": "Session is the standard word in this locale.",
+        "values": [
+          "Session"
+        ]
+      },
+      "da": {
+        "reason": "Session is the standard word in this locale.",
+        "values": [
+          "Session"
+        ]
+      }
+    }
+  },
+  "settings.appearance.accent": {
+    "source": "Accent",
+    "identityLocales": {
+      "fr": "Accent is the standard French word for an accent color; a translated entry is still required."
+    }
+  },
+  "settings.choice.accent.neutral": {
+    "source": "Neutral",
+    "identityLocales": {
+      "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.accent.magenta": {
+    "source": "Magenta",
+    "identityLocales": {
+      "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
+      "fr": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
+      "es": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.accent.cyan": {
+    "source": "Cyan",
+    "identityLocales": {
+      "de": "Same spelling as the English color or UI word in this locale; a translated entry is still required.",
+      "fr": "Same spelling as the English color or UI word in this locale; a translated entry is still required."
+    }
+  },
+  "backdrop.label": {
+    "class": "format",
+    "source": "%1$@ — %2$@"
+  },
+  "backdrop.collection.dore": {
+    "source": "Doré",
+    "identityLocales": {
+      "bs": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "da": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "de": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "es": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "fr": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "it": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "nb": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "pl": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "tr": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      },
+      "vi": {
+        "reason": "Doré is the artist's name.",
+        "values": [
+          "Doré"
+        ]
+      }
+    }
+  },
+  "backdrop.martin-pandemonium.title": {
+    "source": "Pandemonium",
+    "identityLocales": {
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Pandemonium"
+        ]
+      }
+    }
+  },
+  "backdrop.munch-madonna.title": {
+    "source": "Madonna",
+    "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madonna"
+        ]
+      }
+    }
+  },
+  "backdrop.gerome-botsaris.title": {
+    "source": "Markos Botsaris",
+    "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Markos Botsaris"
+        ]
+      }
+    }
+  },
+  "backdrop.rothaug-melpomene.title": {
+    "source": "Melpomene",
+    "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Melpomene"
+        ]
+      }
+    }
+  },
+  "backdrop.velazquez-las-meninas.title": {
+    "source": "Las Meninas",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Las Meninas"
+        ]
+      }
+    }
+  },
+  "backdrop.matejko-stanczyk.title": {
+    "source": "Stańczyk",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Stańczyk"
+        ]
+      }
+    }
+  },
+  "backdrop.sargent-madame-x.title": {
+    "source": "Madame X",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame X"
+        ]
+      }
+    }
+  },
+  "backdrop.vigee-lebrun-madame-grand.title": {
+    "source": "Madame Grand",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Madame Grand"
+        ]
+      }
+    }
+  },
+  "backdrop.wood-american-gothic.title": {
+    "source": "American Gothic",
+    "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "American Gothic"
+        ]
+      }
+    }
+  },
+  "backdrop.steinlen-chat-noir.title": {
+    "source": "Tournée du Chat Noir",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "ru": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "th": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "uk": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Tournée du Chat Noir"
+        ]
+      }
+    }
+  },
+  "backdrop.botticelli-primavera.title": {
+    "source": "Primavera",
+    "identityLocales": {
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Primavera"
+        ]
+      }
+    }
+  },
+  "backdrop.klimt-adele.title": {
+    "source": "Adele Bloch-Bauer I",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Adele Bloch-Bauer I"
+        ]
+      }
+    }
+  },
+  "backdrop.mucha-job.title": {
+    "source": "Job",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "km": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "ru": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "th": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "uk": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Job"
+        ]
+      }
+    }
+  },
+  "backdrop.klimt-mada-primavesi.title": {
+    "source": "Mäda Primavesi",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mäda Primavesi"
+        ]
+      }
+    }
+  },
+  "backdrop.schiele-moa.title": {
+    "source": "Moa",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "es": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "it": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "pl": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "pt-BR": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Moa"
+        ]
+      }
+    }
+  },
+  "backdrop.kandinsky-composition-viii.title": {
+    "source": "Composition VIII",
+    "identityLocales": {
+      "fr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Composition VIII"
+        ]
+      }
+    }
+  },
+  "backdrop.grimshaw-blackman-street.title": {
+    "source": "Blackman Street, London",
+    "identityLocales": {
+      "bs": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      },
+      "da": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      },
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      },
+      "nb": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Blackman Street, London"
+        ]
+      }
+    }
+  },
+  "backdrop.waterhouse-ophelia.title": {
+    "source": "Ophelia",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      },
+      "tr": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      },
+      "vi": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Ophelia"
+        ]
+      }
+    }
+  },
+  "backdrop.laurence-mckinley.title": {
+    "source": "Mt. McKinley",
+    "identityLocales": {
+      "de": {
+        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
+        "values": [
+          "Mt. McKinley"
+        ]
+      }
+    }
+  },
+  "status.label.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "status.label.question": {
+    "source": "Question",
+    "identityLocales": {
+      "fr": "Question is the usual French noun for this status label; a translated entry is still required."
+    }
+  },
+  "globalSearch.agent.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "settings.account.max.title": {
+    "source": "cmux Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "fr": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ar": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "es": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ko": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ja": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithMaxPlan": {
+    "source": "%1$@ · Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithGoPlan": {
+    "source": "%1$@ · Go",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      }
+    }
+  },
+  "home.engine.section.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "da": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "de": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "fr": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "nb": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
+    }
+  },
+  "devices.platform.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.platform.ios": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "macScreen.keys.missionControl": {
+    "source": "Mission Control (⌃↑)",
+    "identityLocales": {
+      "de": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "fr": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ar": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "es": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ko": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ja": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.hub.unknownDevice": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.history.host": {
+    "source": "Host",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "devices.nameField": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.relays.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.section.relays": {
+    "source": "Relays",
+    "identityLocales": {
+      "de": "Relays is the German plural used for network relay servers."
+    }
+  },
+  "devices.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in German."
+    }
+  },
+  "devices.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in German."
+    }
+  },
+  "importSuggestions.request.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "chiefViews.terminal.untitled": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Terminal is the standard German UI word for a terminal (macOS Terminal.app is Terminal), spelled as in English.",
+      "es": "Terminal is the standard Spanish UI word for a terminal (macOS names the app Terminal), spelled as in English.",
+      "fr": "Terminal is the standard French UI word for a terminal (macOS names the app Terminal), spelled as in English."
+    }
+  },
+  "updater.channels.ring.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
+  "updater.channels.ring.canary": {
+    "source": "Canary",
+    "identityLocales": {
+      "ar": "Canary is the invariant cmux build channel name.",
+      "de": "Canary is the invariant cmux build channel name.",
+      "es": "Canary is the invariant cmux build channel name.",
+      "fr": "Canary is the invariant cmux build channel name.",
+      "ja": "Canary is the invariant cmux build channel name.",
+      "ko": "Canary is the invariant cmux build channel name.",
+      "zh-Hans": "Canary is the invariant cmux build channel name.",
+      "zh-Hant": "Canary is the invariant cmux build channel name."
+    }
+  },
+  "updater.channels.ring.dev": {
+    "source": "Dev",
+    "identityLocales": {
+      "ar": "Dev is the invariant cmux build channel name.",
+      "de": "Dev is the invariant cmux build channel name.",
+      "es": "Dev is the invariant cmux build channel name.",
+      "fr": "Dev is the invariant cmux build channel name.",
+      "ja": "Dev is the invariant cmux build channel name.",
+      "ko": "Dev is the invariant cmux build channel name.",
+      "zh-Hans": "Dev is the invariant cmux build channel name.",
+      "zh-Hant": "Dev is the invariant cmux build channel name."
+    }
+  },
+  "updater.channels.commit": {
+    "source": "Commit",
+    "identityLocales": {
+      "de": "Commit is the Git term German developer tools use, spelled as in English.",
+      "es": "Commit is the Git term Spanish developer tools use, spelled as in English.",
+      "fr": "Commit is the Git term French developer tools use, spelled as in English."
+    }
+  },
+  "updater.channels.ring.stable": {
+    "source": "Stable",
+    "identityLocales": {
+      "fr": "Stable is the French word for a stable release channel, spelled as in English."
+    }
+  },
+  "settings.category.updates": {
+    "source": "Updates",
+    "identityLocales": {
+      "de": "Updates is the standard German UI word for software updates, spelled as in English."
+    }
+  },
+  "home.chief.backend.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "home.chief.backend.codex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "home.chief.backend.unii": {
+    "class": "brand",
+    "source": "UniiChat"
+  },
+  "home.chief.backend.muse": {
+    "class": "brand",
+    "source": "Muse Code"
+  },
+  "home.engine.reactions.prompt": {
+    "source": "Instructions",
+    "identityLocales": {
+      "fr": "Instructions is the standard French noun for a prompt's instructions, spelled as in English; the translated entry is still required."
+    }
+  },
+  "addDevice.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
+  "addDevice.platform.phone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "devices.state.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline is the standard German UI word for a device that is not connected (macOS and iOS use it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "textbox.action.textEntry": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun, spelled as in English; the translated entry is still required."
+    }
+  },
+  "argument.chiefImportChief": {
+    "class": "brand",
+    "source": "Cloud Chief"
+  },
+  "argument.chiefImportSource": {
+    "source": "Source",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.notifications.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.notifications.volume": {
+    "source": "Volume (%)",
+    "identityLocales": {
+      "fr": "Volume is the French word for sound volume, spelled as in English; the translated entry is still required."
+    }
+  },
+  "argument.value.notifications.event.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.notifications.sounds.event.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.notifications.sounds.volume": {
+    "source": "Volume",
+    "identityLocales": {
+      "fr": "Volume is the French word for sound volume, spelled as in English; the translated entry is still required."
+    }
+  },
+  "settings.category.server": {
+    "source": "Server",
+    "identityLocales": {
+      "de": "Server is the standard German UI word (macOS uses it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.card.title": {
+    "source": "Server",
+    "identityLocales": {
+      "de": "Server is the standard German UI word (macOS uses it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.version": {
+    "source": "Version %@",
+    "identityLocales": {
+      "de": "Version is the German noun, spelled as in English; the translated entry is still required.",
+      "fr": "Version is the French noun, spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.build": {
+    "source": "Build %@",
+    "identityLocales": {
+      "de": "Build is the established German term for a software build, spelled as in English; the translated entry is still required.",
+      "fr": "Build is the established French term for a software build, spelled as in English; the translated entry is still required."
+    }
+  },
+  "actionLatencyHUD.row": {
+    "source": "%1$@ ms  %2$@  %3$@",
+    "identityLocales": {
+      "de": "ms is the SI symbol for milliseconds, written the same way in German; the other tokens are values. The translated entry is still required.",
+      "fr": "ms is the SI symbol for milliseconds, written the same way in French; the other tokens are values. The translated entry is still required.",
+      "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
+    }
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4.1 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Pro": {
+    "class": "brand",
+    "source": "DeepSeek V4 Pro"
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash1017": {
+    "source": "DeepSeek V4.1 Flash 1017 (Images)",
+    "identityLocales": {
+      "fr": {
+        "reason": "DeepSeek V4.1 Flash 1017 is an invariant model name, and Images is the standard French noun. The translated French entry is still required.",
+        "values": [
+          "DeepSeek V4.1 Flash 1017 (Images)"
+        ]
+      }
     }
   }
 }

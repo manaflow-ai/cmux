@@ -1,0 +1,29 @@
+{
+ "_comment": "Process environment writes allowed in Packages/macOS/CmuxNext/Sources (crash_ratchet.py env_write). Each entry: path -> call -> count, with the reason. Only writes in main before any thread starts and before ghostty_init qualify: libghostty keeps a slice of environ from ghostty_init, and a later setenv/unsetenv crashed it (cx-9dh7). Every allowed write runs inside ProcessEnvironmentGuard.write (CmuxNextProcessEnvironment), which skips it, logs a fault once, and stops a debug build when it comes after ProcessEnvironmentGuard.freeze(). Pass values to a child in its spawn environment instead.",
+ "Packages/macOS/CmuxNext/Sources/CmuxNextControl/LaunchIdentity.swift": {
+  "unsetenv": 1,
+  "reason": "stripInheritedEnvironment, inside ProcessEnvironmentGuard.write: the first step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops cmux variables inherited from another cmux."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift": {
+  "unsetenv": 1,
+  "reason": "dropInheritedDescriptor, inside ProcessEnvironmentGuard.write: the third step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread, the guard's freeze, and ghostty_init; drops the bench's descriptor number so children do not inherit it."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift": {
+  "setenv": 1,
+  "reason": "prepareProcessEnvironment, inside ProcessEnvironmentGuard.write: the second step of CmuxNextApp.prepareLaunchEnvironment in CmuxNextApp.main, before any thread and the guard's freeze; GhosttyRuntime.init calls it again only when nothing froze the environment (tests), then freezes before ghostty_init."
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift": {
+  "setenv": 1,
+  "reason": "applyConfigFileArgument (DEBUG only), inside ProcessEnvironmentGuard.write: the step after stripInheritedEnvironment in CmuxNextApp.prepareLaunchEnvironment, before any thread, the guard's freeze, and ghostty_init; `--config-file PATH` sets CMUX_NEXT_CONFIG_FILE so a capture slot's app, daemon and agents read the slot's own settings."
+ },
+ "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefBrainWatchShutdownTests.swift": {
+  "setenv": 3,
+  "unsetenv": 3,
+  "reason": "anAskStopsTheWatchItReplaces sets CMUX_NEXT_MUX_HOST and clears ACPMUX_AGENT_LAUNCH and CMUX_AGENTS_DISABLED so HomeBrainHost.canStart() passes. Existing write in a test, allowed only so the env_write scan could cover Tests (2026-10-29): the same hazard as GhosttyImageStorageLimitTests' signal 11 if GhosttyRuntime.shared ran ghostty_init earlier in the process. Move it to an injected environment and drop this entry; never raise it."
+ },
+ "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HomeChiefHostedSettingsTests.swift": {
+  "setenv": 2,
+  "unsetenv": 1,
+  "reason": "withChiefHome sets CMUX_NEXT_CHIEF_HOME before HomeService reads it. Existing write in a test, allowed only so the env_write scan could cover Tests (2026-10-29): the same hazard as GhosttyImageStorageLimitTests' signal 11 if GhosttyRuntime.shared ran ghostty_init earlier in the process. Pass the Chief home to HomeService instead and drop this entry; never raise it."
+ }
+}

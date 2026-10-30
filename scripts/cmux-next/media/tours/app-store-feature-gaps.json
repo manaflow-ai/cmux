@@ -1,0 +1,15 @@
+{
+  "title": "App Store Features: Channels and sidebar launchers",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "App Store: Features, with Channels and the sidebar launcher cards", "cmux": ["action", "run", "appStore.show", "--tab", "features", "--focus"], "wait": 3},
+    {"title": "Channels on: its card says On and Channels shows below Home in the sidebar", "cmux": ["settings", "set", "home.channelsEnabled", "true"], "wait": 2},
+    {"title": "New Terminal added to the sidebar: its card says On", "cmux": ["action", "run", "sidebar.item.add", "--item", "new_terminal"], "wait": 2,
+     "optional": "the sidebar.item.add flag name may differ"},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Channels removed: its card says Get", "cmux": ["settings", "unset", "home.channelsEnabled"], "wait": 2}
+  ]
+}

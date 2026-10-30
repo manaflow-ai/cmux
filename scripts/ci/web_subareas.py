@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 import subprocess
@@ -62,7 +62,10 @@ DB_EXACT = {
     "web/bun.lock",
     "web/drizzle.config.ts",
     "web/package.json",
+    # The migration runner every database uses; its DB tests apply fixtures through it.
+    "web/scripts/cloud-vm/apply-migrations.mjs",
     "web/scripts/db-local.sh",
+    "web/scripts/db-migrate.mjs",
     "web/scripts/run-db-behavior-tests.sh",
 }
 DB_PREFIXES = (
@@ -115,14 +118,13 @@ DIFF_SIDECAR_EXACT = {
     "scripts/generate-diff-sidecar-types.sh",
     "scripts/install-rust-ci.sh",
     "scripts/run-diff-sidecar-cargo.sh",
-    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
-    "Sources/Panels/DiffSidecarBridge.swift",
     "webviews/bun.lock",
     "webviews/package.json",
 }
 DIFF_SIDECAR_PREFIXES = (
     "Native/DiffSidecar/",
-    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
+    # The sidecar links this crate by path.
+    "cmux-tui/crates/cmux-git/",
     "webviews/bench/",
     "webviews/src/diff/",
 )
@@ -175,10 +177,38 @@ UNIT_TESTS_EXCLUDED_PREFIXES = (
 
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
+    # react-apps-check runs the webviews tests through it.
+    "scripts/ci/run-webviews-tests.sh",
+    # and splits and orders its files by recorded duration through this.
+    "scripts/ci/webviews_test_shards.py",
+    # and compares its reds with the base's through these.
+    "scripts/ci/webviews-tests-new-reds.sh",
+    "scripts/ci/webviews_test_results.py",
+    "scripts/ci/guards_new_reds.py",
+    # It also runs the test of the PR scoping of ui-rules and gallery coverage.
+    "scripts/tests/test_pr_scoped_webviews_checks.py",
+    "scripts/check-webviews-bun-version.sh",
     "scripts/check-webviews-react-compiler.mjs",
+    # The generated agent pane page, its build and regenerate scripts, and
+    # the merge driver that keeps it mergeable: react-apps-check verifies
+    # the page and runs the driver's test.
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
+    "scripts/cmux-next/build-agent-pane-web.sh",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
+    "scripts/cmux-next/build-palette-ranker.sh",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
+    "scripts/cmux-next/build-agent-activity-web.sh",
+    "scripts/cmux-next/regenerate-web-bundles.sh",
+    "scripts/cmux-next/build-web-bundles.sh",
+    "scripts/cmux-next/web-bundle-key.py",
+    ".gitattributes",
+    "scripts/install-git-hooks.sh",
+    "tests/test_install_git_hooks.py",
 }
 REACT_PREFIXES = (
     "Resources/markdown-viewer/",
+    "config/vite-plus/",
     "webviews/",
 )
 
@@ -257,13 +287,16 @@ def route() -> int:
         WebSubareas.all().emit(output)
         return 0
 
+    # A feat-cmux-next push routes from what the push brought (event.before), not its last
+    # commit: a multi-commit push can end on a commit that touches no web path.
+    push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
     base = subprocess.run(
-        ["git", "rev-parse", "-q", "--verify", "HEAD^1"],
+        ["git", "rev-parse", "-q", "--verify", f"{push_base}^{{commit}}" if push_base else "HEAD^1"],
         text=True,
         capture_output=True,
     )
     if base.returncode != 0:
-        print("comparison parent unavailable; running every web subarea")
+        print(f"comparison base {push_base or 'HEAD^1'} unavailable; running every web subarea")
         WebSubareas.all().emit(output)
         return 0
 
@@ -273,7 +306,17 @@ def route() -> int:
         WebSubareas.all().emit(output)
         return 0
 
-    classify_paths(paths).emit(output)
+    areas = classify_paths(paths)
+    # feat-cmux-next is the base branch. A direct push must exercise the React
+    # suite even when the pushed range contains no web path, or a base web red
+    # remains invisible until a PR happens to touch webviews. Other web
+    # subareas stay path-routed to keep unrelated pushes cheap.
+    if (
+        os.environ.get("EVENT_NAME") == "push"
+        and os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"
+    ):
+        areas = replace(areas, react_apps=True)
+    areas.emit(output)
     return 0
 
 

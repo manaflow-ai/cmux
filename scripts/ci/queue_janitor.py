@@ -83,11 +83,12 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
+from pr_runner_pool import MAX_PLACED_JOBS, MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 import owned_warm_state  # noqa: E402
+import starved_labels  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -96,6 +97,9 @@ DEFAULT_MAX_CANCELS = 10
 MAX_RUN_PAGES = 3
 MAX_JOB_PAGES = 3
 GRAPHQL_BATCH = 25
+# Who starts the owned-pool rescue's re-runs: GITHUB_TOKEN's actor, or the cmux-bot App
+# (pr_runner_pool.RESCUE_ACTORS).
+RESCUE_ACTORS = frozenset({"github-actions[bot]", "cmux-bot[bot]"})
 
 # Statuses a run can hold runner demand in. `pending` is a run parked behind a
 # concurrency group, which is how a label-triggered CI rerun waits.
@@ -139,36 +143,31 @@ COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
 CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 
-# The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
-# suite and the reusable-call prefix makes the API name "macos / app-host unit
-# tests (3/6)", so match on the substring. A failed compile admission fails
-# the same `macos` call before any shard starts, and so do the changed suites
-# it runs itself (ci-macos.yml inputs.unit_in_admission, when admission
-# takes its Mac's gui token).
-DOOMED_JOB_NAME = "app-host unit tests"
+# The jobs whose failure decides ci-status. The reusable-call prefix makes the
+# API name "macos / Shell regressions" (ci-macos.yml cli-product-tests), so
+# match on the substring. A failed compile admission fails the same `macos`
+# call before cli-product-tests starts.
+DOOMED_JOB_NAME = "Shell regressions"
 
 
 def decides_ci_status(name: str) -> bool:
     return DOOMED_JOB_NAME in name or bool(COMPILE_ADMISSION_JOB.search(name))
 
-# How long a shard failure must have stood before the run is a candidate, so a
+# How long a deciding failure must have stood before the run is a candidate, so a
 # run that just turned red keeps its siblings while someone looks at it.
 DOOMED_GRACE = dt.timedelta(minutes=10)
 
-# The shards' own inputs, read off the app-host-unit-tests job block in
-# ci-macos.yml: the XCTest sources it runs, the scripts that shard, compile,
-# isolate and grade them, the known-failure quarantine list and the workflow
-# that defines the job. A run that changes any of these is an attempt to change
-# what the shard does, and its remaining shards are the result someone is
-# waiting for. Sources/ is deliberately absent: the suite exercises it, but
-# nearly every pull request changes it, and a set matching every pull request
-# is not a rule. JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
-DOOMED_INPUT_PREFIXES = ("cmuxTests/", "scripts/ci/workloads/")
+# The deciding jobs' own inputs: the workload entrypoints, the scripts that
+# compile, ship and restore the compiled product, and the workflow that defines
+# the jobs. A run that changes any of these is an attempt to change what those
+# jobs do, and its remaining jobs are the result someone is waiting for.
+# Product sources are deliberately absent: nearly every pull request changes
+# them, and a set matching every pull request is not a rule.
+# JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
+DOOMED_INPUT_PREFIXES = ("scripts/ci/workloads/",)
 DOOMED_INPUT_MARKERS = ("app-host", "app_host")
 DOOMED_INPUT_FILES = (
     ".github/workflows/ci-macos.yml",
-    "scripts/ci/cmux_unit_test_shard.py",
-    "scripts/ci/enable-xctest-automation-mode.sh",
 )
 JANITOR_OPT_OUT_LABEL = "no-janitor"
 
@@ -396,9 +395,9 @@ MAX_ARTIFACT_PAGES = 5
 # pool: macos-pool-persistent-<run>-<attempt>-<jobs>p<placed>-<pool>, where
 # <jobs> is the machines held at peak and <placed> the owned jobs placed
 # (post-admission jobs reuse admission's machine, so placed can exceed jobs).
-# The E2E and iOS markers, and ones uploaded before `p<placed>`, omit it.
+# The dispatch markers, and ones uploaded before `p<placed>`, omit it.
 # workflow_dispatch workflows whose runner job may pick an owned pool and upload it.
-OWNED_DISPATCH_WORKFLOWS = ("/test-e2e.yml", "/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
+OWNED_DISPATCH_WORKFLOWS = ("/test-ios.yml", "/ios-screenshots.yml", "/iroh-release-gate.yml")
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)"
                           r"(?:p(?P<placed>[0-9]+))?-(?P<pool>.+)")
 
@@ -415,7 +414,7 @@ def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int
         if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) <= (run.get("run_attempt") or 1)
                 and owned_pool(match["pool"]) and (best is None or int(match["attempt"]) > best[0])):
             peak = min(int(match["jobs"]), MAX_RUN_JOBS)
-            placed = min(int(match["placed"]), MAX_RUN_JOBS) if match["placed"] is not None else peak
+            placed = min(int(match["placed"]), MAX_PLACED_JOBS) if match["placed"] is not None else peak
             best = int(match["attempt"]), match["pool"], peak, placed
     return best[1:] if best else None
 
@@ -440,12 +439,12 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
 
     Only attempts 1 and 2 (pr_runner_pool.LAST_OWNED_ATTEMPT) of a
     same-repository pull request run of CI, of main's full-suite dispatch of
-    CI (pr_runner_pool.py routes it too), or of an E2E, iOS or Iroh release
-    gate dispatch (the runner job of test-e2e.yml, test-ios.yml,
-    ios-screenshots.yml and iroh-release-gate.yml uploads the same marker),
-    can: a full re-run picks again like attempt 1 and publishes its own
-    marker, and a re-run of failed jobs publishes none, costing one listing.
-    A pull request run's re-run someone other than github-actions[bot]
+    CI (pr_runner_pool.py routes it too), or of an iOS or Iroh release gate
+    dispatch (the runner job of test-ios.yml, ios-screenshots.yml and
+    iroh-release-gate.yml uploads the same marker), can: a full re-run picks
+    again like attempt 1 and publishes its own marker, and a re-run of failed
+    jobs publishes none, costing one listing.
+    A pull request run's re-run someone other than the rescue bot (RESCUE_ACTORS)
     started follows a code failure and picks like attempt 1
     (pr_runner_pool.host_fault_retry()), so any attempt of it can too; the
     bot's later attempts never hold one. Its other macOS jobs say nothing:
@@ -454,7 +453,7 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
     """
     path = str(run.get("path") or "")
     code_retry = (run.get("event") == "pull_request" and path.endswith("/ci.yml")
-                  and str((run.get("triggering_actor") or {}).get("login") or "") != "github-actions[bot]")
+                  and str((run.get("triggering_actor") or {}).get("login") or "") not in RESCUE_ACTORS)
     if (run.get("run_attempt") or 1) > 2 and not code_retry:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
@@ -463,6 +462,22 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
         return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
             path.endswith("/ci.yml") and run.get("head_branch") == "main")
     return run.get("event") == "pull_request" and path.endswith("/ci.yml")
+
+
+def marker_may_exist(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether an owned-pool marker can exist yet, so listing the run's artifacts could find one.
+
+    One of the run's own jobs uploads the marker (ci.yml's `changes`, the
+    runner job of the dispatch workflows). A first attempt whose jobs have
+    not left the queue has therefore uploaded nothing. A later attempt may
+    hold an earlier attempt's marker (owned_marker()), and a listing cut off
+    at MAX_JOB_PAGES may hide a started job, so both are still listed. Queued
+    pull request runs make up much of a backed-up sweep, and each skipped
+    listing saves one API request per sweep.
+    """
+    if (run.get("run_attempt") or 1) > 1 or len(jobs) >= MAX_JOB_PAGES * 100:
+        return True
+    return any(job.get("status") not in QUEUED_JOB_STATUSES for job in jobs)
 
 
 def pool_load_snapshot(
@@ -717,7 +732,7 @@ def classify(
 
     # Doomed: ci-status is already decided against this run. Reaching here means
     # the PR is open and this run is still its current head, so unlike the
-    # categories above the run is live and its remaining shards are readable
+    # categories above the run is live and its remaining jobs are readable
     # output. Everything unknown therefore preserves the run.
     if (
         run.get("path") == CI_WORKFLOW_PATH
@@ -1331,10 +1346,61 @@ def render_orphan_summary(
 # ---------------------------------------------------------------------------
 
 
+RATE_LIMIT_HEADERS = {
+    "limit": "X-RateLimit-Limit",
+    "remaining": "X-RateLimit-Remaining",
+    "used": "X-RateLimit-Used",
+    "reset": "X-RateLimit-Reset",
+}
+
+
+def read_rate_limit(headers: Any) -> tuple[str, dict[str, int]] | None:
+    """(resource, {limit, remaining, used, reset}) from a response's rate limit headers, or None.
+
+    Every workflow in the repository spends the same GITHUB_TOKEN
+    installation budget. On 2026-10-06 that budget ran out, and the required
+    CLA and migration checks failed on every pull request.
+    """
+    if headers is None:
+        return None
+    values: dict[str, int] = {}
+    for key, name in RATE_LIMIT_HEADERS.items():
+        raw = headers.get(name)
+        if raw is None:
+            continue
+        try:
+            values[key] = int(raw)
+        except (TypeError, ValueError):
+            continue
+    if "remaining" not in values:
+        return None
+    return str(headers.get("X-RateLimit-Resource") or "core"), values
+
+
+def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
+    """The API budget left after the sweep's last request, per resource, to measure what sweeps cost."""
+    if not limits:
+        return "GitHub API budget: no rate limit headers seen."
+    parts = []
+    for resource, values in sorted(limits.items()):
+        text = f"{resource} {values['remaining']}"
+        if "limit" in values:
+            text += f" of {values['limit']}"
+        text += " left"
+        if "used" in values:
+            text += f", {values['used']} used"
+        if "reset" in values:
+            text += f", resets {dt.datetime.fromtimestamp(values['reset'], UTC).strftime('%H:%M:%SZ')}"
+        parts.append(text)
+    return "GitHub API budget after this sweep's last request: " + "; ".join(parts) + "."
+
+
 class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
         self.calls = 0
+        # Rate limit resource ("core", "graphql") -> the newest response's values.
+        self.rate_limits: dict[str, dict[str, int]] = {}
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -1351,12 +1417,19 @@ class GitHub:
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
+                self.note_rate_limit(response.headers)
                 raw = response.read()
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
+            self.note_rate_limit(error.headers)
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+
+    def note_rate_limit(self, headers: Any) -> None:
+        found = read_rate_limit(headers)
+        if found:
+            self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
         runs: dict[int, dict[str, Any]] = {}
@@ -1484,6 +1557,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
+        print(render_rate_limits(github.rate_limits), file=sys.stderr)
         return 1
 
     if args.pool_load:
@@ -1496,7 +1570,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         capability_markers: dict[int, tuple[str, int]] = {}
         if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
             for run in runs:
-                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
+                jobs = jobs_by_run.get(run.get("id"))
+                if jobs is not None and may_hold_owned_pool(run, jobs) and marker_may_exist(run, jobs):
                     try:
                         names = github.artifact_names(
                             run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-")
@@ -1511,6 +1586,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         capability_markers[run["id"]] = capability
         snapshot = pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers,
                                       capability_markers=capability_markers)
+        # Fleet labels no runner is taking jobs from; the workflow's alert step
+        # (starved_labels.py) annotates them and keeps one issue per label.
+        snapshot["starved"] = starved_labels.starved(runs, jobs_by_run, now=now)
+        snapshot["unserved"] = starved_labels.unserved(runs, jobs_by_run, now=now)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.
@@ -1546,6 +1625,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                      results=orphan_results)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {github.calls} API calls._\n"
+    summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
     print(summary)
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:

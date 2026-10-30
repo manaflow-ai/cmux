@@ -33,9 +33,9 @@ from pathlib import Path
 # resources, plugins, generated code, C or Objective-C targets, unsafe flags,
 # package dependencies or @_spi. Each maps to the library modules importers
 # see. Add a package only once it meets all of that.
-ALLOWLIST = {
-    "CMUXAgentLaunch": ("CMUXAgentLaunch",),
-}
+# CMUXAgentLaunch, the one package listed, was deleted with the Swift CLI, so
+# every package edit currently classifies as compile-required.
+ALLOWLIST: dict[str, tuple[str, ...]] = {}
 
 MARKER = "CMUX_INTERFACE_FINGERPRINT="
 BUILD_TIMEOUT_SECONDS = 600

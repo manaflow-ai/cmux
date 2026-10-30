@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Name the change behind a red guard, show the failing assertion, and say how to fix it.
 
-Guards never block a merge. "CI fast guards" (ci-fast-guards.yml) runs on every
-pull request and every push to main, and "CI repository variables"
+Guards never block a merge. Pull requests run the "CI fast guards" job inside
+ci.yml; the standalone ci-fast-guards.yml workflow runs the same group on every
+push to main. "CI repository variables"
 (ci-repo-variables.yml) checks the live repository variables every 15 minutes.
 When one goes red, this makes the failure actionable instead of just red.
-ci-guard-attribution.yml runs it on each completed run of either workflow,
-under GITHUB_TOKEN, with no polling:
+ci-guard-attribution.yml runs it on completion of the containing CI workflow or
+the standalone guard/variable workflow, under GITHUB_TOKEN, with no polling:
 
   analyze   read-only. It reads the run's failed job log and parses each failed
             guard step with its failing tests and assertion messages.
@@ -65,9 +66,15 @@ import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_status  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 FAST_WORKFLOW = "CI fast guards"
 FAST_WORKFLOW_FILE = "ci-fast-guards.yml"
+CI_WORKFLOW_FILE = "ci.yml"
+FAST_WORKFLOW_PATH = f".github/workflows/{FAST_WORKFLOW_FILE}"
+CI_WORKFLOW_PATH = f".github/workflows/{CI_WORKFLOW_FILE}"
 VARS_WORKFLOW = "CI repository variables"
 VARS_WORKFLOW_FILE = "ci-repo-variables.yml"
 KINDS = {FAST_WORKFLOW: "fast-guards", VARS_WORKFLOW: "repo-variables"}
@@ -95,6 +102,8 @@ MAX_COMMENT_CHARS = 60000
 MAX_MESSAGE_LINES = 14
 MAX_MESSAGE_CHARS = 1500
 MAX_TESTS_PER_STEP = 4
+MAX_API_PAGES = 10
+API_PAGE_SIZE = 100
 RED = {"failure", "timed_out", "startup_failure"}
 
 TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ?")
@@ -546,18 +555,45 @@ class GitHub:
     def run(self, run_id: int) -> dict:
         return self.get(f"repos/{self.repo}/actions/runs/{run_id}")  # type: ignore[return-value]
 
-    def failed_log(self, run_id: int) -> str:
-        jobs = self.get(f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=20")
-        texts = []
-        for job in (jobs or {}).get("jobs", []):  # type: ignore[union-attr]
-            if job.get("conclusion") in RED:
-                texts.append(self.request("GET", f"repos/{self.repo}/actions/jobs/{job['id']}/logs", text=True))
-        return "\n".join(str(t) for t in texts)
+    def jobs(self, run_id: int, *, run_attempt: int | None = None) -> list[dict]:
+        if run_attempt is not None:
+            prefix = f"repos/{self.repo}/actions/runs/{run_id}/attempts/{run_attempt}/jobs"
+        else:
+            prefix = f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest"
+        found: list[dict] = []
+        page = 1
+        while True:
+            separator = "&" if "?" in prefix else "?"
+            payload = self.get(f"{prefix}{separator}per_page=100&page={page}")
+            batch = list((payload or {}).get("jobs", []))  # type: ignore[union-attr]
+            found.extend(batch)
+            if len(batch) < 100:
+                return found
+            page += 1
 
-    def job_log(self, run_id: int) -> str:
-        jobs = self.get(f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=20")
-        job = ((jobs or {}).get("jobs") or [None])[0]  # type: ignore[union-attr]
-        return str(self.request("GET", f"repos/{self.repo}/actions/jobs/{job['id']}/logs", text=True)) if job else ""
+    def guard_job(self, run: Mapping) -> dict | None:
+        run_id = run.get("id")
+        if run_id is None:
+            return None
+        jobs = self.jobs(int(run_id), run_attempt=run.get("run_attempt"))
+        return next((job for job in jobs if job.get("name") == FAST_WORKFLOW), None)
+
+    def job_log(self, run_id: int, *, run_attempt: int | None = None,
+                job_name: str | None = None) -> str:
+        jobs = self.jobs(run_id, run_attempt=run_attempt)
+        job = next((job for job in jobs if job_name is None or job.get("name") == job_name), None)
+        return self.job_log_for_id(job["id"]) if job else ""
+
+    def job_log_for_id(self, job_id: int) -> str:
+        return str(self.request("GET", f"repos/{self.repo}/actions/jobs/{job_id}/logs", text=True))
+
+    def failed_log(self, run_id: int, *, run_attempt: int | None = None,
+                   job_name: str | None = None) -> str:
+        texts = []
+        for job in self.jobs(run_id, run_attempt=run_attempt):
+            if job.get("conclusion") in RED and (job_name is None or job.get("name") == job_name):
+                texts.append(self.job_log_for_id(job["id"]))
+        return "\n".join(str(t) for t in texts)
 
     def main_runs(self, workflow_file: str, extra: str = "", status: str = "completed") -> list[dict]:
         # `status` takes a conclusion too (success, failure); there is no `conclusion` parameter.
@@ -569,7 +605,20 @@ class GitHub:
         return self.get(f"repos/{self.repo}/pulls/{number}")  # type: ignore[return-value]
 
     def commit_pulls(self, sha: str) -> list[dict]:
-        return list(self.get(f"repos/{self.repo}/commits/{sha}/pulls") or [])  # type: ignore[arg-type]
+        found: list[dict] = []
+        prefix = f"repos/{self.repo}/commits/{sha}/pulls"
+        for page in range(1, MAX_API_PAGES + 1):
+            payload = self.get(f"{prefix}?per_page={API_PAGE_SIZE}&page={page}")
+            if payload is None:
+                batch: list[dict] = []
+            elif isinstance(payload, list):
+                batch = payload
+            else:
+                raise RuntimeError(f"GET {prefix}: GitHub returned an invalid pull-request page")
+            found.extend(batch)
+            if len(batch) < API_PAGE_SIZE:
+                return found
+        raise RuntimeError(f"GET {prefix}: more than {MAX_API_PAGES * API_PAGE_SIZE} pull requests")
 
     def open_issues(self) -> list[dict]:
         return list(self.get(f"repos/{self.repo}/issues?labels={ISSUE_LABEL}&state=open&per_page=20") or [])  # type: ignore[arg-type]
@@ -654,7 +703,9 @@ def baselines(runs: list[dict], gh: GitHub | None, root: Path, red_sha: str, ste
         if run["conclusion"] == "success":
             failed: set[str] = set()
         else:
-            failed = failed_steps_summary(gh.failed_log(run["id"])) or set(pending)
+            failed = failed_steps_summary(
+                gh.failed_log(run["id"], run_attempt=run.get("run_attempt"), job_name=FAST_WORKFLOW)
+            ) or set(pending)
         for step in list(pending):
             if step not in failed:
                 found[step] = run["head_sha"]
@@ -876,8 +927,13 @@ def analyze_pr(gh: GitHub | None, run: Mapping, root: Path, log: str) -> dict:
     report["pr"] = pr_number(gh, run)
     if report["state"] == "green":
         # Nothing to update unless this PR already has a red guard comment.
-        if not report["pr"] or (gh and not any(PR_MARKER in str(c.get("body") or "") for c in gh.comments(report["pr"]))):
+        marked = [c for c in gh.comments(report["pr"]) if PR_MARKER in str(c.get("body") or "")] \
+            if report["pr"] and gh else []
+        if not report["pr"] or (gh and not marked):
             report["state"] = "noop"
+        elif marked:
+            # `report` edits this comment without reading the PR's comments again.
+            report["comments"] = [{"id": c.get("id"), "body": c.get("body"), "user": c.get("user")} for c in marked]
         return report
     failures = parse_guard_log(log)
     issue = tracking_issue(gh.open_issues(), "fast-guards") if gh else None
@@ -1079,9 +1135,8 @@ def render_pr_comment(report: Mapping) -> str:
     if report["state"] == "green":
         # Only the fast guards: on #17074 and #17233 this line was the only bot comment while the PR's own
         # app-host tests were red, and it read as an all-green CI.
-        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ({report.get('run_url')}). "
-                   "This covers only the fast guards, not CI: CI's result is the `ci-status` check, and "
-                   "the CI failure attribution comment names any failing test.")
+        out.append(f"`{FAST_WORKFLOW}` passes on `{short(report.get('sha'))}` ([run]({report.get('run_url')})). "
+                   "This covers only the fast guards, not CI: CI's result is `ci-status`.")
         return "\n".join(out) + "\n"
     steps = report.get("steps") or []
     out.append(f"**`{FAST_WORKFLOW}` failed** on `{short(report.get('sha'))}` ({report.get('run_url')}). "
@@ -1101,8 +1156,7 @@ def render_pr_comment(report: Mapping) -> str:
     if not steps:
         out.append("The log named no failed step; see the run.")
     out.append("")
-    out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally. "
-               "This comment is updated in place on each push.")
+    out.append("Agents: `python3 scripts/ci/guard_attribution.py fix` applies the mechanical fixes locally.")
     return cap("\n".join(out) + "\n")
 
 
@@ -1140,7 +1194,20 @@ class Writer:
 
 
 def upsert_comment(writer: Writer, repo: str, number: int, marker: str, body: str,
-                   existing: list[dict] | None) -> None:
+                   existing: list[dict] | None, section: str | None = None) -> None:
+    """One marked comment, or with `section`, that line of the PR's status comment
+    (scripts/ci/pr_status.py), which then deletes the old marked comment."""
+    if section is not None:
+        # The first plan uses the comments the caller read; the check after the write reads them
+        # again (other jobs write other lines of the same comment). One more read per write.
+        gh, first = writer.gh, [existing]
+
+        def read() -> list[dict]:
+            given = first.pop() if first else None
+            return list(given) if given is not None else gh.comments(number) if gh else []
+        pr_status.apply(read, writer.call, repo, number, section, body, legacy=marker,
+                        sleep=None if writer.dry_run or gh is None else time.sleep)
+        return
     current = next((c for c in existing or [] if marker in str(c.get("body") or "")), None)
     if current is None:
         writer.call("POST", f"repos/{repo}/issues/{number}/comments", {"body": body})
@@ -1196,14 +1263,40 @@ def report_pr(writer: Writer, gh: GitHub | None, repo: str, report: Mapping) -> 
     pr = report.get("pr")
     if not pr:
         return
-    existing = gh.comments(int(pr)) if gh else []
+    # A green report carries the comment `analyze` found (it read them a moment earlier).
+    existing = report["comments"] if "comments" in report else gh.comments(int(pr)) if gh else []
     current = next((c for c in existing if PR_MARKER in str(c.get("body") or "")), None)
     if report["state"] == "green" and current is None:
         return  # never red on this PR: nothing to say
-    upsert_comment(writer, repo, int(pr), PR_MARKER, render_pr_comment(report), existing)
+    upsert_comment(writer, repo, int(pr), PR_MARKER, render_pr_comment(report), existing, section="guards")
 
 
 # ---------------------------------------------------------------- commands
+
+
+def authoritative_guard_run(gh: GitHub | None, run: Mapping) -> dict | None:
+    """Return the run with the actual fast-guard job conclusion.
+
+    A full CI workflow can fail or be cancelled after its fast guard passed.
+    Its aggregate conclusion must not turn that green guard red, and a guard
+    job that was cancelled or skipped supplies no verdict at all.
+    """
+    name = run.get("name")
+    path = run.get("path")
+    if name == VARS_WORKFLOW:
+        return dict(run) if run.get("conclusion") in RED | {"success"} else None
+    if name != FAST_WORKFLOW and path not in {CI_WORKFLOW_PATH, FAST_WORKFLOW_PATH}:
+        return None
+    if gh is None or run.get("id") is None:
+        return dict(run) if run.get("conclusion") in RED | {"success"} else None
+    job = gh.guard_job(run)
+    conclusion = (job or {}).get("conclusion")
+    if conclusion not in RED | {"success"} or (job or {}).get("id") is None:
+        return None
+    selected = dict(run)
+    selected["conclusion"] = conclusion
+    selected["guard_job_id"] = job["id"]
+    return selected
 
 
 def load_run(gh: GitHub | None, run_id: int | None) -> dict:
@@ -1237,17 +1330,28 @@ def command_analyze(args: argparse.Namespace) -> int:
     name, event = run.get("name"), run.get("event")
     log = Path(args.log).read_text(errors="replace") if args.log else ""
     head = git(root, "rev-parse", args.head or "HEAD")
-    if run.get("conclusion") not in RED | {"success"}:
-        report: dict = {"state": "skipped", "reason": f"conclusion {run.get('conclusion')}"}
-    elif event == "pull_request":
+    if gh is not None and run.get("id") is not None and name in {"CI", FAST_WORKFLOW, VARS_WORKFLOW}:
+        selected = authoritative_guard_run(gh, run)
+    else:
+        selected = run if run.get("conclusion") in RED | {"success"} else None
+    if selected is None:
+        reason = "fast guard has no completed verdict" if gh is not None else f"conclusion {run.get('conclusion')}"
+        report: dict = {"state": "skipped", "reason": reason}
+    else:
+        run = selected
+        name, event = run.get("name"), run.get("event")
+    if selected is not None and event == "pull_request":
         if run.get("conclusion") != "success" and not log and gh:
-            log = gh.failed_log(int(run["id"]))
+            if run.get("guard_job_id") is not None:
+                log = gh.job_log_for_id(int(run["guard_job_id"]))
+            else:
+                log = gh.failed_log(int(run["id"]), run_attempt=run.get("run_attempt"), job_name=FAST_WORKFLOW)
         report = analyze_pr(gh, run, root, log)
-    elif name == VARS_WORKFLOW:
+    elif selected is not None and name == VARS_WORKFLOW:
         green_log, green_run = None, None
         if run.get("conclusion") != "success":
             if not log and gh:
-                log = gh.job_log(int(run["id"]))
+                log = gh.job_log(int(run["id"]), run_attempt=run.get("run_attempt"))
             if args.green_log:
                 green_log = Path(args.green_log).read_text(errors="replace")
             elif gh:
@@ -1255,13 +1359,16 @@ def command_analyze(args: argparse.Namespace) -> int:
                           if r.get("id") != run.get("id")]
                 if greens:
                     green_run = greens[0]
-                    green_log = gh.job_log(int(green_run["id"]))
+                    green_log = gh.job_log(int(green_run["id"]), run_attempt=green_run.get("run_attempt"))
         report = analyze_vars_main(gh, run, root, log, green_log, green_run)
-    elif run.get("head_branch") == "main" and event in ("push", "workflow_dispatch"):
+    elif selected is not None and run.get("head_branch") == "main" and event in ("push", "workflow_dispatch"):
         if run.get("conclusion") != "success" and not log and gh:
-            log = gh.failed_log(int(run["id"]))
+            if run.get("guard_job_id") is not None:
+                log = gh.job_log_for_id(int(run["guard_job_id"]))
+            else:
+                log = gh.failed_log(int(run["id"]), run_attempt=run.get("run_attempt"), job_name=FAST_WORKFLOW)
         report = analyze_fast_main(gh, run, root, log, head, baseline=args.baseline)
-    else:
+    elif selected is not None:
         report = {"state": "skipped", "reason": f"{name} on {event} {run.get('head_branch')}"}
     report.setdefault("workflow", name)
     report["headline"] = headline(report)
