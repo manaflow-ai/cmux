@@ -84,9 +84,34 @@ nonisolated extension SidebarLayout {
     /// Done, not the active one). Such a row would leave its slot (`displayLayout` slides the dragged rows as one), or
     /// make or drop a "Done (N)" row the drag's base rows lack, so the drag draws as it did before it kept the folds.
     /// A drag of rows that never fold keeps them: it moves no fold row and changes no fold's count.
-    static func dragUnfolds(_ dragged: [SidebarWorkspace], options o: SidebarLayoutOptions) -> Bool {
-        guard o.foldsDone, o.filterMatches == nil, o.sessionTree == nil else { return false }
-        return dragged.contains { $0.taskStatus == .done && $0.id != o.activeWorkspaceID }
+    /// With the session tree the fold moves runs (`foldingDone`), so a drag also unfolds when it carries a row under a
+    /// Done ancestor (that root's run folds with it, and with the dragged row gone from the base rows a run that held
+    /// the active row folds too), or when a Done row sits under a dragged one (the base rows lack its parent, so it
+    /// draws as a Done top-level row the fold takes). `workspace` looks those rows up by id (the model's); the walk
+    /// follows `parents` across lists, so it may unfold a drag the fold would not move: that drag draws as it did
+    /// before drags kept the folds, never with a moved row.
+    static func dragUnfolds(_ dragged: [SidebarWorkspace], workspace: (WorkspaceID) -> SidebarWorkspace? = { _ in nil },
+                            options o: SidebarLayoutOptions) -> Bool {
+        guard o.foldsDone, o.filterMatches == nil else { return false }
+        let folds: (SidebarWorkspace) -> Bool = { $0.taskStatus == .done && $0.id != o.activeWorkspaceID }
+        if dragged.contains(where: folds) { return true }
+        guard let parents = o.sessionTree?.parents, !parents.isEmpty else { return false }
+        // `id`'s parent chain, nearest first, cycle-safe.
+        func ancestors(of id: WorkspaceID) -> [WorkspaceID] {
+            var seen: Set<WorkspaceID> = [id]
+            var found: [WorkspaceID] = []
+            var next = parents[id]
+            while let parent = next, seen.insert(parent).inserted {
+                found.append(parent)
+                next = parents[parent]
+            }
+            return found
+        }
+        let ids = Set(dragged.map(\.id))
+        if ids.contains(where: { id in ancestors(of: id).contains { workspace($0).map(folds) ?? false } }) { return true }
+        return parents.keys.contains { child in
+            !ids.contains(child) && ancestors(of: child).contains(where: ids.contains) && (workspace(child).map(folds) ?? false)
+        }
     }
 
     /// The `drawn` entry a drop gap opens before in a list that draws a fold (a drag keeps the folds): the first row

@@ -101,7 +101,9 @@ extension SidebarListViewComponents {
             o.excludedWorkspaces.formUnion(ids)
             o.showEmptyPinned = true
             // A drag that carries a Done row draws unfolded: the fold would move it out of the slot or add a fold row.
-            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, options: o) { o.foldsDone = false }
+            if SidebarLayout.dragUnfolds(ids.compactMap { model.workspace($0) }, workspace: { model.workspace($0) }, options: o) {
+                o.foldsDone = false
+            }
         case let .group(group):
             o.excludedGroup = group
         case let .item(item):

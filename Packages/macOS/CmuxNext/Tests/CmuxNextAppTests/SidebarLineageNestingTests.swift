@@ -118,6 +118,29 @@ import Testing
         #expect(SidebarLayout.dragUnfolds([root], options: o), "a Done root")
         #expect(SidebarLayout.dragUnfolds([nested], options: o), "a Done nested row")
         #expect(!SidebarLayout.dragUnfolds([SidebarWorkspace(id: Self.mine, title: "mine")], options: o), "a row outside any Done run")
+
+        // The tree's runs: a live row under a Done root folds with it, and a Done row under a dragged parent draws as
+        // a Done top-level row in the drag's base rows, which lack the parent.
+        func list(done: Set<WorkspaceID>) -> (WorkspaceID) -> SidebarWorkspace? {
+            { id in
+                var ws = SidebarWorkspace(id: id, title: id.rawValue)
+                if done.contains(id) { ws.taskStatus = .done }
+                return ws
+            }
+        }
+        let live = { (id: WorkspaceID) in SidebarWorkspace(id: id, title: id.rawValue) }
+        let doneRoot = list(done: [Self.coordinator])
+        #expect(SidebarLayout.dragUnfolds([live(Self.lane)], workspace: doneRoot, options: o), "a lane in a Done root's run")
+        #expect(SidebarLayout.dragUnfolds([live(Self.sub)], workspace: doneRoot, options: o), "two levels under a Done root")
+        #expect(!SidebarLayout.dragUnfolds([live(Self.mine)], workspace: doneRoot, options: o), "a row outside the Done run")
+        let doneLane = list(done: [Self.lane])
+        #expect(SidebarLayout.dragUnfolds([live(Self.coordinator)], workspace: doneLane, options: o), "the parent of a Done lane")
+        #expect(!SidebarLayout.dragUnfolds([live(Self.mine)], workspace: doneLane, options: o), "no Done row above or below")
+        // The active row keeps its run in place: dragging the run's other rows moves no fold.
+        o.activeWorkspaceID = Self.coordinator
+        #expect(!SidebarLayout.dragUnfolds([live(Self.lane)], workspace: doneRoot, options: o), "under the active Done root")
+        o.foldsDone = false
+        #expect(!SidebarLayout.dragUnfolds([root], workspace: doneRoot, options: o), "no fold")
     }
 
     /// An idle-only subtree is not empty: its count chip draws.
