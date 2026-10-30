@@ -6534,7 +6534,9 @@ export class AcpmuxDirectClient {
       // The trust route asks about the folder; this is no failure to resume.
       if (trustRefusal(error)) return;
       if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
-        this.liveAdopt = { adopt, ...liveDetails((error as { details?: unknown }).details) };
+        const live = liveDetails((error as { details?: unknown }).details);
+        if (!adopt.watch && (await this.watchLive(adopt, live))) return;
+        this.liveAdopt = { adopt, ...live };
         this.emit();
         return;
       }
@@ -6550,6 +6552,31 @@ export class AcpmuxDirectClient {
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
     this.adoptFailed(translate("notice.resumeUnsupported"));
+  }
+  /// The chat acpmux refused to resume because another app still runs it (`adopt.live`), shown
+  /// here View Only instead: its transcript at once, following that app, with the same Fork It and
+  /// Open Anyway over it (they take the watched chat over, `takeOver`). "there's frequently nothing
+  /// wrong with showing the same session but in two different places" (Leo, 2026-10-29). False
+  /// when it cannot be watched (a daemon or harness without watching): the choice shows alone.
+  private async watchLive(adopt: AcpmuxAdopt, live: { canFork: boolean; command?: string }): Promise<boolean> {
+    const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
+    let result: any;
+    try {
+      result = await this.request("session/new", newSessionParams({ adopt: watch }));
+    } catch {
+      return false;
+    }
+    const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
+    if (!sessionId) return false;
+    if (!adoptedBy(result, watch)) {
+      await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+      return false;
+    }
+    this.adopted = sessionId;
+    this.liveTakeOver = live;
+    this.liveTakeOverFor = sessionId;
+    await this.select(sessionId);
+    return true;
   }
   /// Adopts the chat acpmux refused as live elsewhere anyway: `open` resumes it as it is (two
   /// processes then write one conversation), `fork` starts a new chat from it. Once; a second
