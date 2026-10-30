@@ -433,6 +433,10 @@ pub struct Hub {
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The config's `usageWarnings` thresholds, set at start and on each reload
+    /// (`catalog_reload.rs`): a summary reads them here, so a writer holding the config lock never
+    /// swaps the configured rules for the defaults (`usage_warnings.rs`).
+    pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
@@ -663,8 +667,10 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
+            usage_limits,
             wireguard,
             store,
             mailbox,
