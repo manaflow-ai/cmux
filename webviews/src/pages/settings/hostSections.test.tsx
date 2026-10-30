@@ -219,6 +219,42 @@ test("only a paired client machine or phone has a Full access switch, off until 
   page.unmount();
 });
 
+test("Full access keeps each device switch disabled until its own request settles", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const calls: Array<{ id: string; on: boolean }> = [];
+  const pending = new Map<string, { resolve(): void; reject(error: Error): void }>();
+  (page.store as unknown as {
+    setDeviceFullAccess(id: string, on: boolean): Promise<void>;
+  }).setDeviceFullAccess = (id, on) => {
+    calls.push({ id, on });
+    return new Promise<void>((resolve, reject) => pending.set(id, { resolve, reject }));
+  };
+  const card = page.container.querySelector('[data-card="devices"]')!;
+  const toggle = (id: string) =>
+    card.querySelector<HTMLButtonElement>(`[data-device-full-access="${id}"] [role="switch"]`)!;
+
+  await act(async () => toggle("paired:dv_leo").click());
+  await act(async () => toggle("phone:p1").click());
+  expect(calls).toEqual([
+    { id: "paired:dv_leo", on: true },
+    { id: "phone:p1", on: true },
+  ]);
+  expect(toggle("paired:dv_leo").disabled).toBe(true);
+  expect(toggle("phone:p1").disabled).toBe(true);
+
+  await act(async () => pending.get("paired:dv_leo")!.resolve());
+  await settle();
+  expect(toggle("paired:dv_leo").disabled).toBe(false);
+  expect(toggle("phone:p1").disabled).toBe(true);
+  await act(async () => toggle("phone:p1").click());
+  expect(calls).toHaveLength(2);
+
+  await act(async () => pending.get("phone:p1")!.reject(new Error("offline")));
+  await settle();
+  expect(toggle("phone:p1").disabled).toBe(false);
+  page.unmount();
+});
+
 // A machine's color (appearance.machineColors): each Machines row shows the color its marks draw in
 // (the sidebar row, the tab badge), a well that picks another, and Automatic, which takes the pick
 // back. The map is keyed by the machine's color key (its name trimmed and lowercased, as the app

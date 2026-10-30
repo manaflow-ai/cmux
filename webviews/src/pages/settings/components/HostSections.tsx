@@ -142,7 +142,14 @@ export function MachinesSection({ title }: { title: string }) {
 function DevicesSection({ devices }: { devices: DevicesHostState }) {
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [setting, setSetting] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Set<string>>(() => new Set());
+  const setSettingPending = (id: string, pending: boolean) =>
+    setSettings((current) => {
+      const next = new Set(current);
+      if (pending) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -191,11 +198,11 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   <div className="row-control">
                     <Switch
                       checked={row.full_access}
-                      disabled={setting === row.id}
+                      disabled={settings.has(row.id)}
                       labelId={`device-full-access-${row.id}`}
                       onToggle={(on) => {
-                        setSetting(row.id);
-                        void store.setDeviceFullAccess(row.id, on).finally(() => setSetting(null));
+                        setSettingPending(row.id, true);
+                        void store.setDeviceFullAccess(row.id, on).finally(() => setSettingPending(row.id, false));
                       }}
                     />
                   </div>
