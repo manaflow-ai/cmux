@@ -94,7 +94,7 @@ impl State {
     }
 
     /// Writes session `id`'s queued lines next, ahead of other sessions'.
-    fn to_front(&mut self, id: &str) {
+    fn put_first(&mut self, id: &str) {
         if let Some(at) = self.order.iter().position(|o| o == id)
             && at > 0
             && let Some(id) = self.order.remove(at)
@@ -218,7 +218,7 @@ impl LogWriter {
     /// Writes session `id`'s queued lines next, ahead of other sessions' (a request waits for
     /// them; `hub/request_writes.rs`): the person's request goes before background streaming.
     pub(super) fn expedite(&self, id: &str) {
-        lock(&self.shared.state).to_front(id);
+        lock(&self.shared.state).put_first(id);
     }
 
     /// Waits until every line queued for session `id` before this call is written: before its
@@ -228,7 +228,7 @@ impl LogWriter {
     pub(super) fn settle(&self, id: &str) {
         let mut state = lock(&self.shared.state);
         let Some(ticket) = state.pending(id) else { return };
-        state.to_front(id);
+        state.put_first(id);
         while !state.written(id, ticket) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
