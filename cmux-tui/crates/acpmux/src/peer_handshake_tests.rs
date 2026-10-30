@@ -10,8 +10,18 @@ use tokio_tungstenite::tungstenite::{Message as Frame, protocol::Role};
 /// A fake peer on `server` that answers `initialize` and every other request with `{}`, and
 /// each `_acpmux/watch` with `watch(withTools)`. Sends each watch's `withTools` on `asked`.
 fn fake_peer(
+    server: WebSocketStream<tokio::io::DuplexStream>,
+    watch: fn(bool) -> Result<Value, RpcError>,
+    asked: mpsc::UnboundedSender<bool>,
+) -> tokio::task::JoinHandle<()> {
+    fake_peer_with(server, watch, |_| json!({}), asked)
+}
+
+/// [`fake_peer`], with each `_acpmux/sessions` answered by `sessions(params)`.
+fn fake_peer_with(
     mut server: WebSocketStream<tokio::io::DuplexStream>,
     watch: fn(bool) -> Result<Value, RpcError>,
+    sessions: fn(&Value) -> Value,
     asked: mpsc::UnboundedSender<bool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -23,6 +33,8 @@ fn fake_peer(
                 let tools = msg["params"]["withTools"] == true;
                 let _ = asked.send(tools);
                 watch(tools)
+            } else if msg["method"] == method::MUX_SESSIONS {
+                Ok(sessions(&msg["params"]))
             } else {
                 Ok(json!({}))
             };
@@ -81,6 +93,50 @@ async fn a_watch_list_too_large_with_tools_is_read_without_them() {
     assert!(peer.link().is_ready());
     assert_eq!(asked.recv().await, Some(true));
     assert_eq!(asked.recv().await, Some(false));
+    serving.abort();
+    fake.abort();
+}
+
+/// A watch list too large for one message comes in pages (a peer served as Web gets the whole
+/// list): the link reads every page before it connects, and the list it publishes last, right
+/// before Connected, holds every row.
+#[tokio::test]
+async fn a_paged_watch_list_is_read_whole_before_the_link_connects() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let (asked_tx, _asked) = mpsc::unbounded_channel();
+    let fake = fake_peer_with(
+        server,
+        |_| Ok(json!({"sessions": [{"sessionId": "a", "updatedAt": 5}], "nextCursor": "h1"})),
+        |params| match params["cursor"].as_str() {
+            Some("h1") => {
+                json!({"sessions": [{"sessionId": "b", "updatedAt": 4}], "nextCursor": "h2"})
+            }
+            _ => json!({"sessions": [{"sessionId": "c", "updatedAt": 3}]}),
+        },
+        asked_tx,
+    );
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    let mut listed = None;
+    loop {
+        let (_, _, notice) = tokio::time::timeout(Duration::from_secs(5), notices.recv())
+            .await
+            .expect("the link connects")
+            .expect("the link stays open");
+        match notice {
+            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Connected => break,
+            _ => {}
+        }
+    }
+    let rows = listed.expect("the list came before Connected");
+    let ids: Vec<&str> = rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["a", "b", "c"]);
     serving.abort();
     fake.abort();
 }

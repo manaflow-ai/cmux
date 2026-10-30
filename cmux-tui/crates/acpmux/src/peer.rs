@@ -1205,18 +1205,27 @@ impl Peer {
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             let watch = |tools| json!({"enabled": true, "withTools": tools});
-            match me.link_request_on(method::MUX_WATCH, watch(true), Some(link)).await {
+            let (first, tools) = match me
+                .link_request_on(method::MUX_WATCH, watch(true), Some(link))
+                .await
+            {
                 // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
                 // 2026-10-30) is read without them: the link connects with its rows' tools
                 // missing rather than never. A peer on this build leaves its peers' rows out
                 // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
                 Err(e) if too_large(&e) => {
                     tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                    me.link_request_on(method::MUX_WATCH, watch(false), Some(link)).await?;
+                    (me.link_request_on(method::MUX_WATCH, watch(false), Some(link)).await?, false)
                 }
-                answer => {
-                    answer?;
-                }
+                answer => (answer?, true),
+            };
+            // A list too large for one message comes in pages (a peer served as Web, over
+            // plain ws://, gets the whole list): the reader published the first, and the
+            // whole list replaces it before the link connects.
+            if first.get("nextCursor").is_some_and(Value::is_string) {
+                let rows = me.watch_pages(first, tools, link).await?;
+                let notice = PeerNotice::Sessions(rows);
+                let _ = me.notices.send((me.name.clone(), me.generation, notice)).await;
             }
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
@@ -1496,6 +1505,32 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
         .filter(|session| !is_mirrored_session(session))
         .cloned()
         .collect()
+}
+
+impl Peer {
+    /// The rows of the watch reply `first` and of every page after it, read with
+    /// `_acpmux/sessions {cursor}` on link `link`. A cursor that comes again is an error,
+    /// never a loop or a short list.
+    async fn watch_pages(
+        &self,
+        mut first: Value,
+        tools: bool,
+        link: u64,
+    ) -> Result<Vec<Value>, RpcError> {
+        let mut rows = watch_sessions(&first);
+        let (mut seen, mut next) = (HashSet::new(), first.get_mut("nextCursor").map(Value::take));
+        while let Some(Value::String(cursor)) = next {
+            if !seen.insert(cursor.clone()) {
+                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
+                return Err(RpcError::internal(why));
+            }
+            let params = json!({"withTools": tools, "cursor": cursor});
+            let mut page = self.link_request_on(method::MUX_SESSIONS, params, Some(link)).await?;
+            rows.extend(watch_sessions(&page));
+            next = page.get_mut("nextCursor").map(Value::take);
+        }
+        Ok(rows)
+    }
 }
 
 /// Whether `e` is a reply too large to send (`RpcError::too_large`).

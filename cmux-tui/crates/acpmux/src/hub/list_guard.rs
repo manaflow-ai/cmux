@@ -183,18 +183,25 @@ impl Snapshot {
             Some(full) => (full.whole.as_str(), &full.spans, &full.keys),
             None => (self.whole.as_str(), &self.spans, &self.keys),
         };
-        // A page's cursor (`h...`) is byte_page's; a session list cursor stays a filter, as
-        // before: the rows after the session it names.
+        // A page's cursor (`h...`) is byte_page's; a session list cursor (`k...`) stays a
+        // filter, as before: the rows after the session it names. A page of a list a `k` cursor
+        // started carries it on (`h...~k...`), so every page keeps its cutoff.
         let mut filters = params.clone();
-        let cursor = match params.get("cursor") {
-            None | Some(Value::Null) => None,
-            Some(Value::String(text)) if text.starts_with('h') => {
-                filters.as_object_mut().and_then(|p| p.remove("cursor"));
-                Some(text.as_str())
-            }
-            Some(Value::String(_)) => None,
+        let (cursor, after) = match params.get("cursor") {
+            None | Some(Value::Null) => (None, None),
+            Some(Value::String(text)) if text.starts_with('h') => match text.split_once('~') {
+                Some((page, after)) => (Some(page), Some(after)),
+                None => (Some(text.as_str()), None),
+            },
+            Some(Value::String(text)) => (None, Some(text.as_str())),
             Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
         };
+        if let Some(p) = filters.as_object_mut() {
+            match after {
+                Some(after) => p.insert("cursor".to_owned(), Value::String(after.to_owned())),
+                None => p.remove("cursor"),
+            };
+        }
         let picked = super::session_pages::session_list_reply(keys.clone(), &filters)?;
         let rows = picked["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
         let at = |key: &Value| key["at"].as_u64().unwrap_or_default() as usize;
@@ -213,7 +220,14 @@ impl Snapshot {
         let (page, next) = if whole {
             (rows.iter().map(row).collect(), None)
         } else {
-            super::session_pages::byte_page(rows, cursor, budget, |n| row(&rows[n]), |r| r.len())?
+            let (page, next) = super::session_pages::byte_page(
+                rows,
+                cursor,
+                budget,
+                |n| row(&rows[n]),
+                |r| r.len(),
+            )?;
+            (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
         };
         let mut out = String::from("{");
         if let Some(next) = next {
@@ -564,6 +578,36 @@ mod tests {
             );
         }
         assert!(list.page(&json!({"cursor": 3})).is_err());
+    }
+
+    /// A list read from a session list cursor (`k...`) with no `limit`, too large for one page,
+    /// keeps that cursor's cutoff on every page: the rows after the session it names, each once.
+    #[tokio::test]
+    async fn byte_pages_of_a_list_after_a_session_cursor_keep_its_cutoff() {
+        let mut rows: Vec<Value> = ["a", "b", "c", "d", "e", "f"]
+            .iter()
+            .enumerate()
+            .map(|(i, id)| json!({"sessionId": id, "updatedAt": 10 - i, "pad": "x".repeat(40)}))
+            .collect();
+        super::super::session_pages::sort_session_summaries(&mut rows);
+        let list =
+            Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, Snapshot::serialize(&rows));
+        let after_b =
+            super::super::session_pages::session_list_reply(rows.clone(), &json!({"limit": 2}))
+                .unwrap()["nextCursor"]
+                .clone();
+        let (mut read, mut params) = (Vec::new(), json!({"cursor": after_b}));
+        for _ in 0..10 {
+            let page: Value = serde_json::from_str(&list.bounded_text(&params, 150)).unwrap();
+            let listed = page["sessions"].as_array().unwrap();
+            read.extend(listed.iter().map(|r| r["sessionId"].as_str().unwrap().to_owned()));
+            match page.get("nextCursor") {
+                Some(next) => params["cursor"] = next.clone(),
+                None => break,
+            }
+        }
+        read.sort();
+        assert_eq!(read, ["c", "d", "e", "f"]);
     }
 
     #[tokio::test]
