@@ -16,8 +16,12 @@ import MessagesLabSidebar
 public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// The band the row sits in; the list starts under it.
     static let band: CGFloat = 52
-    /// The buttons' and the field's height (the field is a capsule of this height).
-    static let side: CGFloat = 28
+    /// The filter circle's diameter and the search capsule's height, as in Messages (its glass
+    /// filter and search field are one height).
+    static let side: CGFloat = 30
+    /// The filter circle's least room above it under the traffic lights: cmux's lights sit higher
+    /// than Messages', so on their line the circle shrinks rather than run off the window's top.
+    static let topMargin: CGFloat = 1
     static let inset: CGFloat = 10
     static let gap: CGFloat = 6
     /// The narrowest search field: its glass and "Search" still show.
@@ -36,7 +40,8 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     /// Where the list starts: under the band, or under the search row when the traffic lights
     /// take the top row.
     public private(set) var listTop: CGFloat = Self.band
-    /// The search row's distance under the traffic lights and the list's under the search field.
+    /// The search row's distance under the traffic lights (and the filter circle on their line)
+    /// and the list's under the search field.
     static let rowGap: CGFloat = 10
 
     /// The list at `width` shows avatars only, and so no header row.
@@ -68,8 +73,11 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
             // The toggle at the top row's right end, on the lights' line, when it clears them
             // (a list narrower than the lights and the toggle keeps it on the search row).
             if filterX >= controls.maxX + Self.gap {
-                filter = CGRect(x: filterX, y: (controls.midY - Self.side / 2).rounded(), width: Self.side, height: Self.side)
-                search = CGRect(x: Self.inset, y: searchY, width: max(0, width - 2 * Self.inset), height: Self.side)
+                // A circle centred on the lights' line, as tall as fits under the window's top.
+                let d = (min(Self.side, 2 * (controls.midY - Self.topMargin)) / 2).rounded(.down) * 2
+                filter = CGRect(x: width - Self.inset - d, y: (controls.midY - d / 2).rounded(), width: d, height: d)
+                let rowY = max(searchY, (filter.maxY + Self.rowGap).rounded(.up))
+                search = CGRect(x: Self.inset, y: rowY, width: max(0, width - 2 * Self.inset), height: Self.side)
             } else {
                 let field = max(Self.minimumField, width - 2 * Self.inset - (Self.side + Self.gap))
                 search = CGRect(x: Self.inset, y: searchY, width: field, height: Self.side)

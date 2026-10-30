@@ -10,6 +10,7 @@ use crate::cli::hosts::{checked_host, ssh_argv};
 use crate::client::Client;
 use crate::tailnet::{self, Tailnet};
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::net::IpAddr;
 use std::process::{Command, Stdio};
@@ -165,7 +166,7 @@ pub(crate) fn checked_name(name: &str) -> Result<&str, &'static str> {
 fn add_params(name: &str, url: &str, lend: bool) -> Value {
     let mut p = json!({"name": name, "url": url, "wait": true});
     if lend {
-        p["githubBroker"] = json!(true);
+        p.set("githubBroker", json!(true));
     }
     p
 }

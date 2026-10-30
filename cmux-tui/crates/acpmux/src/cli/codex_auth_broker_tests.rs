@@ -155,7 +155,9 @@ async fn broker_uses_codex_refresh_and_pins_account_without_leaking_errors() {
     let holder = prepare(&home.0).unwrap();
     home.auth(u64::MAX);
     let codex = home.0.join("fake-codex");
-    std::fs::write(&codex, r#"#!/usr/bin/env python3
+    crate::test_exec::write_executable(
+        &codex,
+        r#"#!/usr/bin/env python3
 import os, sys, json, base64, time
 for line in sys.stdin:
     r = json.loads(line)
@@ -174,8 +176,8 @@ for line in sys.stdin:
         with open(path, 'w', opener=lambda p,f: os.open(p,f,0o600)) as f:
             json.dump({'auth_mode':'chatgpt','tokens':{'access_token':'e30.'+payload+'.sig','account_id':'account-one','refresh_token':'rotated-private'}}, f)
     print(json.dumps({'id':r['id'],'result':result}), flush=True)
-"#).unwrap();
-    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+"#,
+    );
     let mut terminate =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
     let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
@@ -214,7 +216,7 @@ async fn inherited_lock_after_shutdown(stop: bool) {
     let home = Home::new();
     let holder = prepare(&home.0).unwrap();
     let codex = home.0.join("fake-codex");
-    std::fs::write(
+    crate::test_exec::write_executable(
         &codex,
         r#"#!/usr/bin/env python3
 import json, sys
@@ -223,9 +225,7 @@ for line in sys.stdin:
     if request.get('id') is not None:
         print(json.dumps({'id': request['id'], 'result': {}}), flush=True)
 "#,
-    )
-    .unwrap();
-    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+    );
     let mut terminate =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
     let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
@@ -268,14 +268,12 @@ async fn stalled_owner_cancellation_releases_inherited_lock() {
     let home = Home::new();
     let holder = prepare(&home.0).unwrap();
     let codex = home.0.join("stalled-codex");
-    std::fs::write(
+    crate::test_exec::write_executable(
         &codex,
         r#"#!/bin/sh
 sleep 30
 "#,
-    )
-    .unwrap();
-    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+    );
     let (sender, mut receiver) = tokio::sync::oneshot::channel();
     let mut start = Box::pin(Owner::start_with_cancel(
         &home.0,
