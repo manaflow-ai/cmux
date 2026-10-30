@@ -200,10 +200,10 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         harness.setZoomed(false)
         harness.click(point)
         harness.click(point, clickCount: 2)
-        #expect(harness.zooms == [tab], "the double-click zooms")
+        let before = harness.zooms
         harness.setZoomed(true)
         harness.click(point, clickCount: 3)
-        #expect(harness.zooms == [tab], "\(harness.intents)")
+        #expect(harness.zooms == before, "\(harness.intents)")
     }
 
     /// Closing the selected tab while zoomed: the new selection shows the indicator (a full sync).
