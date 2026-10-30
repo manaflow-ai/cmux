@@ -41,7 +41,7 @@ public nonisolated struct ChromiumCookieWrite: Sendable, Equatable, CustomString
     /// Microseconds since 1601-01-01 (`cef_basetime_t`), as a decimal string.
     static func baseTime(_ date: Date?) -> String {
         guard let date else { return "0" }
-        return String(microseconds(since1601 date: date))
+        return String(microseconds(since1601: date))
     }
 
     /// `date` in microseconds since 1601-01-01, held to the Int64 range: another browser's files
