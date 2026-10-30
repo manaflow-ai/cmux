@@ -27,6 +27,12 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_closed(&self) -> bool {
         false
     }
+    /// The socket's send buffer is full: the client takes no more until it
+    /// reads (a non-blocking poll for writability says no). `false` where it
+    /// cannot be told.
+    fn send_buffer_full(&self) -> bool {
+        false
+    }
 }
 
 pub struct Listener {
@@ -138,6 +144,18 @@ mod imp {
             // timeout never blocks.
             let ready = unsafe { libc::poll(&mut poll, 1, 0) };
             ready > 0 && poll.revents & (libc::POLLHUP | libc::POLLERR) != 0
+        }
+
+        fn send_buffer_full(&self) -> bool {
+            let mut poll = libc::pollfd {
+                fd: std::os::fd::AsRawFd::as_raw_fd(self),
+                events: libc::POLLOUT,
+                revents: 0,
+            };
+            // SAFETY: one pollfd for a descriptor this stream owns; a zero
+            // timeout never blocks.
+            let ready = unsafe { libc::poll(&mut poll, 1, 0) };
+            ready == 0
         }
     }
 }

@@ -98,22 +98,68 @@ impl RenderGraphicBase64Cache {
     }
 }
 
+/// A connection whose queued replies hold bytes of an [`OutboundByteBudget`].
+pub(super) trait OutboundHolder: Send + Sync {
+    /// The bytes it holds while its client takes no more (the socket's send
+    /// buffer is full: the kernel's word that the client does not read);
+    /// `None` while the client reads or it holds nothing.
+    fn stalled_bytes(&self) -> Option<usize>;
+    /// Ends the connection and frees what it holds.
+    fn evict(&self);
+}
+
+/// Bytes of queued replies shared by the connections of one socket.
+///
+/// With no write deadline (#27698), a client that stops reading holds its
+/// queued replies' bytes until it reads or hangs up. When a reply can't fit,
+/// the budget ends the connection that holds the most bytes while its client
+/// takes no more ([`OutboundHolder::stalled_bytes`]) and tries again once, so
+/// one stalled client never starves the others. A client that reads is never
+/// ended this way, and no timer decides who is stalled.
 pub(super) struct OutboundByteBudget {
     pub(super) retained_bytes: AtomicUsize,
     pub(super) max_bytes: usize,
+    holders: Mutex<Vec<Weak<dyn OutboundHolder>>>,
 }
 
 impl OutboundByteBudget {
     pub(super) fn new(max_bytes: usize) -> Self {
-        Self { retained_bytes: AtomicUsize::new(0), max_bytes }
+        Self { retained_bytes: AtomicUsize::new(0), max_bytes, holders: Mutex::default() }
     }
 
     pub(super) fn try_retain(&self, bytes: usize) -> bool {
+        self.claim(bytes) || (self.evict_biggest_stalled() && self.claim(bytes))
+    }
+
+    fn claim(&self, bytes: usize) -> bool {
         self.retained_bytes
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |retained| {
                 retained.checked_add(bytes).filter(|next| *next <= self.max_bytes)
             })
             .is_ok()
+    }
+
+    /// Watches `holder` for [`Self::try_retain`]'s eviction while it lives.
+    pub(super) fn register(&self, holder: &Arc<dyn OutboundHolder>) {
+        let mut holders = self.holders.lock().recover_poison();
+        holders.retain(|holder| holder.strong_count() > 0);
+        holders.push(Arc::downgrade(holder));
+    }
+
+    /// Ends the stalled holder with the most bytes; false when none is.
+    fn evict_biggest_stalled(&self) -> bool {
+        let holders: Vec<Arc<dyn OutboundHolder>> = {
+            let mut holders = self.holders.lock().recover_poison();
+            holders.retain(|holder| holder.strong_count() > 0);
+            holders.iter().filter_map(Weak::upgrade).collect()
+        };
+        let victim = holders
+            .iter()
+            .filter_map(|holder| holder.stalled_bytes().map(|bytes| (bytes, holder)))
+            .max_by_key(|(bytes, _)| *bytes);
+        let Some((_, victim)) = victim else { return false };
+        victim.evict();
+        true
     }
 
     pub(super) fn release(&self, bytes: usize) {

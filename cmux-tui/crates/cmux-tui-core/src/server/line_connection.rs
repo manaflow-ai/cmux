@@ -35,6 +35,11 @@ pub(super) fn serve_line_connection(
     // No write deadline: a client that reads late keeps its connection; one
     // whose replies overflow the bounded queue is ended (`QueuedSink`).
     let outbound = Arc::new(BoundedOutbound::default());
+    // A client that stops reading holds its queued replies' bytes; when its
+    // socket's budget can't fit a reply, the biggest such holder is ended
+    // (`OutboundByteBudget`). Held to the connection's end.
+    let Ok(watched) = stream.try_clone_box() else { return };
+    let _stalled_eviction = StalledEviction::register(outbound.clone(), watched, &render_service);
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
