@@ -1633,3 +1633,137 @@ fn a_hello_guest_without_a_count_ends_with_its_first_left_socket() {
         "text": "nobody relays this"}));
     fake.no_frame();
 }
+
+/// Ann's prompts `c{from}..c{to}`, each sent and said held: their acpmux prompt ids.
+fn held_prompts(
+    room: &FakeRoom,
+    fake: &FakeAcpmux,
+    conn: u64,
+    ann: &str,
+    n: std::ops::Range<u32>,
+) -> Vec<String> {
+    let mut prompts = Vec::new();
+    for n in n {
+        let client_id = format!("c{n}");
+        room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": client_id,
+            "text": "hello"}));
+        let sent = loop {
+            let frame = fake.frame();
+            if frame["method"] == "session/prompt" {
+                break frame;
+            }
+        };
+        prompts.push(sent["params"]["_meta"]["acpmux"]["promptId"].as_str().unwrap().to_owned());
+        let state = room.next(conn, "prompt_state");
+        let said = (state["client_id"].clone(), state["state"].clone());
+        assert_eq!(said, (json!(client_id), json!("held")));
+    }
+    prompts
+}
+
+/// The state the room is next told of Ann's prompt `client_id` (states of others skipped).
+fn state_of(room: &FakeRoom, conn: u64, client_id: &str) -> Value {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let state = room.next(conn, "prompt_state");
+        if state["client_id"] == client_id {
+            return state;
+        }
+        assert!(Instant::now() < deadline, "a state of {client_id}");
+    }
+}
+
+/// acpmux's record that the owner approved `prompt`.
+fn approved(seq: u64, prompt: &str) -> Value {
+    json!({"sessionId": SESSION, "seq": seq, "dir": "mux", "kind": "queue_approved",
+        "msg": {"promptId": prompt, "revision": 0}})
+}
+
+/// A host reconnect keeps the count of the guest's held prompts: 16 held before it, the 17th
+/// after it is refused.
+#[test]
+fn a_host_reconnect_keeps_the_held_cap() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-cap-host", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    held_prompts(&room, &fake, conn, &ann, 0..16);
+    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann", "sockets": 1}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.next(conn, "guests")["t"], "guests");
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c16",
+        "text": "hello"}));
+    let state = state_of(&room, conn, "c16");
+    assert_eq!(
+        (state["state"].clone(), state["reason"].clone()),
+        (json!("refused"), json!("share.too_many_held"))
+    );
+}
+
+/// A retried prompt the owner already decided is not counted again: 16 decided and retried
+/// leave room for a new one.
+#[test]
+fn retrying_decided_prompts_takes_no_held_slot() {
+    let room = FakeRoom::start(&[]);
+    let (mut fake, _mux, surface, mut owner) = bridged("relay-cap-retry", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    let prompts = held_prompts(&room, &fake, conn, &ann, 0..16);
+    for (n, prompt) in prompts.iter().enumerate() {
+        fake.notify("_acpmux/event", approved(40 + n as u64, prompt));
+        assert_eq!(state_of(&room, conn, &format!("c{n}"))["state"], "approved");
+    }
+    // Each retried (its page lost the reply): acpmux's ledger runs none of them again. One at a
+    // time: the attachment takes 8 calls at once (`agent_session.limit`).
+    for n in 0..16 {
+        room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann,
+            "client_id": format!("c{n}"), "text": "hello"}));
+        while fake.frame()["method"] != "session/prompt" {}
+    }
+    // A new prompt sent while a retry's answer is still out may be refused for that too, never
+    // for the held cap.
+    let deadline = Instant::now() + WAIT;
+    let state = loop {
+        room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c16",
+            "text": "hello"}));
+        let state = state_of(&room, conn, "c16");
+        if state["reason"] != "agent_session.limit" || Instant::now() > deadline {
+            break state;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(state["state"], "held", "{state}");
+}
+
+/// Decisions a history page names release the held slots of prompts decided while the guest was
+/// away (their records older than its reconnect's snapshot), and the guest is told of them.
+#[test]
+fn a_history_page_applies_the_decisions_it_names() {
+    let room = FakeRoom::start(&[]);
+    let fixture = Fixture::default();
+    let later = fixture.history_later.clone();
+    let (fake, _mux, surface, mut owner) = bridged_with("relay-cap-page", &room, fixture);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    let prompts = held_prompts(&room, &fake, conn, &ann, 0..16);
+    // Ann leaves; the owner decides all 16; Ann comes back to a snapshot that names none of it.
+    room.send(json!({"v": 1, "t": "guest_left", "guest_id": ann}));
+    let decided = prompts.iter().enumerate().map(|(n, p)| approved(40 + n as u64, p));
+    later.lock().unwrap().extend(decided);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    room.send(json!({"v": 1, "t": "older", "guest_id": ann, "before_seq": 3}));
+    assert_eq!(room.next(conn, "page")["to"], json!(ann));
+    assert_eq!(state_of(&room, conn, "c0")["state"], "approved");
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "c16",
+        "text": "hello"}));
+    assert_eq!(state_of(&room, conn, "c16")["state"], "held");
+}

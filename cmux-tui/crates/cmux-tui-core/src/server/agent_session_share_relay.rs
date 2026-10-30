@@ -39,10 +39,52 @@ const MAX_CLIENTS: usize = 64;
 /// The room's asks a relay keeps until its attachment answers.
 const MAX_WAITING: usize = 64;
 
-/// The prompt ids a guest sent that are held or not answered yet. Shared by the guest's
-/// successive relays, and read only from what the guest sent (never from `prompt_status`), so the
-/// held cap counts every one.
-pub(super) type Held = Arc<Mutex<HashSet<String>>>;
+/// One guest's prompts as its relays count them against [`MAX_HELD`]. The bridge keeps one per
+/// guest of each share, so the guest's successive relays and the share's successive host sockets
+/// share it (a reconnect of either keeps the count). Keyed by prompt id: a retry, a decision said
+/// again (live, in a snapshot, in a history page) changes nothing, and the count is the set of
+/// prompts sent and not decided. Filled only from what the guest sent (never from
+/// `prompt_status`), so the cap counts every one.
+#[derive(Default)]
+pub(super) struct Ledger {
+    /// Sent (or being sent) and not decided.
+    open: HashSet<String>,
+    /// Decided while counted, newest last (at most [`MAX_STATES`]): a retry of one is not
+    /// counted again.
+    decided: VecDeque<String>,
+}
+
+impl Ledger {
+    /// Whether `prompt` may go to the daemon: `Some(true)` when this counted it, `Some(false)`
+    /// when it was counted or decided already, `None` at the cap.
+    fn reserve(&mut self, prompt: &str) -> Option<bool> {
+        if self.open.contains(prompt) || self.decided.iter().any(|p| p == prompt) {
+            return Some(false);
+        }
+        if self.open.len() >= MAX_HELD {
+            return None;
+        }
+        self.open.insert(prompt.to_owned());
+        Some(true)
+    }
+
+    /// The daemon refused a prompt this ledger counted for it.
+    fn release(&mut self, prompt: &str) {
+        self.open.remove(prompt);
+    }
+
+    /// The owner decided `prompt` (approved, declined or removed).
+    fn decide(&mut self, prompt: &str) {
+        if self.open.remove(prompt) {
+            if self.decided.len() >= MAX_STATES {
+                self.decided.pop_front();
+            }
+            self.decided.push_back(prompt.to_owned());
+        }
+    }
+}
+
+pub(super) type Held = Arc<Mutex<Ledger>>;
 
 /// What the room asked of one guest.
 pub(super) enum Ask {
@@ -170,7 +212,8 @@ enum Pending {
     Bind,
     Attach,
     Page,
-    Prompt(String),
+    /// A prompt sent, and whether this send counted it in the ledger.
+    Prompt(String, bool),
     Ignore,
 }
 
@@ -198,7 +241,7 @@ struct Link {
     attached: bool,
     /// The room's asks that came before the attachment answered, sent once it does.
     waiting: VecDeque<Ask>,
-    /// This guest's prompts sent and not decided yet (shared by its relays).
+    /// This guest's prompts sent and not decided yet (kept by the bridge across relays).
     held: Held,
 }
 
@@ -253,18 +296,31 @@ impl Link {
                 let page = json!({"v": 1, "t": "page", "to": self.guest_id});
                 let data = frame.get("data").unwrap_or(&Value::Null);
                 let more = data.get("hasMore") == Some(&Value::Bool(true));
-                self.emit(bounded(page, ordered(data), more));
+                let records = ordered(data);
+                // The decisions it names (older than the snapshot: made while the guest was
+                // away). A decision is final, so an older page never undoes a newer state, and
+                // its `queued` (held) records change nothing.
+                let decided: Vec<_> = records.iter().filter_map(decision).collect();
+                self.emit(bounded(page, records, more));
+                for (prompt, state) in decided {
+                    let open = self.states.get(&prompt).is_none_or(|s| s.state == "held");
+                    if state != "held" && open {
+                        self.note(&prompt, state, None);
+                    }
+                }
                 true
             }
-            Pending::Prompt(prompt) if ok => {
+            Pending::Prompt(prompt, _) if ok => {
                 // Held unless acpmux's records said otherwise first (a retried prompt it ran).
                 if !self.states.contains_key(&prompt) {
                     self.note(&prompt, "held", None);
                 }
                 true
             }
-            Pending::Prompt(prompt) => {
-                self.held.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt);
+            Pending::Prompt(prompt, counted) => {
+                if counted {
+                    self.held.lock().unwrap_or_else(|e| e.into_inner()).release(&prompt);
+                }
                 let reason = frame
                     .get("error_code")
                     .and_then(Value::as_str)
@@ -305,24 +361,21 @@ impl Link {
                 self.remember(&prompt, client_id);
                 // Held, plus sent and not answered yet: a burst cannot pass the cap before the
                 // replies come. A prompt the daemon already took (any state but refused) is a
-                // retry it dedupes, so it is not counted against the cap again.
+                // retry it dedupes, so it is not counted again; nor is one counted or decided
+                // already.
                 let taken = self.states.get(&prompt).is_some_and(|s| s.state != "refused");
-                let held = {
-                    let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
-                    let others = held.iter().filter(|p| **p != prompt).count();
-                    let room = taken || others < MAX_HELD;
-                    if room {
-                        held.insert(prompt.clone());
-                    }
-                    !room
+                let counted = if taken {
+                    Some(false)
+                } else {
+                    self.held.lock().unwrap_or_else(|e| e.into_inner()).reserve(&prompt)
                 };
-                if held {
+                let Some(counted) = counted else {
                     self.note(&prompt, "refused", Some("share.too_many_held".into()));
                     return true;
-                }
+                };
                 let frame = json!({"cmd": "agent-session-prompt", "surface": 0,
                     "client_id": self.clients.get(&prompt), "text": text});
-                self.call(frame, Pending::Prompt(prompt)).await
+                self.call(frame, Pending::Prompt(prompt, counted)).await
             }
             Ask::Typing(on) => {
                 let frame = json!({"cmd": "agent-session-typing", "surface": 0, "on": on});
@@ -389,8 +442,8 @@ impl Link {
         if !prompt.starts_with("g-") {
             return;
         }
-        if state != "held" {
-            self.held.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
+        if matches!(state, "approved" | "declined" | "removed") {
+            self.held.lock().unwrap_or_else(|e| e.into_inner()).decide(prompt);
         }
         self.tick = self.tick.wrapping_add(1);
         if !self.states.contains_key(prompt) {

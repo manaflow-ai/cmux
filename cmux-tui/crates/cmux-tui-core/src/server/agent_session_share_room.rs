@@ -91,6 +91,9 @@ pub(in crate::server) struct Bridge {
     next_host: AtomicU64,
     /// The guest relays' connections' outbound budget.
     render: OnceLock<Arc<RenderService>>,
+    /// Each share's guests' held prompts (share id, then guest id), kept across the share's host
+    /// sockets and the guests' relays until the guest is kicked or the share ends.
+    held: Mutex<HashMap<String, HashMap<String, relay::Held>>>,
 }
 
 impl Drop for Bridge {
@@ -116,6 +119,27 @@ fn origin(raw: &str) -> Option<String> {
 }
 
 impl Bridge {
+    /// The held prompts of `guest` of `share_id`.
+    fn held(&self, share_id: &str, guest: &str) -> relay::Held {
+        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        held.entry(share_id.to_owned()).or_default().entry(guest.to_owned()).or_default().clone()
+    }
+
+    /// Forgets the held prompts of a kicked guest, or (`None`) of an ended share's guests.
+    fn forget(&self, share_id: &str, guest: Option<&str>) {
+        let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
+        match guest {
+            Some(guest) => {
+                if let Some(guests) = held.get_mut(share_id) {
+                    guests.remove(guest);
+                }
+            }
+            None => {
+                held.remove(share_id);
+            }
+        }
+    }
+
     /// Sets the room new shares are provisioned in (`None`: links have no URL). False when `url`
     /// is no https origin (including an explicit empty string): creation fails with
     /// `share.room_unreachable`, while an unset room preserves local sharing.
@@ -643,6 +667,7 @@ fn host(mux: &Arc<Mux>, share_id: &str) {
 pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
     let Some(mux) = shares.mux.lock().unwrap_or_else(|e| e.into_inner()).upgrade() else { return };
     for (share_id, guest) in ended {
+        shares.bridge.forget(share_id, guest.as_deref());
         if guest.is_some() {
             // An ended share's own entry sends `end`; its kicks are moot.
             if view(&mux, share_id).is_some_and(|v| v.state == ShareState::Active) {
@@ -933,17 +958,14 @@ struct Guests {
     /// Each guest's client ids its page named (newest last, at most 64), handed to its next
     /// relay so a reconnect's snapshot names those prompts' states.
     clients: HashMap<String, VecDeque<String>>,
-    /// Each guest's held prompts, shared by its relays.
-    held: HashMap<String, relay::Held>,
     next: u64,
     out: mpsc::UnboundedSender<relay::Out>,
 }
 
 impl Guests {
     fn new(out: mpsc::UnboundedSender<relay::Out>) -> Self {
-        let (relays, waiting, clients, held) =
-            (HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new());
-        Self { relays, waiting, clients, held, next: 0, out }
+        let (relays, waiting, clients) = (HashMap::new(), HashMap::new(), HashMap::new());
+        Self { relays, waiting, clients, next: 0, out }
     }
 
     /// A room frame about the guests' browsers, after the daemon's `guests`; what to send the
@@ -1051,7 +1073,7 @@ impl Guests {
         let ids = (share_id, guest);
         let known: Vec<String> =
             self.clients.get(guest).map(|k| k.iter().cloned().collect()).unwrap_or_default();
-        let held = self.held.entry(guest.to_owned()).or_default().clone();
+        let held = bridge.held(share_id, guest);
         let out = self.out.clone();
         match relay::start(mux, render, ids, self.next, out, &known, held) {
             Some(mut relay) => {

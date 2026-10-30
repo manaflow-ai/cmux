@@ -150,6 +150,8 @@ pub(super) struct Fixture {
     pub(super) watch: Vec<Value>,
     /// The records an `_acpmux/events` (history) page answers.
     pub(super) history: Vec<Value>,
+    /// Records every history page answers after [`Fixture::history`], added while the fake runs.
+    pub(super) history_later: Arc<Mutex<Vec<Value>>>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
@@ -206,7 +208,9 @@ fn serve(
                 ),
             })),
             "_acpmux/events" => {
-                Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))
+                let mut events = fixture.history.clone();
+                events.extend(fixture.history_later.lock().unwrap().iter().cloned());
+                Some(json!({"events": events, "hasMore": false, "lastSeq": 1}))
             }
             "_acpmux/typing" => {
                 typing_calls += 1;
