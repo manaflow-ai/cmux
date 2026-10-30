@@ -25,32 +25,8 @@
 #   cmux-ci run --class isolated --script scripts/measure/acpmux-overhead.sh --ref SHA \
 #     --arg=bench=daemon [--arg=before=SHA] --timeout 5400 \
 #     [--artifact .build/acpmux-overhead/perf-after.log] [--artifact .build/acpmux-overhead/perf-before.log]
-#
-# bench=agents: the daemon's memory per agent: the release build of
-# cmux-tui/crates/acpmux/tests/daemon_agent_memory.rs starts n= fake agents (default 100 here)
-# that each stream chunks= chunks of bytes= bytes, rounds= times, all at once, and reports the
-# daemon's resident bytes per agent over its idle start. This ref has a budget of 2048 KB per
-# agent; the before= side measures only, with this ref's bench and fake agent copied over it (the
-# daemon is what is compared). Output: ACPMUX-AGENTS <label> {json} per side and one
-# ACPMUX-AGENTS-STATUS line per side. Exit 1 when this ref is over budget or does not run, 3 when
-# the before= side does not run.
-#   cmux-ci run --class exclusive --script scripts/measure/acpmux-overhead.sh --ref SHA \
-#     --arg=bench=agents [--arg=n=100] [--arg=chunks=1000] [--arg=bytes=2048] [--arg=rounds=2] \
-#     [--arg=before=SHA] --timeout 5400
-#
-# bench=hidden: hidden idle chats and the page lifecycle's freeze: the
-# AgentPaneFrozenChatsBench Swift Testing suite. n= chats (default 10 here), each with its own
-# transport, frame pacer and acpmux connection to a stand-in acpmux that sends every open connection an
-# idle watch frame 2.5 times a second. ACPMUX-HIDDEN lines give the frames per second the host receives,
-# the open connections and the page calls while the chats are hidden, then frozen, and the reconnects per
-# thaw. Exit 1 when frozen chats keep a connection, receive 1 frame/s or more, or a thaw takes other than
-# one reconnect. No harness CLI, no npm.
-#   cmux-ci run --class isolated --script scripts/measure/acpmux-overhead.sh --ref SHA --arg=bench=hidden [--arg=n=10]
 set -euo pipefail
 n=20
-chunks=1000
-bytes=2048
-rounds=2
 harness="claude,codex,opencode"
 before=""
 claude_version="2.1.303"
@@ -58,14 +34,10 @@ codex_version="0.163.0"
 opencode_version="1.19.3"
 guard_ms=5
 bench=harness
-n_set=0
 for arg in "$@"; do
   case "$arg" in
     bench=*) bench="${arg#bench=}" ;;
-    n=*) n="${arg#n=}"; n_set=1 ;;
-    chunks=*) chunks="${arg#chunks=}" ;;
-    bytes=*) bytes="${arg#bytes=}" ;;
-    rounds=*) rounds="${arg#rounds=}" ;;
+    n=*) n="${arg#n=}" ;;
     harness=*) harness="${arg#harness=}" ;;
     before=*) before="${arg#before=}" ;;
     claude=*) claude_version="${arg#claude=}" ;;
@@ -82,70 +54,12 @@ for v in "$claude_version" "$codex_version" "$opencode_version"; do
   [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "acpmux-overhead.sh: versions are X.Y.Z" >&2; exit 2; }
 done
 [[ "$guard_ms" =~ ^[0-9]{1,4}$ ]] || { echo "acpmux-overhead.sh: guard_ms is a number" >&2; exit 2; }
-[[ "$bench" =~ ^(harness|daemon|agents|hidden)$ ]] || { echo "acpmux-overhead.sh: bench=harness, daemon, agents or hidden" >&2; exit 2; }
-for v in "$chunks" "$bytes" "$rounds"; do
-  [[ "$v" =~ ^[1-9][0-9]{0,6}$ ]] || { echo "acpmux-overhead.sh: chunks, bytes and rounds are 1-9999999" >&2; exit 2; }
-done
-if [[ "$bench" == agents ]]; then
-  (( n_set )) || n=100
-fi
+[[ "$bench" =~ ^(harness|daemon)$ ]] || { echo "acpmux-overhead.sh: bench=harness or bench=daemon" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-if [[ "$bench" == hidden ]]; then
-  (( n_set )) || n=10
-  echo "ACPMUX-HIDDEN-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) chats=$n"
-  CMUX_ACPMUX_HIDDEN_BENCH=1 CMUX_ACPMUX_HIDDEN_CHATS="$n" \
-    exec ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext AgentPaneFrozenChatsBench
-fi
 work="$root/.build/acpmux-overhead"
 rm -rf "$work"
 mkdir -p "$work/bin" "$work/tools"
-if [[ "$bench" == agents ]]; then
-  echo "ACPMUX-AGENTS-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) load=\"$(sysctl -n vm.loadavg)\""
-  export CI=1
-  # agents LABEL TREE BUDGET_KB: cargo's whole output goes to agents-LABEL.log; the step log gets
-  # the ACPMUX-AGENTS row with the label and one ACPMUX-AGENTS-STATUS line. Returns 0 (within
-  # budget), 1 (ran and is over budget) or 2 (did not build or run).
-  agents() {
-    local label="$1" tree="$2" budget="$3" log="$work/agents-$1.log" code=0 result=ok
-    (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target-$label" \
-      ACPMUX_AGENTS_BENCH_N="$n" ACPMUX_AGENTS_BENCH_CHUNKS="$chunks" ACPMUX_AGENTS_BENCH_BYTES="$bytes" \
-      ACPMUX_AGENTS_BENCH_ROUNDS="$rounds" ACPMUX_AGENTS_BUDGET_KB="$budget" \
-      cargo test --release --locked -p acpmux --test daemon_agent_memory -- --ignored --nocapture) \
-      > "$log" 2>&1 || code=$?
-    sed -n "s/^ACPMUX-AGENTS /ACPMUX-AGENTS $label /p" "$log"
-    if (( code != 0 )); then
-      # The bench asserts its budget after its row; any other failure leaves no row.
-      if grep -q '^ACPMUX-AGENTS ' "$log" && grep -q '^test result: FAILED' "$log"; then
-        result=over-budget
-      else
-        result=failed
-      fi
-    fi
-    echo "ACPMUX-AGENTS-STATUS $label exit=$code result=$result log=$log"
-    (( code == 0 )) || tail -n 40 "$log" | sed "s/^/ACPMUX-AGENTS-LOG $label /"
-    case "$result" in ok) return 0 ;; over-budget) return 1 ;; *) return 2 ;; esac
-  }
-  before_rc=0
-  if [[ -n "$before" ]]; then
-    depth=()
-    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
-    git fetch -q ${depth[@]+"${depth[@]}"} origin "$before"
-    git worktree add -q --detach "$work/before-src" "$before"
-    trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
-    cp cmux-tui/crates/acpmux/tests/daemon_agent_memory.rs cmux-tui/crates/acpmux/tests/fake_agent.py \
-      "$work/before-src/cmux-tui/crates/acpmux/tests/"
-    agents before "$work/before-src" 0 || before_rc=$?
-  fi
-  status=0
-  agents after "$root" 2048 || status=1
-  echo "ACPMUX-AGENTS-LOAD end $(sysctl -n vm.loadavg)"
-  if (( status == 0 && before_rc == 2 )); then
-    echo "ACPMUX-AGENTS-INCOMPLETE before=$before did not build or run (ACPMUX-AGENTS-LOG before): no comparison" >&2
-    status=3
-  fi
-  exit "$status"
-fi
 if [[ "$bench" == daemon ]]; then
   echo "ACPMUX-PERF-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) cpu=\"$(sysctl -n machdep.cpu.brand_string)\" cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) rev=$(git rev-parse HEAD) load=\"$(sysctl -n vm.loadavg)\""
   export CI=1
