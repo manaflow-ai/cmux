@@ -167,16 +167,37 @@ test("a refused turn leads with Add Credits…, Add API Key… beside it, then R
 });
 
 test("the key-first arm fills Add API Key…; the link arm leaves Retry filled", async () => {
-  await render(lowCredits, "key-first");
+  await render(noCredits, "key-first");
   expect(actionLabels().slice(0, 2)).toEqual(["Add API Key…", "Add Credits…"]);
   expect(button("Add API Key…")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  const calls = await render(lowCredits, "link");
+  const calls = await render(noCredits, "link");
   expect(actionLabels()).toEqual(["Retry", "Switch model"]);
   expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
   const links = [...card().querySelectorAll(".cv-turn-error__cause .cv-turn-error__offer-link")];
   expect(links.map((element) => element.textContent)).toEqual(["Add Credits…", "Add API Key…"]);
   await act(async () => (links[1] as HTMLButtonElement).click());
   expect(calls).toEqual(["key:cmux"]);
+});
+
+// `credits.insufficient`: the caller has a plan but too few credits for this call. The app has no
+// credit top-up (the paid-plan path sells a plan they already have), so Add Credits… would not fix
+// the turn: the card offers their own key, Retry and Switch model.
+test("a turn short of credits on a paid plan offers Add API Key…, never the plan upgrade", async () => {
+  for (const arm of [undefined, "key-first"]) {
+    const calls = await render(lowCredits, arm);
+    expect(card().getAttribute("data-failure-kind")).toBe("needs-credits");
+    expect(actionLabels()).toEqual(["Add API Key…", "Retry", "Switch model"]);
+    expect([...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent)).toEqual([
+      "Add API Key…",
+    ]);
+    await act(async () => button("Add API Key…")!.click());
+    expect(calls).toEqual(["key:cmux"]);
+  }
+  await render('{"error":{"code":"credits.insufficient"}}');
+  expect(button("Add Credits…")).toBeUndefined();
+  await render(lowCredits, "link");
+  const links = [...card().querySelectorAll(".cv-turn-error__cause .cv-turn-error__offer-link")];
+  expect(links.map((element) => element.textContent)).toEqual(["Add API Key…"]);
 });
 
 test("a pane that cannot run the app's actions still names the way out, with no dead buttons", async () => {

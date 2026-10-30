@@ -126,7 +126,7 @@ export default componentEntry<Props>({
       props: { surface: "turn", access: true, error: noCredits },
     },
     "turn-low-credits": {
-      note: "Credits below this call's price: the same offer.",
+      note: "On a plan but short of credits for this call: Add API Key… leads (no credit top-up exists), then Retry and Switch model.",
       height: 220,
       props: { surface: "turn", access: true, error: lowCredits },
     },

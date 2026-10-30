@@ -38,7 +38,7 @@ import {
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
+import { failureCopy, failureKind, failureRecovery, type FailureRoute, shortOfCredits } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -540,21 +540,23 @@ function TurnFailure({
   // The cmux model router refused the turn for want of credits (accessOffer.ts; Leo 2026-10-26: "we
   // offer them to add credits or add their own api key"), placed by the `access-offer` arm. As
   // buttons, the arm's first one is the card's one filled button; as links, Retry keeps it.
+  // A caller already on a plan but short of credits (`credits.insufficient`) gets no Add Credits…:
+  // the app has no credit top-up, and the paid-plan path would sell the plan they have.
   const accessOffer = kind === "needs-credits" ? access : undefined;
+  const offersCredits = accessOffer !== undefined && !shortOfCredits(message, code);
   const accessArm = experimentArm(accessOfferLook);
   const accessLeads = accessOffer !== undefined && accessArm !== "link";
-  const accessButtons = accessOffer && accessLeads && (
+  const accessChoices = accessOffer
+    ? (
+        [
+          ["access.addKey", () => accessOffer.addKey(route?.harness)],
+          ["access.addCredits", accessOffer.addCredits],
+        ] as const
+      ).filter(([key]) => offersCredits || key !== "access.addCredits")
+    : [];
+  const accessButtons = accessLeads && (
     <>
-      {(accessArm === "key-first"
-        ? ([
-            ["access.addKey", () => accessOffer.addKey(route?.harness)],
-            ["access.addCredits", accessOffer.addCredits],
-          ] as const)
-        : ([
-            ["access.addCredits", accessOffer.addCredits],
-            ["access.addKey", () => accessOffer.addKey(route?.harness)],
-          ] as const)
-      ).map(([key, run], index) => (
+      {(accessArm === "key-first" ? accessChoices : [...accessChoices].reverse()).map(([key, run], index) => (
         <button
           type="button"
           key={key}
@@ -609,10 +611,14 @@ function TurnFailure({
           {accessOffer && accessArm === "link" && (
             <>
               {" "}
-              <button type="button" className="cv-turn-error__offer-link" onClick={accessOffer.addCredits}>
-                {t("access.addCredits")}
-              </button>
-              {" · "}
+              {offersCredits && (
+                <>
+                  <button type="button" className="cv-turn-error__offer-link" onClick={accessOffer.addCredits}>
+                    {t("access.addCredits")}
+                  </button>
+                  {" · "}
+                </>
+              )}
               <button
                 type="button"
                 className="cv-turn-error__offer-link"

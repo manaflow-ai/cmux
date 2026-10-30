@@ -7,7 +7,8 @@
 //     on (else Accounts itself), where Send to CodeRouter (or Save to Keychain, then Connect) gives
 //     the cmux model router the person's own key. Only the router reads a key saved there.
 // Where they show: a failed turn the cmux model router refused for want of credits (failureCopy.ts
-// `needs-credits`) offers both. A signed-out local harness in the model picker offers Log In, then
+// `needs-credits`) offers both, or only Add API Key… when the caller already has a plan and is short
+// of credits (`credits.insufficient`: the app has no credit top-up). A signed-out local harness in the model picker offers Log In, then
 // Add Credits…, and never Add API Key…: acpmux starts Claude Code, Codex or Gemini with the login
 // shell's environment and the harness's own sign-in, and nothing hands it a key saved in Accounts
 // (cmux's Keychain item is read only to send it to CodeRouter, ProviderKeyStore.swift; a harness's

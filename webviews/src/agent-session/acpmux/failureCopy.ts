@@ -42,6 +42,14 @@ const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
 /// signal; any other text that merely mentions cmux credits is not.
 const NEEDS_CREDITS =
   /AI models need cmux credits, your own API key, or a paid plan|Not enough cmux credits for this call|\binference\.plan_required\b|\bcredits\.insufficient\b/i;
+/// Of those, the refusal of a caller who has a plan but too few credits for the call
+/// (`credits.insufficient`), as against no plan at all (`inference.plan_required`).
+const SHORT_OF_CREDITS = /Not enough cmux credits for this call|\bcredits\.insufficient\b/i;
+/// Whether a `needs-credits` refusal is the router's `credits.insufficient`: the paid-plan path sells
+/// a plan the caller already has and the app has no credit top-up, so only their own key fixes it.
+export function shortOfCredits(message: string | undefined, code?: string): boolean {
+  return SHORT_OF_CREDITS.test(message ?? "") || SHORT_OF_CREDITS.test(code ?? "");
+}
 /// The conversation outgrew the model's context window: Claude's "Prompt is too long", OpenAI's
 /// `context_length_exceeded` and "maximum context length", Codex's "exceeds the context window".
 /// Sending the same prompt into the same history fails the same way, so its way out is Compact
