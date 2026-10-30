@@ -51,8 +51,10 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         let offered = options.compactMap { $0["optionId"] as? String }
         guard offered.count == options.count, Set(offered.map { Data($0.utf8) }).count == offered.count,
               offered.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 && !$0.contains("\u{0}") }) else { throw .question }
-        guard options.contains(where: { $0["kind"] as? String == "allow_once"
-            && ($0["optionId"] as? String).map { Self.equalBytes($0, option) } == true }) else { throw .option }
+        // The one allow-once option, as AcpmuxPermissionPrompt.onceOption reads it: a request
+        // offering two is ambiguous, so no reply to it is valid.
+        guard let once = AcpmuxPermissionPrompt.onceOption(allow: true, offered: options),
+              Self.equalBytes(once, option) else { throw .option }
         guard let answers = reply["answers"] as? [String: Any],
               Self.validAnswers(answers, items: items, codex: harness == "codex") else { throw .answers }
         if let annotations = reply["annotations"],
@@ -96,7 +98,9 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
                 let picked = !codex && multiSelect
                     ? labels[0].components(separatedBy: ", ").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                     : labels.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                // Match the owner's choice-only validation, including distinct multi choices.
+                // Match the owner's choice-only validation (acpmux hub/questions.rs check_answers),
+                // including distinct multi choices: it splits a multi answer on ", " too, so a
+                // label holding ", " is refused there as well and accepting it here would not help.
                 guard Set(picked.map { Data($0.utf8) }).count == picked.count,
                       picked.allSatisfy({ picked in allowed.contains(where: { equalBytes($0, picked) }) }) else { return false }
             }
@@ -106,6 +110,8 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
 
     /// acpmux hub/questions.rs check_annotations: only the real Claude AskUserQuestion reads
     /// these. Previews match its original native tool input after trimming; notes are bounded.
+    /// As there, a preview is any of the question's option previews, not only the answered one's:
+    /// an Other answer can still name the mockup it was written against.
     private static func validAnnotations(_ raw: Any, request: [String: Any], items: [[String: Any]], harness: String) -> Bool {
         guard harness == "claude", let tool = request["toolCall"] as? [String: Any],
               let meta = tool["_meta"] as? [String: Any],

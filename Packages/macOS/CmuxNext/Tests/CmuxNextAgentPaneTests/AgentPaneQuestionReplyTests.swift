@@ -185,6 +185,14 @@ struct AgentPaneQuestionReplyTests {
                                  "annotations": ["Choose?": ["preview": "<b>old</b>"]]], question: next) == .annotations)
     }
 
+    @Test func twoAllowOnceOptionsAreAmbiguous() throws {
+        var request = try #require(Self.prompt()["request"] as? [String: Any])
+        request["options"] = [["optionId": "yes", "kind": "allow_once"], ["optionId": "also", "kind": "allow_once"],
+                              ["optionId": "no", "kind": "reject_once"]]
+        let question = try Self.fixture(["request": request])
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]], question: question) == .option)
+    }
+
     @Test func digestMustMatchTheImmutableRequest() throws {
         let native = try Self.fixture()
         let changed = AgentPaneQuestionReply.Input(sessionId: native.sessionId, permissionId: native.permissionId,
