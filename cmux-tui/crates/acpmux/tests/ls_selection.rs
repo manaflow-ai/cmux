@@ -45,6 +45,18 @@ fn write_sessions(home: &Path, count: usize) {
         });
         fs::write(dir.join("session.json"), row.to_string()).unwrap();
         fs::set_permissions(dir.join("session.json"), fs::Permissions::from_mode(0o600)).unwrap();
+        if status == "closed" {
+            // A closed chat with no log is a purged one the daemon drops at startup
+            // (`store.rs` `purged_startup_entry`): give it its `created` record.
+            let events = dir.join("events");
+            fs::create_dir_all(&events).unwrap();
+            fs::set_permissions(&events, fs::Permissions::from_mode(0o700)).unwrap();
+            let line = json!({"seq": 1, "at": at, "dir": "mux", "kind": "created",
+                              "msg": {"harness": "claude"}});
+            let segment = events.join("000001.ndjson");
+            fs::write(&segment, format!("{line}\n")).unwrap();
+            fs::set_permissions(&segment, fs::Permissions::from_mode(0o600)).unwrap();
+        }
     }
 }
 
