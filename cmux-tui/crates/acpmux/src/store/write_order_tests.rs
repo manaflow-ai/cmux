@@ -83,13 +83,16 @@ fn background_writes_go_on_while_requests_keep_arriving() {
     );
 }
 
-/// The bench's shape (review of 69d858ce9764, finding 1): the same chats stream AND are waited for
-/// on every cycle, beside a chat that only streams. A chat written in a batch kept its entry in the
-/// background turn's list, and its next line added another, so the list grew by about the batch
-/// size each cycle and the streaming chat waited behind entries that write nothing.
+/// The bench's shape (review of 69d858ce9764, finding 1): every chat streams (a line after each
+/// write), the same chats are waited for on every cycle, and one chat is never waited for. A chat
+/// written in a batch kept its entry in the background turn's list and its next line added another,
+/// so the list grew by about the batch size each cycle and the chat that is never waited for was
+/// not written again. With one entry per chat it is written, but only once every chat had a
+/// background turn too: a batch write must count as the chat's turn.
 #[test]
 fn chats_waited_for_on_every_cycle_never_starve_a_streaming_chat() {
     let waited = ["r0", "r1", "r2", "r3"];
+    let chats = waited.len() + 1;
     let mut state = queued(&["background"]);
     let mut since_background = 0;
     let mut longest_gap = 0;
@@ -98,26 +101,28 @@ fn chats_waited_for_on_every_cycle_never_starve_a_streaming_chat() {
             state.queue(id, b"{}\n", cycle + 2);
             state.wait_first(id);
         }
-        // The streaming chat always has a line queued.
-        state.queue("background", b"{}\n", cycle + 2);
-        for _ in 0..=waited.len() {
+        for _ in 0..chats {
             match write(&mut state).as_deref() {
                 Some("background") => since_background = 0,
                 Some(_) => since_background += 1,
                 None => {}
             }
             longest_gap = longest_gap.max(since_background);
+            // Every chat streams its next line while the write goes on.
+            for id in waited.iter().chain(&["background"]) {
+                state.queue(id, b"{}\n", cycle + 2);
+            }
         }
         assert!(
-            state.order.len() <= waited.len() + 1,
-            "cycle {cycle}: the background turn lists {} entries for {} chats",
-            state.order.len(),
-            waited.len() + 1
+            state.order.len() <= chats,
+            "cycle {cycle}: the background turn lists {} entries for {chats} chats",
+            state.order.len()
         );
     }
     assert!(
-        longest_gap <= 2 * (waited.len() + 1),
-        "the streaming chat waited {longest_gap} writes for its turn"
+        longest_gap <= waited.len(),
+        "the chat that is never waited for waited {longest_gap} writes (a batch is {})",
+        waited.len()
     );
 }
 
