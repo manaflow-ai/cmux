@@ -1,5 +1,5 @@
 {
-  "title": "New Agent Chat shows harness recovery before its first prompt",
+  "title": "New Agent Chat shows harness recovery before its first prompt (requires a fresh home with no harness credentials or injected routes)",
   "steps": [
     {
       "title": "Open New Agent Chat on a fresh home without sending",
@@ -10,7 +10,7 @@
       "wait": 5
     },
     {
-      "title": "Wait for the New Agent Chat composer and catalog",
+      "title": "Wait for the New Agent Chat composer",
       "rpc": {
         "method": "debug.agent_pane",
         "params": {
@@ -23,31 +23,7 @@
       "wait": 1
     },
     {
-      "title": "Record available composer models",
-      "rpc": {
-        "method": "debug.agent_pane",
-        "params": {
-          "action": "models"
-        }
-      },
-      "record": "file",
-      "wait": 1
-    },
-    {
-      "title": "Pick the signed-out Unii model in the composer",
-      "rpc": {
-        "method": "debug.agent_pane",
-        "params": {
-          "action": "set_model",
-          "model": "unii/default"
-        }
-      },
-      "record": "file",
-      "shot": false,
-      "wait": 2
-    },
-    {
-      "title": "Record the selected Unii harness and target auth before sending",
+      "title": "Record the displayed harness before sending",
       "rpc": {
         "method": "debug.agent_pane",
         "params": {
