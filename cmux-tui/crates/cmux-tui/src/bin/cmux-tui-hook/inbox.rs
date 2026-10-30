@@ -197,6 +197,9 @@ fn request(
         AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error) => error,
     })?;
     let response: Value = serde_json::from_slice(&response)?;
+    if let Some(busy) = journal_append::busy_line(&response) {
+        bail!("{operation} was refused: {busy}");
+    }
     if response["id"].as_str() != Some(request_id.as_str()) {
         bail!("{operation} returned a mismatched request id");
     }

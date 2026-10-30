@@ -5,11 +5,12 @@
 //! and block the agent until the command exits, so this helper never waits
 //! for the journal commit in the provider's process: it reads the payload,
 //! hands the request to a detached child, and exits once the child has
-//! written the request to the server socket. Waiting for that write, and not
-//! for the receipt, keeps two properties: events reach the server in
-//! provider order, and a server that stops accepting requests applies
-//! backpressure to the provider instead of spawning an unbounded number of
-//! retrying children. The child waits for the receipt and retries.
+//! written the request to the server socket or queued it behind the agent's
+//! earlier events. The child puts the event in the agent's queue on disk;
+//! one child per agent sends that queue in order over one connection and
+//! waits for each receipt (`journal_append`), so events reach the server in
+//! provider order, a busy server never costs an event, and a busy server
+//! never faces more than one retrying child per agent.
 
 use std::env;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -27,11 +28,9 @@ const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
 const MAX_REQUEST_ID_BYTES: usize = 128;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
-const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
-/// Bound on the provider-facing wait for the child's "request written"
-/// signal. The child itself gives up at `SOCKET_TIMEOUT` and closes the pipe,
-/// so this only fires if the child is stuck; the margin keeps the child's own
-/// deadline authoritative.
+/// Bound on the provider-facing wait for the child's "request written or
+/// queued" signal: a liveness bound, so a slow server never holds the agent's
+/// tool call longer. The child keeps the event queued and sends it anyway.
 const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// codex kills SessionEnd hooks at 3s (its hard cap). The provider-facing
 /// process must report an unconfirmed handoff before that instead of being
@@ -186,6 +185,9 @@ fn inherited_route_is_untrusted(
         && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
 
+/// One agent's queue of hook events on disk.
+#[path = "cmux-tui-hook/hook_spool.rs"]
+mod hook_spool;
 /// One journal append over the session socket, with its retries.
 #[path = "cmux-tui-hook/journal_append.rs"]
 mod journal_append;
@@ -246,8 +248,8 @@ mod ancestor_route;
 enum Handoff {
     /// The child wrote the full request to the server socket.
     Sent,
-    /// The child exited without writing the request (no listener, or it gave
-    /// up at `SOCKET_TIMEOUT`).
+    /// The child exited without writing or queueing the request (no
+    /// listener).
     ChildExited,
     /// The bound elapsed first; the child is still trying on its own.
     TimedOut,
@@ -293,9 +295,9 @@ impl Drop for DetachedChildGuard {
 /// returns. A child that already exited is reaped and its stdout reader is
 /// joined. A child that is still running must continue waiting for its receipt,
 /// so its process handle and reader are explicitly released instead of being
-/// handed to a thread that would die with this one-shot process. The child has
-/// its own `SOCKET_TIMEOUT` deadline; the OS owns its eventual orphaned
-/// lifetime after this process exits.
+/// handed to a thread that would die with this one-shot process. The child
+/// ends when the agent's queue is empty or the session is gone; the OS owns
+/// its eventual orphaned lifetime after this process exits.
 fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::JoinHandle<()>) {
     let status = child.child_mut().try_wait();
     match status {
@@ -465,8 +467,8 @@ mod detach {
     /// child has written the request (normally milliseconds) or has given up
     /// on delivering it. Ordering and backpressure both follow from that: the
     /// next provider hook cannot start until this request is in the server's
-    /// socket buffer, and a server that stops accepting stalls the provider
-    /// for at most the child's `SOCKET_TIMEOUT` instead of fanning out.
+    /// socket buffer or queued behind the agent's earlier events, and a server
+    /// that stops accepting stalls the provider for at most `handoff_wait`.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
@@ -732,7 +734,6 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::journal_append::{append_once, retry_until};
     use super::*;
 
     /// A server may answer and close before the hook child reads. macOS then
@@ -812,8 +813,8 @@ mod tests {
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
-        assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
-        assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+        assert_eq!(handoff_wait("codex", "Stop"), HANDOFF_WAIT);
+        assert_eq!(handoff_wait("claude", "SessionEnd"), HANDOFF_WAIT);
     }
 
     #[test]
@@ -890,49 +891,5 @@ mod tests {
             error.to_string(),
             format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
         );
-    }
-
-    #[test]
-    fn retries_transient_admission_loss_within_one_bounded_receipt_window() {
-        let mut attempts = 0;
-        // The child's own bound: the tries are now spaced by a backoff, which a
-        // shorter bound than the hook's would cut off.
-        retry_until(SOCKET_TIMEOUT, |_| {
-            attempts += 1;
-            if attempts < 3 {
-                Err(AppendAttemptError::Retryable(anyhow!("connection dropped")))
-            } else {
-                Ok(())
-            }
-        })
-        .unwrap();
-        assert_eq!(attempts, 3);
-    }
-
-    #[test]
-    fn does_not_retry_a_durable_rejection() {
-        let mut attempts = 0;
-        let error = retry_until(Duration::from_millis(100), |_| {
-            attempts += 1;
-            Err::<(), _>(AppendAttemptError::Fatal(anyhow!("invalid event")))
-        })
-        .unwrap_err();
-        assert_eq!(attempts, 1);
-        assert_eq!(error.to_string(), "invalid event");
-    }
-
-    #[test]
-    fn missing_session_socket_is_immediately_inactive() {
-        let root = tempfile::tempdir().unwrap();
-        let socket = root.path().join("missing.sock");
-        let result = append_once(
-            &socket,
-            b"{}\n",
-            "request_missing_socket",
-            Instant::now() + Duration::from_millis(100),
-            &|| {},
-        );
-
-        assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }
 }

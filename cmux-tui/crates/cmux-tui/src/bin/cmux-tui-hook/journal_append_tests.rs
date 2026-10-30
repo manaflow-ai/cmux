@@ -113,25 +113,6 @@ fn a_refused_append_is_kept_until_the_daemon_admits_it() {
     }
 }
 
-/// A failure the hook may retry is spaced by a backoff: the old loop called
-/// `yield_now` between tries and ran a core for the whole 4 s bound.
-#[test]
-fn a_retryable_failure_backs_off_instead_of_spinning() {
-    let mut attempts = 0_u32;
-    let bound = Duration::from_millis(400);
-    let started = Instant::now();
-    let error = retry_until(bound, |_| {
-        attempts += 1;
-        Err::<(), _>(AppendAttemptError::Retryable(anyhow!("connection dropped")))
-    })
-    .unwrap_err();
-    assert!(started.elapsed() <= bound + Duration::from_millis(200), "{error:#}");
-    assert!(
-        (2..=12).contains(&attempts),
-        "{attempts} tries in {bound:?}: retries must be spaced by a backoff, not a spin"
-    );
-}
-
 /// Hooks of 16 agents refused at the same moment come back spread out, each no sooner than
 /// the daemon's `retry_after_ms`, instead of in one wave that the daemon
 /// refuses again.

@@ -66,8 +66,9 @@ fn unit_random() -> f64 {
 
 /// A client's tries of one request after a refusal or a lost connection:
 /// full-jitter exponential backoff that honours the server's retry-after,
-/// inside a total budget. The one retry policy of cmux-tui clients (rule
-/// R-L4 of the B9 limits audit): no fixed schedule, no spin.
+/// inside a total budget when the caller has one. The one retry policy of
+/// cmux-tui clients (rule R-L4 of the B9 limits audit): no fixed schedule, no
+/// spin.
 ///
 /// Copied from Chromium's `net::BackoffEntry` (net/base/backoff_entry.cc):
 /// the delay after the n-th failure is `initial * 2^(n-1)`, clamped to
@@ -82,27 +83,40 @@ fn unit_random() -> f64 {
 ///   Clients refused together get the same retry-after, so `max` sends them
 ///   back as one wave. Here the retry-after is a floor that the jittered delay
 ///   is added to.
-/// - The budget is total: a wait that would end at or past the deadline is
-///   not taken ([`RetryBudget::next_wait`] answers `None`), so the caller
-///   stops at once instead of sleeping into a try it cannot make.
+/// - A budget ([`RetryBudget::until`]) is total: a wait that would end at or
+///   past the deadline is not taken ([`RetryBudget::next_wait`] answers
+///   `None`), so the caller stops at once instead of sleeping into a try it
+///   cannot make. A caller that stops on a signal instead (the server is gone)
+///   has none ([`RetryBudget::new`]).
 #[derive(Clone, Debug)]
 pub struct RetryBudget {
     initial: Duration,
     max: Duration,
-    deadline: Instant,
+    deadline: Option<Instant>,
     failures: u32,
 }
 
 impl RetryBudget {
-    /// Tries that end by `deadline`; the first failure waits up to `initial`,
-    /// each later one up to twice the last, never more than `max`.
-    pub fn until(initial: Duration, max: Duration, deadline: Instant) -> Self {
-        Self { initial, max, deadline, failures: 0 }
+    /// Tries with no deadline: the caller stops on a signal of its own. The
+    /// first failure waits up to `initial`, each later one up to twice the
+    /// last, never more than `max`.
+    pub fn new(initial: Duration, max: Duration) -> Self {
+        Self { initial, max, deadline: None, failures: 0 }
     }
 
-    /// The instant the last try must start before.
-    pub fn deadline(&self) -> Instant {
+    /// Tries that end by `deadline`, spaced as [`Self::new`]'s.
+    pub fn until(initial: Duration, max: Duration, deadline: Instant) -> Self {
+        Self { deadline: Some(deadline), ..Self::new(initial, max) }
+    }
+
+    /// The instant the last try must start before, when there is a budget.
+    pub fn deadline(&self) -> Option<Instant> {
         self.deadline
+    }
+
+    /// Call after a success: the next failure waits up to `initial` again.
+    pub fn reset(&mut self) {
+        self.failures = 0;
     }
 
     /// The wait before the next try after a failure. `retry_after` is the
@@ -134,7 +148,10 @@ impl RetryBudget {
         self.failures = self.failures.saturating_add(1);
         let wait =
             retry_after.unwrap_or_default().saturating_add(ceiling.mul_f64(unit.clamp(0.0, 1.0)));
-        (now.checked_add(wait)? < self.deadline).then_some(wait)
+        match self.deadline {
+            Some(deadline) => (now.checked_add(wait)? < deadline).then_some(wait),
+            None => Some(wait),
+        }
     }
 }
 
@@ -218,6 +235,17 @@ mod tests {
             now + Duration::from_millis(120),
         );
         assert_eq!(retries.next_wait_drawn(Some(Duration::from_millis(500)), 0.0, now), None);
+    }
+
+    #[test]
+    fn with_no_budget_every_failure_waits_and_a_success_starts_over() {
+        let now = Instant::now();
+        let mut retries = RetryBudget::new(Duration::from_millis(100), Duration::from_millis(300));
+        let tops: Vec<_> =
+            (0..4).map(|_| retries.next_wait_drawn(None, 1.0, now).unwrap().as_millis()).collect();
+        assert_eq!(tops, vec![100, 200, 300, 300]);
+        retries.reset();
+        assert_eq!(retries.next_wait_drawn(None, 1.0, now), Some(Duration::from_millis(100)));
     }
 
     #[test]
