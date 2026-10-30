@@ -154,6 +154,10 @@ pub(super) struct Fixture {
     pub(super) history_later: Arc<Mutex<Vec<Value>>>,
     /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
     pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    /// When set, each history page and each prompt's acceptance waits for one message on it (at
+    /// most [`WAIT`], or until its sender is gone).
+    pub(super) events_gate: Option<Arc<Mutex<Receiver<()>>>>,
+    pub(super) prompt_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
 fn serve(
@@ -208,6 +212,9 @@ fn serve(
                 ),
             })),
             "_acpmux/events" => {
+                if let Some(gate) = &fixture.events_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 let mut events = fixture.history.clone();
                 events.extend(fixture.history_later.lock().unwrap().iter().cloned());
                 Some(json!({"events": events, "hasMore": false, "lastSeq": 1}))
@@ -243,6 +250,9 @@ fn serve(
                 reply
             }
             "session/prompt" => {
+                if let Some(gate) = &fixture.prompt_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 let accepted = json!({"jsonrpc":"2.0","method":"_acpmux/prompt_accepted","params":{
                     "sessionId": SESSION, "promptId": params["_meta"]["acpmux"]["promptId"],
                     "turnId": "turn_1", "queued": false}});

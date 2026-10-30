@@ -551,3 +551,50 @@ fn bounded(mut frame: Value, records: Vec<Value>, more: bool) -> Value {
     frame.set("records", Value::Array(records.into_iter().skip(from).collect()));
     frame
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link(out: mpsc::UnboundedSender<Out>, write: OwnedWriteHalf) -> Link {
+        Link {
+            share_id: "s".into(),
+            guest_id: "g".into(),
+            generation: 1,
+            out,
+            write,
+            next_id: 2,
+            pending: HashMap::new(),
+            states: HashMap::new(),
+            order: VecDeque::new(),
+            clients: HashMap::new(),
+            tick: 0,
+            attached: false,
+            waiting: VecDeque::new(),
+            held: Held::default(),
+        }
+    }
+
+    /// A record the daemon sends before the attach answer reaches the room after the snapshot.
+    #[test]
+    fn records_before_the_attach_answer_follow_the_snapshot() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
+            let (_read, write) = ours.into_split();
+            let (out, mut frames) = mpsc::unbounded_channel();
+            let mut link = link(out, write);
+            link.pending.insert(1, Pending::Attach);
+            let record = json!({"event": "agent-session-record",
+                "record": {"seq": 5, "kind": "agent_message"}});
+            assert!(link.inbound(&record.to_string()).await);
+            let reply = json!({"id": 1, "ok": true, "data": {"events": [{"seq": 4}]}});
+            assert!(link.inbound(&reply.to_string()).await);
+            let mut kinds = Vec::new();
+            while let Ok(Out::Frame(_, _, frame)) = frames.try_recv() {
+                kinds.push(frame["t"].clone());
+            }
+            assert_eq!(kinds, vec![json!("snapshot"), json!("records")]);
+        });
+    }
+}
