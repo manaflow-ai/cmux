@@ -40,6 +40,17 @@ extension UpdateController {
         driver.stagedItem
     }
 
+    /// Sparkle can leave its silent installer in `.installing` after the running build is pulled.
+    /// Release that stale handoff before a replacement check: ``requestUpdateCheck(_:)`` otherwise
+    /// (correctly for a real install) refuses to start while the stale model state remains active.
+    func releaseSparkleSilentInstallForCheck() {
+        guard let item = driver.quitInstallItem else { return }
+        driver.quitInstallItem = nil
+        driver.relaunchIsAutomatic = false
+        model.setState(.idle)
+        log.append("background install: released Sparkle silent installer \(item.versionString) for replacement check")
+    }
+
     /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
     /// through Sparkle's own silent driver, not this app's driver (the update harness's
     /// `background` run, and what a scheduled check does).

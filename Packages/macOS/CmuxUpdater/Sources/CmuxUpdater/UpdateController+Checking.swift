@@ -7,11 +7,13 @@ import Foundation
 extension UpdateController {
     /// Check for updates (used by the menu item).
     public func checkForUpdates() {
+        releaseSparkleSilentInstallForCheck()
         requestUpdateCheck(.manual)
     }
 
     /// Check for updates using the custom popover-based UI.
     public func checkForUpdatesInCustomUI() {
+        releaseSparkleSilentInstallForCheck()
         requestUpdateCheck(.manual)
     }
 
