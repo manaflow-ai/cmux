@@ -114,10 +114,11 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
         while line_end > whole_from {
             // `line_end` is just past a break; the line is `[line_start, line_end - 1)`.
             let body_end = line_end - 1;
-            let line_start = memchr::memrchr(b'\n', &buf[..body_end]).map_or(0, |i| i + 1);
+            let before = buf.get(..body_end).unwrap_or_default();
+            let line_start = memchr::memrchr(b'\n', before).map_or(0, |i| i + 1);
             let offset = pos + line_start as u64;
             whole = true;
-            if let Some(record) = parse(&buf[line_start..body_end]) {
+            if let Some(record) = before.get(line_start..).and_then(parse) {
                 let prompt = is_prompt(&record);
                 lines.push((offset, record));
                 if prompt {
@@ -130,7 +131,7 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
             }
             line_end = line_start;
         }
-        head = buf[..whole_from.min(buf.len())].to_vec();
+        head = buf.get(..whole_from).unwrap_or(buf.as_slice()).to_vec();
         if pos == 0 {
             continue;
         }
@@ -154,9 +155,12 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
             continue;
         }
         let at = record_time(&record);
-        if turns.len() == 1 && turns[0].prompt.is_empty() && turns[0].prompt_at.is_none() {
-            turns[0].prompt_at = at;
-            turns[0].answer_at = at;
+        if let [only] = turns.as_mut_slice()
+            && only.prompt.is_empty()
+            && only.prompt_at.is_none()
+        {
+            only.prompt_at = at;
+            only.answer_at = at;
         }
         for step in claude_steps(&record, at) {
             add(&mut turns, step, at);
