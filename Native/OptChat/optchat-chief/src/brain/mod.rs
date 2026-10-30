@@ -77,7 +77,7 @@ pub const STOP_REQUESTED: &str = "stop requested";
 /// (SIGUSR1): it stopped between turns, so the next host cuts nothing.
 pub const HANDOFF_WHEN_IDLE: &str = "handed off between turns for an update";
 
-pub use owner_exit::OWNER_APP_EXITED;
+pub use owner_exit::{OWNER_APP_EXITED, OwnerProbe};
 
 /// How long a handoff request waits for the running turn: past it the host
 /// stops anyway and the next host adopts the turn session.
@@ -387,10 +387,10 @@ pub enum Input {
     /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
     /// off and starts the next host.
     HandoffWhenIdle,
-    /// The app this host serves exited and no newer app took it over
-    /// (`owner_app.rs`): the brain stops once it is idle
-    /// ([`OWNER_APP_EXITED`]); live work keeps it.
-    OwnerAppExited,
+    /// The owner app this host serves changed (it exited, or a newer app is
+    /// followed; `owner_app.rs`): the brain reads the stop rule again
+    /// (`owner_exit.rs`, [`OWNER_APP_EXITED`]).
+    OwnerChanged,
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
     Stop {
@@ -872,9 +872,14 @@ pub struct Brain {
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
     handoff_wait: std::time::Duration,
-    /// When the app this host serves exited (`owner_exit.rs`): from then on
-    /// the brain stops at the first look that finds it idle.
-    owner_gone_at: Option<Instant>,
+    /// The owner app this host serves, as a level (`owner_exit.rs`); None
+    /// when no app named this host.
+    owner: Option<OwnerProbe>,
+    /// The host has read its conversation since it started (the first link
+    /// `Up` and its catch-up), or its link reported that it could not connect
+    /// (`DaemonEvent::Down`). Until then, the messages that woke this host
+    /// are work it has not read yet (`owner_exit.rs`).
+    read_since_start: bool,
     /// How long a person's message steered into the running turn may stay
     /// unread before the turn is interrupted (`steer.rs`); None: it waits
     /// for the turn's next tool boundary.
@@ -1012,7 +1017,8 @@ impl Brain {
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
-            owner_gone_at: None,
+            owner: None,
+            read_since_start: false,
             steer_deadline: None,
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
@@ -1211,7 +1217,6 @@ impl Brain {
             self.resume_at,
             self.orphan_wait,
             self.handoff_at,
-            self.owner_link_deadline(),
             self.steer_due.as_ref().map(|(at, _)| *at),
             self.reaction_wake.due(),
         ]
@@ -1468,7 +1473,8 @@ impl Brain {
                 }
                 self.handoff_if_idle();
             }
-            Input::OwnerAppExited => self.owner_app_exited(),
+            // The rule is read after every input (`step`).
+            Input::OwnerChanged => {}
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
             }

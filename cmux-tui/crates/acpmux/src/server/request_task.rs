@@ -37,15 +37,23 @@ pub(super) fn spawn(
         let (hub, conn, method) = (hub.clone(), conn.clone(), method.clone());
         Box::pin(async move {
             let params = params.unwrap_or(Value::Null);
-            let result = match conn.agent_tools() {
-                // Boxed: the tool calls hold a whole `chats::route` of their own.
-                Some(tools) => {
-                    Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+            // One rule for every request: it answers only after what it wrote is on disk
+            // (`hub/request_writes.rs`).
+            // Boxed before the scope takes it: the handlers' futures are large, and a debug
+            // build overflowed its worker's stack moving one by value into the scope.
+            let request: BoxFuture<'_, Result<Value, RpcError>> = Box::pin(async {
+                match conn.agent_tools() {
+                    // Boxed: the tool calls hold a whole `chats::route` of their own.
+                    Some(tools) => {
+                        Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+                    }
+                    None => chats::route(&hub, &conn, &method, params).await,
                 }
-                None => chats::route(&hub, &conn, &method, params).await,
-            };
+            });
+            let result = hub.answer_request(request).await;
             // The reply follows every event published before it on this connection: a turn's
-            // `session/update`s reach the client before its `session/prompt` result.
+            // `session/update`s reach the client before its `session/prompt` result. After the
+            // write wait, right before the reply: every event published until now precedes it.
             conn.events_handed_on(&hub).await;
             result
         })

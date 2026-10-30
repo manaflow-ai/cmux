@@ -1771,6 +1771,364 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
     assert_eq!(order, ["q-2", "q-1"]);
 }
 
+/// The test pattern of the rule "an acpmux request answers only after what it wrote is on disk"
+/// (`hub/request_writes.rs`; trains 333 and 338 lost an answered queue edit). The daemon runs
+/// with `ACPMUX_TEST_LOG_WRITE_DELAY_MS` (debug builds only): every log write is held, so a
+/// daemon killed right after an answer loses the change unless the answer waited for its
+/// records. Two prompts wait behind a gated turn; `change` makes requests and must be kept
+/// after a SIGKILL right after its answers; returns the restarted daemon's attach.
+async fn answered_change_survives_a_crash(
+    tag: &str,
+    change: impl AsyncFnOnce(&mut Rpc, &str),
+) -> (Daemon, String, PathBuf, Value) {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env(tag, "approve-all", &slow);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    for (id, text) in [("q-1", "one"), ("q-2", "two")] {
+        client
+            .send(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": id}}}),
+            )
+            .await;
+        daemon.wait_event(&session, "queued record", |e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == id
+        });
+    }
+    let mut rpc = daemon.rpc().await;
+    change(&mut rpc, &session).await;
+    // At once after the answers: what they acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    (daemon, session, gate, attached)
+}
+
+fn queued_ids(attached: &Value) -> Vec<String> {
+    let queue = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+    queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+}
+
+#[tokio::test]
+async fn an_answered_queue_edit_survives_a_crash_right_after_its_answer() {
+    let (_daemon, _session, gate, attached) =
+        answered_change_survives_a_crash("qedit-slow", async |rpc, session| {
+            let edit = |op: &str, id: &str, extra: Value| {
+                let mut p = json!({"sessionId": session, "promptId": id, "op": op});
+                p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+                p
+            };
+            rpc.call("_acpmux/queue_edit", edit("move", "q-2", json!({"index": 0}))).await;
+            rpc.call("_acpmux/queue_edit", edit("update", "q-1", json!({"text": "one edited"})))
+                .await;
+        })
+        .await;
+    assert_eq!(queued_ids(&attached), ["q-2", "q-1"], "an answered reorder was lost: {attached:#}");
+    let queue = attached["session"]["queue"].as_array().expect("queue");
+    assert_eq!(queue[1]["prompt"], "one edited", "an answered edit was lost: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+}
+
+#[tokio::test]
+async fn an_answered_queue_removal_survives_a_crash_right_after_its_answer() {
+    let (_daemon, _session, gate, attached) =
+        answered_change_survives_a_crash("qrm-slow", async |rpc, session| {
+            rpc.call("_acpmux/queue_remove", json!({"sessionId": session, "promptId": "q-1"}))
+                .await;
+        })
+        .await;
+    assert_eq!(queued_ids(&attached), ["q-2"], "an answered removal was lost: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+}
+
+/// The same rule for a permission answer: its `permission_decision` record is appended by the
+/// task that asked, after the answer wakes it, so the answer must wait for that task's record.
+/// Lost, the restarted daemon's log has the ask and no answer (the first red, fleet 0492f8bf:
+/// the agent host, adopted, had the answer and finished its turn, so the chat's card for the ask
+/// never shows it was answered); with no host it is asked again (`permission_reissued`).
+#[tokio::test]
+async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env("perm-slow", "ask", &slow);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+        )
+        .await;
+    let asked =
+        daemon.wait_event(&session, "permission_request", |e| e["kind"] == "permission_request");
+    let permission_id = asked["msg"]["permissionId"].clone();
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "_acpmux/permission_respond",
+        json!({"sessionId": session, "permissionId": permission_id, "optionId": "no"}),
+    )
+    .await;
+    // At once after the answer: the decision it acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+    let events = daemon.events(&session);
+    let of_ask = |kind: &str| {
+        events
+            .iter()
+            .filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == permission_id)
+            .count()
+    };
+    assert_eq!(
+        of_ask("permission_decision"),
+        1,
+        "an answered permission's decision was lost in the crash: {:#}",
+        json!(events)
+    );
+    assert_eq!(of_ask("permission_reissued"), 0, "the person was asked again: {:#}", json!(events));
+}
+
+/// The same for a group answer (`_acpmux/permission_group_respond`): every prompt it answers has
+/// its `permission_decision` appended by the task that asked, and the answer waits for each.
+#[tokio::test]
+async fn an_answered_permission_group_survives_a_crash_right_after_its_answer() {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env("pgrp-slow", "ask", &slow);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "permission-batch: parallel"}]}),
+        )
+        .await;
+    let shown = daemon.wait_event(&session, "a pending permission group", |e| {
+        e["kind"] == "permission_group" && e["msg"]["group"]["state"] == "pending"
+    });
+    let group = &shown["msg"]["group"];
+    let mut rpc = daemon.rpc().await;
+    // A deny: this plain socket client is not the person (`hub/person.rs`).
+    rpc.call(
+        "_acpmux/permission_group_respond",
+        json!({"sessionId": session, "groupId": group["groupId"], "revision": group["revision"],
+               "decisionKey": "crash", "decision": "deny"}),
+    )
+    .await;
+    // At once after the answer: every decision it acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+    let events = daemon.events(&session);
+    let asked: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["kind"] == "permission_request" && e["msg"]["groupId"] == group["groupId"])
+        .map(|e| &e["msg"]["permissionId"])
+        .collect();
+    assert_eq!(asked.len(), 3, "the batch asks three prompts: {:#}", json!(events));
+    for id in asked {
+        let of_ask = |kind: &str| {
+            events.iter().filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == *id).count()
+        };
+        assert_eq!(
+            of_ask("permission_decision"),
+            1,
+            "a group answer's decision was lost in the crash: {:#}",
+            json!(events)
+        );
+        assert_eq!(
+            of_ask("permission_reissued"),
+            0,
+            "the person was asked again: {:#}",
+            json!(events)
+        );
+    }
+}
+
+/// An answered rename, tag, policy and rules come back after a crash that came before their
+/// session record (`session.json`) was written: the restart rebuilds them from the event log,
+/// the source of truth (`hub/meta_replay.rs`). `ACPMUX_TEST_META_WRITE_DELAY_MS` (debug builds
+/// only) holds every session record write, so the daemon dies with the new record unwritten;
+/// the test waits for the log records first (the log is what the restart reads).
+#[tokio::test]
+async fn answered_session_settings_survive_a_crash_before_the_session_record_is_saved() {
+    let mut daemon = Daemon::new("meta-slow", "approve-all");
+    let session = new_session(&daemon).await;
+    // The session's own record is on disk before the slow writes start.
+    let record = daemon.home.join("sessions").join(&session).join("session.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !record.exists() {
+        assert!(Instant::now() < deadline, "no session record at {}", record.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_TEST_META_WRITE_DELAY_MS".into(), "5000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/rename", json!({"sessionId": session, "newName": "named-before-crash"}))
+        .await;
+    rpc.call("_acpmux/tag", json!({"sessionId": session, "set": {"lane": "fast"}})).await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "deny-all"})).await;
+    rpc.call(
+        "_acpmux/set_rules",
+        json!({"sessionId": session, "rules": {"autoDeny": ["execute"]}}),
+    )
+    .await;
+    for kind in ["renamed", "tags", "policy", "rules"] {
+        daemon.wait_event(&session, kind, |e| e["kind"] == kind);
+    }
+    daemon.sigkill();
+    drop(rpc);
+    daemon.env.retain(|(k, _)| k != "ACPMUX_TEST_META_WRITE_DELAY_MS");
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let s = &attached["session"];
+    assert_eq!(s["name"], "named-before-crash", "an answered rename was lost: {attached:#}");
+    assert_eq!(s["tags"]["lane"], "fast", "an answered tag was lost: {attached:#}");
+    assert_eq!(s["enforcement"]["policy"], "deny-all", "an answered policy was lost: {attached:#}");
+    assert_eq!(
+        s["rulesJson"],
+        json!({"autoDeny": ["execute"]}),
+        "answered rules were lost: {attached:#}"
+    );
+}
+
+/// A change answered while a restarted daemon still reads the chat logs is not undone by the
+/// log replay (`hub/meta_replay.rs`): the restart applies the log records past the saved record
+/// before the change, never over it. The first daemon dies with a rename to "a" and the policy
+/// `ask` in the log only (`ACPMUX_TEST_META_WRITE_DELAY_MS` holds the session record writes);
+/// the second reads its logs late (`ACPMUX_TEST_DELAY_LOAD_LOGS_MS`), and in that window the
+/// policy becomes `deny-all` and the name "b". Before the fix the first append after the
+/// restart replayed `ask` over `deny-all`.
+#[tokio::test]
+async fn settings_changed_while_the_logs_load_after_a_crash_are_not_undone_by_the_replay() {
+    const META_DELAY: &str = "ACPMUX_TEST_META_WRITE_DELAY_MS";
+    const LOAD_DELAY: &str = "ACPMUX_TEST_DELAY_LOAD_LOGS_MS";
+    let mut daemon = Daemon::new("meta-early", "approve-all");
+    let session = new_session(&daemon).await;
+    // The session's own record is on disk before the slow writes start.
+    let record = daemon.home.join("sessions").join(&session).join("session.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !record.exists() {
+        assert!(Instant::now() < deadline, "no session record at {}", record.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    daemon.sigkill();
+    daemon.env.push((META_DELAY.into(), "5000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/rename", json!({"sessionId": session, "newName": "a"})).await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "ask"})).await;
+    daemon.wait_event(&session, "the rename to a", |e| {
+        e["kind"] == "renamed" && e["msg"]["to"] == "a"
+    });
+    daemon.wait_event(&session, "the policy ask", |e| {
+        e["kind"] == "policy" && e["msg"]["policy"] == "ask"
+    });
+    daemon.sigkill();
+    drop(rpc);
+
+    daemon.env.retain(|(k, _)| k != META_DELAY);
+    daemon.env.push((LOAD_DELAY.into(), "6000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "deny-all"})).await;
+    // The policy changed inside the window: the logs are still loading.
+    let info = rpc.call("_acpmux/info", json!({"sessionId": session, "waitLogs": false})).await;
+    assert_eq!(info["logsLoading"], true, "the logs loaded before the change: {info:#}");
+    rpc.call("_acpmux/rename", json!({"sessionId": session, "newName": "b"})).await;
+
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let s = &attached["session"];
+    assert_eq!(
+        s["enforcement"]["policy"], "deny-all",
+        "the replay undid a policy set while the logs loaded: {attached:#}"
+    );
+    assert_eq!(s["name"], "b", "the replay undid a rename: {attached:#}");
+}
+
+/// An imported chat's settings are what the import set, after a crash too: its session record is
+/// saved with the copied log's last `seq` before the import answers, so a restart replays none
+/// of the bundle's own records over them (`hub/transfer.rs`, `hub/meta_replay.rs`). The bundle's
+/// record says `lastSeq` 0 (a bundle controls it) and its log renames the chat to "orig"; the
+/// import names it "imported", and the daemon dies before its later session record writes
+/// (`ACPMUX_TEST_META_WRITE_DELAY_MS`).
+#[tokio::test]
+async fn an_imported_chat_s_name_after_a_crash_is_not_undone_by_the_replay() {
+    let seam = [("ACPMUX_TEST_META_WRITE_DELAY_MS", "5000")];
+    let mut daemon = Daemon::with_env("meta-import", "approve-all", &seam);
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/rename", json!({"sessionId": session, "newName": "orig"})).await;
+    let dest = daemon.home.join("bundles");
+    let exported = rpc.call("_acpmux/export", json!({"sessionId": session, "dest": dest})).await;
+    let bundle = PathBuf::from(exported["path"].as_str().expect("bundle path"));
+    let record = bundle.join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+    meta["id"] = json!("imported-chat");
+    meta["lastSeq"] = json!(0);
+    std::fs::write(&record, meta.to_string()).unwrap();
+    let imported = rpc.call("_acpmux/import", json!({"path": bundle, "name": "imported"})).await;
+    assert_eq!(imported["name"], "imported", "{imported:#}");
+    daemon.sigkill();
+    drop(rpc);
+    daemon.env.clear();
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached =
+        rpc.call("_acpmux/attach", json!({"sessionId": "imported-chat", "limit": 0})).await;
+    assert_eq!(
+        attached["session"]["name"], "imported",
+        "the restart replayed the bundle's rename over the import's name: {attached:#}"
+    );
+}
+
+/// An answered `_acpmux/markUnread` comes back after a crash that came before the session record
+/// was written: the unread mark is rebuilt from the log's `status` record with its `read` field
+/// (`hub/meta_replay.rs`), as the other settings are. `ACPMUX_TEST_META_WRITE_DELAY_MS` holds
+/// every session record write; the test waits for the log record (what the restart reads).
+#[tokio::test]
+async fn an_answered_mark_unread_survives_a_crash_before_the_session_record_is_saved() {
+    let mut daemon = Daemon::new("unread-slow", "approve-all");
+    let session = new_session(&daemon).await;
+    let record = daemon.home.join("sessions").join(&session).join("session.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !record.exists() {
+        assert!(Instant::now() < deadline, "no session record at {}", record.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_TEST_META_WRITE_DELAY_MS".into(), "5000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/markUnread", json!({"sessionId": session})).await;
+    daemon.wait_event(&session, "the unread status record", |e| {
+        e["kind"] == "status" && e["msg"]["read"] == false
+    });
+    daemon.sigkill();
+    drop(rpc);
+    daemon.env.retain(|(k, _)| k != "ACPMUX_TEST_META_WRITE_DELAY_MS");
+    daemon.start();
+
+    // Attach reads the session once its logs are read (`wait_logs`): the session list answers at
+    // once after a restart, from the saved records, until the logs are read. It attaches without
+    // showing the chat (`visible: false`): showing it is seeing it, which would clear the mark
+    // before the reply is built (`seen.rs`).
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc
+        .call("_acpmux/attach", json!({"sessionId": session, "limit": 0, "visible": false}))
+        .await;
+    let entry = &attached["session"];
+    assert_eq!(entry["unread"], json!(true), "an answered mark unread was lost: {entry:#}");
+}
+
 /// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
 /// its turn started, runs once after the restart: a client that resends it gets its real
 /// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.

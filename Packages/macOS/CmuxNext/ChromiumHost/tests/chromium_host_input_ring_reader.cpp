@@ -40,8 +40,11 @@ int main(int argc, char* argv[]) {
   {
     HostInput<MachDoorbell> input(mapping, doorbell);
     input.Start([&ui](std::function<void()> task) { ui.Post(std::move(task)); },
-                [&](const HostInput<MachDoorbell>::Frames& batch) {
-                  for (const cmux_host::Header& frame : batch) {
+                // Takes the whole rest of each batch (HostInput::Deliver's contract: the frames
+                // from `from` on, returning how many it took).
+                [&](const HostInput<MachDoorbell>::Frames& batch, size_t from) -> size_t {
+                  for (size_t i = from; i < batch.size(); ++i) {
+                    const cmux_host::Header& frame = batch[i];
                     ordered = ordered && frame.seq == static_cast<uint32_t>(expected) && frame.t0 == expected;
                     ++expected;
                   }
@@ -50,6 +53,7 @@ int main(int argc, char* argv[]) {
                     done = true;
                     ready.notify_one();
                   }
+                  return batch.size() - from;
                 },
                 [&](Reader::End) {
                   ended = true;

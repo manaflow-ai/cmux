@@ -132,7 +132,7 @@ extension AppServices {
         let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
         let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
         guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
-        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence),
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork,
                                       restoresPages: features.isEnabled(.chromiumHostRestoreTabs))
         #else
         return nil
@@ -164,7 +164,6 @@ extension AppServices {
         chromiumRuntime.source.routesHostInput = features.isEnabled(.chromiumHostInputRing)
         // Host mode only: drags onto a page as Chrome's own drop.
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
-        chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence)
         // Host mode only: <select> popups as cmux menus.
         chromiumRuntime.source.drawsHostPopupMenus = features.isEnabled(.chromiumHostPopupMenus)
         chromiumRuntime.source.drawsHostSuggestions = features.isEnabled(.chromiumHostSuggestions)

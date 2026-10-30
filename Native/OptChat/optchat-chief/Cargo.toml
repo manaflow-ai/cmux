@@ -29,6 +29,9 @@ cmux-sdk = { path = "../../../cmux-tui/bindings/rust" }
 # rule, turn folding and acpmux types.
 cmux-conversation = { path = "../../../cmux-tui/crates/cmux-conversation" }
 cmux-chief = { path = "../../../cmux-tui/crates/cmux-chief" }
+# Whether the app this host serves runs, and the helpers' one stop rule
+# (owner_app.rs, brain/owner_exit.rs).
+cmux-owner-liveness = { path = "../../../cmux-tui/crates/cmux-owner-liveness" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

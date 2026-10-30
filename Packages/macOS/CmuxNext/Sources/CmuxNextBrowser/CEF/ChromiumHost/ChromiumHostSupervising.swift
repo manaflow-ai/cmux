@@ -50,19 +50,15 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     /// locales Chromium can show, which the app picks the UI locale from
     /// without listing the framework itself.
     public var frameworkLocales: [String]
-    /// The bootstrap name of the host's resize fence inbox (the spawn's `--resize-fence=` argument,
-    /// `ChromiumHostResizeFenceChannel`, task 052); nil for a host spawned without one.
-    public var resizeFence: String?
 
     public init(controlFD: Int32, inputRingFD: Int32 = -1, inputDoorbellName: String? = nil, outputRingFD: Int32 = -1,
-                remoteShim: URL, frameworkLocales: [String], resizeFence: String? = nil) {
+                remoteShim: URL, frameworkLocales: [String]) {
         self.controlFD = controlFD
         self.inputRingFD = inputRingFD
         self.inputDoorbellName = inputDoorbellName
         self.outputRingFD = outputRingFD
         self.remoteShim = remoteShim
         self.frameworkLocales = frameworkLocales
-        self.resizeFence = resizeFence
     }
 
     /// The host's pid, whose children are its Chromium helpers: the process at the other end of the control

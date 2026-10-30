@@ -90,11 +90,15 @@ struct SidebarRailTests {
 
     // MARK: The container
 
+    /// The style comes from `sidebar.style`, as in the app: the container's model follows its settings
+    /// from the start, shown or hidden (SidebarView's `Sidebar.listSettings` observation), so a style set
+    /// on the model alone does not hold.
     @Test func theContainerIsAsWideAsTheRailAndOpensOverTheContent() {
-        let model = SidebarModel()
+        let model = SidebarModel(), design = DesignSettings()
         model.width = 260
-        model.style = .rail
-        let container = SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        design.sidebarSections.style = .rail
+        let container = SidebarContainerView(model: model, design: design, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        #expect(model.style == .rail)
         container.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         container.restore(width: 260, presentation: .shown)
         #expect(container.widthConstraint.constant == SidebarRailLayout.Metrics().railWidth)

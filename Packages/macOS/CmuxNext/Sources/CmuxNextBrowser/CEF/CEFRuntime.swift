@@ -272,21 +272,21 @@ final class CEFRuntime {
     /// Takes the engine's stores, sign-in tabs, wait deadlines and page host scripts (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, hosted pages' input
-    /// through the host's input ring with `hostInput`, drops with `hostDrags`, page resizes fenced with `hostResizeFence`,
+    /// through the host's input ring with `hostInput`, drops with `hostDrags`,
     /// `<select>` popups as cmux menus with `hostPopupMenus`, suggestions in cmux's list with `hostSuggestions`, choosers
     /// in cmux with `hostChoosers`, page file choosers answered by `hostFileDialogs`). Without `waitDeadlines` the runtime
     /// keeps its own queue; the pump made at the start runs on the queue adopted before it. `helperParent` (the
     /// source's) is where it publishes whose children the Chromium helpers are. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false, hostInput: Bool = false,
-               hostDrags: Bool = false, hostResizeFence: Bool = false, hostPopupMenus: Bool = false,
+               hostDrags: Bool = false, hostPopupMenus: Bool = false,
                hostSuggestions: Bool = false, hostChoosers: Bool = false,
                hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil, hostLocks: Bool = false,
                hostAppEvents: AppEvents? = nil, helperParent: ChromiumHelperParent? = nil,
                pageHostScripts: [CEFDocumentScripts.Script] = []) {
         if let hostSupervisor, hostStart == nil, state == .idle {
             adoptHost(hostSupervisor, showsWidgets: hostWidgets, routesInput: hostInput, takesDrags: hostDrags,
-                      fencesResizes: hostResizeFence, drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions,
+                      drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions,
                       drawsChoosers: hostChoosers, fileDialogs: hostFileDialogs, handlesLocks: hostLocks,
                       appEvents: hostAppEvents)
         }

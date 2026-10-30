@@ -720,13 +720,6 @@ int main(int argc, char* argv[]) {
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
       host_main, page_views, &ResolveShimSymbol,
       [clock = frame_clock.clock](std::function<void()> task) { [clock requestFrame:std::move(task)]; });
-  // The resize fence's inbox, checked in before the HELLO so cmux finds it
-  // when it looks the name up after (host_resize.h); none without the
-  // argument, and every resize goes unfenced.
-  const std::unique_ptr<cmux_host::FenceInbox> fence_inbox =
-      cmux_host::CheckInFenceInbox(Arg(args, cmux_host::kResizeFenceSwitch));
-  cmux_host::PageResizes page_resizes(fence_inbox.get(), &cmux_shim_browser_set_resize_fence);
-  host.SetPageResizes(&page_resizes);
   // cmux_shim_load bound the fork's cmux_cef_set_energy_saver when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);

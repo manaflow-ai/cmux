@@ -29,7 +29,10 @@ public final class TasksHostView: NSView, VisibilityGatedContent {
         let appearance = TasksAppearance()
         self.model = model
         appearanceState = appearance
-        gate = VisibilityGatedHostingView(owner: "TasksHostView") { TasksRoot(model: model, appearance: appearance, layout: layout) }
+        // The pane counts its own bodies (TasksRoot, TasksView) into the gate's counter.
+        let counter = HostingBodyCounter()
+        let root = TasksRoot(model: model, appearance: appearance, layout: layout).environment(\.hostingBodyCounter, counter)
+        gate = VisibilityGatedHostingView(owner: "TasksHostView", counter: counter, hosting: NSHostingView(rootView: root))
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
@@ -89,6 +92,11 @@ public final class TasksHostView: NSView, VisibilityGatedContent {
     private static func color(_ color: NSColor) -> Color {
         Color(nsColor: color.usingColorSpace(.sRGB) ?? color)
     }
+}
+
+extension EnvironmentValues {
+    /// The counter of the gated hosting view the Tasks pane is in (``VisibilityGatedHostingView``); nil elsewhere.
+    @Entry var hostingBodyCounter: HostingBodyCounter?
 }
 
 /// Reads the layout and the resolved colors in a tracked scope, so a

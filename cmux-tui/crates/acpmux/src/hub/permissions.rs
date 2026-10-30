@@ -434,7 +434,7 @@ impl Hub {
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
-        let (rx, prev, grouping, permission_id) = {
+        let (rx, seq_tx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock_or_recover();
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
@@ -541,6 +541,8 @@ impl Hub {
                 return json!({"outcome":{"outcome":"cancelled"}});
             }
             let (tx, rx) = oneshot::channel();
+            // The decision's seq, for the request that answers (`PendingPermission::decision_seq`).
+            let (seq_tx, seq_rx) = oneshot::channel();
             let grouping = if super::permission_groups::eligible(&request) && turn_id.is_some() {
                 match state.register(
                     &permission_id,
@@ -570,13 +572,14 @@ impl Hub {
                     ),
                     request: request.clone(),
                     reply: tx,
+                    decision_seq: seq_rx,
                     decision_nonce: decision_nonce.clone(),
                     prev_status: prev,
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
             self.set_status(session, SessionStatus::Waiting);
-            (rx, prev, grouping, permission_id)
+            (rx, seq_tx, prev, grouping, permission_id)
         };
         // Joined its group (or none): the group's timer need not wait for it.
         drop(ask);
@@ -587,7 +590,10 @@ impl Hub {
         // Who answered for the person (`hub/person.rs` answered_by): audit
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
-        self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
+        let seq =
+            self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
+        // Sent with no await since the answer woke this task: the answering request waits for it.
+        let _ = seq_tx.send(seq);
         // The agent reads the answer's `_meta` beside `outcome`, not in it.
         let meta = outcome.as_object_mut().and_then(|o| o.remove("_meta"));
         let mut out = json!({"outcome": outcome});
@@ -601,6 +607,7 @@ impl Hub {
     /// card on) and, once the session asks nothing else, takes back its Waiting status
     /// (`status_after_ask` from `prev`, the status before the prompt). Every prompt this process
     /// raised ends here, also a trust card withdrawn without its task (`trust_wait.rs`).
+    /// Returns the decision record's seq, or None when its append failed.
     pub(super) fn settle_permission(
         &self,
         session: &Session,
@@ -608,12 +615,13 @@ impl Hub {
         outcome: Value,
         answered_by: Option<Value>,
         prev: SessionStatus,
-    ) {
+    ) -> Option<u64> {
         let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
         if let Some(by) = answered_by {
             decision.set("answeredBy", by);
         }
-        self.append(session, "mux", "permission_decision", decision);
+        let (record, stored) =
+            self.append_logged(session, "mux", "permission_decision", decision, None);
         let state = session.permissions.lock_or_recover();
         if state.pending.is_empty()
             && session.status() == SessionStatus::Waiting
@@ -621,6 +629,7 @@ impl Hub {
         {
             self.set_status(session, status_after_ask(session, prev));
         }
+        stored.then_some(record.seq)
     }
 
     /// Answer a pending permission. `option_id = None` cancels. `answers`
@@ -791,7 +800,10 @@ impl Hub {
         if let Some(by) = answered_by {
             outcome.set(ANSWERED_BY_SLOT, by);
         }
+        drop(cfg);
         let _ = pending.reply.send(outcome);
+        // The asking task appends the decision record once woken: the answer waits for it too.
+        super::request_writes::note_decision(&session.id, pending.decision_seq).await;
         Ok(())
     }
 

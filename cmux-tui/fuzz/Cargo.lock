@@ -19,8 +19,8 @@ dependencies = [
  "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
- "cmux-lock-rank",
  "cmux-memory",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
@@ -879,11 +879,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-lock-rank"
+name = "cmux-memory"
 version = "0.1.0"
+dependencies = [
+ "cmux-threads",
+ "libc",
+]
 
 [[package]]
-name = "cmux-memory"
+name = "cmux-owner-liveness"
 version = "0.1.0"
 dependencies = [
  "cmux-threads",
@@ -1107,7 +1111,7 @@ dependencies = [
  "cmux-host",
  "cmux-ipc",
  "cmux-link",
- "cmux-lock-rank",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-process",
  "cmux-remote",
@@ -1208,7 +1212,6 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
- "cmux-lock-rank",
  "cmux-memory",
  "cmux-panic-log",
  "cmux-process",

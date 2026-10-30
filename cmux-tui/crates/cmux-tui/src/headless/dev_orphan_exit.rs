@@ -110,6 +110,14 @@ pub(crate) trait OrphanFacts: Send + Sync {
     fn exits(&self) -> bool {
         !self.executable_present() || self.live_terminals() == Some(0)
     }
+
+    /// When [`OrphanFacts::exits`] is false: whether a fact that reports its
+    /// own changes ([`OrphanWatch::facts_changed`], such as the owner app's
+    /// kernel watch) keeps the owner. The watch then waits for a change
+    /// instead of looking again after its recheck interval.
+    fn kept_by_reported_fact(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,7 +153,13 @@ pub(crate) fn decide_with(
     if idle < timing.delay {
         return Decision::Wait(timing.delay - idle);
     }
-    if orphaned(facts) { Decision::Exit } else { Decision::Wait(timing.recheck) }
+    if orphaned(facts) {
+        Decision::Exit
+    } else if facts.kept_by_reported_fact() {
+        Decision::Serve
+    } else {
+        Decision::Wait(timing.recheck)
+    }
 }
 
 /// The executable is gone, or no terminal lives (an unreadable registry
@@ -189,16 +203,6 @@ impl OrphanClock for SystemClock {
 pub(crate) struct WatchState {
     idle_since: Option<Instant>,
     stopped: bool,
-    /// Not armed yet ([`OrphanWatch::disarmed`]): the watch serves until
-    /// [`OrphanWatch::arm`], whatever the clients.
-    disarmed: bool,
-}
-
-impl WatchState {
-    /// When the owner became idle, as the policy reads it: never while disarmed.
-    fn effective_idle_since(&self) -> Option<Instant> {
-        if self.disarmed { None } else { self.idle_since }
-    }
 }
 
 pub(crate) struct OrphanWatch {
@@ -221,46 +225,24 @@ impl OrphanWatch {
         facts: Arc<dyn OrphanFacts>,
         timing: Timing,
     ) -> Arc<Self> {
-        Self::make(clock, facts, timing, false)
-    }
-
-    /// A watch that never decides until [`OrphanWatch::arm`] (an event such
-    /// as the owning app's exit starts it; `chief_owner_exit.rs`): no wake
-    /// and no deadline before that.
-    pub(crate) fn disarmed(
-        clock: Arc<dyn OrphanClock>,
-        facts: Arc<dyn OrphanFacts>,
-        timing: Timing,
-    ) -> Arc<Self> {
-        Self::make(clock, facts, timing, true)
-    }
-
-    fn make(
-        clock: Arc<dyn OrphanClock>,
-        facts: Arc<dyn OrphanFacts>,
-        timing: Timing,
-        disarmed: bool,
-    ) -> Arc<Self> {
         let watch = Arc::new(Self {
             clock,
             facts,
             timing,
-            state: Mutex::new(WatchState { disarmed, ..WatchState::default() }),
+            state: Mutex::new(WatchState::default()),
             changed: Condvar::new(),
         });
         watch.clients_changed();
         watch
     }
 
-    /// Starts a [`OrphanWatch::disarmed`] watch: an owner with no client is
-    /// idle from now. A second call does nothing.
-    pub(crate) fn arm(&self) {
+    /// A fact the exit rule reads changed and reported it (the owner app
+    /// exited, or a newer one is followed): an owner with no client counts
+    /// its delay from now, and the policy is asked again.
+    pub(crate) fn facts_changed(&self) {
         let mut state = self.lock();
-        if state.disarmed {
-            state.disarmed = false;
-            if state.idle_since.is_some() {
-                state.idle_since = Some(self.clock.now());
-            }
+        if state.idle_since.is_some() {
+            state.idle_since = Some(self.clock.now());
         }
         drop(state);
         self.changed.notify_all();
@@ -299,7 +281,7 @@ impl OrphanWatch {
             if state.stopped {
                 return false;
             }
-            let since = state.effective_idle_since();
+            let since = state.idle_since;
             // The facts may take locks of their own: read them unlocked.
             drop(state);
             let decision = decide_with(since, self.clock.now(), self.facts.as_ref(), self.timing);
@@ -307,7 +289,7 @@ impl OrphanWatch {
             if state.stopped {
                 return false;
             }
-            if state.effective_idle_since() != since {
+            if state.idle_since != since {
                 continue;
             }
             state = match decision {

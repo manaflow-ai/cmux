@@ -63,7 +63,6 @@ path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
 cmux-blocking.workspace = true
-cmux-lock-rank.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # Generated client request types (cmux_ipc::client, p05-ipc task 028).
@@ -77,6 +76,8 @@ cmux-config.workspace = true
 # The daemon's feature snapshot (feature_flags::daemon_features) and the
 # table feature_flags::features filters the signed document's Features to.
 cmux-features = { workspace = true, features = ["sources"] }
+# The owner app as a level and the helpers' one stop rule (crates/cmux-owner-liveness).
+cmux-owner-liveness.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true

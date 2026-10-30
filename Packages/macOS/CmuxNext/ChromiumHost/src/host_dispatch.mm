@@ -337,28 +337,13 @@ void HostContext::RunHeldForCreation(int32_t client_id) {
   }
 }
 
-// The fence joins the browser's next commit before the view's frame changes,
-// in this turn (host_resize.h). A view not open yet is not made here: it
-// takes the size when an op opens it (PageView).
+// A view not open yet is not made here: it takes the size when an op opens
+// it (PageView).
 bool HostContext::HandlePageResize(const control::Message& message) {
   const std::optional<PageResize> resize = DecodePageResize(message.fields);
   if (!resize) return false;
   RememberViewSize(resize->view, resize->width, resize->height);
-  const int chromium_id = AwaitsCreation(resize->browser) ? 0 : Browser(resize->browser);
-  auto change_frame = [&] {
-    if (open_views_.count(resize->view)) views_.Resize(resize->view, resize->width, resize->height);
-  };
-  bool joined = false;
-  if (resizes_) {
-    joined = resizes_->Apply(*resize, chromium_id, change_frame);
-  } else {
-    change_frame();
-  }
-  if (message.token != 0) {
-    TlvWriter reply;
-    reply.I32(joined ? 1 : 0);
-    Reply(message.token, reply);
-  }
+  if (open_views_.count(resize->view)) views_.Resize(resize->view, resize->width, resize->height);
   return true;
 }
 

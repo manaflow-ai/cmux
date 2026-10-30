@@ -9,7 +9,7 @@
 #                           the helper ends it forwards (host_helper_exits.h)
 #   host_text_input_test.cpp  the text input pushes, alone and through the
 #                           dispatcher
-#   host_resize_test.cpp    a page's resize and its fence (host_resize.h),
+#   host_resize_test.cpp    a page's resize (host_resize.h),
 #                           alone and through the dispatcher
 #   host_wheel_ack_test.cpp the wheel acks, alone and through the dispatcher
 #   host_provider_link_test.cpp  agent CDP straight from the browser host:

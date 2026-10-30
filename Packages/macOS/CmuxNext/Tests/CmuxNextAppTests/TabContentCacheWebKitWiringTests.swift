@@ -13,7 +13,10 @@ import Testing
     @Test func theWebKitEngineUsesTheInjectedPlacerAndEvents() {
         let mainWork = MainWorkScheduler(budget: MainFrameBudget())
         let deadlines = MainDeadlineScheduler(work: mainWork)
-        let events = AppEvents(center: NotificationCenter())
+        // AppEvents holds its center weakly (AppEvents.init): the test keeps its own center alive, or every
+        // subscription on it is a no-op.
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
         let engine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         let cache = TabContentCache(daemon: DaemonService(), chromium: ChromiumEngineSlot(engine), fileInput: NoFileInput(), mainWork: mainWork,
                                     deadlines: deadlines, appEvents: events)
@@ -23,5 +26,6 @@ import Testing
         let page = cache.webKit.makeWebKitTab()
         defer { page.close() }
         #expect(events.subscriberCount(NSWindow.willCloseNotification) == 1, "the tab's inspector watch is not on the app's AppEvents")
+        withExtendedLifetime(center) {}
     }
 }

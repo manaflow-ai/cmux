@@ -65,6 +65,8 @@ impl Brain {
                 self.describe_pending();
                 // After the catch-up: a waiting message has started its turn.
                 self.prewarm_next_turn();
+                // What woke this host is read (a turn, if any, is queued now).
+                self.read_since_start = true;
             }
             DaemonEvent::Changed {
                 conversation,
@@ -91,6 +93,9 @@ impl Brain {
             DaemonEvent::Down => {
                 self.daemon = None;
                 self.reconnect = None;
+                // A link that could not connect or dropped: nothing more can
+                // be read until it is up again (the messages stay in the owner).
+                self.read_since_start = true;
             }
             DaemonEvent::Fatal(why) => {
                 (self.log)(&why);

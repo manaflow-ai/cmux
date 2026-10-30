@@ -43,6 +43,8 @@ public final class PointerHover: NSObject {
 
     private weak var view: NSView?
     private var area: NSTrackingArea?
+    /// The view's identifier, for the index's entry (read in `deinit`, after the view may be gone).
+    private let viewKey: ObjectIdentifier
 
     /// - Parameter requiresKeyWindow: false for window chrome (hover shows in
     ///   a background window of the active app, as in the sidebar), true for sheets.
@@ -50,6 +52,7 @@ public final class PointerHover: NSObject {
     ///   floats over another app with cmux in the background.
     public init(_ view: NSView, requiresKeyWindow: Bool = false, hoversWhileInactive: Bool = false, onChange: ((Bool) -> Void)? = nil) {
         self.view = view
+        viewKey = ObjectIdentifier(view)
         self.requiresKeyWindow = requiresKeyWindow
         self.hoversWhileInactive = hoversWhileInactive
         self.onChange = onChange
@@ -62,7 +65,7 @@ public final class PointerHover: NSObject {
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, scope, .inVisibleRect], owner: self)
         view.addTrackingArea(area)
         self.area = area
-        Self.index.insert(self)
+        Self.index.insert(self, view: view)
         Self.installKeyObserversIfNeeded()
     }
 
@@ -71,6 +74,7 @@ public final class PointerHover: NSObject {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             if let area { view?.removeTrackingArea(area) }
+            Self.index.remove(ObjectIdentifier(self), view: viewKey)
         }
     }
 
@@ -80,21 +84,18 @@ public final class PointerHover: NSObject {
     // This owner is not an NSResponder, so the selectors must be named: a bare
     // `@objc` exports `mouseEnteredWith:`, and the first enter raised
     // NSInvalidArgumentException in `_dispatchMouseEntered:` (cx-2mp6).
-    // The target's own event files it under its window first: a view moved to another window
-    // since the last refresh is found there. The window's targets then hover from the event's own
-    // point, as Chromium's `ui/views/widget/root_view.cc` hit-tests a move's `event.location()`.
+    // The target's own event refreshes the window its view is in now, and the window's targets
+    // hover from the event's own point, as Chromium's `ui/views/widget/root_view.cc` hit-tests a
+    // move's `event.location()`.
     @objc(mouseEntered:) public func mouseEntered(with event: NSEvent) {
-        Self.index.place(self)
         Self.refresh(in: view?.window, at: event)
     }
     @objc(mouseExited:) public func mouseExited(with event: NSEvent) {
-        Self.index.place(self)
         Self.refresh(in: view?.window, at: event)
     }
 
     /// Recomputes this target only (its eligibility changed).
     public func refresh() {
-        Self.index.place(self)
         update(at: nil)
     }
 
@@ -106,10 +107,10 @@ public final class PointerHover: NSObject {
         onChange?(hovering)
     }
 
-    /// The window the index files this target under (nil: no window when last seen), and the
-    /// target's creation order (refreshes run targets in it).
-    var indexedWindow: ObjectIdentifier?
+    /// The target's creation order (a refresh runs its targets in it).
     var order: UInt64 = 0
+    /// The view the target follows (the index matches it against the views under the pointer).
+    var hoverView: NSView? { view }
     /// The view's window; nil while that window deallocates (its teardown moves the view out, and
     /// a weak reference to it aborts the runtime: "Cannot form weak reference to instance").
     var viewWindow: NSWindow? {
@@ -217,11 +218,14 @@ public final class PointerHover: NSObject {
     private static var pending: [NSWindow] = []
     private static var keyObserver: KeyWindowObserver?
 
-    /// Recomputes every target in `window` from the pointer and the current frames: O(targets
-    /// in that window), not O(targets in the app). Targets that hover anywhere are recomputed
-    /// too (a view that left its window or hid must clear). Call after anything moves, hides or
-    /// reflows views under a possibly still pointer. A refresh that an `onChange` starts (a hover
-    /// that expands a stack) runs right after the current one.
+    /// Recomputes `window`'s hover from the pointer and the current frames: the targets that
+    /// hover now (anywhere: a view that left its window or hid must clear), then the targets whose
+    /// views are under the pointer in `window` (`PointerHoverTargetIndex.candidates(in:at:)`).
+    /// O(hovering + the views on the pointer's path), never O(targets): a sidebar layout pass
+    /// calls it, and a scan of every target there made each layout pass cost every view in the
+    /// app (the 2026-10-30 full-suite hang). Call after anything moves, hides or reflows views
+    /// under a possibly still pointer. A refresh that an `onChange` starts (a hover that expands
+    /// a stack) runs right after the current one.
     public static func refresh(in window: NSWindow?) {
         refresh(in: window, at: nil)
     }
@@ -241,23 +245,15 @@ public final class PointerHover: NSObject {
         while !queue.isEmpty, passes < 8 {
             passes += 1
             let current = queue.removeFirst()
-            let (targets, moved) = index.candidates(in: current)
-            // A target found in another window now: that window refreshes too (a view that moved
-            // there under a still pointer).
-            for other in moved where other !== current && !queue.contains(where: { $0 === other }) { queue.append(other) }
-            for target in targets {
-                if target.isHovering || target.viewWindow === current { target.update(at: event) }
-            }
+            for target in index.candidates(in: current, at: event) { target.update(at: event) }
             queue.append(contentsOf: pending)
             pending.removeAll()
         }
     }
 
-    /// A key-window change: every target is filed under its window again (a view that moved
-    /// straight from one window to another is found), then `window` refreshes. O(all targets),
-    /// once per key change.
+    /// A key-window change refreshes that window (a key-window target under the pointer starts or
+    /// ends; the hovering ones elsewhere are recomputed with it).
     private static func keyChanged(_ window: NSWindow?) {
-        index.placeAll()
         refresh(in: window)
     }
 

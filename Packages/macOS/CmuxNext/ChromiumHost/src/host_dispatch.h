@@ -29,9 +29,7 @@
 //                                              pushes for the browser start or stop;
 //                                              answered with the fork's result
 //                                              (host_text_input.h)
-//   kOpPageResize                               a page view's size and its fence seq
-//                                              (host_resize.h); a fenced one is
-//                                              answered with i32 joined
+//   kOpPageResize                               a page view's size (host_resize.h)
 //   kOpTextInputStats                          no fields: answered with the text
 //                                              input push counters (host_text_input.h)
 //   kOpEnergySaver                              the app's Energy Saver: i32 version, i32 enabled,
@@ -357,10 +355,6 @@ class HostContext {
   const TextInputPushes& text_input() const { return text_input_; }
   const WheelAcks& wheel_acks() const { return wheel_acks_; }
 
-  // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
-  // nullptr resizes with no fence.
-  void SetPageResizes(PageResizes* resizes) { resizes_ = resizes; }
-
   // cmux_shim_set_energy_saver's signature.
   using EnergySaverFn = int (*)(int enabled, const char* exempt_scheme);
   // The host shim's saver when its fork has cmux_cef_set_energy_saver
@@ -565,7 +559,6 @@ class HostContext {
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
-  PageResizes* resizes_ = nullptr;
   // The fork's wheel ack handler setter (SetWheelAckHandler) and each page's
   // unacked wheels, by Chromium id.
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;

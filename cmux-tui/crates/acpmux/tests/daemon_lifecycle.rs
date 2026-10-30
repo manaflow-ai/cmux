@@ -474,3 +474,73 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The quit journey's helper half on the real binary, with a fake owner app
+/// (a `sleep` child): the daemon follows `ACPMUX_OWNER_APP_PID` through its
+/// kernel handle (`cmux-owner-liveness`), stays while that app runs or while
+/// a client is connected, and exits soon after the app is gone and the last
+/// client left (the stop rule: no client, no live owner, no live work).
+#[tokio::test]
+async fn owner_liveness_a_daemon_follows_its_fake_owner_app_and_stops_after_it_is_gone() {
+    fn stop(child: &mut std::process::Child) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let dir = scratch("own");
+    let socket = dir.join("s.sock");
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake app");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("TMPDIR", &dir)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_OWNER_APP_PID", owner.id().to_string())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    assert!(ready.is_some(), "the daemon exited without a readiness line");
+    // The app runs, no client: the daemon stays past the owner-exit grace.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    if child.try_wait().unwrap().is_some() {
+        stop(&mut owner);
+        panic!("the daemon exited while its app runs");
+    }
+    // A client connects; then the app quits. The client keeps the daemon.
+    let mut client = Rpc::connect(&socket).await;
+    client.call("_acpmux/status", json!({})).await;
+    stop(&mut owner);
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    if child.try_wait().unwrap().is_some() {
+        panic!("the daemon exited while a client was connected");
+    }
+    // The last client leaves: nothing keeps the daemon.
+    drop(client);
+    let left = Instant::now();
+    let exited = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if left.elapsed() > Duration::from_secs(15) {
+            break None;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    if exited.is_none() {
+        stop(&mut child);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        exited.is_some(),
+        "the daemon still ran 15 s after its app was gone and its last client left"
+    );
+}

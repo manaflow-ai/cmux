@@ -8,7 +8,6 @@ import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextWakeups
 import Foundation
-import SwiftUI
 import Testing
 
 /// The page tabs that put their SwiftUI in a `VisibilityGatedHostingView` keep
@@ -64,7 +63,8 @@ import Testing
     // MARK: Focus
 
     @Test func aFocusedGatedPageTabGivesItsSwiftUITheKeyboard() throws {
-        let gate = VisibilityGatedHostingView(owner: "WorkspaceTodoPage") { Text(verbatim: "page") }
+        let todo = try Self.todoPage(editing: nil)
+        let gate = todo.gate
         let page = InternalPageView(key: "gated-focus", page: .workspaceTodo, content: gate)
         let shown = Self.show(page, gate: gate)
         defer { shown.close() }
@@ -90,6 +90,32 @@ import Testing
         #expect(gate.isGated && gate.hosting.superview == nil, "the page stays out of the window after the picture")
     }
 
+    // MARK: Body counts
+
+    /// A content-init page (the counting root of HostingBodyCounter+SwiftUI.swift) counts its root's bodies into
+    /// its gate and the ledger: at least one once shown, attributed to a shown node. (Model-driven bodies while
+    /// hidden: TasksHostViewGateTests, where the pane's own views record.)
+    @Test func aGatedPageCountsItsRootBodies() throws {
+        let host = BookmarkManagerHostView(model: BookmarkManagerModel(source: nil))
+        let gate = try #require(host.visibilityGate)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 360), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
+        window.contentView = host
+        let app = VisibilityNode(root: "window", own: .visible)
+        let tab = VisibilityNode("tab", own: .visible, parent: app)
+        let ledger = ObservationLedger()
+        gate.follow(tab, observations: ledger)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        #expect(gate.bodyEvaluations.total >= 1, "the page's root counted its body once shown: \(gate.bodyEvaluations)")
+        #expect(gate.bodyEvaluations.hidden == 0, "shown, not hidden: \(gate.bodyEvaluations)")
+        let entry = try #require(ledger.snapshot(matching: "Hosting.BookmarkManagerHostView").first)
+        #expect(entry.bodyEvaluations >= 1 && entry.hiddenBodyEvaluations == 0, "debug.observations: \(entry)")
+    }
+
     /// Points on a 24 x 24 grid over `image` that are not fully clear.
     private static func inkedPoints(in image: CGImage) -> Int {
         let rep = NSBitmapImageRep(cgImage: image)
@@ -105,31 +131,36 @@ import Testing
 
     // MARK: State kept across a hide and show
 
-    /// The edits a Todo row committed.
-    @MainActor private final class Commits {
-        var texts: [String] = []
+    /// The real Todo page (WorkspaceTodoPageService.makeView) of workspace `w1` and its checklist
+    /// (WorkspaceChecklistTests.seed), with item `editing` in edit mode.
+    private static func todoPage(editing: String?) throws -> (services: AppServices, gate: VisibilityGatedHostingView,
+                                                                model: WorkspaceTodoPageModel) {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        try WorkspaceChecklistTests.seed(services.machines.local.store)
+        let key = LocalPageTab.makeKey(.workspaceTodo)
+        let gate = try #require(services.workspaceTodo.makeView(for: key, in: nil) as? VisibilityGatedHostingView)
+        let model = try #require(services.workspaceTodo.models[key])
+        model.workspaceID = "w1"
+        model.editing = editing
+        #expect(model.items.count == 3, "the page lists the seeded checklist")
+        return (services, gate, model)
     }
 
     @Test func aTodoItemBeingEditedKeepsItsTypedText() throws {
-        let committed = Commits()
-        let actions = WorkspaceTodoRowActions(
-            toggle: { _ in }, setState: { _, _ in }, beginEdit: { _ in },
-            commitEdit: { _, text in committed.texts.append(text) }, cancelEdit: {}, attachImages: { _ in }, remove: { _ in })
-        let item = WorkspaceChecklistItem(id: "item-1", text: "Buy milk")
-        let gate = VisibilityGatedHostingView(owner: "WorkspaceTodoPage") {
-            WorkspaceTodoRow(item: item, isEditing: true, actions: actions)
-        }
+        let todo = try Self.todoPage(editing: "chk_a")
+        let gate = todo.gate
         let shown = Self.show(gate, gate: gate)
         defer { shown.close() }
-        let field = try #require(HomeSheetThemeTests.editableFields(in: gate.hosting).first)
-        #expect(field.stringValue == "Buy milk", "the edit starts with the item's text")
-        try Self.type("Buy oat milk", into: field, in: shown.window)
+        // The page's fields: the new-item draft, then the edited item's text.
+        let field = try #require(HomeSheetThemeTests.editableFields(in: gate.hosting).first { $0.stringValue == "read the issue" })
+        try Self.type("read the whole issue", into: field, in: shown.window)
         shown.pass()
 
         shown.hideAndShow()
-        let again = try #require(HomeSheetThemeTests.editableFields(in: gate.hosting).first)
-        #expect(again.stringValue == "Buy oat milk", "the typed edit stays: \(again.stringValue)")
-        #expect(committed.texts.isEmpty, "a hide and show commits nothing")
+        let again = try #require(HomeSheetThemeTests.editableFields(in: gate.hosting).first { $0.stringValue != todo.model.draft })
+        #expect(again.stringValue == "read the whole issue", "the typed edit stays: \(again.stringValue)")
+        #expect(todo.model.editing == "chk_a", "a hide and show commits and ends no edit")
     }
 
     /// The app pane's dispatches.
@@ -144,7 +175,8 @@ import Testing
         let dispatches = Dispatches()
         model.interaction = dispatches
         model.apply([.create(id: "name", type: "TextField", props: ["text": .string("start"), "onEdit": .bool(true)]), .root(id: "name")])
-        let gate = VisibilityGatedHostingView(owner: "AppPanePage") { AppSceneNodeView(model: model, id: "name") }
+        let gate = VisibilityGatedHostingView(owner: "AppPanePage", hosting: AppSceneHostingView(
+            model: model, bundleDirectory: nil, bundleImages: AppBundleImageCache()))
         let shown = Self.show(gate, gate: gate)
         defer { shown.close() }
         #expect(dispatches.edits == 0, "making the field sends no edit")

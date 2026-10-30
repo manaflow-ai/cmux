@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPalette
 import Testing
+import CmuxNextTestSupport
 
 /// Chrome-parity p03-rendering-065 (MQ-damage-owners, CmuxNextPalette): the palette renders its
 /// search bar, footer, rows, Actions menu and shortcut recorder on every model change (each typed
@@ -9,7 +10,7 @@ import Testing
 /// changed. Chromium invalidates paint for the properties that changed, never for a re-render of
 /// the same state (third_party/blink/renderer/core/paint/paint_invalidator.cc;
 /// cc/layers/layer.cc `SetNeedsDisplayRect` for changed contents only).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .renderHooks)
 struct PaletteInvalidationTests {
     /// `view` in a window, laid out at `size`, with no layout or paint pending.
     private func hosted(_ view: NSView, size: NSSize) -> NSWindow {

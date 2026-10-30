@@ -138,7 +138,9 @@ import Testing
         let early = planner.plan([page("chat", hiddenFor: 301), fresh], conditions: .init(setting: twoHours))
         #expect(early.discards.isEmpty, "a chat went after 5 minutes though the person asked for 120")
         #expect(early.state(of: "chat") == .frozen)
-        #expect(early.decisions["chat"]?.nextDeadline == 7_200 - 301)
+        // A Double on the right: #expect types `7_200 - 301` on its own (an Int), and Double? == Int
+        // then compiles only through AnyHashable, which never matches.
+        #expect(early.decisions["chat"]?.nextDeadline == Double(7_200 - 301))
         let due = planner.plan([page("chat", hiddenFor: 7_200), fresh], conditions: .init(setting: twoHours))
         #expect(due.discards == ["chat"])
         // Under pressure the person's time shrinks as for browser tabs: 10 minutes at warning, none at

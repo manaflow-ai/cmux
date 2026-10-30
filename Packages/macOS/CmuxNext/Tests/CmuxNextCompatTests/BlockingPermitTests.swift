@@ -7,7 +7,8 @@ import Testing
 /// The compiler permit (plans/cmux-next/chrome-parity/p02-threads.md, task 111): a lane or allowance body gets a
 /// ``BlockingPermit``, the seam overloads that take it run the same checked call, and the permit form of a read in
 /// a lane body records nothing. The `noasync` diagnostic is checked by
-/// scripts/cmux-next/check-blocking-permit-fixture.sh against Tests/CompileFailFixtures/BlockingPermitNoasync.swift.
+/// scripts/cmux-next/check-blocking-permit-fixture.sh against CompileFailFixtures/BlockingPermitNoasync.swift (in no
+/// target).
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct BlockingPermitTests {
     /// Acceptance: the permit form of a read in a runner body compiles and records 0 sites.

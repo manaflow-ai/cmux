@@ -50,7 +50,7 @@ struct PageWebViewDebugHoverTests {
         #expect(move.params["x"] as? Double == 120.5)
         #expect(move.params["y"] as? Double == 40)
         #expect(move.params["button"] as? String == "none")
-        #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40])
+        #expect(result == ["hovered": true, "native": true, "delivered": "devtools", "x": 120.5, "y": 40])
         let call = try #require(page.calls.first { ($0.params["expression"] as? String)?.contains("getBoundingClientRect") == true })
         #expect((call.params["expression"] as? String)?.contains(#"[true,".chief-pet-card"]"#) == true)
         view.close()
@@ -61,7 +61,7 @@ struct PageWebViewDebugHoverTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, _) = try await chromiumPage(center: #"{"x":120.5,"y":40,"w":81,"h":30,"hit":true}"#)
         let result = await view.debugHover(".chief-pet-card")
-        #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40, "width": 81, "height": 30])
+        #expect(result == ["hovered": true, "native": true, "delivered": "devtools", "x": 120.5, "y": 40, "width": 81, "height": 30])
         view.close()
     }
 
@@ -76,7 +76,7 @@ struct PageWebViewDebugHoverTests {
         let move = try #require(page.calls.first { $0.method == "Input.dispatchMouseEvent" })
         #expect(move.params["x"] as? Double == 120.5)
         #expect(move.params["y"] as? Double == 40)
-        #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40])
+        #expect(result == ["hovered": true, "native": true, "delivered": "devtools", "x": 120.5, "y": 40])
         view.close()
     }
 

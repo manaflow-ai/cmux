@@ -220,6 +220,11 @@ public final class PageRouter {
         // A provider may send its current state from inside `subscribe` (the icon picker's open
         // session). Those events wait until the reply that names `sub` reaches the page.
         let early = PageEarlyEvents()
+        // One owner frees it on every exit: the posted flush below takes it over; every other exit (a
+        // throw, the page closed meanwhile, nothing held) releases it here, so a provider that keeps
+        // `onEvent` after its subscription ended adds nothing to a list nobody reads.
+        var flushesAfterReply = false
+        defer { if !flushesAfterReply { _ = early.release() } }
         let subscription: PageSubscription
         do {
             subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
@@ -243,13 +248,13 @@ public final class PageRouter {
         subscriptions[sub] = subscription
         // Events held while `subscribe` ran were kept whole; the stream's policy applies from now.
         reportDropped(held.apply(subscription.frozenDelivery, to: sub), sub: sub)
-        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
-        // ones until the flush, which runs after the reply.
-        guard !early.isHolding || provider.eventsAfterSubscribeReply else {
-            if provider.eventsAfterSubscribeReply { return sub }
+        // Nothing held (or a provider that sends only after the reply): later events go straight to
+        // the page. Otherwise they queue behind the held ones until the flush, which runs after the reply.
+        guard early.isHolding, !provider.eventsAfterSubscribeReply else {
             _ = early.release()
             return sub
         }
+        flushesAfterReply = true
         // task-owner: one flush after the reply; ends with the router
         // main-hop-allow: the held events must reach the page after the subscribe reply that names sub, which the caller sends when this call returns; the job only orders their delivery behind it
         Task { @MainActor [weak self] in

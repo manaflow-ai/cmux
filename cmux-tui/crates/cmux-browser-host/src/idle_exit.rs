@@ -1,19 +1,31 @@
-//! The supervised host's idle stop (browser-host.md, step c2 follow-up): the
-//! host exits after `delay` with no session open and no app provider
-//! connected, and the daemon starts it again on the next agent connect (it
-//! holds the listening sockets). One waiting thread, woken by changes or by
-//! the deadline on an injected clock; no polling.
+//! The supervised host's stop (browser-host.md, step c2 follow-up), by the
+//! stop rule every app helper follows (`cmux-owner-liveness`; principled
+//! audit lagQuitHelpers, 2026-10-29, which replaced the `provider_gone`
+//! edge of cp/lag-quit-helpers):
 //!
-//! A connected provider keeps the host: if the host stopped under a
-//! connected app, the app would start it again at once to reconnect. When
-//! that provider leaves (the app quit) and no session or agent connection
-//! uses the host, it exits at once (cmux-ad 2026-10-27: a quit left the
-//! host running for its whole delay).
+//! > the host exits when it has no client (an agent connection or the app's
+//! > provider link), no live owner app and no live work (an open session).
+//!
+//! The owner app is the process of the provider that connected last
+//! (`cmux_owner_liveness::peer_app`), followed as a level: while it runs it
+//! keeps the host, also while its provider link is down (the app reconnects
+//! it with backoff; if the host stopped, it would only be started again).
+//! Once that app is gone, the host exits as soon as the rule holds (a quit
+//! left the host running for its whole delay before, cmux-ad 2026-10-27).
+//! With no app ever connected, it exits after `delay`. The daemon starts it
+//! again on the next agent connect (it holds the listening sockets).
+//!
+//! The rule is read again at every change ([`IdleExit::changed`]: a session,
+//! a connection or the provider changed, or the owner app exited) and at the
+//! deadline, on an injected clock. One waiting thread; no polling.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-/// How long a supervised host waits with nothing to serve before it exits.
+use cmux_owner_liveness::{Keeps, OwnerState};
+
+/// How long a supervised host no app served waits with nothing to serve
+/// before it exits.
 pub const DEFAULT_IDLE_EXIT: Duration = Duration::from_secs(5 * 60);
 
 /// The time source of the idle stop. Tests inject a fake.
@@ -51,33 +63,34 @@ impl IdleClock for SystemClock {
 /// What the idle stop knows.
 #[derive(Debug, Default)]
 pub struct IdleState {
-    /// When the host last became idle; `None` while it serves something.
+    /// When the stop rule last started to hold; `None` while it does not.
     idle_since: Option<Instant>,
-    /// The app provider left and nothing else used the host then: the idle
-    /// host exits now, not after the delay. A busy host clears it.
-    provider_gone: bool,
+    /// Bumped by each [`IdleExit::changed`]: a read that a change raced is
+    /// read again.
+    changes: u64,
     stopped: bool,
 }
 
-/// Busy probe: true while a session is open or a provider is connected.
-pub type BusyProbe = Box<dyn Fn() -> bool + Send + Sync>;
+/// Reads what keeps the host now (clients, the owner app, live work). Call
+/// it with no idle-stop lock held: it takes the session and provider locks.
+pub type KeepsProbe = Box<dyn Fn() -> Keeps + Send + Sync>;
 
 /// One idle stop per supervised host.
 pub struct IdleExit {
     delay: Duration,
     clock: Arc<dyn IdleClock>,
-    busy: BusyProbe,
+    probe: KeepsProbe,
     state: Mutex<IdleState>,
     changed: Condvar,
 }
 
 impl IdleExit {
-    /// Idle from now unless `busy` says otherwise.
-    pub fn new(delay: Duration, clock: Arc<dyn IdleClock>, busy: BusyProbe) -> Arc<IdleExit> {
+    /// Reads the rule now; `probe` says what keeps the host.
+    pub fn new(delay: Duration, clock: Arc<dyn IdleClock>, probe: KeepsProbe) -> Arc<IdleExit> {
         let idle = Arc::new(IdleExit {
             delay,
             clock,
-            busy,
+            probe,
             state: Mutex::new(IdleState::default()),
             changed: Condvar::new(),
         });
@@ -89,37 +102,32 @@ impl IdleExit {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// A session opened or ended, or the provider connected or left: a busy
-    /// host cancels the delay; a host that just became idle starts it.
-    /// Call it with no session or provider lock held.
-    pub fn changed(&self) {
-        let busy = (self.busy)();
-        let mut state = self.lock();
-        if busy {
-            state.idle_since = None;
-            state.provider_gone = false;
-        } else if state.idle_since.is_none() {
-            state.idle_since = Some(self.clock.now());
+    /// How long the rule must hold before the host exits: no time once its
+    /// owner app is gone, `delay` when no app ever served it.
+    fn delay_for(&self, owner: OwnerState) -> Duration {
+        match owner {
+            OwnerState::Gone => Duration::ZERO,
+            OwnerState::Unnamed | OwnerState::Alive => self.delay,
         }
-        drop(state);
-        self.changed.notify_all();
     }
 
-    /// The app provider that was connected left (the app quit or crashed, or
-    /// dropped its link). With no session and no agent connection the host
-    /// exits now: it served that app, as a Chromium utility process serves
-    /// its last client. A session or connection keeps it, with the whole
-    /// delay after them as before. Call it with no session or provider lock held.
-    pub fn provider_left(&self) {
-        let busy = (self.busy)();
-        let mut state = self.lock();
-        if busy {
-            state.idle_since = None;
-            state.provider_gone = false;
-        } else {
+    /// Records `keeps` read at `now`: the rule starts or stops holding.
+    fn record(&self, state: &mut IdleState, keeps: Keeps) {
+        if keeps.exits(false) {
             state.idle_since.get_or_insert(self.clock.now());
-            state.provider_gone = true;
+        } else {
+            state.idle_since = None;
         }
+    }
+
+    /// Something the rule reads changed: a session opened or ended, a
+    /// connection came or went, the provider connected or left, or the
+    /// owner app exited. Call it with no session or provider lock held.
+    pub fn changed(&self) {
+        let keeps = (self.probe)();
+        let mut state = self.lock();
+        state.changes = state.changes.wrapping_add(1);
+        self.record(&mut state, keeps);
         drop(state);
         self.changed.notify_all();
     }
@@ -130,7 +138,7 @@ impl IdleExit {
         self.changed.notify_all();
     }
 
-    /// Blocks until the host has been idle for the whole delay (true) or
+    /// Blocks until the stop rule has held for its delay (true) or
     /// [`IdleExit::stop`] (false).
     pub fn wait(&self) -> bool {
         let mut state = self.lock();
@@ -138,15 +146,38 @@ impl IdleExit {
             if state.stopped {
                 return false;
             }
+            let changes = state.changes;
+            // The probe takes the session and provider locks: read it unlocked.
+            drop(state);
+            let keeps = (self.probe)();
+            state = self.lock();
+            if state.stopped {
+                return false;
+            }
+            if state.changes != changes {
+                continue;
+            }
+            self.record(&mut state, keeps);
             state = match state.idle_since {
                 None => self.changed.wait(state).unwrap_or_else(PoisonError::into_inner),
-                Some(_) if state.provider_gone => return true,
                 Some(since) => {
+                    let delay = self.delay_for(keeps.owner);
                     let idle_for = self.clock.now().saturating_duration_since(since);
-                    if idle_for >= self.delay {
-                        return true;
+                    if idle_for >= delay {
+                        // Read again just before the exit and act on it: the
+                        // host has no fence, so a connection, a session or a
+                        // new app's provider may have come since the read
+                        // above (no assertion here: that is a legitimate race).
+                        drop(state);
+                        let now = (self.probe)();
+                        state = self.lock();
+                        if now.exits(false) && !state.stopped {
+                            return true;
+                        }
+                        self.record(&mut state, now);
+                        continue;
                     }
-                    self.clock.wait_timeout(&self.changed, state, self.delay - idle_for)
+                    self.clock.wait_timeout(&self.changed, state, delay - idle_for)
                 }
             };
         }
@@ -186,26 +217,34 @@ mod tests {
 
     struct Fixture {
         clock: Arc<FakeClock>,
+        /// A session is open (or, for these tests, an agent connection).
         busy: Arc<AtomicBool>,
+        owner: Arc<Mutex<OwnerState>>,
         idle: Arc<IdleExit>,
         fired: std::sync::mpsc::Receiver<bool>,
     }
 
+    /// A host no app served yet, busy or not.
     fn fixture(busy_at_start: bool) -> Fixture {
         let clock = Arc::new(FakeClock(Mutex::new(Instant::now())));
         let busy = Arc::new(AtomicBool::new(busy_at_start));
-        let probe = busy.clone();
+        let owner = Arc::new(Mutex::new(OwnerState::Unnamed));
+        let (probe, owned) = (busy.clone(), owner.clone());
         let idle = IdleExit::new(
             Duration::from_secs(300),
             clock.clone(),
-            Box::new(move || probe.load(Ordering::SeqCst)),
+            Box::new(move || Keeps {
+                clients: false,
+                owner: *owned.lock().unwrap(),
+                live_work: probe.load(Ordering::SeqCst),
+            }),
         );
         let (tx, fired) = std::sync::mpsc::channel();
         let waiter = idle.clone();
         std::thread::spawn(move || {
             let _ = tx.send(waiter.wait());
         });
-        Fixture { clock, busy, idle, fired }
+        Fixture { clock, busy, owner, idle, fired }
     }
 
     fn not_yet(f: &Fixture) {
@@ -214,6 +253,13 @@ mod tests {
 
     fn fires(f: &Fixture) {
         assert_eq!(f.fired.recv_timeout(Duration::from_secs(5)), Ok(true));
+        // The R3 invariant at the exit, on facts no one changes now.
+        let keeps = Keeps {
+            clients: false,
+            owner: *f.owner.lock().unwrap(),
+            live_work: f.busy.load(Ordering::SeqCst),
+        };
+        cmux_owner_liveness::check("cmux-browser-host (test)", true, keeps, false);
     }
 
     #[test]
@@ -249,33 +295,56 @@ mod tests {
     }
 
     // The app quits (cmux-ad 2026-10-27: a quit left the app's helpers
-    // running). The app's provider started this host; once it leaves and
-    // nothing else uses the host, the host ends now, as Chromium's utility
-    // processes end when their last client goes. The daemon starts it again
-    // on the next agent connect.
+    // running). The app's provider served this host; once that app is gone
+    // and nothing else uses the host, the host ends now, as Chromium's
+    // utility processes end when their last client goes. The daemon starts
+    // it again on the next agent connect.
     #[test]
-    fn a_host_whose_app_provider_left_with_nothing_else_exits_at_once() {
+    fn a_host_whose_app_quit_with_nothing_else_exits_at_once() {
         let f = fixture(true);
+        *f.owner.lock().unwrap() = OwnerState::Alive;
+        f.idle.changed();
         f.clock.advance(Duration::from_secs(10));
         f.busy.store(false, Ordering::SeqCst);
-        f.idle.provider_left();
+        f.idle.changed();
+        f.clock.advance(Duration::from_secs(3600));
+        not_yet(&f);
+        app_quits(&f);
         fires(&f);
     }
 
+    // The app runs with its provider link down (it reconnects with
+    // backoff): the host stays for it, whatever the delay.
     #[test]
-    fn a_provider_leaving_while_a_session_runs_keeps_the_host_and_the_delay() {
-        let f = fixture(true);
-        // The provider left; an agent's session still runs.
-        f.idle.provider_left();
+    fn a_host_whose_app_runs_stays_without_its_provider_link() {
+        let f = fixture(false);
+        *f.owner.lock().unwrap() = OwnerState::Alive;
+        f.idle.changed();
         f.clock.advance(Duration::from_secs(3600));
         not_yet(&f);
-        // The session ends: the whole delay, as before.
+    }
+
+    // cp/redesign-quit-helpers (principled audit, R2/R3): the app's exit is
+    // a level. On the base, `provider_gone` was an edge that a busy read
+    // cleared: the app quit while an agent's session ran, and when that
+    // session ended the host waited its whole delay with no app, no client
+    // and no work, where the policy says it must exit.
+    #[test]
+    fn owner_level_a_host_whose_app_quit_during_a_session_exits_when_it_ends() {
+        let f = fixture(true);
+        app_quits(&f);
+        f.clock.advance(Duration::from_secs(10));
+        not_yet(&f);
         f.busy.store(false, Ordering::SeqCst);
         f.idle.changed();
-        f.clock.advance(Duration::from_secs(299));
-        not_yet(&f);
-        f.clock.advance(Duration::from_secs(1));
         fires(&f);
+    }
+
+    /// The app that served the host quit (its provider left, its process is
+    /// gone): the owner's kernel watch reports it.
+    fn app_quits(f: &Fixture) {
+        *f.owner.lock().unwrap() = OwnerState::Gone;
+        f.idle.changed();
     }
 
     #[test]

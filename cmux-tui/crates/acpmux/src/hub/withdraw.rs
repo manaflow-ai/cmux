@@ -225,20 +225,9 @@ impl Hub {
     }
 
     /// `_acpmux/prompt_withdraw`; see the module docs. Its answer, an unsend or a retract,
-    /// says a queue change was made: it follows the change's records to the log
-    /// (`queue_change_logged`).
+    /// says a queue change was made: it goes once the change's records are written
+    /// (`request_writes.rs`).
     pub async fn prompt_withdraw(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        params: &Value,
-    ) -> Result<Value, RpcError> {
-        let reply = self.prompt_withdraw_decided(session, params).await?;
-        self.queue_change_logged(session).await?;
-        Ok(reply)
-    }
-
-    /// `prompt_withdraw` up to its answer.
-    async fn prompt_withdraw_decided(
         self: &Arc<Self>,
         session: &Arc<Session>,
         params: &Value,

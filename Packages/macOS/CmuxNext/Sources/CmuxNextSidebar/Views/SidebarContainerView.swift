@@ -143,6 +143,8 @@ public final class SidebarContainerView: NSView {
 
     /// - Parameters:
     ///   - model: What the sidebar shows.
+    ///   - design: The `sidebar.*` settings the sidebar draws from and its model follows (`sidebar.style` among
+    ///     them); the App's one by default, tests give their own.
     ///   - deadlines: The app's one deadline placer. Its ``MainDeadlineScheduler/work`` is the app's main-thread
     ///     scheduler: the presentation observation flushes and the rows' and headers' Debug Settings looks follow
     ///     through it, once per frame, and the list and the rail draw through it while they show. The hover pacing,
@@ -152,13 +154,14 @@ public final class SidebarContainerView: NSView {
     ///     gesture when the app resigns active.
     ///   - newRows: Told which rows the list draws, so a new workspace's `create.workspace` interval ends there.
     ///   - responsiveScrolling: The list scrolls on AppKit's scrolling thread (feature `responsiveScrolling`).
-    public init(model: SidebarModel, deadlines: MainDeadlineScheduler, appEvents: AppEvents, newRows: SidebarNewRowTimer? = nil,
-                responsiveScrolling: Bool = false) {
+    public init(model: SidebarModel, design: DesignSettings = .shared, deadlines: MainDeadlineScheduler, appEvents: AppEvents,
+                newRows: SidebarNewRowTimer? = nil, responsiveScrolling: Bool = false) {
         let mainWork = deadlines.work
         self.model = model
         hoverRefresh = MainDeadline(owner: "Sidebar.hoverRefresh", workClass: .visible, scheduler: deadlines)
         widthMotionWatchdog = MainDeadline(owner: "Sidebar.widthMotionWatchdog", workClass: .visible, scheduler: deadlines)
-        sidebarView = SidebarView(model: model, mainWork: mainWork, newRows: newRows, responsiveScrolling: responsiveScrolling)
+        sidebarView = SidebarView(model: model, design: design, mainWork: mainWork, newRows: newRows,
+                                  responsiveScrolling: responsiveScrolling)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
@@ -203,8 +206,10 @@ public final class SidebarContainerView: NSView {
 
     /// A container with a deadline placer and an app-notice fan-out of its own on `mainWork`'s wake queue and the
     /// default center (tests; the App passes its one of each).
-    public convenience init(model: SidebarModel, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
-        self.init(model: model, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: AppEvents(center: .default), newRows: newRows)
+    public convenience init(model: SidebarModel, design: DesignSettings = .shared, mainWork: MainWorkScheduler,
+                            newRows: SidebarNewRowTimer? = nil) {
+        self.init(model: model, design: design, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: AppEvents(center: .default),
+                  newRows: newRows)
     }
 
     @available(*, unavailable)
