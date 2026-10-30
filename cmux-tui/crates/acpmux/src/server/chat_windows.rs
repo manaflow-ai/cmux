@@ -10,7 +10,11 @@
 //!   full: false, keys, rows, hasMore}`: its keys in order and only the rows whose value changed.
 //!   The revision goes up by one per message of that window. A client that sees a revision gap,
 //!   or an `_acpmux/lagged` (the connection dropped a notification), opens the window again.
-//! - `_acpmux/chats_window_close {window}` stops it.
+//! - `_acpmux/chats_window_close {window, gen?}` stops it.
+//! - Each request names the client's generation of the window (`gen`). acpmux keeps the highest
+//!   it saw per window and refuses an older open or close as `stale`: the daemon runs requests as
+//!   tasks of their own, so two specs sent back to back can run in either order. Every message
+//!   echoes `gen`, so the client applies only its current spec's rows.
 //!
 //! Owned (R6): the connection's one task ends when its connection closes, when its last window
 //! closes (a later open starts a new one), and with the runtime at daemon exit; a drop guard
@@ -19,12 +23,12 @@
 //! The state is level-triggered: a window is recomputed from the index as it is now, so a lagged
 //! or coalesced change can never leave a window behind.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use serde_json::{Value, json};
-use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 
 use super::Conn;
 use crate::chats::{ChatService, WindowSpec, WindowState};
@@ -34,8 +38,12 @@ use crate::rpc::{Message, RpcError};
 /// A connection's chat windows.
 #[derive(Default)]
 pub(super) struct ConnWindows {
-    /// Held while a recompute sends, so every window's messages leave in revision order.
+    /// Held only for map changes and a window's `next` and send (never across an index read), so
+    /// an open, a close or an activity change never waits for a scan.
     windows: StdMutex<Windows>,
+    /// One recompute at a time (an async lock: a waiter holds no thread), so a recompute that read
+    /// the index earlier never sends after one that read it later.
+    refreshing: tokio::sync::Mutex<()>,
     /// Wakes the connection's task after a chat activity change or a close.
     wake: tokio::sync::Notify,
 }
@@ -43,6 +51,8 @@ pub(super) struct ConnWindows {
 #[derive(Default)]
 struct Windows {
     by_name: BTreeMap<String, WindowState>,
+    /// The highest generation seen for each window name, opens and closes alike.
+    generations: HashMap<String, u64>,
     /// The connection's task runs. Set and cleared under this lock, so an open never misses a
     /// task that is ending, and a task never ends with a window open.
     task: bool,
@@ -76,12 +86,6 @@ fn lock<T>(mutex: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-impl ConnWindows {
-    fn is_empty(&self) -> bool {
-        lock(&self.windows).by_name.is_empty()
-    }
-}
-
 /// `_acpmux/chats_window`.
 pub(super) async fn open(
     hub: &Arc<Hub>,
@@ -93,6 +97,11 @@ pub(super) async fn open(
     let window = spec.window.clone();
     {
         let mut windows = lock(&conn.chat_windows.windows);
+        let newest = windows.generations.get(&window).copied().unwrap_or(0);
+        if spec.generation < newest {
+            return Ok(json!({"window": window, "gen": spec.generation, "stale": true}));
+        }
+        windows.generations.insert(window.clone(), spec.generation);
         let revision = windows.by_name.get(&window).map_or(0, WindowState::revision);
         windows.by_name.insert(window.clone(), WindowState::new(spec, revision));
     }
@@ -118,7 +127,25 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
         .get("window")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("window must be a string"))?;
-    let closed = lock(&conn.chat_windows.windows).by_name.remove(window).is_some();
+    let generation = match params.get("gen") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_u64()
+                .ok_or_else(|| RpcError::invalid_params("gen must be a non-negative number"))?,
+        ),
+    };
+    let closed = {
+        let mut windows = lock(&conn.chat_windows.windows);
+        let newest = windows.generations.get(window).copied().unwrap_or(0);
+        if generation.is_some_and(|generation| generation < newest) {
+            return Ok(json!({"window": window, "closed": false, "stale": true}));
+        }
+        if let Some(generation) = generation {
+            windows.generations.insert(window.to_owned(), generation);
+        }
+        windows.by_name.remove(window).is_some()
+    };
     // The task sees the last window gone and ends.
     conn.chat_windows.wake.notify_one();
     Ok(json!({"window": window, "closed": closed}))
@@ -126,9 +153,8 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
 
 /// A chat's activity changed (`chats::push_activity`): the connection's windows recompute.
 pub(super) fn activity_changed(conn: &Conn) {
-    if !conn.chat_windows.is_empty() {
-        conn.chat_windows.wake.notify_one();
-    }
+    // No lock: with no task the stored permit only wakes the next task once more.
+    conn.chat_windows.wake.notify_one();
 }
 
 /// Starts the connection's task unless it runs: it recomputes the windows after each index change
@@ -164,7 +190,11 @@ fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
                 },
                 () = conn.chat_windows.wake.notified() => {}
             }
+            // The batches that came meanwhile: one recompute reads the index after all of them.
+            while matches!(changes.try_recv(), Ok(_) | Err(TryRecvError::Lagged(_))) {}
             if refresh(&hub, &service, &conn).await.is_err() {
+                // The recompute failed (its blocking task panicked): the client asks again.
+                conn.send(&Message::notification("_acpmux/chats_lagged", json!({"dropped": 0})));
                 break;
             }
         }
@@ -174,24 +204,40 @@ fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
     });
 }
 
-/// Recomputes every window of `conn` and sends each one's message, if any. The index lock may be
-/// held by a scan, so this runs off the executor.
+/// Recomputes every window of `conn` and sends each one's message, if any: the rows are read
+/// off the executor with no windows lock held (the index lock may be held by a scan), then each
+/// window whose spec is unchanged takes its diff and sends it under the lock.
 async fn refresh(
     hub: &Arc<Hub>,
     service: &Arc<ChatService>,
     conn: &Arc<Conn>,
 ) -> Result<(), RpcError> {
+    let _one = conn.chat_windows.refreshing.lock().await;
+    let specs: Vec<WindowSpec> =
+        lock(&conn.chat_windows.windows).by_name.values().map(|state| state.spec.clone()).collect();
+    if specs.is_empty() {
+        return Ok(());
+    }
     let activity = hub.chat_activity();
-    let (service, conn) = (service.clone(), conn.clone());
-    crate::daemon::spawn_blocking(move || {
-        let mut windows = lock(&conn.chat_windows.windows);
-        for state in windows.by_name.values_mut() {
-            let rows = service.window_rows(&state.spec, &activity);
-            if let Some(message) = state.next(rows) {
-                conn.send(&Message::notification("_acpmux/chats_window_changed", message));
-            }
-        }
+    let service = service.clone();
+    let rows = crate::daemon::spawn_blocking(move || {
+        specs
+            .into_iter()
+            .map(|spec| (service.window_rows(&spec, &activity), spec))
+            .collect::<Vec<_>>()
     })
     .await
-    .map_err(|e| RpcError::internal(e.to_string()))
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    let mut windows = lock(&conn.chat_windows.windows);
+    for (rows, spec) in rows {
+        // A spec replaced meanwhile is recomputed by its own open, which waits for this one.
+        let Some(state) = windows.by_name.get_mut(&spec.window).filter(|state| state.spec == spec)
+        else {
+            continue;
+        };
+        if let Some(message) = state.next(rows) {
+            conn.send(&Message::notification("_acpmux/chats_window_changed", message));
+        }
+    }
+    Ok(())
 }

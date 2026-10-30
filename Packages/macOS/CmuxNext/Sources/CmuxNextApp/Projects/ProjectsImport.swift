@@ -157,8 +157,14 @@ final class ProjectsImport {
         // (the daemon gets the projects with no window on screen, and no person waits for them).
         sending = Task { @concurrent in
             var batches: [Batch] = []
-            if let socket, let projects = try? await AcpmuxChatProjects.read(socketPath: socket) {
-                batches = Self.batches(projects, sent: alreadySent)
+            if let socket {
+                do {
+                    batches = Self.batches(try await AcpmuxChatProjects.read(socketPath: socket), sent: alreadySent)
+                } catch {
+                    // Nothing is sent (a partial list would drop projects). The next index change or
+                    // daemon connection relays again: an event that can make the read succeed.
+                    Self.logger.error("project list read failed: \(String(describing: error), privacy: .public)")
+                }
             }
             let ended = fresh || !batches.isEmpty ? await send(batches, fresh) : Sent(synced: true, delivered: [:])
             mainWork.postFromAnyThread(.automation, owner: "ProjectsImport.finished") { [weak self] in

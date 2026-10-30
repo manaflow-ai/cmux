@@ -26,13 +26,6 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
         return shown
     }
 
-    /// Every chat, newest first, read lazily (a child chat left out): a reader that stops after a
-    /// page visits only what it reads.
-    public var newestFirst: some Sequence<AcpmuxChat> {
-        let values = values
-        return orderedKeys.lazy.compactMap { values[$0] }.filter { $0.parent == nil }
-    }
-
     /// Replaces the mirror from a page response. acpmux sends the page sorted, newest first:
     /// its order is kept after one O(n) check (an older daemon's page is sorted here).
     public mutating func reset(_ result: [String: Any]) {

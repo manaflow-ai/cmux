@@ -42,9 +42,12 @@ public nonisolated struct AcpmuxChatProjects: Sendable, Equatable {
 
 extension AcpmuxChatProjects {
     /// `_acpmux/chat_projects` from the daemon at `socketPath`; the socket exchange and the decode
-    /// run off the caller's actor.
+    /// run off the caller's actor. No reply cap of its own: the list is one row per chat folder and
+    /// a person's folder count has no bound here (the daemon's frame limit still holds), and the
+    /// deadline is the status client's usual one for a local request.
     @concurrent public static func read(socketPath: String, deadline: Duration = .seconds(5)) async throws -> AcpmuxChatProjects {
-        let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/chat_projects", deadline: deadline)
+        let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/chat_projects", deadline: deadline,
+                                                       limit: .max)
         return AcpmuxChatProjects(result: result)
     }
 }

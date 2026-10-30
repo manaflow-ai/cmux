@@ -34,6 +34,8 @@ final class ChatsFeed {
     /// Where the socket folder's notices reach the main thread (``watchForSocket()``).
     private let mainWork: MainWorkScheduler
     private var requestID = 2
+    /// The open window requests by JSON-RPC id, so an error answer names its window.
+    private var windowRequests: [Int: String] = [:]
     /// The seq of the last index change in the mirror (acpmux numbers every change; the page
     /// names the last one it holds). Nil from a daemon that does not number them.
     private var seq: UInt64?
@@ -114,15 +116,24 @@ final class ChatsFeed {
         case change(AcpmuxChatsStore.Change, seq: UInt64?)
         /// A window's rows or row diff (`_acpmux/chats_window_changed`).
         case window(AcpmuxChatWindows.Update)
+        /// The answer to request `id` (a window's open or close), and whether it is an error.
+        case answered(id: Int, failed: Bool)
         /// The daemon dropped a notification or the watch lagged: list and ask every window again.
         case lagged
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
+            if let id = (message["id"] as? NSNumber)?.intValue, id >= 3, message["error"] != nil {
+                self = .answered(id: id, failed: true)
+                return
+            }
             if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
                let result = message["result"] as? [String: Any] {
                 // A window request's answer: its rows come as `_acpmux/chats_window_changed`.
-                guard result["window"] == nil else { return nil }
+                guard result["window"] == nil else {
+                    self = .answered(id: id, failed: false)
+                    return
+                }
                 var store = AcpmuxChatsStore()
                 store.reset(result)
                 self = .page(store: store, ready: result["ready"] as? Bool ?? false, enabled: result["enabled"] as? Bool ?? true,
@@ -137,6 +148,10 @@ final class ChatsFeed {
             case "_acpmux/chats_window_changed":
                 guard let update = (message["params"] as? [String: Any]).flatMap(AcpmuxChatWindows.Update.init(params:)) else { return nil }
                 self = .window(update)
+            case "_acpmux/lagged" where (message["params"] as? [String: Any])?["reason"] as? String == "message_too_large":
+                // A message past one frame never fits, so asking again would send it again forever:
+                // the next change of the index or of its window sends that window again.
+                return nil
             case "_acpmux/chats_lagged", "_acpmux/lagged":
                 self = .lagged
             default:
@@ -191,6 +206,8 @@ final class ChatsFeed {
                 changed = true
             case .window(let update):
                 windows.apply(update)
+            case .answered(let id, let failed):
+                if let window = windowRequests.removeValue(forKey: id), failed { windows.requestFailed(window) }
             case .lagged:
                 lagged = true
                 windows.resync()
@@ -199,6 +216,8 @@ final class ChatsFeed {
         // Dropped lines (a full batch) leave the mirror incomplete, like a lag: fetch a fresh page.
         if lagged || drain.overflowed, !drain.closed { requestList() }
         if drain.overflowed, !drain.closed { windows.resync() }
+        // The daemon answers again: a window it refused (busy) is asked again.
+        if changed { windows.retryFailed() }
         if changed { publish() }
         if drain.closed { lost(connection) }
     }
@@ -234,6 +253,7 @@ final class ChatsFeed {
     /// One request on the watch's connection.
     private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
         requestID += 1
+        if method == "_acpmux/chats_window", let window = params["window"] as? String { windowRequests[requestID] = window }
         let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "method": method, "params": params as [String: Any]]
         guard let data = try? JSONSerialization.data(withJSONObject: request) else { return }
         var line = data
@@ -249,6 +269,7 @@ final class ChatsFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
+        windowRequests = [:]
         windows.disconnected()
         reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
     }

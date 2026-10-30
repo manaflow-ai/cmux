@@ -41,7 +41,7 @@ import Testing
         windows.connected(send: send)
         let size = SidebarChatHistory.pageSize + 1
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 1, full: true, keys: (0..<size).map(key),
-                            rows: (0..<size).map { chat($0) }, hasMore: true))
+                            rows: (0..<size).map { chat($0) }))
         return (windows, inputs)
     }
 
@@ -54,7 +54,7 @@ import Testing
         let moved = Self.indexSize - 1
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 2, full: false,
                             keys: [Self.key(moved)] + before.dropLast().map(\.id),
-                            rows: [Self.chat(moved, updatedMs: 1_900_000_000_000)], hasMore: true))
+                            rows: [Self.chat(moved, updatedMs: 1_900_000_000_000)]))
         // The rows the main thread holds for the sidebar history: its visible window at most.
         let held = earlier.rows.count
         #expect(held <= SidebarChatHistory.pageSize + 1, "the main thread holds \(held) chats for a window of \(SidebarChatHistory.pageSize)")
@@ -77,17 +77,17 @@ import Testing
         let earlier = windows.window(SidebarChatHistoryFeed.earlierWindow)
         let before = earlier.rows
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 3, full: false, keys: before.map(\.id),
-                            rows: [], hasMore: true))
+                            rows: []))
         #expect(sent.methods == ["_acpmux/chats_window"])
         #expect(earlier.rows == before)
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 4, full: false, keys: before.map(\.id),
-                            rows: [], hasMore: true))
+                            rows: []))
         #expect(sent.methods == ["_acpmux/chats_window"], "one ask until the full rows come")
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 5, full: true, keys: [Self.key(7)],
-                            rows: [Self.chat(7)], hasMore: false))
+                            rows: [Self.chat(7)]))
         #expect(earlier.rows.map(\.id) == [Self.key(7)])
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 6, full: false, keys: [Self.key(8)],
-                            rows: [], hasMore: false))
+                            rows: []))
         #expect(sent.methods == ["_acpmux/chats_window", "_acpmux/chats_window"], "a row it never got: asked again")
         #expect(earlier.rows.map(\.id) == [Self.key(7)])
     }
@@ -124,5 +124,20 @@ import Testing
                                                                      "updatedMs": 1_800_000_000_000]]]
         if let update = AcpmuxChatWindows.Update(params: older) { windows.apply(update) }
         #expect(windows.window("w").rows.isEmpty, "the older spec's rows were applied")
+    }
+
+    /// Review F3 (#28055): acpmux refused a window request (busy): the window is not left waiting
+    /// for a full message that never comes; the next sign that the daemon serves asks again.
+    @Test func aRefusedRequestIsAskedAgainWhenTheDaemonServes() {
+        let windows = AcpmuxChatWindows()
+        let sent = Sent()
+        windows.connected(send: sent.record)
+        windows.open(.init(window: "w", limit: 3))
+        #expect(sent.methods == ["_acpmux/chats_window"])
+        windows.requestFailed("w")
+        windows.retryFailed()
+        #expect(sent.methods == ["_acpmux/chats_window", "_acpmux/chats_window"], "a refused window is asked again")
+        windows.retryFailed()
+        #expect(sent.methods.count == 2, "once per refusal")
     }
 }

@@ -8,7 +8,11 @@ public import Observation
 /// rows, then one row diff per change: the window's keys in order and only the rows whose value
 /// changed, with the next revision. Applying a diff on the main actor is O(window keys + changed
 /// rows), whatever the index holds (the old whole-index mirror copied and compared every chat per
-/// change: hangs of 570 to 1,148 ms, v2.2.9). Diffs are decoded off the main actor.
+/// change on the main actor). Diffs are decoded off the main actor.
+///
+/// Each spec sent names the window's next generation (`gen`): acpmux refuses an older one and
+/// echoes it in every message, so requests that run out of order never leave a window on an older
+/// spec, and a message for an older spec is never applied.
 ///
 /// Each window is its own observable object: a view that reads one window updates only when that
 /// window's rows change, and a window whose rows did not change sets nothing.
@@ -32,8 +36,9 @@ public final class AcpmuxChatWindows {
             self.keys = keys
         }
 
-        public var params: [String: any Sendable] {
-            var params: [String: any Sendable] = ["window": window, "limit": max(1, limit), "topLevel": topLevel]
+        /// The request's params for generation `generation` of the window's spec.
+        func params(generation: UInt64) -> [String: any Sendable] {
+            var params: [String: any Sendable] = ["window": window, "gen": generation, "limit": max(1, limit), "topLevel": topLevel]
             if !exclude.isEmpty { params["exclude"] = exclude }
             if let keys { params["keys"] = keys }
             return params
@@ -44,51 +49,53 @@ public final class AcpmuxChatWindows {
     @MainActor @Observable
     public final class Window {
         public private(set) var rows: [AcpmuxChat] = []
-        /// More chats pass the window's filter past its rows.
-        public private(set) var hasMore = false
         /// The revision of the last message applied; 0 before the first.
         @ObservationIgnored public fileprivate(set) var revision: UInt64 = 0
 
-        fileprivate func set(rows: [AcpmuxChat], hasMore: Bool) {
+        fileprivate func set(rows: [AcpmuxChat]) {
             if self.rows != rows { self.rows = rows }
-            if self.hasMore != hasMore { self.hasMore = hasMore }
         }
     }
 
     /// One decoded `_acpmux/chats_window_changed` (decoded off the main actor).
     public nonisolated struct Update: Sendable, Equatable {
         public var window: String
+        /// The generation of the spec it answers; nil from a daemon that names none.
+        public var generation: UInt64?
         public var revision: UInt64
         /// Every row of the window; false: only the rows whose value changed.
         public var full: Bool
         public var keys: [String]
         public var rows: [String: AcpmuxChat]
-        public var hasMore: Bool
 
-        public init(window: String, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat], hasMore: Bool) {
+        public init(window: String, generation: UInt64? = nil, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat]) {
             self.window = window
+            self.generation = generation
             self.revision = revision
             self.full = full
             self.keys = keys
             self.rows = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
-            self.hasMore = hasMore
         }
 
         public init?(params: [String: Any]) {
             guard let window = params["window"] as? String, let revision = (params["revision"] as? NSNumber)?.uint64Value,
                   let keys = params["keys"] as? [String] else { return nil }
             let rows = (params["rows"] as? [[String: Any]] ?? []).compactMap(AcpmuxChat.init(json:))
-            self.init(window: window, revision: revision, full: params["full"] as? Bool ?? false, keys: keys, rows: rows,
-                      hasMore: params["hasMore"] as? Bool ?? false)
+            self.init(window: window, generation: (params["gen"] as? NSNumber)?.uint64Value, revision: revision,
+                      full: params["full"] as? Bool ?? false, keys: keys, rows: rows)
         }
     }
 
     /// Sends one request to acpmux (`method`, `params`); nil while there is no connection.
     private var send: (@MainActor (String, [String: any Sendable]) -> Void)?
     private var specs: [String: Spec] = [:]
+    /// Each window's generation: one more per spec the client opens or closes.
+    private var generations: [String: UInt64] = [:]
     private var models: [String: Window] = [:]
     /// Windows asked for again: their diffs are ignored until the full message comes.
     private var awaitingFull: Set<String> = []
+    /// Windows whose last request acpmux refused (busy): asked again at the next ``retryFailed()``.
+    private var failed: Set<String> = []
     /// The rows the last applied message installed (decoded values taken), for tests and the
     /// debug counters: one changed chat is one row.
     public private(set) var lastTouchedRows = 0
@@ -107,17 +114,21 @@ public final class AcpmuxChatWindows {
     public func open(_ spec: Spec) {
         guard specs[spec.window] != spec else { return }
         specs[spec.window] = spec
+        generations[spec.window, default: 0] += 1
         _ = window(spec.window)
         awaitingFull.remove(spec.window)
+        failed.remove(spec.window)
         ask(spec)
     }
 
     /// Closes window `id`: its rows empty.
     public func close(_ id: String) {
         guard specs.removeValue(forKey: id) != nil else { return }
+        generations[id, default: 0] += 1
         awaitingFull.remove(id)
-        models[id]?.set(rows: [], hasMore: false)
-        send?("_acpmux/chats_window_close", ["window": id])
+        failed.remove(id)
+        models[id]?.set(rows: [])
+        send?("_acpmux/chats_window_close", ["window": id, "gen": generations[id] ?? 0])
     }
 
     /// A connection to acpmux is up: every open window is asked again (a new daemon numbers its
@@ -136,13 +147,32 @@ public final class AcpmuxChatWindows {
     /// The connection dropped a notification (`_acpmux/lagged`): every window is asked again.
     public func resync() {
         awaitingFull = []
+        failed = []
         for spec in specs.values.sorted(by: { $0.window < $1.window }) { ask(spec) }
     }
 
-    /// Applies one window message: O(keys + changed rows). A diff that does not follow the last
-    /// revision, or names a row this window never got, asks for the window again.
+    /// acpmux answered window `id`'s request with an error: a busy daemon is asked again at the next
+    /// ``retryFailed()`` (the next index change or reconnect), never on a timer.
+    public func requestFailed(_ id: String) {
+        guard specs[id] != nil else { return }
+        awaitingFull.remove(id)
+        failed.insert(id)
+    }
+
+    /// Asks again for every window whose request failed (an index change: the daemon is serving).
+    public func retryFailed() {
+        guard !failed.isEmpty else { return }
+        let retry = failed
+        failed = []
+        for id in retry.sorted() { if let spec = specs[id] { ask(spec) } }
+    }
+
+    /// Applies one window message: O(keys + changed rows). A message for an older spec is dropped;
+    /// a diff that does not follow the last revision, or names a row this window never got, asks
+    /// for the window again.
     public func apply(_ update: Update) { // perf-hot: 1ms chats-window-diff (every chat index change a window shows)
         guard let spec = specs[update.window], let model = models[update.window] else { return }
+        if let generation = update.generation, generation != generations[update.window] { return }
         if update.full {
             awaitingFull.remove(update.window)
         } else {
@@ -162,12 +192,12 @@ public final class AcpmuxChatWindows {
         }
         model.revision = update.revision
         lastTouchedRows = update.rows.count
-        model.set(rows: rows, hasMore: update.hasMore)
+        model.set(rows: rows)
     }
 
     /// Asks for `spec`'s whole window, once until it comes.
     private func ask(_ spec: Spec) {
         guard let send, awaitingFull.insert(spec.window).inserted else { return }
-        send("_acpmux/chats_window", spec.params)
+        send("_acpmux/chats_window", spec.params(generation: generations[spec.window] ?? 0))
     }
 }
