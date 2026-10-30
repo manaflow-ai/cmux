@@ -448,16 +448,22 @@ def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = N
     queue_janitor.label_started(); a label it does not list started nothing among the in-flight runs).
 
     The stall rule alone cannot tell a dead label from a busy one: both have a job waiting past
-    BLACKSMITH_STALL_MINUTES. A snapshot without `label_started` (an older janitor), an undated one or one older
-    than BLACKSMITH_DEAD_EVIDENCE_MINUTES by `now` (a datetime; the wall clock when None) proves nothing. An idle
-    healthy label looks dead too: callers prefer a label that shows life and fall back to their own order when
-    none does, so the only cost is not choosing a label with no evidence for it."""
+    BLACKSMITH_STALL_MINUTES. A snapshot without `label_started` (an older janitor), a truncated one (its listing
+    missed in-flight runs, so it can miss a running job or a start: any `truncated` but false, as
+    pr_runner_pool.snapshot_truncated() reads it), an undated one or one older than BLACKSMITH_DEAD_EVIDENCE_MINUTES
+    by `now` (a datetime; the wall clock when None) proves nothing. A complete listing still carries `unread_runs`
+    (runs whose jobs could not be read, nearly every sweep), which may hide a start too; that is accepted, since a
+    wrong call only sends the job to a label that showed life. An idle healthy label looks dead too: callers
+    prefer a label that shows life and fall back to their own order when none does, so the only cost is not
+    choosing a label with no evidence for it."""
     import datetime as dt
 
     if not isinstance(snapshot, Mapping):
         return False
     pools, starts = snapshot.get("pools"), snapshot.get("label_started")
     if not isinstance(pools, Mapping) or not isinstance(starts, Mapping):
+        return False
+    if "truncated" in snapshot and snapshot.get("truncated") is not False:
         return False
 
     def moment(value: Any) -> dt.datetime | None:

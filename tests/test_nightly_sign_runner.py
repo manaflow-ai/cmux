@@ -268,6 +268,12 @@ class DeadLabel(unittest.TestCase):
         self.assertEqual(label, LARGE, why)
         self.assertEqual(picker.alternate(SMALL, LARGE, snap, NOW), LARGE)
 
+    def test_a_truncated_snapshot_proves_no_label_dead(self) -> None:
+        # Its listing missed in-flight runs, so it can miss a running job or a start on the label.
+        snap = dict(observed(age_minutes=38), truncated=True)
+        self.assertEqual(picker.dead(snap, NOW), set())
+        self.assertEqual(picker.place(LARGE, snap, NOW, 1)[:2], (SMALL, LARGE))
+
     def test_no_label_showing_life_or_an_older_janitor_changes_nothing(self) -> None:
         both = observed(**{SMALL: {"running": 0}})
         both["label_started"] = {}
