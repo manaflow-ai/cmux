@@ -30,6 +30,9 @@ public struct ProcessRunner {
         progressIdle: Duration? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
+        // A caller cancelled before the child starts gets no child (its `onCancel` runs at once,
+        // before anything launched).
+        try Task.checkCancellation()
         let stdoutFile = try TempOutput()
         let stderrFile = try TempOutput()
         let process = Process()
@@ -130,11 +133,13 @@ final class ProcessBox: @unchecked Sendable {
     }
 
     /// SIGKILL to this child only, and only while it runs: never before launch
-    /// (pid 0 would be our own process group) and never after exit (the pid
-    /// may belong to another process by then).
+    /// (`processIdentifier` of a process that has not launched raises, and a pid of 0
+    /// would be our own process group) and never after exit (the pid may belong to
+    /// another process by then).
     func kill() {
+        guard process.isRunning else { return }
         let pid = process.processIdentifier
-        guard pid > 0, process.isRunning else { return }
+        guard pid > 0 else { return }
         signal(pid, SIGKILL)
     }
 }
