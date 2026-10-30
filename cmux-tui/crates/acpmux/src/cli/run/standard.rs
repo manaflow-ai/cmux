@@ -251,7 +251,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 json!({})
             };
             if with_tools {
-                params["withTools"] = json!(true);
+                params.set("withTools", json!(true));
             }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
             if status.is_some() || pending || tag.is_some() || selected {
@@ -343,8 +343,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             );
             for s in sessions {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                let mut status =
-                    s["state"].as_str().map(str::to_owned).unwrap_or_else(|| g("status"));
+                let mut status = s
+                    .get("state")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| g("status"));
                 if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
                     status = "waiting!".into();
                 }

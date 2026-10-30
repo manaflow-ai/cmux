@@ -46,7 +46,7 @@ impl Mux {
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
         // A completed tool call resumes only a blocked agent, so the roster's state decides it.
         let current =
-            self.agent_records.lock().unwrap().get(&terminal_id).map(|record| record.state);
+            self.agent_records.lock().recover_poison().get(&terminal_id).map(|record| record.state);
         let Some(state) = hook_roster_state(&ingress.kind, native_event, current) else {
             return Ok(());
         };

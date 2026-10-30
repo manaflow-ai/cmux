@@ -153,7 +153,7 @@ impl PromptId {
             mux.set("supersede", json!(key));
         }
         if let Some(class) = &self.class {
-            mux["class"] = json!(class);
+            mux.set("class", json!(class));
         }
         if let Some(host) = &self.cli_host {
             mux.set("cliHost", json!(host));

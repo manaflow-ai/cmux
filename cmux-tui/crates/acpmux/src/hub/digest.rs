@@ -148,7 +148,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(class) = part.run.class {
-                m["class"] = json!(class);
+                m.set("class", json!(class));
             }
             if let Some(p) = &part.run.provenance {
                 m.set("provenance", p.clone());

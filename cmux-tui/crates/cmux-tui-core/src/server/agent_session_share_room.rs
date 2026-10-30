@@ -12,6 +12,7 @@
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
+use cmux_json::JsonSet as _;
 use cmux_threads::sync::Mutex;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
@@ -256,7 +257,10 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
     let url = format!("{}/v1/chat-shares/{share_id}", room.url);
     let reply = call(reqwest::Method::PUT, &url, token, Some(body), room.timing.request).await;
     match reply {
-        Some((200..=299, body)) => match (body["host_token"].as_str(), body["url_base"].as_str()) {
+        Some((200..=299, body)) => match (
+            body.get("host_token").and_then(Value::as_str),
+            body.get("url_base").and_then(Value::as_str),
+        ) {
             (Some(token), Some(base)) if !token.is_empty() && valid_url_base(room, base) => {
                 Put::Done { host_token: token.into(), url_base: base.into() }
             }
@@ -309,7 +313,7 @@ pub(super) fn provision(
     room: Room,
     token: Zeroizing<String>,
 ) -> Result<Value, &'static str> {
-    let share_id = created["share_id"].as_str().unwrap_or_default().to_owned();
+    let share_id = created.get("share_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let body = view(mux, &share_id).ok_or("share.unknown")?.body;
     let Some(runtime) = shares(mux).bridge.runtime() else {
         abandon(mux, &share_id, false);
@@ -321,9 +325,10 @@ pub(super) fn provision(
                 delete(mux, &share_id, Some(Held::Host(room.url, Zeroizing::new(host_token))));
                 return Err(code);
             }
-            let secret = created["secret"].as_str().unwrap_or_default().to_owned();
-            created["url"] = json!(format!("{url_base}#{secret}"));
-            created["room"] = json!(room.url);
+            let secret =
+                created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
+            created.set("url", json!(format!("{url_base}#{secret}")));
+            created.set("room", json!(room.url));
             Ok(created)
         }
         Put::Refused(code) => {
