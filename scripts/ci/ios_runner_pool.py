@@ -538,8 +538,6 @@ def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
     kit_run = str(run.get("path") or "").split("@", 1)[0].endswith("/cmux-next-ios-kit.yml")
     if screenshots_run(run) or kit_run:
-        if kit_run and placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
-            return 0
         return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
     title = str(run.get("display_title") or "")
     fields = title.split(TITLE_SEPARATOR)
