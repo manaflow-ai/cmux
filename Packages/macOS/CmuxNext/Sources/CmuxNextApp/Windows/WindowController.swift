@@ -340,6 +340,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
         services.canvasContextDidChange()
+        BackdropImageStore.shared.desktop.windowDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -365,7 +366,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         guard window?.inLiveResize != true else { return }
         services.windows.recordSaver.geometryDidChange(state)
     }
-    func windowDidChangeScreen(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidChangeScreen(_ notification: Notification) {
+        services.windows.recordSaver.geometryDidChange(state)
+        BackdropImageStore.shared.desktop.windowDidChange()
+    }
+    /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now.
+    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange() }
 
     var sidebarObservation: Task<Void, Never>?
 

@@ -13,7 +13,7 @@ import Testing
         var now = UpdateRelaunchMoment()
     }
 
-    /// Lets the main-actor re-checks the posted notifications started run.
+    /// Lets main-actor work that is ready run.
     private func settle() async {
         for _ in 0..<200 { await Task.yield() }
     }
@@ -28,33 +28,34 @@ import Testing
 
     @Test func aClearMomentInstallsAtOnce() {
         let moment = Moment()
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: NotificationCenter(), clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: ManualClock())
         var installs = 0
         #expect(!hold.hold { installs += 1 })
         #expect(!hold.isHolding)
         #expect(installs == 0) // the caller installs
     }
 
-    @Test func aSheetHoldsUntilItEnds() async {
-        let center = NotificationCenter()
+    @Test func aSheetHoldsUntilItEnds() async throws {
+        let clock = ManualClock()
         let moment = Moment()
         moment.now.sheet = true
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: clock)
         var installs = 0
         #expect(hold.hold { installs += 1 })
 
-        center.post(name: NSApplication.didUpdateNotification, object: nil)
-        await settle()
+        try await clock.waitForSleeper()
+        clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
+        try await clock.waitForSleeper() // the sheet is still up: it looks again a second later
         #expect(installs == 0)
 
         moment.now.sheet = false
-        center.post(name: NSWindow.didEndSheetNotification, object: nil)
-        await settle()
+        clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
+        for _ in 0..<1_000 where installs == 0 { await Task.yield() }
         #expect(installs == 1)
         #expect(!hold.isHolding)
 
-        // Its observers are gone: a later event installs nothing again.
-        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        // Its timer is gone: a later recheck installs nothing again.
+        hold.recheck()
         await settle()
         #expect(installs == 1)
     }
@@ -88,7 +89,7 @@ import Testing
         let clock = ManualClock()
         let moment = Moment()
         moment.now.composing = true
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: NotificationCenter(), clock: clock)
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: clock)
         var installs = 0
         #expect(hold.hold { installs += 1 })
 
@@ -104,39 +105,39 @@ import Testing
         #expect(!hold.isHolding)
     }
 
-    @Test func aMenuOrModalHoldsThroughEventsAndCancelRunsNothing() async {
-        let center = NotificationCenter()
+    @Test func aMenuOrModalHoldsThroughRechecksAndCancelRunsNothing() async throws {
+        let clock = ManualClock()
         let moment = Moment()
         moment.now.tracking = true
         moment.now.modal = true
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: clock)
         var installs = 0
         #expect(hold.hold { installs += 1 })
 
         moment.now.tracking = false
-        center.post(name: NSMenu.didEndTrackingNotification, object: nil)
-        await settle()
+        try await clock.waitForSleeper()
+        clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
+        try await clock.waitForSleeper()
         #expect(installs == 0) // the modal still holds
 
         hold.cancel()
         moment.now.modal = false
-        center.post(name: NSApplication.didUpdateNotification, object: nil)
+        clock.advance(by: UpdateRelaunchMomentHold.recheckInterval)
+        hold.recheck()
         await settle()
         #expect(installs == 0)
     }
 
-    @Test func aNewerHoldReplacesTheOlder() async {
-        let center = NotificationCenter()
+    @Test func aNewerHoldReplacesTheOlder() {
         let moment = Moment()
         moment.now.sheet = true
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: ManualClock())
         var first = 0, second = 0
         #expect(hold.hold { first += 1 })
         #expect(hold.hold { second += 1 })
 
         moment.now.sheet = false
-        center.post(name: NSWindow.didEndSheetNotification, object: nil)
-        await settle()
+        hold.recheck()
         #expect(first == 0)
         #expect(second == 1)
     }
@@ -159,9 +160,8 @@ import Testing
 
     /// The self-quit (UpdateRelaunchBehind) waits for the moment too: the quit ends every sheet.
     @Test func theSelfQuitWaitsUntilTheSheetEnds() async {
-        let center = NotificationCenter()
         let moment = Moment()
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: ManualClock())
         #expect(await hold.waitUntilClear()) // nothing up: at once
 
         moment.now.sheet = true
@@ -170,7 +170,7 @@ import Testing
         await settle()
         #expect(answer == nil)
         moment.now.sheet = false
-        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        hold.recheck()
         await waiting.value
         #expect(answer == true)
     }
@@ -178,7 +178,7 @@ import Testing
     @Test func aDroppedSelfQuitWaitAnswersNo() async {
         let moment = Moment()
         moment.now.composing = true
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: NotificationCenter(), clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: ManualClock())
         var answer: Bool?
         let waiting = Task { @MainActor in answer = await hold.waitUntilClear() }
         await settle()
@@ -189,10 +189,9 @@ import Testing
 
     /// A sheet that comes up again before the waiting quit resumes keeps it waiting.
     @Test func theSelfQuitChecksAgainWhenItResumes() async {
-        let center = NotificationCenter()
         let moment = Moment()
         moment.now.sheet = true
-        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, center: center, clock: ManualClock())
+        let hold = UpdateRelaunchMomentHold(moment: { moment.now }, clock: ManualClock())
         var answer: Bool?
         let waiting = Task { @MainActor in answer = await hold.waitUntilClear() }
         await settle()
@@ -203,7 +202,7 @@ import Testing
         #expect(answer == nil)
         #expect(hold.isHolding)
         moment.now.sheet = false
-        center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        hold.recheck()
         await waiting.value
         #expect(answer == true)
     }
