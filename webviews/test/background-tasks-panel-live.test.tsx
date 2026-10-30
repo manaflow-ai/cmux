@@ -94,3 +94,41 @@ test("a transcript opened before its rows arrive mounts one window of them", asy
   await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running />));
   expect(container.querySelectorAll("[data-row-id]").length).toBe(WINDOW);
 });
+
+test("a transcript that follows its newest row keeps its mounted rows bounded as rows stream in", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(60)} running />));
+  await act(async () => root!.render(<SubagentTranscript rows={rows(400)} running />));
+  expect(container.querySelectorAll("[data-row-id]").length).toBeLessThanOrEqual(2 * WINDOW);
+});
+
+test("a finished command with no known end shows no time that keeps counting", async () => {
+  const container = installDom();
+  const group: BackgroundGroup = {
+    id: "commands",
+    kind: "commands",
+    name: "This chat",
+    state: "done",
+    startedAt: 1_000,
+    running: [],
+    finished: [{ id: "c", kind: "command", title: "bun test", state: "done", startedAt: 1_000 }],
+    total: 1,
+    failed: 0,
+  };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <BackgroundTasksPanel
+        groups={[group]}
+        look="flat"
+        onClearFinished={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    ),
+  );
+  const times = [...container.querySelectorAll(".acpmux-bg__time")].map((node) => node.textContent ?? "");
+  expect(times.length).toBeGreaterThan(0);
+  expect(times.every((text) => text === "")).toBe(true);
+});

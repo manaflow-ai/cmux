@@ -244,8 +244,12 @@ function PanelFrame({
   );
 }
 
-const time = (from: number | undefined, to: number | undefined, now: number) =>
-  from === undefined ? undefined : formatDuration(Math.max(0, (to ?? now) - from));
+/// Elapsed while it runs; once ended, its duration, or nothing when its end time is unknown (a
+/// command known only from the transcript), never a time that keeps counting.
+const time = (from: number | undefined, to: number | undefined, now: number, running: boolean) =>
+  from === undefined || (!running && to === undefined)
+    ? undefined
+    : formatDuration(Math.max(0, (running ? now : to!) - from));
 
 function GroupBlock({
   group,
@@ -294,7 +298,7 @@ function GroupBlock({
             {counts}
           </button>
         )}
-        <span className="acpmux-bg__time">{time(group.startedAt, live ? undefined : group.endedAt, now)}</span>
+        <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
       {look === "nested" && group.total > 0 && (
@@ -417,7 +421,7 @@ function TaskRow({
         )}
         <span className="acpmux-bg__label">{task.title}</span>
       </button>
-      <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now)}</span>
+      <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );

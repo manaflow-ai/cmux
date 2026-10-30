@@ -92,6 +92,13 @@ export function SubagentTranscript({
     if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
   });
 
+  // Following the newest row, the mounted rows stay bounded: once a window's worth has streamed in
+  // under the reader, the rows above the newest window unmount (the top sentinel brings them back).
+  useLayoutEffect(() => {
+    if (atBottom.current && range.end === undefined && rows.length - range.start > 2 * WINDOW)
+      setRange({ start: rows.length - WINDOW });
+  }, [rows.length, range]);
+
   // Scrolling up to the top sentinel mounts the window before it, holding the scroll; scrolling
   // down to the bottom one (a window around an anchor) mounts the window after it, and the one
   // that reaches the newest row follows it from then on.
