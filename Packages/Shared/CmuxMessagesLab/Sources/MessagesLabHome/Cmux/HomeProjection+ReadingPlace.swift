@@ -26,12 +26,24 @@ extension HomeProjection {
         placesOnOpen = false
         guard pendingReveal == nil else { return }
         if let anchor = homeStore.scrollAnchor(for: conversation),
-           let item = shown.last(where: { $0.messageID == anchor.message }),
-           demo.show(message: HomeMapping.id(item, aliases: aliases), offset: CGFloat(anchor.offset), in: controller.host.scrollView) {
-            return
+           let item = shown.last(where: { $0.messageID == anchor.message }) {
+            let place = (message: HomeMapping.id(item, aliases: aliases), offset: CGFloat(anchor.offset))
+            if demo.show(message: place.message, offset: place.offset, in: controller.host.scrollView) {
+                // A view opened at zero size laid its rows out at another width: estimates until measured.
+                if demo.hasEstimatedRows { openedPlace = place }
+                return
+            }
         }
         // The newest message, whatever the open's layout passes did to the offset on the way here.
         demo.pinToBottom()
         controller.host.scrollView.syncFromModel()
+    }
+
+    /// The width's measure replaced estimated rows; it keeps the first visible row in place, which
+    /// moves the message the view opened at by the rows' error in between: it goes back to its place.
+    func placeAgainAfterMeasure() {
+        guard let place = openedPlace, !stopped, let demo = controller.demo else { return }
+        demo.show(message: place.message, offset: place.offset, in: controller.host.scrollView)  // scrolled() clears it
+        openedPlace = demo.hasEstimatedRows ? place : nil
     }
 }

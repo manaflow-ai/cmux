@@ -33,6 +33,9 @@ extension MessagesWindowView {
         return true
     }
 
+    /// Some rows still carry estimated heights (a width change's measure is coming).
+    var hasEstimatedRows: Bool { model.rows.contains { $0.spec.estimated } }
+
     private func rowBottom(_ i: Int) -> CGFloat {
         layout.contentTop(i) + (model.rows[checked: i]?.spec.height ?? 0) // checked
     }

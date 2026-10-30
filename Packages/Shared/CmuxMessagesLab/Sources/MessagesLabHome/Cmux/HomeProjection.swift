@@ -112,6 +112,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The view has not been placed yet: it opens at the place the last view of this chat kept, or at
     /// the newest message (HomeProjection+ReadingPlace.swift, #27627).
     var placesOnOpen = true
+    /// The kept place the view opened at, while rows above it are still estimated: each off-main
+    /// measure moves them, so the place is shown again until the rows are exact or the person scrolls.
+    var openedPlace: (message: ID, offset: CGFloat)?
     /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
@@ -274,6 +277,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
         controller.host.onLaidOut = { [weak self] in self?.placeOnOpen() }
+        controller.demo?.onWindowMeasured = { [weak self] in self?.placeAgainAfterMeasure() }
         installThreadHeader()
         if let previews = linkPreviews?.previews {
             // A historical outgoing card on screen may receive a late answer from the guarded
@@ -826,6 +830,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func scrolled() {
+        openedPlace = nil
         video.place()
         if let previews = linkPreviews?.previews {
             // My link cards that scrolled in with no title (also from HomeStore): a cached title,
