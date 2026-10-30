@@ -166,6 +166,23 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.controller(for: owner)?.state.workspaceID == "ws-eph2", "the incognito window does not show it")
     }
 
+    /// Review finding: a machine opened through its ephemeral workspace (an incognito window) does not
+    /// file its normal workspaces into that incognito window, where closing it would discard them.
+    @Test func aMachineOpenedThroughItsEphemeralWorkspaceKeepsItsNormalOnesOutOfIncognito() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-mixed", workspaces: ["ws-mixed-eph", "ws-mixed-normal"])
+        try #require(session.daemon.store.workspace(id: "ws-mixed-eph")).applyState(ephemeral: true)
+        services.windows.reconcileMembership()
+
+        services.windows.reveal(workspaceID: "ws-mixed-eph")
+
+        let registry = services.windows.registry.value
+        let ephemeral = try #require(registry.owner(of: "ws-mixed-eph"))
+        let normal = try #require(registry.owner(of: "ws-mixed-normal"), "the machine's normal workspace stayed out")
+        #expect(registry.isIncognito(ephemeral) && !registry.isIncognito(normal))
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
