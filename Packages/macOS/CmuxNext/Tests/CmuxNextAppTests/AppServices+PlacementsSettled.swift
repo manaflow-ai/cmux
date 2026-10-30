@@ -37,7 +37,8 @@ extension AppServices {
             while !done(), clock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
         }
         await wait { personalPlacements.isIdle }
-        await wait { document?.isSettled ?? true }
+        // The document's own completion signal (each reply resumes it), not a poll; the suites' time limits guard a hang.
+        await document?.settled()
         // Taken after the replies: every echo and write-back event of the changes above is before it.
         if let barrier = await daemon.connection?.eventSequence() {
             await wait { daemon.store.appliedSequence >= barrier }

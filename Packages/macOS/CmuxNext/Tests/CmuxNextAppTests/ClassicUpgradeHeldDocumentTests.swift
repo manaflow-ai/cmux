@@ -1,29 +1,29 @@
 @testable import CmuxNextApp
-import CmuxNextSidebar
+@testable import CmuxNextSidebar
 import Foundation
 import Testing
 
 /// The forced-order red for #28425: a classic import's slot moves go to the sidebar document
 /// (`sidebar.apply`), and on a loaded runner their replies trail the run. Here every document change
-/// and adopt sent in the first seconds is held before it reaches the daemon, longer than any quiet
-/// window, as a slow one is there. The check must read the tree only once those moves have landed:
-/// a settle that took a quiet tree for a done one read it while they were still held.
+/// and adopt is held before it reaches the daemon, with no clock: a held one goes on only once someone
+/// waits for the document to settle (`SidebarDocStore.settled()`), which is what the import's group
+/// write and the check's read must do. A read that does not wait finds the moves still held.
 @MainActor @Suite(.serialized, .ownsSidebarDocStore, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeHeldDocumentTests {
-    /// Holds each change and adopt before it is sent, from its first one until `hold` later, then sends
-    /// them all in order and lets later ones through.
+    /// Holds each change and adopt before it is sent, until ``release()``; one sent while someone waits
+    /// in `settled()` (`waiting`) goes on at once.
     @MainActor final class HeldRemote: SidebarDocRemote {
         private let inner: any SidebarDocRemote
-        private let hold: Duration
-        private var waiting: [CheckedContinuation<Void, Never>] = []
-        private var released = false
-        private var timer: Task<Void, Never>?
-        /// Changes and adopts that were held.
-        private(set) var held = 0
+        private var held: [CheckedContinuation<Void, Never>] = []
+        /// Whether someone waits for the document to settle now.
+        var waiting: () -> Bool = { false }
+        /// Changes and adopts that were held at some point.
+        private(set) var everHeld = 0
+        /// Changes and adopts held now.
+        var holding: Int { held.count }
 
-        init(_ inner: any SidebarDocRemote, hold: Duration) {
+        init(_ inner: any SidebarDocRemote) {
             self.inner = inner
-            self.hold = hold
         }
 
         var isAvailable: Bool { inner.isAvailable }
@@ -49,25 +49,17 @@ struct ClassicUpgradeHeldDocumentTests {
             return try await inner.apply(ops: ops, key: key)
         }
 
-        private func gate() async {
-            guard !released else { return }
-            held += 1
-            // A fixture: the slow reply a loaded runner gives, longer than any quiet window. The code under test
-            // must wait for the reply itself, whatever this is.
-            if timer == nil {
-                timer = Task { @MainActor [hold] in
-                    try? await Task.sleep(for: hold)
-                    self.release()
-                }
-            }
-            await withCheckedContinuation { waiting.append($0) }
+        /// Sends every held change on, in the order they came.
+        func release() {
+            let waiting = held
+            held = []
+            for change in waiting { change.resume() }
         }
 
-        private func release() {
-            released = true
-            let held = waiting
-            waiting = []
-            for change in held { change.resume() }
+        private func gate() async {
+            guard !waiting() else { return }
+            everHeld += 1
+            await withCheckedContinuation { held.append($0) }
         }
     }
 
@@ -76,20 +68,27 @@ struct ClassicUpgradeHeldDocumentTests {
         let mac = try ClassicUpgradeSimulator.Mac()
         try mac.save(profile)
         let before = try mac.classicDigest()
-        var remote: HeldRemote?
+        var made: HeldRemote?
         let sim = try ClassicUpgradeSimulator(mac: mac) { inner in
-            let held = HeldRemote(inner, hold: .seconds(4))
-            remote = held
+            let held = HeldRemote(inner)
+            made = held
             return held
         }
-        let held = try #require(remote, "the simulation did not make its sidebar document")
+        let remote = try #require(made, "the simulation did not make its sidebar document")
+        let document = try #require(SidebarDocStore.current)
+        // Someone waits for the document: what is held goes on, and what comes meanwhile is not held.
+        remote.waiting = { [weak document] in document?.waitsForSettled ?? false }
+        document.onSettledWait = { [weak remote] in remote?.release() }
         let launch = await sim.launch()
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         await sim.settle()
-        // The run placed its workspaces through the document, and the check read only after those moves landed.
-        #expect(held.held > 0, "no document change was held: the run did not place through the sidebar document")
-        #expect(SidebarDocStore.current?.isSettled == true, "settle() returned while sidebar document changes were still held")
-        try sim.verify(profile, classicBefore: before)
+        // Read in the turn settle() returned in: nothing may still be held or unanswered.
+        let stillHeld = remote.holding, settled = document.isSettled
+        remote.release()
+        #expect(remote.everHeld > 0, "no document change was held: the run did not place through the sidebar document")
+        #expect(stillHeld == 0 && settled, "settle() returned with \(stillHeld) sidebar document changes still held (settled: \(settled))")
+        if stillHeld == 0 { try sim.verify(profile, classicBefore: before) }
+        document.onSettledWait = nil
         await sim.shutdown()
     }
 }

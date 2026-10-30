@@ -69,6 +69,8 @@ public final class SidebarDocStore {
     /// Changes and adopts sent and not answered yet, and who waits for none (``settled()``).
     @ObservationIgnored var inFlight = 0
     @ObservationIgnored var settledWaiters: [CheckedContinuation<Void, Never>] = []
+    /// Runs when someone starts to wait in ``settled()`` (a test seam; the app sets none).
+    @ObservationIgnored var onSettledWait: (@MainActor () -> Void)?
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
     /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).

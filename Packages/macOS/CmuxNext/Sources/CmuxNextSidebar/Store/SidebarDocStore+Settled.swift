@@ -12,8 +12,16 @@ extension SidebarDocStore {
     /// A classic import waits here so a workspace's group write comes after its slot move: a slot
     /// move landing after it would take the workspace out of its group again (#28425).
     public func settled() async {
-        while !isSettled { await withCheckedContinuation { settledWaiters.append($0) } }
+        while !isSettled {
+            await withCheckedContinuation { waiter in
+                settledWaiters.append(waiter)
+                onSettledWait?()
+            }
+        }
     }
+
+    /// Someone waits in ``settled()`` (a test seam: a live-daemon test releases the replies it holds).
+    var waitsForSettled: Bool { !settledWaiters.isEmpty }
 
     /// One change or adopt got its reply (or was given up).
     func answered() {
