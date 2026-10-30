@@ -166,3 +166,31 @@ test("a refresh keeps the tree on screen and the chosen file open", async () => 
   expect(seen).not.toContain("loading");
   expect(store.getSnapshot().selected).toBe("notes/launch.md");
 });
+
+test("a revision's change keeps three lines of context and splits distant edits", async () => {
+  const { lineHunks } = await import("../src/pages/artifacts/lineDiff");
+  const before = Array.from({ length: 20 }, (_, n) => `line ${n}`).join("\n");
+  const after = before.replace("line 2", "line two").replace("line 17", "line seventeen");
+  const hunks = lineHunks(before, after);
+  expect(hunks).toHaveLength(2);
+  expect(hunks[0]!.map((line) => line.type)).toEqual([
+    "context",
+    "context",
+    "del",
+    "add",
+    "context",
+    "context",
+    "context",
+  ]);
+  expect(hunks[1]!.filter((line) => line.type !== "context").map((line) => line.text)).toEqual([
+    "line 17",
+    "line seventeen",
+  ]);
+  expect(lineHunks("same\n", "same\n")).toEqual([]);
+  expect(lineHunks("", "a\nb\n")).toEqual([
+    [
+      { type: "add", text: "a" },
+      { type: "add", text: "b" },
+    ],
+  ]);
+});

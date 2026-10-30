@@ -3,10 +3,10 @@
 // sandboxed srcdoc, as the agent pane's passive artifacts do, so a saved document can never reach
 // the page, its bridge or the network. Choosing a revision shows its change against its parent.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { diffHunks, diffLines } from "../../agent-session/acpmux/diff";
 import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
 import { FileIcon } from "../../file-icons";
 import { Tree, type TreeLine } from "../../ui/Tree";
+import { lineHunks } from "./lineDiff";
 import type { Strings } from "../shared/i18n";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
 import type { ArtifactCommit, ArtifactFile } from "./types";
@@ -234,13 +234,13 @@ function History({
 
 /** The revision's change to the file, as unified lines with a little context. */
 function Change({ before, after, strings }: { before?: string; after: string; strings: Strings }) {
-  const hunks = useMemo(() => diffHunks(diffLines(before ?? "", after)), [before, after]);
+  const hunks = useMemo(() => lineHunks(before ?? "", after), [before, after]);
   if (hunks.length === 0) return <p className="artifacts-note">{strings.t("artifacts.history.unchanged")}</p>;
   return (
     <div className="artifacts-diff">
       {hunks.map((hunk, index) => (
         <div key={index} className="artifacts-hunk">
-          {hunk.lines.map((line, row) => (
+          {hunk.map((line, row) => (
             <div key={row} className={`artifacts-line is-${line.type}`}>
               <span className="artifacts-sign" aria-hidden="true">
                 {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
