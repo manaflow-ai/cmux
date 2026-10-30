@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
+  pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
+  tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
+  tile keeps its active fill. Nothing else about the tiles changes. Regression: `SidebarShiftClickPinnedTests`.
+
 - 2026-10-29: the tab tuck and additive geometry springs hold their starting values until their
   explicit begin times. Display-rate frames at nightly source `316bd521` showed an initial flash;
   opacity-only backwards fill exposed the destination frame, so geometry needs the same fill.
@@ -13,6 +18,14 @@ the row close (X), unread dots, densities, drag and reorder, the Home/pinned ban
 performance.
 
 ## Rule for every sidebar change
+
+### Group editor opening (2026-10-28)
+
+Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
+The sidebar and tab group editors now restore their full card before ordering it front, including
+when reopened during a closing fade. The existing closing fade, group palette, layout and controls
+remain the reference. Regression: `GroupEditorInstantOpenTests` exercises both editors with and
+without Reduce Motion. This replaces only the entrance motion introduced by #19040.
 
 Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
 
@@ -226,6 +239,7 @@ the gap, no row left out of place after drop or cancel).
 | #23800 row gaps (b4ea25bd03e red, 5ca9bed6440 fix, cbbada1846e drop gap under a block) | One row spacing after groups, folders, the Pinned block and pinned chats; the pin placed by its ink at the rows' content x. `Sidebar-Look: ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND AFTER PINS` (Leo 2026-10-21). Look change: row gaps only; rail, indent, heights and trailing column unchanged (SidebarUniformRowSpacingTests). |
 | spaces-overhaul (a-spaces-overhaul branch: pinned per space red then fix, dot tear-off red then fix) | Spaces overhaul (Lawrence 14223, plans/cmux-next/spaces-overhaul-DESIGN.md). The band draws a workspace item only while the window's space shows that workspace (`SidebarRows.bandHides`): a pin of another space no longer draws, so a click on a pinned row never switches the space (Austin's bug). A space dot dragged out of the window opens the space in a new window (`SidebarIntent.openProfileInNewWindow`); a drop on the footer band still reorders. No visual change; `SectionFlow.swift` untouched. |
 | [350b65e877c](https://github.com/manaflow-ai/cmux/commit/350b65e877c07b91538361f5177b97e486e49d59) | #24295 menu metrics, committed without a `Sidebar-Look:` trailer. Reviewed: its only sidebar change is `SidebarFooterBand.showProfileMenu`, which now themes the profile menu's rows on the menu grid (`themeRows(in:)`) as the sidebar's other menus are (Leo 2026-10-21: "left alignment on the profile settings dropdown/pop i think is similar"). The menu is the only thing drawn differently; the sidebar list, footer, rows and rails do not change. `MenuGridTests`. |
+| Chief drag out (from #23933) | The Chief dragged past the sidebar's side dims its card (the refused look) and its release out there takes it off (`removesOnDragOut`), from the list, a tile or the older band; a just-added Chief draws, moves and comes off before the daemon's echo. No row, rail or indent change. |
 
 ## Every sidebar package commit, Oct 19-23
 
@@ -490,6 +504,7 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-24: Codex follow-up restores Chrome's plain two-point rail: a six-point header gap and quarter-rounds only on the right corners at both ends, with the left edge square.
 - 2026-10-24: Codex #24962 restores colored dots for named spaces in `ProfileBarView`; the fallback initials from `08d10063080d` are removed per Leo's "turn these back into dots" request, while explicit icons, selection, per-space color and `+` remain.
 - 2026-10-24: `56206f8a2e4` (Lawrence msg 1334, "cloud workspaces in one group, maybe nested"): New Cloud Workspace and a new Cloud machine mark that machine's section a remote group (`SidebarDocStore.markHostGroup`), so its workspaces draw under one header and nested groups go inside. No look change: the remote-group header look is as a283 made it.
+- 2026-10-25: Adoption of held #24374 preserves Leo's 2026-10-22 request, "sidebar i know it also pushes all the workspaces below down pretty hard so when you create a workspace at the top it's a huge cascade...": keep the existing nudge/quick/snap/spring insert prototypes for the D dogfood build. Nudge remains the PR's recommendation; no merge or final design selection is implied. Current group-line tunables stay registered.
 - 2026-10-26: hotswap-opus (claude-sr2 relaying Leo, "maybe better as an opt in for normal users"): the titlebar row gains the quiet Update Available button (row above). Rows, rail and footer unchanged.
 - 2026-10-26: hotswap-opus: the Update Available button hides during the person's own check (the card shows it) and leaves a too-narrow row when Priority is off.
 - 2026-10-26: hotswap-opus: the Update Available button takes the bell's slot only when the bell clears the titlebar's leading reserve.
@@ -533,6 +548,24 @@ existing colors, glass, row geometry and drag behavior.
 
 - Lawrence 2026-10-28 ("home and pinned are not aligned", screenshot). Before: Home's glyph drew centered in its 20 pt box (ink about 3 pt right of the inset), a pin's ink at the inset, and band labels at box end + 8 pt while pinned titles sat at pin end + 4 pt and workspace titles after an icon at `titleTextX`. Now a bare band glyph starts its ink at the inset (as the pin does), and Home's label, pinned titles and pinned group names use `SidebarStyle.leadingTextX`, the column workspace rows with an icon already used. Wells, tiles, chips and rail buttons are unchanged. Test: `HomePinnedRowAlignmentTests` (every density, Minimal Mode, 200 and 260 pt).
 
+## Disclosed workspace tab hierarchy (2026-10-29)
+
+- Aziz: “This workspace tabs disclosure is annoying, can't make out workspace from non-workspace easily.”
+  Disclosed tab titles now sit 16 pt inside their workspace title column (`SidebarStyle.tabChildIndent`,
+  `Metrics.space6`) and use the existing caption scale. Plain tabs use secondary ink; focused, selected and
+  unread tabs keep primary ink and the existing focused fill. Disclosure, row frames, group rails, motion,
+  trailing columns and defaults stay unchanged. `SidebarWorkspaceTabHierarchyTests` covers ungrouped,
+  grouped and nested parents, favicon and plain tabs, every density, Minimal Mode, narrow widths and reuse.
+- 2026-10-29: the hierarchy gallery redraws production rows before applying each fixture-only variant, then redraws only the affected tab labels so the indentation-only primary-ink comparison remains faithful.
+
+- 2026-10-29: disclosed tab titles use `Metrics.space6` (16 pt) from the workspace title column so the hierarchy is visible at a glance.
+- 2026-10-29: disclosed tab positions resolve the rendered parent workspace title column, including custom icon or mark offsets; the typography-only gallery rewinds the full production indent.
+- 2026-10-29: parent layout is realized before child tab frames are resolved so icon-aware workspace title columns remain stable on first draw.
+- 2026-10-29: parent title-column changes invalidate disclosed child rows, including late parent realization, so the 16 pt hierarchy anchor never goes stale.
+- 2026-10-29: virtualized children derive the 16 pt anchor from the rendered parent or its model row, and reuse resets the cached parent frame.
+
+- 2026-10-29: visible and virtualized workspace title columns share icon/leading-mark geometry; parent changes invalidate only that workspace's tab rows. Tests assert the exact child anchor after icon removal, icon addition and reused late parent realization.
+
 ## Workspace preview touches its row (S2, 2026-10-28)
 
 Leo: "I mean the gap between the hover preview and the, you know, the workspace sidebar element thingy."
@@ -546,6 +579,22 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 - Lawrence msg 15763 ("should animate rotation of the chevron when i open/close group", screenshot of a group header). Before: the header swapped a right and a down chevron image in one frame. Now one right-pointing glyph (a layer `DisclosureChevronView` owns, so it turns about its center) turns a quarter turn on `Motion.sidebar` with the fold's springs; Reduce Motion snaps it. Guard: `GroupChevronTurnTests`. Look, frame and trailing column unchanged.
 
+- 2026-10-29: reviewed owner record for 772dcf241d6 (parent title-column invalidation) and 10b29e5f793 (shared visible/virtualized geometry and mark decisions): corrections keep the intended 16 pt disclosed-child column stable through icon changes and realization; no additional look change.
+- 2026-10-29: all three disclosed-tab gallery treatments use the same 280 x 360 pt viewport; the typography-only fixture restores the full text room after rewinding the child inset and leaves status/close controls fixed.
+- 2026-10-29: model-patched and reloaded offscreen parents invalidate only their realized child geometry; the shared agent-mark watcher covers a tab-only viewport. Regressions hold the parent unrealized across icon and mark transitions, assert the literal 16 pt anchor and clipped text room, and verify late realization stays put. Status-only patches add no child layout.
+
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 
 - [f19e4c28604](https://github.com/manaflow-ai/cmux/commit/f19e4c28604) (PR [#24073](https://github.com/manaflow-ai/cmux/pull/24073), test first in 0ccf76674b7). Asked by the coordinator after live QA on nightly 3a63d6d9 ("Agents" header pill beside the traffic lights), verbatim: "keep the list starting level with the panes at rest. When the list is scrolled, extend the top mask so content scrolling under the traffic lights is clipped and faded below the lights (y≈titlebarHeight). Don't use max(tabStripHeight, titlebarHeight) at rest." Look change only while scrolled: `ScrollEdgeFadeView.topClip` clears the mask down to `Metrics.titlebarHeight` when the traffic lights are over this sidebar, and the 18 pt top fade starts below it. At rest the mask, row positions and the list's top are unchanged. The commit predates its branch's first `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `SidebarTopMaskTests`.
+
+## Pointing hand over the sidebar's icon buttons (2026-10-29)
+
+- [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+
+## First group fold reads a prepared lookup (2026-10-29)
+
+- [cd5b10ac221](https://github.com/manaflow-ai/cmux/commit/cd5b10ac2217376385a9c6ae34e5ff70ff966cfa) (PR [#24580](https://github.com/manaflow-ai/cmux/pull/24580)), Leo: "we know them beforehand, we can cache it, we can store those, like, saved operations." No visual change: `SidebarModel` builds its group lookup when sections arrive, so the first fold no longer scans every group before the row animation starts. Rows, layout and fold motion are unchanged. The commit carries no `Sidebar-Look:` trailer; reviewed and logged here. Test: `SidebarGroupToggleScalingTests.firstFoldDoesNotScanOtherGroups`.
+
+## Shortcut chips end on one trailing edge (2026-10-29)
+
+- Lawrence 2026-10-29 (message 16865, screenshot on NIGHTLY 6c1a5ab): "alignmnet here is generally pretty bad". Holding Cmd drew Home's and the pinned rows' chips (⌘1…⌘5) at another right edge than the workspace rows' (⌘6…⌘8): a band or block row's view runs `horizontalInset` past its drawn pill on each side, and `shortcutHintItemFrames` returned the view's bounds. Every frame is now the row's content (the drawn fill up to the trailing mark column's right edge), and the chip ends there, on one x for every row kind, centered on its row. Titlebar chips keep the traffic lights' own gap between each other and twice it after the lights (they were 4 pt apart and 4 pt from the zoom button). Chips only; no row, fill or text moves. The leading text column is unchanged: a text-only row's title stays at the row inset (Lawrence 11405), and Home's and the pinned rows' titles stay on `leadingTextX` after their glyph (2026-10-28 entry above). Test: `ShortcutHintChipAlignmentTests`.

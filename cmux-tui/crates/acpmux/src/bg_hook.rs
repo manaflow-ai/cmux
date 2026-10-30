@@ -13,6 +13,7 @@
 //! beside the config (`<config>.bg-denied`, one hash a line, the newest [`PENDING`], under a
 //! lock so parallel calls never lose one), one file per chat, removed with the config.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const HOOK_ARG: &str = "__bg-hook";
@@ -76,7 +77,7 @@ pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
     let route = route?;
     let mut args = json!({"command": command});
     if let Some(cwd) = input["cwd"].as_str().filter(|c| !c.is_empty()) {
-        args["cwd"] = json!(cwd);
+        args.set("cwd", json!(cwd));
     }
     let call = match route {
         Route::Direct => format!("mcp__acpmux__bg_start {args}"),
@@ -111,7 +112,7 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let Some(answer) = decide(&input, route) else { return Ok(()) };
     // The same call turned away just before runs as asked (the replacement may be unusable).
     // Keyed by what the call runs, not its per-call ids.
-    let what = json!([input["cwd"], input["tool_input"]]);
+    let what = json!([input.get("cwd"), input.get("tool_input")]);
     let key = crate::sha256::sha256_hex(what.to_string().as_bytes());
     // Unrecorded, a repeat could not get through: then the call runs.
     if first_time(&denied_path(&config), &key).unwrap_or(false) {
@@ -153,7 +154,7 @@ fn first_time(path: &std::path::Path, key: &str) -> std::io::Result<bool> {
             true
         }
     };
-    let keep = &keys[keys.len().saturating_sub(PENDING)..];
+    let keep = keys.get(keys.len().saturating_sub(PENDING)..).unwrap_or_default();
     file.set_len(0)?;
     file.rewind()?;
     file.write_all(keep.iter().map(|k| format!("{k}\n")).collect::<String>().as_bytes())?;
