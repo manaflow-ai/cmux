@@ -74,6 +74,26 @@ struct GatherWindowsTests {
         #expect(here.state.workspaceID == "k3", "the space's last shown workspace was not kept")
     }
 
+    /// A CLI or MCP run without focus permission moves the space's workspaces but leaves the
+    /// window on its own space and selection.
+    @Test func bringingASpaceWithoutFocusPermissionKeepsTheView() throws {
+        let services = try Self.services()
+        defer { Self.closeAll(services) }
+        let here = try Self.open(["k0", "k1"], services), there = try Self.open(["k2", "k3"], services)
+        services.windows.select("k1", in: here.state)
+        #expect(here.state.profileID == Self.rooms[0])
+
+        try ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            try services.windows.bringSpace(Self.rooms[1], into: here.state)
+        }
+
+        let registry = services.windows.registry.value
+        #expect(registry.window(there.state.id) == nil, "the emptied window stayed")
+        #expect(registry.window(here.state.id)?.workspaceIDs.sorted() == ["k0", "k1", "k2", "k3"])
+        #expect(here.state.profileID == Self.rooms[0], "the run switched the window's space")
+        #expect(here.state.workspaceID == "k1", "the run changed the window's selection")
+    }
+
     /// Only the space's workspaces move: a source window that keeps another space's stays open.
     @Test func aSourceWindowThatKeepsOtherSpacesStaysOpen() throws {
         let services = try Self.services()

@@ -12,7 +12,8 @@ extension WindowManager {
     /// Move Space to This Window: every workspace of `profile` another normal window holds
     /// (open or closed) moves into `state`'s window, which then shows `profile` with the
     /// workspace the space last showed. With none elsewhere it is a plain space switch.
-    /// Refused for an incognito space and in an incognito window.
+    /// Refused for an incognito space and in an incognito window. Without view-change permission
+    /// (`ActionRunScope`) the workspaces still move and the window keeps its space.
     func bringSpace(_ profile: ProfileID, into state: WindowState) throws {
         let value = registry.value
         if value.isIncognito(state.id) || incognitoSpaces[state.id] != nil || incognitoSpaces.values.contains(profile) {
@@ -21,10 +22,16 @@ extension WindowManager {
         let machines = services.machines
         let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) }
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
-        guard !moving.isEmpty else { return switchProfile(profile, in: state) }
+        // A CLI or MCP run without focus permission moves the workspaces and leaves this window's
+        // view alone: it keeps its space and selection (as `RoomHandlers.startNewSpace`).
+        let mayShow = ActionRunScope.viewChangeAllowed()
+        guard !moving.isEmpty else {
+            if mayShow { switchProfile(profile, in: state) }
+            return
+        }
         // A window already on the space keeps its selection; else the space's last shown workspace.
         var preferred: [String: [String]] = [:]
-        if state.profileID != profile {
+        if state.profileID != profile, mayShow {
             let candidates = Set(moving + WindowProfiles.visible(value.window(state.id)?.workspaceIDs ?? [], profile: profile, machines: machines))
             preferred[state.id] = lastShown(in: profile, recency: value.recency, here: state).filter(candidates.contains)
             state.enterProfile(profile)
