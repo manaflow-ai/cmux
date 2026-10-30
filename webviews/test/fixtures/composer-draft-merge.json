@@ -413,5 +413,120 @@
         "count": 500000
       }
     ]
+  },
+  {
+    "name": "stale saved draft then fresh paste",
+    "kept": [
+      {
+        "text": "look at these",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "what the heck",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "what the heck",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 3,
+    "typedGeneration": 4
+  },
+  {
+    "name": "late same generation keeps both",
+    "kept": [
+      {
+        "text": "saved before load",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "typed while loading",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "saved before load\n\ntyped while loading",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 4,
+    "typedGeneration": 4
+  },
+  {
+    "name": "edit after send cannot revive sent text",
+    "kept": [
+      {
+        "text": "sent prompt",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "next edit",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "next edit",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 4,
+    "typedGeneration": 5
+  },
+  {
+    "name": "clear tombstone rejects old saved text",
+    "kept": [
+      {
+        "text": "old text",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 4,
+    "typedGeneration": 5
+  },
+  {
+    "name": "newer saved replacement wins",
+    "kept": [
+      {
+        "text": "replacement",
+        "count": 1
+      }
+    ],
+    "typed": [
+      {
+        "text": "older local text",
+        "count": 1
+      }
+    ],
+    "expected": [
+      {
+        "text": "replacement",
+        "count": 1
+      }
+    ],
+    "keptGeneration": 6,
+    "typedGeneration": 5
   }
 ]
