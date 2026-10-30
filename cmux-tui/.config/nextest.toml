@@ -65,6 +65,7 @@ priority = 50
 [test-groups]
 timing-alone = { max-threads = 1 }
 fork-count-alone = { max-threads = 1 }
+probe-alone = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = '''
@@ -114,3 +115,12 @@ slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# SCRATCH (pa-b10 probe v6, never merge): the probe's tests run one at a time, alone, and
+# keep their output.
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux::first_answer_probe)'
+test-group = 'probe-alone'
+threads-required = 'num-test-threads'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 3, grace-period = "5s" }
