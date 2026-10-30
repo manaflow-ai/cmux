@@ -2,7 +2,6 @@
 import { afterEach, beforeEach, expect, jest, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
-import { flushSync } from "react-dom";
 import type { Root } from "react-dom/client";
 
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -277,139 +276,123 @@ test.serial(
   10_000,
 );
 
-test.serial(
-  "a recheck that never resolves still ends recovery at the deadline",
-  async () => {
-    jest.useFakeTimers();
-    const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
-    Object.assign(dom.window, {
-      webkit: {
-        messageHandlers: {
-          agentSession: {
-            postMessage: ({ method }: { method: string }) => {
-              if (method === "cloudMachine.attach") return { ok: true, value: {} };
-              return {
-                ok: true,
-                value: {
-                  signedIn: true,
-                  loaded: true,
-                  complete: true,
-                  account: ["user", null],
-                  machines: [{ id: "vm-demo", name: "Demo machine", stage: "connecting" }],
-                },
-              };
-            },
+// Stable callbacks keep fixture rerenders from restarting the hook's deadline.
+async function deadlineFixture(pending: "inventory" | "recheck") {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  let reads = 0;
+  let rechecks = 0;
+  const hung = new Promise<void>(() => {});
+  const recheck = () => {
+    rechecks += 1;
+    return hung;
+  };
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") return { ok: true, value: {} };
+            if (method === "cloudMachine.list") {
+              reads += 1;
+              if (pending === "inventory") return hung;
+            }
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+              },
+            };
           },
         },
       },
+    },
+  });
+  function Recovery({ session }: { session: string }) {
+    const recovery = useCloudChatRecovery({
+      cloud: { id: "vm-demo", account: ["user", null] },
+      session,
+      active: true,
+      recheck,
     });
-    function Recovery() {
-      const recovery = useCloudChatRecovery({
-        cloud: { id: "vm-demo", account: ["user", null] },
-        session: "chat-demo",
-        active: true,
-        recheck: () => new Promise<void>(() => {}),
-      });
-      return (
-        <div>
-          <button data-action="deadline-wake" onClick={recovery.resume}>
-            Resume
-          </button>
-          <span data-action="deadline-state">
-            {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
-          </span>
-        </div>
-      );
-    }
-    try {
-      flushSync(() => root.render(<Recovery />));
-      const wake = mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]');
-      expect(wake).not.toBeNull();
-      await act(async () => wake!.click());
-      await act(async () => {
-        await (
-          jest as unknown as { advanceTimersByTimeAsync(milliseconds: number): Promise<void> }
-        ).advanceTimersByTimeAsync(60_000);
-      });
-      const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
-      expect(state).toContain('"resuming":false');
-      expect(state).toContain('"error":');
-    } finally {
-      await act(async () => root.render(null));
-      jest.useRealTimers();
-    }
-  },
-  10_000,
-);
+    return (
+      <div>
+        <button data-action="deadline-wake" onClick={recovery.resume}>
+          Resume
+        </button>
+        <span data-action="deadline-state">
+          {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
+        </span>
+      </div>
+    );
+  }
+  return {
+    render: (session: string) => act(async () => root.render(<Recovery session={session} />)),
+    wake: () => act(async () => mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click()),
+    state: () => JSON.parse(mount.querySelector('[data-action="deadline-state"]')!.textContent!),
+    reads: () => reads,
+    rechecks: () => rechecks,
+  };
+}
 
-test.serial(
-  "switching chats cancels the old recovery deadline",
-  async () => {
-    jest.useFakeTimers();
-    const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
-    Object.assign(dom.window, {
-      webkit: {
-        messageHandlers: {
-          agentSession: {
-            postMessage: ({ method }: { method: string }) =>
-              method === "cloudMachine.attach"
-                ? { ok: true, value: {} }
-                : {
-                    ok: true,
-                    value: {
-                      signedIn: true,
-                      loaded: true,
-                      complete: true,
-                      account: ["user", null],
-                      machines: [{ id: "vm-demo", name: "Demo machine", stage: "connecting" }],
-                    },
-                  },
-          },
-        },
-      },
-    });
-    function Recovery({ machine }: { machine: string }) {
-      const recovery = useCloudChatRecovery({
-        cloud: { id: machine, account: ["user", null] },
-        session: `chat-${machine}`,
-        active: true,
-        recheck: machine === "old" ? () => new Promise<void>(() => {}) : async () => {},
-      });
-      return (
-        <div>
-          <button data-action="switch-deadline-wake" onClick={recovery.resume}>
-            Resume
-          </button>
-          <span data-action="switch-deadline-state">
-            {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
-          </span>
-        </div>
-      );
-    }
+for (const pending of ["inventory", "recheck"] as const) {
+  test.serial(`a hung ${pending} fails at the original recovery deadline`, async () => {
+    const fixture = await deadlineFixture(pending);
+    jest.useFakeTimers({ now: 0 });
     try {
-      flushSync(() => root.render(<Recovery machine="old" />));
-      await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="switch-deadline-wake"]')!.click());
+      await fixture.render("old");
+      await fixture.wake();
+      expect(fixture.reads()).toBe(1);
+      expect(fixture.rechecks()).toBe(pending === "recheck" ? 1 : 0);
+      expect(fixture.state()).toEqual({ resuming: true });
       await act(async () => {
-        await Promise.resolve();
-        await Promise.resolve();
+        jest.advanceTimersByTime(59_999);
       });
-      flushSync(() => root.render(<Recovery machine="new" />));
-      await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="switch-deadline-wake"]')!.click());
+      expect(fixture.state()).toEqual({ resuming: true });
       await act(async () => {
-        await (
-          jest as unknown as { advanceTimersByTimeAsync(milliseconds: number): Promise<void> }
-        ).advanceTimersByTimeAsync(60_000);
+        jest.advanceTimersByTime(1);
       });
-      const state = mount.querySelector('[data-action="switch-deadline-state"]')?.textContent ?? "";
-      expect(state).toContain('"resuming":true');
-      expect(state).not.toContain("resumeFailed");
+      expect(fixture.state().resuming).toBe(false);
+      expect(fixture.state().error).toBeDefined();
+      expect(jest.getTimerCount()).toBe(0);
     } finally {
-      await act(async () => root.render(null));
       jest.useRealTimers();
+      await act(async () => root.render(null));
     }
-  },
-  10_000,
-);
+  });
+
+  test.serial(`switching chats cancels a hung ${pending} without failing the new recovery`, async () => {
+    const fixture = await deadlineFixture(pending);
+    jest.useFakeTimers({ now: 0 });
+    try {
+      await fixture.render("old");
+      await fixture.wake();
+      expect(fixture.reads()).toBe(1);
+      expect(jest.getTimerCount()).toBe(1);
+      await act(async () => {
+        jest.advanceTimersByTime(30_000);
+      });
+      await fixture.render("new");
+      expect(jest.getTimerCount()).toBe(0);
+      await fixture.wake();
+      expect(fixture.state()).toEqual({ resuming: true });
+      // The old deadline expires now; the new chat still has thirty seconds.
+      await act(async () => {
+        jest.advanceTimersByTime(30_000);
+      });
+      expect(fixture.state()).toEqual({ resuming: true });
+      expect(jest.getTimerCount()).toBe(1);
+      await act(async () => root.render(null));
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+      await act(async () => root.render(null));
+    }
+  });
+}
 
 test.serial(
   "an old chat's late inventory refusal leaves the new recovery running",
