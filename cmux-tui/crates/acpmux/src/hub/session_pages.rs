@@ -20,11 +20,15 @@
 
 use super::*;
 
-/// Sorts session summaries newest first, ties by `sessionId` ascending. The
-/// summaries are snapshots, so the order is total while sorting.
+/// Sorts session summaries newest first, ties by `sessionId` ascending, then by `peer` (this
+/// daemon's own first): a chat here and its copy on a peer keep one order. The summaries are
+/// snapshots, so the order is total while sorting.
 pub(crate) fn sort_session_summaries(list: &mut [Value]) {
     list.sort_by(|a, b| {
-        updated_ms(b).cmp(&updated_ms(a)).then_with(|| session_id(a).cmp(session_id(b)))
+        updated_ms(b)
+            .cmp(&updated_ms(a))
+            .then_with(|| session_id(a).cmp(session_id(b)))
+            .then_with(|| peer(a).cmp(&peer(b)))
     });
 }
 
@@ -98,9 +102,11 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 /// A page of `sorted` cut by bytes rather than by count, for a reply that has no `limit` to
 /// page by (ACP's `session/list`): the rows from `cursor` on (a `nextCursor` of this list)
 /// whose `size`s fit in `budget`, at least one, and the cursor after the last of them when
-/// rows are left. Rows the session cursor cannot tell apart (one id and one `updatedAt`) are
-/// told apart by their order: a page that ends on the n-th of them names it `<cursor>.<n>`,
-/// so each comes once and no page has to hold them all.
+/// rows are left. The cursor tells rows apart by id and peer, so a chat here and its copies on
+/// peers each have their own. Rows it still cannot tell apart (one id, one peer and one
+/// `updatedAt`, which one list does not hold unless their keys collide) are told apart by
+/// their order: a page that ends on the n-th of them names it `<cursor>.<n>`, so paging ends
+/// and no page has to hold them all.
 pub(crate) fn byte_page(
     sorted: &[Value],
     cursor: Option<&str>,
@@ -240,7 +246,7 @@ pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
     Ok(())
 }
 
-/// After the session updated at `updated_ms` whose id hashes to `key`.
+/// After the session updated at `updated_ms` whose id and peer hash to `key` ([`row_key`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SessionCursor {
     updated_ms: u64,
@@ -249,7 +255,7 @@ struct SessionCursor {
 
 impl SessionCursor {
     fn after(session: &Value) -> Self {
-        Self { updated_ms: stamp(session), key: id_hash(session_id(session)) }
+        Self { updated_ms: stamp(session), key: row_key(session) }
     }
 
     /// `k<stamp hex>.<id hash hex>`: at most 30 characters (the app passes at most 32).
@@ -274,7 +280,7 @@ impl SessionCursor {
     fn start(self, sorted: &[Value]) -> usize {
         sorted
             .iter()
-            .position(|s| stamp(s) == self.updated_ms && id_hash(session_id(s)) == self.key)
+            .position(|s| stamp(s) == self.updated_ms && row_key(s) == self.key)
             .map(|at| at + 1)
             .unwrap_or_else(|| {
                 sorted.iter().position(|s| stamp(s) <= self.updated_ms).unwrap_or(sorted.len())
@@ -284,7 +290,7 @@ impl SessionCursor {
     /// [`Self::start`] after the `nth` row the cursor names, or after the last of them when
     /// fewer are left.
     fn start_after(self, sorted: &[Value], nth: usize) -> usize {
-        let named = |s: &&Value| stamp(s) == self.updated_ms && id_hash(session_id(s)) == self.key;
+        let named = |s: &&Value| stamp(s) == self.updated_ms && row_key(s) == self.key;
         sorted
             .iter()
             .enumerate()
@@ -312,9 +318,16 @@ fn session_id(session: &Value) -> &str {
     session.get("sessionId").and_then(Value::as_str).unwrap_or("")
 }
 
-/// FNV-1a of the session id: the same in every daemon run.
-fn id_hash(id: &str) -> u64 {
-    id.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+fn peer(session: &Value) -> Option<&str> {
+    session.get("peer").and_then(Value::as_str)
+}
+
+/// FNV-1a of the session id, then, for a peer's row, a NUL and the peer's name: the same in
+/// every daemon run, and this daemon's own rows keep the key they had before peers were in it.
+fn row_key(session: &Value) -> u64 {
+    let id = session_id(session).bytes();
+    let peer = peer(session).map(|p| std::iter::once(0).chain(p.bytes()));
+    id.chain(peer.into_iter().flatten()).fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
     })
 }
@@ -323,9 +336,8 @@ fn id_hash(id: &str) -> u64 {
 mod tests {
     use super::*;
 
-    /// Two sessions with one id and one `updatedAt` (a chat here and its copy on a peer) share
-    /// a cursor. Across a page edge the second still comes once; a page that would hold only
-    /// the second, after the first, is refused rather than answered again and again.
+    /// Two rows with one id, one peer and one `updatedAt` (a row listed twice) share a cursor.
+    /// Across a page edge the second still comes once, and paging ends.
     #[test]
     fn byte_pages_read_rows_one_cursor_names_once() {
         let rows = vec![
@@ -353,6 +365,45 @@ mod tests {
         for budget in [25, 35, 5, 100] {
             assert_eq!(read(budget), ["a", "dup", "dup", "z"], "budget {budget}");
         }
+    }
+
+    /// A chat here and its copies on two peers, one `updatedAt`: each has its own cursor, so a
+    /// copy that leaves after its page was read neither skips nor repeats another.
+    #[test]
+    fn copies_of_a_chat_on_peers_page_by_their_own_cursors() {
+        let mut rows = vec![
+            json!({"sessionId": "a", "updatedAt": 9}),
+            json!({"sessionId": "dup", "updatedAt": 5, "peer": "p2"}),
+            json!({"sessionId": "dup", "updatedAt": 5}),
+            json!({"sessionId": "dup", "updatedAt": 5, "peer": "p1"}),
+            json!({"sessionId": "z", "updatedAt": 1}),
+        ];
+        sort_session_summaries(&mut rows);
+        let name = |row: &Value| {
+            format!("{}{}", session_id(row), peer(row).map_or(String::new(), |p| format!("@{p}")))
+        };
+        assert_eq!(
+            rows.iter().map(name).collect::<Vec<_>>(),
+            ["a", "dup", "dup@p1", "dup@p2", "z"]
+        );
+        // One row a page.
+        let page =
+            |rows: &[Value], cursor: Option<&str>| byte_page(rows, cursor, 11, |_| 10).unwrap();
+        let (mut read, mut cursor) = (Vec::new(), None::<String>);
+        for _ in 0..3 {
+            let (range, next) = page(&rows, cursor.as_deref());
+            read.extend(rows[range].iter().map(name));
+            cursor = next;
+        }
+        assert_eq!(read, ["a", "dup", "dup@p1"]);
+        // This daemon's copy leaves before the next page: p2's still comes, once, then "z".
+        rows.remove(1);
+        while let Some(at) = cursor {
+            let (range, next) = page(&rows, Some(&at));
+            read.extend(rows[range].iter().map(name));
+            cursor = next;
+        }
+        assert_eq!(read, ["a", "dup", "dup@p1", "dup@p2", "z"]);
     }
 
     #[test]
