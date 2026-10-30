@@ -25,15 +25,15 @@ struct CloudOpenMachineExistingWorkspaceTests {
     @Test func theLastConnectionsTreeIsNotReadAfterAReconnect() async throws {
         let store = DaemonStore()
         _ = store.apply(.connected(DaemonIdentity(generation: "before"), generationChanged: false))
-        store.apply(snapshot: DaemonTree(registryID: "s-vm"))
+        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "old"), name: "old-workspace"),
+        ]))
         _ = store.apply(.disconnected(reason: "paused"))
         _ = store.apply(.connected(DaemonIdentity(generation: "resumed"), generationChanged: false))
         let read = Task { @MainActor in try await CloudHandlers.existingWorkspace(in: store) }
         await Task.yield()
-        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-made-meanwhile"), name: "workspace-1"),
-        ]))
-        #expect(try await read.value == "ws-made-meanwhile", "the last connection's empty list made a second workspace")
+        store.apply(snapshot: DaemonTree(registryID: "s-vm"))
+        #expect(try await read.value == nil, "a stale nonempty tree must not suppress creation after live empty state")
     }
 
     /// The daemon's connection is published before the store hears `.connected` (which moves the
