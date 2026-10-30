@@ -5,7 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 
 mod briefs;
-mod cancel_refused;
+pub(super) mod cancel_refused;
 mod composer;
 mod events;
 mod info;
@@ -136,7 +136,7 @@ pub(super) async fn handle_notification(
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             let sent = params.get("sessionId").cloned().unwrap_or(Value::Null);
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
-                return cancel_refused::tell(conn, &sent, &e);
+                return cancel_refused::tell(hub, conn, &sent, &e);
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
@@ -151,11 +151,11 @@ pub(super) async fn handle_notification(
                 )
                 .await
             {
-                return cancel_refused::tell(conn, &sent, &e);
+                return cancel_refused::tell(hub, conn, &sent, &e);
             }
             // Again after the guard's awaits (`hub/vm_boundary.rs`).
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
-                return cancel_refused::tell(conn, &sent, &e);
+                return cancel_refused::tell(hub, conn, &sent, &e);
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
@@ -164,7 +164,8 @@ pub(super) async fn handle_notification(
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
-                } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
+                } else if let Some((peer, id, row)) = hub.resolve_remote(key) {
+                    let turn = cancel_refused::row_turn(&row);
                     let mut forwarded = json!({"sessionId": id});
                     super::remote_guard::mark_forwarded(
                         conn.origin,
@@ -173,7 +174,7 @@ pub(super) async fn handle_notification(
                         &mut forwarded,
                     );
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
-                    cancel_refused::forward(conn, peer, key, forwarded).await;
+                    cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
             }
         }
