@@ -207,12 +207,17 @@ public struct SidebarMapping {
                             notification: row.notificationText)
         // Agent-session workspaces use the chat's readable title or a short task summary before
         // the daemon's lane/session id. The routing name is never the row's best title.
-        if let agent = agentTab(tabs, harnessIcons: harnessIcons), let ref = agent.agentSession {
+        // Title metadata follows the session identity rather than the branding filter used by
+        // the row's icon/status mark. BYO and newly added harnesses still get readable titles.
+        if let agent = chatTab(front, tabs), let ref = agent.agentSession {
             let turns = AgentTurnStateStore.shared
+            let taskSummary = row.detail.task.flatMap(AgentTurnStates.promptGist)
+                ?? turns.detail(for: ref)?.prompt.flatMap(AgentTurnStates.promptGist)
+                ?? agent.agent?.lastPrompt.flatMap(AgentTurnStates.promptGist)
             row.title = Self.agentRowTitle(workspaceTitle: row.title, workspaceNameSource: workspace.nameSource,
                                            sessionName: ref.session,
                                            chatTitle: turns.generatedTitle(for: ref),
-                                           taskSummary: row.detail.task.flatMap(AgentTurnStates.promptGist))
+                                           taskSummary: taskSummary)
         }
         return row
     }
