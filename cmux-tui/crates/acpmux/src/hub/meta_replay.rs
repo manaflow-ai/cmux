@@ -48,6 +48,28 @@ impl Hub {
 /// The log record kinds [`apply`] reads.
 pub(super) const KINDS: &[&str] = &["renamed", "titled", "tags", "policy", "rules", "status"];
 
+/// A `policy` record: the policy and who set it (`policy_source.rs`). A record from before the
+/// records carried their source (an older daemon's, or the vmHost path's) is fail closed, as the
+/// load's rule (`settle_grant`): the load may have cleared a grant from the saved record with no
+/// record of its own, so an approve-all with no source in the tail asks, and a clear the load made
+/// (cleared, or cleared with its host still to end) is kept over it. Without this, a saved record
+/// that lagged its log brought a cleared vmHost-era approve-all back.
+fn apply_policy(meta: &mut SessionMeta, msg: &Value) {
+    use super::policy_source::{CLEARED, CLEARED_HOST, settle_grant};
+    meta.permission_policy = msg.get("policy").and_then(Value::as_str).map(str::to_owned);
+    if let Some(source) = msg.get("source").and_then(Value::as_str) {
+        meta.policy_source = Some(source.to_owned());
+        return;
+    }
+    let cleared = matches!(meta.policy_source.as_deref(), Some(CLEARED | CLEARED_HOST));
+    let kept = if cleared { meta.policy_source.take() } else { None };
+    meta.policy_source = None;
+    settle_grant(meta, true);
+    if kept.is_some() {
+        meta.policy_source = kept;
+    }
+}
+
 /// Applies `rec`, a record after the saved record's `lastSeq`, to `meta`.
 pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
     let msg = &rec.msg;
@@ -87,9 +109,7 @@ pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
                     .collect();
             }
         }
-        "policy" => {
-            meta.permission_policy = msg.get("policy").and_then(Value::as_str).map(str::to_owned);
-        }
+        "policy" => apply_policy(meta, msg),
         "rules" => meta.permission_rules = msg.get("rules").cloned().filter(|r| !r.is_null()),
         // The person's read or unread mark (`seen.rs`); a status record without `read` (a turn's
         // status) changes nothing here.

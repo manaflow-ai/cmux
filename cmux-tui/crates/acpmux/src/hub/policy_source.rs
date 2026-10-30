@@ -157,7 +157,8 @@ impl Hub {
             if m.policy_source.as_deref() != Some(CLEARED_HOST) {
                 m.policy_source = Some(source.to_owned());
             }
-            json!({"policy": policy.to_string()})
+            // With its source, so a replay of the log tail restores who set it (`meta_replay.rs`).
+            json!({"policy": policy.to_string(), "source": m.policy_source})
         });
         self.save_meta(session);
         self.follow_policy(session).await;
