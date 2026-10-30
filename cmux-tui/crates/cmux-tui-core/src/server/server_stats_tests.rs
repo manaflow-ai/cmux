@@ -52,25 +52,33 @@ fn server_stats_include_reports_resource_projection_spans() {
     assert!(section["written_changes"]["max"].as_u64().unwrap_or(0) >= 1, "{section}");
 }
 
-/// Hook events dropped with their ended session are counted by the hook
-/// children beside the session socket; `server-stats` shows the count, so
-/// the loss is visible (R-L5), and only when asked.
+/// `server-stats` shows the session's queued hook events and the events
+/// `reset-state` dropped (R-L5: a loss is visible), and only when asked.
+#[cfg(unix)]
 #[test]
-fn server_stats_include_reports_hook_events_dropped_with_their_session() {
+fn server_stats_include_reports_the_hook_queue() {
     let mux = Mux::new_for_test("server-stats-hook-queue", crate::SurfaceOptions::default());
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
-    let root = tempfile::tempdir().unwrap();
-    let socket = root.path().join("session.sock");
+    let mut bytes = [0_u8; 8];
+    getrandom::fill(&mut bytes).unwrap();
+    let suffix: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let root = std::env::temp_dir().join(format!("cmux-server-stats-hook-queue-{suffix}"));
+    let mut builder = std::fs::DirBuilder::new();
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&root).unwrap();
+    let socket = root.join("session.sock");
     mux.connection_stats().note_socket(&socket);
 
     let none = stats(&mux, client, json!({"cmd":"server-stats","include":["hook_queue"]}));
-    assert_eq!(none["hook_queue"]["ended_session_events"], 0, "{none}");
-    let spool = root.path().join(crate::diagnostics::HOOK_SPOOL_DIR);
-    std::fs::create_dir_all(&spool).unwrap();
-    std::fs::write(spool.join(crate::diagnostics::HOOK_SPOOL_ENDED_EVENTS), "7\n").unwrap();
+    assert_eq!(none["hook_queue"], json!({"queued_events":0,"reset_dropped_events":0}), "{none}");
+    let spool = crate::diagnostics::hook_spool_dir(&socket).unwrap();
+    std::fs::write(spool.join("session_sock.terminal_a.jsonl"), "{}\n{}\n").unwrap();
+    std::fs::write(spool.join("other_sock.terminal_b.jsonl"), "{}\n").unwrap();
+    std::fs::write(spool.join(crate::diagnostics::HOOK_SPOOL_DROPPED_EVENTS), "7\n").unwrap();
 
     let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
     assert!(plain.get("hook_queue").is_none(), "{plain}");
     let full = stats(&mux, client, json!({"cmd":"server-stats","include":["hook_queue"]}));
-    assert_eq!(full["hook_queue"]["ended_session_events"], 7, "{full}");
+    assert_eq!(full["hook_queue"], json!({"queued_events":2,"reset_dropped_events":7}), "{full}");
+    std::fs::remove_dir_all(root).unwrap();
 }

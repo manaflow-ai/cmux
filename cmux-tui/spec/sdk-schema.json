@@ -6057,7 +6057,15 @@
   "ServerStatsHookQueue": {
    "kind": "object",
    "fields": {
-    "ended_session_events": {
+    "queued_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reset_dropped_events": {
      "type": {
       "kind": "scalar",
       "name": "uint64"
@@ -6068,7 +6076,8 @@
    },
    "additional_properties": false,
    "constraints": [
-    "ended_session_events counts agent hook events that were still queued when their session ended (its daemon removed its socket), so no daemon took them. The hook children that dropped them count them in hook-spool/ended-session-events beside the socket, for every session whose socket shares this one's directory."
+    "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
+    "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory."
    ]
   },
   "ServerStatsResourceProjection": {

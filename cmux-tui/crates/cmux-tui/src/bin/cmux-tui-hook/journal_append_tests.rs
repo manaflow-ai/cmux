@@ -431,8 +431,8 @@ fn a_missing_session_socket_fails_at_once_and_keeps_the_event() {
     assert_eq!(queued, encoded);
 }
 
-/// The hook queue directory beside `socket`, and the file the hook children
-/// count an ended session's dropped events in.
+/// The hook queue directory beside `socket`, and the file that counts the
+/// events `reset-state` dropped.
 fn spool_dir(socket: &Path) -> PathBuf {
     socket.parent().unwrap().join("hook-spool")
 }

@@ -7,8 +7,8 @@ use crate::diagnostics::{SERVER_STATS_SCHEMA, ServerStatsSnapshot};
 const RESOURCE_PROJECTION: &str = "resource_projection";
 /// The optional section that reports which thread commits durable writes.
 const WRITE_PATH: &str = "write_path";
-/// The optional section that counts agent hook events dropped with their
-/// session (`diagnostics::HookQueueSnapshot`).
+/// The optional section that counts the session's queued agent hook events
+/// and those `reset-state` dropped (`diagnostics::HookQueueSnapshot`).
 const HOOK_QUEUE: &str = "hook_queue";
 
 /// Read every counter; sections outside `include` stay absent so older SDK

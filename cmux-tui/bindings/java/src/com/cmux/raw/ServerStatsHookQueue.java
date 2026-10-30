@@ -11,51 +11,65 @@ import java.util.Objects;
 
 
 public final class ServerStatsHookQueue implements WireValue {
-    private final UInt64 endedSessionEvents;
+    private final UInt64 queuedEvents;
+    private final UInt64 resetDroppedEvents;
 
     private ServerStatsHookQueue(Builder builder) {
-        if (!builder.endedSessionEventsSet) throw new IllegalArgumentException("ended_session_events is required");
-        this.endedSessionEvents = Wire.nonNull(builder.endedSessionEvents, "ended_session_events");
+        if (!builder.queuedEventsSet) throw new IllegalArgumentException("queued_events is required");
+        this.queuedEvents = Wire.nonNull(builder.queuedEvents, "queued_events");
+        if (!builder.resetDroppedEventsSet) throw new IllegalArgumentException("reset_dropped_events is required");
+        this.resetDroppedEvents = Wire.nonNull(builder.resetDroppedEvents, "reset_dropped_events");
     }
 
     public static Builder builder() { return new Builder(); }
 
-    public UInt64 endedSessionEvents() { return endedSessionEvents; }
+    public UInt64 queuedEvents() { return queuedEvents; }
+    public UInt64 resetDroppedEvents() { return resetDroppedEvents; }
 
     public static ServerStatsHookQueue fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ServerStatsHookQueue");
         Builder builder = builder();
-        Object rawEndedSessionEvents = Wire.required(object, "ended_session_events");
-        builder.endedSessionEvents(Wire.uint64(rawEndedSessionEvents, "ServerStatsHookQueue.ended_session_events"));
+        Object rawQueuedEvents = Wire.required(object, "queued_events");
+        builder.queuedEvents(Wire.uint64(rawQueuedEvents, "ServerStatsHookQueue.queued_events"));
+        Object rawResetDroppedEvents = Wire.required(object, "reset_dropped_events");
+        builder.resetDroppedEvents(Wire.uint64(rawResetDroppedEvents, "ServerStatsHookQueue.reset_dropped_events"));
         return builder.build();
     }
 
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
-        Wire.put(object, "ended_session_events", endedSessionEvents);
+        Wire.put(object, "queued_events", queuedEvents);
+        Wire.put(object, "reset_dropped_events", resetDroppedEvents);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsHookQueue that)) return false;
-        return Objects.equals(endedSessionEvents, that.endedSessionEvents);
+        return Objects.equals(queuedEvents, that.queuedEvents) && Objects.equals(resetDroppedEvents, that.resetDroppedEvents);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endedSessionEvents); }
+    public int hashCode() { return Objects.hash(queuedEvents, resetDroppedEvents); }
 
     @Override
     public String toString() { return "ServerStatsHookQueue" + toWire(); }
 
     public static final class Builder {
-        private UInt64 endedSessionEvents;
-        private boolean endedSessionEventsSet;
+        private UInt64 queuedEvents;
+        private boolean queuedEventsSet;
+        private UInt64 resetDroppedEvents;
+        private boolean resetDroppedEventsSet;
 
-        public Builder endedSessionEvents(UInt64 value) {
-            this.endedSessionEvents = value;
-            this.endedSessionEventsSet = true;
+        public Builder queuedEvents(UInt64 value) {
+            this.queuedEvents = value;
+            this.queuedEventsSet = true;
+            return this;
+        }
+        public Builder resetDroppedEvents(UInt64 value) {
+            this.resetDroppedEvents = value;
+            this.resetDroppedEventsSet = true;
             return this;
         }
         public ServerStatsHookQueue build() { return new ServerStatsHookQueue(this); }

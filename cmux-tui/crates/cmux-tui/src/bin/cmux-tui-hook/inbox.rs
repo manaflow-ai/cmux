@@ -184,7 +184,7 @@ fn request(
     encoded.push(b'\n');
     let attempt = || -> Result<Vec<u8>, AppendAttemptError> {
         let mut stream = connect_before(socket, deadline)?;
-        // Bound the read before writing, as `append_once` does: read_before
+        // Bound the read before writing: read_before
         // only shrinks this bound, since macOS refuses the option once the
         // daemon has answered and closed.
         stream

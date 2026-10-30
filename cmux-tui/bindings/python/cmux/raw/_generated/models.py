@@ -1496,7 +1496,8 @@ class ServerStatsHistogram:
 @dataclass(frozen=True)
 class ServerStatsHookQueue:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHookQueue'
-    ended_session_events: int
+    queued_events: int
+    reset_dropped_events: int
 
 
 @dataclass(frozen=True)

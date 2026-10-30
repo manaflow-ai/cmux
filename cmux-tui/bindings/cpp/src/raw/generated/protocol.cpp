@@ -8547,9 +8547,12 @@ Result<ServerStatsHistogram> Codec<ServerStatsHistogram>::decode(const Json& val
 Result<Json> Codec<ServerStatsHookQueue>::encode(const ServerStatsHookQueue& value) {
     (void)value;
     Json::Object object;
-    auto encoded_ended_session_events = encode_value(value.ended_session_events);
-    if (!encoded_ended_session_events) return std::move(encoded_ended_session_events).error();
-    object.emplace("ended_session_events", std::move(encoded_ended_session_events).value());
+    auto encoded_queued_events = encode_value(value.queued_events);
+    if (!encoded_queued_events) return std::move(encoded_queued_events).error();
+    object.emplace("queued_events", std::move(encoded_queued_events).value());
+    auto encoded_reset_dropped_events = encode_value(value.reset_dropped_events);
+    if (!encoded_reset_dropped_events) return std::move(encoded_reset_dropped_events).error();
+    object.emplace("reset_dropped_events", std::move(encoded_reset_dropped_events).value());
     return Json(std::move(object));
 }
 
@@ -8557,14 +8560,23 @@ Result<ServerStatsHookQueue> Codec<ServerStatsHookQueue>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ServerStatsHookQueue result{};
-    const Json* field_ended_session_events = value.find("ended_session_events");
-    if (!field_ended_session_events) {
-        return make_error(ErrorCode::decode, "missing required field 'ended_session_events'");
+    const Json* field_queued_events = value.find("queued_events");
+    if (!field_queued_events) {
+        return make_error(ErrorCode::decode, "missing required field 'queued_events'");
     }
-    if (field_ended_session_events) {
-        auto decoded = decode_value<std::uint64_t>(*field_ended_session_events);
+    if (field_queued_events) {
+        auto decoded = decode_value<std::uint64_t>(*field_queued_events);
         if (!decoded) return std::move(decoded).error();
-        result.ended_session_events = std::move(decoded).value();
+        result.queued_events = std::move(decoded).value();
+    }
+    const Json* field_reset_dropped_events = value.find("reset_dropped_events");
+    if (!field_reset_dropped_events) {
+        return make_error(ErrorCode::decode, "missing required field 'reset_dropped_events'");
+    }
+    if (field_reset_dropped_events) {
+        auto decoded = decode_value<std::uint64_t>(*field_reset_dropped_events);
+        if (!decoded) return std::move(decoded).error();
+        result.reset_dropped_events = std::move(decoded).value();
     }
     return result;
 }

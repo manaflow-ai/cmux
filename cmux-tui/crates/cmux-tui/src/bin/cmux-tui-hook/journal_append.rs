@@ -11,31 +11,30 @@
 //!
 //! - Order: one sender per agent (the child holding the queue's drain lock),
 //!   lines in the order the provider ran the hooks.
-//! - No loss: a line leaves the queue only when the daemon answered it with a
+//! - No loss: a line leaves the queue only when a daemon answered it with a
 //!   receipt or a durable rejection. A busy daemon (its busy line, a
 //!   retryable answer, a dropped connection) is retried through
 //!   `RetryBudget`: full-jitter exponential backoff with the daemon's
 //!   `retry_after_ms` as a floor.
-//! - No timer decides delivery (rule R-L5): the sender stops when the queue is
-//!   empty or the daemon is gone. A daemon that refuses the connection but
-//!   keeps its socket file did not end its session: the lines stay queued,
-//!   and the next hook child of any agent of the session sends them (again,
-//!   with their idempotency keys; the daemon answers a repeat from its
-//!   receipt). A daemon that removed its socket ended its session: the lines
-//!   are dropped and counted where `server-stats` (`hook_queue`) shows them
-//!   ([`super::hook_spool`] has the queue's lifecycle).
-//! - The provider waits only for its own line to be written to the daemon,
-//!   or to be queued behind lines a sender is already working on (the
-//!   parent's `HANDOFF_WAIT` bounds that wait).
+//! - No timer decides delivery (rule R-L5): the sender stops when its queue
+//!   is empty, or when no daemon listens (the socket is missing or refuses
+//!   the connection: the owner stopped, restarts or crashed). Then the lines
+//!   stay queued, and the next hook child of any agent of the session sends
+//!   them to the next owner (again, with their idempotency keys; a daemon
+//!   answers a repeat from its receipt). Only `reset-state` ends a session's
+//!   queues ([`super::hook_spool`] has the lifecycle).
+//! - The provider waits only until its line is on disk (the parent's
+//!   `HANDOFF_WAIT` bounds that wait). Where the socket's directory is not
+//!   private, there is no queue: the child sends its line directly, and the
+//!   provider waits until it is written.
 //!
 //! The socket helpers at the end serve the single-try inbox requests.
 
 use std::borrow::Cow;
-use std::cell::Cell;
 
 use cmux_tui_core::backoff::RetryBudget;
 
-use super::hook_spool::{DrainLock, Found, Spool};
+use super::hook_spool::{DrainLock, Spool};
 use super::*;
 
 /// The most the first retry waits, beyond the daemon's `retry_after_ms`. A
@@ -48,76 +47,69 @@ const RETRY_MAX: Duration = Duration::from_secs(1);
 
 /// Queues the request line `encoded` (whose id is `request_id`) behind the
 /// agent's earlier hook events and, when no other child sends that queue,
-/// sends it until it is empty. `on_sent` runs once: when this line was
-/// written to the daemon, or queued behind lines another sender works on.
-/// An error: the session is gone, or the daemon rejected this line.
+/// sends it until it is empty, then the session's other unsent queues.
+/// `on_sent` runs once the line is safe: queued, or (with no queue) written
+/// to the daemon. An error: no daemon listens, or the daemon rejected this
+/// line.
 pub(super) fn append_with_receipt(
     socket: &Path,
     request_id: &str,
     encoded: &[u8],
     on_sent: &dyn Fn(),
 ) -> anyhow::Result<()> {
-    if !socket.exists() {
-        // No socket: this terminal's session ended. Its queues can never be
-        // sent; drop and count them.
-        let _ = sweep(socket, None);
-        bail!("session socket {} is gone", socket.display());
-    }
-    let spool = Spool::for_request(socket, encoded).context("open the agent's hook queue")?;
-    let signaled = Cell::new(false);
-    let signal = || {
-        if !signaled.replace(true) {
-            on_sent();
-        }
+    let Ok(spool) = Spool::for_request(socket, encoded) else {
+        return send_unqueued(socket, encoded, on_sent);
     };
-    if spool.append(encoded).context("queue the hook event")? {
-        signal();
+    if spool.append(encoded).is_err() {
+        return send_unqueued(socket, encoded, on_sent);
     }
+    on_sent();
     let Some(lock) = spool.try_drain().context("lock the agent's hook queue")? else {
         // Another child sends this queue, this line included.
-        signal();
         return Ok(());
     };
     let mut sender = Sender::new(socket);
-    let outcome = drain(&spool, lock, &mut sender, request_id, &signal);
-    signal();
-    // Best effort: a queue this child cannot clean now is cleaned by the next
-    // hook child, and its own event's outcome stands either way.
-    let _ = sweep(socket, Some(&spool));
+    let outcome = drain(&spool, lock, &mut sender, request_id);
+    if !sender.gone {
+        // Best effort: what this child cannot send now waits for the next.
+        let _ = send_orphans(socket, &spool, &mut sender);
+    }
     outcome
 }
 
-/// The other queues beside `socket`: sends those of the live session that no
-/// child sends, and drops (and counts) those whose session ended.
-fn sweep(socket: &Path, except: Option<&Spool>) -> std::io::Result<()> {
-    let alive = socket.exists();
-    let mut sender = Sender::new(socket);
-    for found in super::hook_spool::orphans(socket, except)? {
-        let (spool, send) = match found {
-            Found::Live(spool) => (spool, alive),
-            Found::Ended(spool) => (spool, false),
-        };
+/// With no private queue directory: sends the line itself, as one sender.
+fn send_unqueued(socket: &Path, encoded: &[u8], on_sent: &dyn Fn()) -> anyhow::Result<()> {
+    match Sender::new(socket).deliver(encoded, on_sent) {
+        Delivered::Answered => Ok(()),
+        Delivered::Rejected(error) | Delivered::Gone(error) => Err(error),
+    }
+}
+
+/// The session's other queues that no child sends (their sender died, or
+/// their daemon was down): sent to this daemon.
+fn send_orphans(socket: &Path, own: &Spool, sender: &mut Sender) -> io::Result<()> {
+    for spool in hook_spool::orphans(socket, own)? {
         let Some(lock) = spool.try_drain()? else {
             // Its sender is at work.
             continue;
         };
-        if send {
-            // Another agent's events: their outcome is theirs.
-            let _ = drain(&spool, lock, &mut sender, "", &|| {});
-        } else {
-            spool.discard(0, lock)?;
+        // Another agent's events: their outcome is theirs.
+        let _ = drain(&spool, lock, sender, "");
+        if sender.gone {
+            break;
         }
     }
     Ok(())
 }
 
 /// Sends the queue from its start until it is empty, then lets go of `lock`.
+/// No daemon: keeps the unsent lines and stops. The error is this child's own
+/// line's (`request_id`): rejected, or not sent.
 fn drain(
     spool: &Spool,
     mut lock: DrainLock,
     sender: &mut Sender,
     request_id: &str,
-    signal: &dyn Fn(),
 ) -> anyhow::Result<()> {
     let mut offset = 0;
     let mut own_rejection = None;
@@ -132,26 +124,13 @@ fn drain(
             }
         };
         let own = line_id(&line).as_deref() == Some(request_id);
-        match sender.deliver(&line, &|| {
-            if own {
-                signal();
-            }
-        }) {
+        match sender.deliver(&line, &|| {}) {
             Delivered::Answered => {}
             Delivered::Rejected(error) if own => own_rejection = Some(error),
             Delivered::Rejected(_) => {}
             Delivered::Gone(error) => {
-                if sender.socket.exists() {
-                    // Not answering, but its session did not end (a daemon
-                    // that stopped without ending it starts it again on the
-                    // same socket): the rest waits for the next hook.
-                    spool.compact(offset)?;
-                } else {
-                    // The daemon removed its socket: the session ended, and
-                    // nothing can take these events. Count them as dropped.
-                    spool.discard(offset, lock)?;
-                }
-                return Err(error);
+                spool.compact(offset)?;
+                return Err(error.context("no daemon answered; the hook event stays queued"));
             }
         }
         offset = next;
@@ -170,7 +149,7 @@ enum Delivered {
     Answered,
     /// The daemon (or the line itself) can never take it; it leaves the queue.
     Rejected(anyhow::Error),
-    /// The session is gone: the line stays queued.
+    /// No daemon listens: the line stays queued.
     Gone(anyhow::Error),
 }
 
@@ -179,6 +158,8 @@ struct Sender {
     socket: PathBuf,
     connection: Option<BufReader<Box<dyn transport::Stream>>>,
     retries: RetryBudget,
+    /// No daemon answered a connect: later queues wait for the next owner.
+    gone: bool,
 }
 
 impl Sender {
@@ -187,6 +168,7 @@ impl Sender {
             socket: socket.to_path_buf(),
             connection: None,
             retries: RetryBudget::new(RETRY_INITIAL, RETRY_MAX),
+            gone: false,
         }
     }
 
@@ -215,7 +197,10 @@ impl Sender {
                     self.retries.reset();
                     return Delivered::Rejected(error);
                 }
-                Err(Try::Gone(error)) => return Delivered::Gone(error),
+                Err(Try::Gone(error)) => {
+                    self.gone = true;
+                    return Delivered::Gone(error);
+                }
                 Err(Try::Again(error)) => {
                     self.connection = None;
                     let retry_after =
@@ -243,8 +228,8 @@ impl Sender {
                         | io::ErrorKind::TimedOut
                 );
                 let error = anyhow!(error).context(format!("connect to {}", self.socket.display()));
-                // No listener: this terminal is not attached to a live cmux-tui
-                // now. The line stays queued for the agent's next hook.
+                // No listener: the owner stopped, restarts or crashed. The
+                // line stays queued for the session's next owner.
                 if retry { Try::Again(error) } else { Try::Gone(error) }
             })?),
         };

@@ -26,7 +26,10 @@ mod connection_leases;
 pub use connection_leases::{ConnectionLease, PeerClosed};
 mod hook_queue;
 mod write_path;
-pub use hook_queue::{HOOK_SPOOL_DIR, HOOK_SPOOL_ENDED_EVENTS, HookQueueSnapshot};
+pub use hook_queue::{
+    HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HookQueueSnapshot, drop_session_hook_queues,
+    hook_spool_dir, open_spool_file, queue_prefix, spool_name_part,
+};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
