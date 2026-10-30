@@ -145,6 +145,13 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(pr_status.parse(body)["bead"], "Bead: `cx-abc1`")
         self.assertIn("cut to fit", pr_status.parse(body)["tour"])
 
+    def test_oversized_other_section_does_not_cut_published_history(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(1800))
+        body = pr_status.render({"published": published, "tour": "x" * 50000})
+        sections = pr_status.parse(body)
+        self.assertEqual(sections["published"], published)
+        self.assertIn("cut to fit", sections["tour"])
+
     def test_dispatched_fields_accept_only_valid_values(self):
         self.assertEqual(pr_status.field_text("cx-bi1nt", None), ("bead", "Bead: `cx-bi1nt`"))
         key, text = pr_status.field_text(None, "a" * 40)

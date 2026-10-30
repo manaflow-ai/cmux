@@ -85,8 +85,11 @@ def render(sections: Mapping[str, str]) -> str:
         parts.append(f"<!-- cmux-pr-status:{key} -->\n{inert(sections[key])}\n<!-- /cmux-pr-status:{key} -->")
     body = "\n\n".join(parts) + "\n"
     if len(body) > LIMIT:
-        # Trim the longest section (the tour's step table, in practice), never the others.
-        longest = max(known + extra, key=lambda k: len(sections[k]))
+        # Publication history is retained after migration; trim another section
+        # first when one exists. If it is the only section, the normal cap still
+        # applies because no comment can exceed GitHub's limit.
+        candidates = [key for key in known + extra if key != "published"] or known + extra
+        longest = max(candidates, key=lambda k: len(sections[k]))
         cut = dict(sections)
         over = len(body) - LIMIT + 200
         cut[longest] = sections[longest][: max(0, len(sections[longest]) - over)].rstrip() + \
