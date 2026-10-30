@@ -260,19 +260,12 @@ public final class TerminalSession {
             }))
     }
 
-    /// libghostty's app started after this session was made, and the surface view made its surface (or could not):
-    /// what a fresh surface gets in ``swapSurface()`` (the theme, the canonical grid lock), then the events start.
+    /// libghostty's app started after this session was made, and the surface view made its surface (or could not): the
+    /// theme set before the start goes on the surface, then the events start. No grid lock is pending here (only a
+    /// routed `.resize` sets one, and nothing was routed yet), and the late `createSurface` already reported the size.
     private func surfaceCameLate() {
         guard !isClosed else { return }
-        let fresh = surfaceView
-        if fresh.surface != nil {
-            applyTheme(to: fresh, clearing: false, animated: false)
-            if let canonicalGrid {
-                fresh.lane?.lockGrid(canonicalGrid)
-                fresh.applyAnnouncedGrid(canonicalGrid)
-            }
-            fresh.updateSurfaceSize(forceReport: true)
-        }
+        if surfaceView.surface != nil { applyTheme(to: surfaceView, clearing: false, animated: false) }
         startConsumingEvents()
     }
 
