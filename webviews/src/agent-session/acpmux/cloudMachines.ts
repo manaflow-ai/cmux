@@ -131,11 +131,20 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
   // Paused · Resume until the next read (a second pick would ask again).
   if (method === "cloudMachine.resume")
     publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "requesting" } : other)));
-  // A list read already in flight was asked before the action: wait it out, then read again.
+  // A list read already in flight was asked before the action: wait it out, then read again. A
+  // refused action shows as Couldn't start (the list would only say Paused again), so a pick that
+  // waits on the machine stops waiting instead of reading Starting… for ever.
+  let refused = false;
   return call(method, { id: machine.id })
-    .catch(() => undefined)
+    .catch(() => {
+      refused = true;
+    })
     .then(() => inFlight)
-    .then(() => refreshCloudMachines(call));
+    .then(() =>
+      refused
+        ? publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "failed" } : other)))
+        : refreshCloudMachines(call),
+    );
 }
 
 export function useCloudMachines(): readonly CloudMachine[] {

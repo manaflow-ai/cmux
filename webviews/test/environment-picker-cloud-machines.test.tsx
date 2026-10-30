@@ -294,6 +294,80 @@ test("another pick ends the wait for a Cloud machine", async () => {
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
 });
 
+/// The props of a New Tab composer waiting on `build box` (picked while paused), for a rerender.
+async function waitOnBuildBox() {
+  const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
+  const picks = await mount(true);
+  await openPicker();
+  await act(async () =>
+    pickerRows()
+      .find((row) => label(row) === "build box")!
+      .click(),
+  );
+  const props = (extra: Record<string, unknown>) =>
+    ({
+      environments: true,
+      summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
+      sessions: [],
+      peers: ["gpu-box"],
+      peerKinds: { "gpu-box": "ssh" },
+      peerConnected: { "gpu-box": true },
+      peerStates: { "gpu-box": "connected" },
+      localName: "this-mac",
+      projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
+      onProject: (cwd: string, peer?: string) => picks.push(["project", cwd, peer]),
+      onComputer: (computer: string) => picks.push(["computer", computer]),
+      onConnect: () => undefined,
+      onCloudMachine: (machine: CloudMachine) => picks.push(["cloud", machine.id]),
+      cloudMachines: account,
+      ...extra,
+    }) as unknown as Parameters<typeof ComposerContext>[0];
+  const render = (extra: Record<string, unknown>) =>
+    act(async () => root!.render(<ComposerContext {...props(extra)} />));
+  const ready = {
+    peers: ["gpu-box", "build box"],
+    peerKinds: { "gpu-box": "ssh", "build box": "cloud" },
+    peerConnected: { "gpu-box": true, "build box": true },
+    peerStates: { "gpu-box": "connected", "build box": "connected" },
+  };
+  return { picks, render, ready };
+}
+
+test("a Cloud machine that fails to start ends the wait: the control says so and nothing moves", async () => {
+  const { picks, render, ready } = await waitOnBuildBox();
+  await render({ cloudMachines: [{ ...account[0]!, stage: "failed" }, ...account.slice(1)] });
+  expect(computerButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: build box · ${t("switch.failedShort")}`,
+  );
+  await render({ ...ready, cloudMachines: [{ ...account[0]!, stage: "failed" }, ...account.slice(1)] });
+  expect(picks).toEqual([["cloud", "vm-paused"]]);
+});
+
+test("a chat change drops the wait for good, even when the chat comes back to the same key", async () => {
+  const { picks, render, ready } = await waitOnBuildBox();
+  await render({ summary: { sessionId: "other-chat", harness: "claude", host: "This Mac", hostKind: "local" } });
+  await render({});
+  await render(ready);
+  expect(picks).toEqual([["cloud", "vm-paused"]]);
+  expect(computerButton()?.getAttribute("aria-label")).not.toContain(t("composer.envStarting"));
+});
+
+test("a refused resume shows the machine as Couldn't start, not Starting… for ever", async () => {
+  const { runCloudMachine, setCloudMachinesForTest } = await import("../src/agent-session/acpmux/cloudMachines");
+  setCloudMachinesForTest(account);
+  const call = async (method: string) => {
+    if (method === "cloudMachine.resume") throw new Error("refused");
+    return { signedIn: true, loaded: true, machines: account };
+  };
+  await act(async () => {
+    await runCloudMachine(account[0]!, call);
+  });
+  await mount(true, { cloudMachines: undefined });
+  await openPicker();
+  const row = pickerRows().find((item) => label(item) === "build box");
+  expect(row?.querySelector(".acpmux-env-state")?.textContent).toBe(t("switch.failedShort"));
+});
+
 test("a machine that failed to start says so, not Not connected", async () => {
   await mount(true, { cloudMachines: [{ id: "vm-bad", name: "broken box", stage: "failed" }] });
   await openPicker();

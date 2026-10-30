@@ -222,9 +222,14 @@ export function ComposerContext({
   const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   // A Cloud machine picked while it was paused or not yet linked (pickCloudMachine below), until
-  // acpmux lists it ready, another machine is picked, or the chat changes.
-  const [waitingPick, setWaiting] = useState<{ key: string; name: string } | undefined>(undefined);
-  const waiting = waitingPick?.key === pickKey ? waitingPick : undefined;
+  // acpmux lists it ready, another machine is picked, or the chat changes. A change drops it for
+  // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
+  // machine the account no longer lists ends it, and one that failed to start stops it moving.
+  const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string } | undefined>(undefined);
+  if (waitingPick && waitingPick.key !== pickKey) setWaiting(undefined);
+  const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
+  const waiting = waitMachine ? waitingPick : undefined;
+  const waitFailed = waitMachine?.stage === "failed";
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer !== "local" || !projectChoices) return known;
@@ -248,14 +253,15 @@ export function ComposerContext({
       : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   // The machine the pick waits for, once acpmux lists it ready: its own row, not the account's.
-  const arrived = waiting
-    ? computers.find(
-        (computer) =>
-          !computer.cloudMachine &&
-          computer.label.toLowerCase() === waiting.name.toLowerCase() &&
-          environmentReady(computer),
-      )
-    : undefined;
+  const arrived =
+    waiting && !waitFailed
+      ? computers.find(
+          (computer) =>
+            !computer.cloudMachine &&
+            computer.label.toLowerCase() === waiting.name.toLowerCase() &&
+            environmentReady(computer),
+        )
+      : undefined;
   const arrive = useRef<(id: string) => void>(() => undefined);
   const arrivedId = arrived?.id;
   useEffect(() => {
@@ -306,7 +312,7 @@ export function ComposerContext({
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
       onCloudMachine(machine);
-      setWaiting({ key: pickKey, name: machine.name });
+      setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }
     return machine !== undefined;
   };
@@ -325,7 +331,9 @@ export function ComposerContext({
     pickComputer(id);
   };
   // The machine control's name: the machine a Cloud pick waits for, as starting, else the current one.
-  const waitingName = waiting ? `${waiting.name} · ${t("composer.envStarting")}` : undefined;
+  const waitingName = waiting
+    ? `${waiting.name} · ${t(waitFailed ? "switch.failedShort" : "composer.envStarting")}`
+    : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
   // A first computer is discoverable without Labs, including from a started local chat.
