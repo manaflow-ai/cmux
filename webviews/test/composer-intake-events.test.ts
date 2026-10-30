@@ -267,3 +267,25 @@ test("an image's chip counts as removed only from the strip of the chat it was p
   expect(chipRemoved({ ...base, stagedHere: false })).toBe(false);
   expect(chipRemoved({ ...base, strip: [{ id: "img" } as never] })).toBe(false);
 });
+
+// Review (Astra): a chip ready after the composer left its chat goes to that chat's kept chips, one
+// handoff per chip. Ready chips of one batch arrive at their own times, so two handoffs can overlap:
+// each must see the other's chip, never write over it.
+test("chips handed to a chat the composer left all stay, in the order they were handed", async () => {
+  const { keepElsewhere } = await import("../src/agent-session/acpmux/composer/keptAttachments");
+  let kept: ComposerAttachment[] = [{ id: "old" } as ComposerAttachment];
+  const store = {
+    read: async () => {
+      await Promise.resolve();
+      return kept;
+    },
+    write: async (_chat: string, chips: ComposerAttachment[]) => {
+      await Promise.resolve();
+      kept = chips;
+      return { held: [] };
+    },
+  };
+  const chip = (id: string) => ({ id, kind: "link", name: id, mimeType: "text/plain", size: 1 }) as ComposerAttachment;
+  await Promise.all([keepElsewhere(store, "A", [chip("file")]), keepElsewhere(store, "A", [chip("image")])]);
+  expect(kept.map((attachment) => attachment.id)).toEqual(["old", "file", "image"]);
+});
