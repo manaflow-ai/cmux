@@ -1181,6 +1181,24 @@ fn a_share_the_room_ended_ends_here_and_is_not_reconnected() {
     );
 }
 
+/// The room's expiry alarm may end a share before the daemon's own timer: the room's `end`
+/// reason keeps it expired here, not revoked.
+#[test]
+fn a_share_the_room_expired_is_expired_here() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-expired-there", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "end", "reason": "expired"}));
+    room.send(json!({"close": 4001}));
+    let deadline = Instant::now() + WAIT;
+    while state(&mut owner)["state"] != "expired" {
+        assert!(Instant::now() < deadline, "the share the room expired is expired here");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 #[test]
 fn only_guest_facing_redeem_refusals_reach_the_room() {
     assert!(GUEST_REFUSALS.contains(&"share.used"));

@@ -553,14 +553,20 @@ impl LinkShares {
     }
 
     /// The room ended `share_id` (it closed the host socket with 4001, or refused its upgrade as
-    /// gone): a share still open here is revoked, with no room `DELETE` (the room is gone) and no
-    /// kick left to send.
-    pub(super) fn ended_by_room(&self, directory: Option<&Path>, share_id: &str) {
+    /// gone): a share still open here ends, with no room `DELETE` (the room is gone) and no kick
+    /// left to send. It expired when the room said so (`end {reason: "expired"}`) or its expiry
+    /// passed here too (the room's alarm won the race); else it is revoked.
+    pub(super) fn ended_by_room(&self, directory: Option<&Path>, share_id: &str, expired: bool) {
+        let now = self.now();
         self.end_where(
             directory,
             |s| s.share_id == share_id,
             |share| {
-                share.state = ShareState::Revoked;
+                share.state = if expired || now >= share.expires_at {
+                    ShareState::Expired
+                } else {
+                    ShareState::Revoked
+                };
                 share
                     .pending_room_ops
                     .retain(|o| op_of(o) != Some("kick") && op_of(o) != Some("delete"));

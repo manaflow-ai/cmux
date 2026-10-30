@@ -162,11 +162,13 @@ fn change<T>(
     shares(mux).with(directory.as_deref(), |all, _| Ok(edit(find(all, share_id)?))).ok()
 }
 
-/// The room ended `share_id` (close code 4001): a share still active here is revoked, with no
-/// room `DELETE` (the room is gone) and no kick left to send, and its guests' connections close.
-fn ended_by_room(mux: &Mux, share_id: &str) {
+/// The room ended `share_id` (close code 4001, or gone at the upgrade): a share still active
+/// here ends (expired when `reason` or its own expiry says so, else revoked), with no room
+/// `DELETE` (the room is gone) and no kick left to send, and its guests' connections close.
+fn ended_by_room(mux: &Mux, share_id: &str, reason: Option<&str>) {
     let directory = mux.session_state_directory();
-    shares(mux).ended_by_room(directory.as_deref(), share_id);
+    let expired = reason == Some("expired");
+    shares(mux).ended_by_room(directory.as_deref(), share_id, expired);
     shares(mux).settle(mux);
 }
 
@@ -697,7 +699,7 @@ async fn serve_host(
             Err(Refused::Gone) => {
                 // The room has no such share any more (deleted or expired there).
                 if let Some(mux) = mux.upgrade() {
-                    ended_by_room(&mux, &share_id);
+                    ended_by_room(&mux, &share_id, None);
                 }
                 break;
             }
@@ -784,6 +786,8 @@ async fn session(
     // it stays quiet another.
     let mut heard = tokio::time::Instant::now();
     let mut pinged = false;
+    // The reason of the room's own `end`, if it sent one.
+    let mut room_end: Option<String> = None;
     loop {
         let quiet = heard + if pinged { timing.heartbeat * 2 } else { timing.heartbeat };
         let out = tokio::select! {
@@ -797,6 +801,12 @@ async fn session(
             frame = stream.next() => match frame {
                 Some(Ok(Message::Text(text))) => {
                     (heard, pinged) = (tokio::time::Instant::now(), false);
+                    // The room says why it ends the share before it closes with 4001.
+                    if let Ok(frame) = serde_json::from_str::<Value>(text.as_str())
+                        && frame.get("t").and_then(Value::as_str) == Some("end")
+                    {
+                        room_end = frame.get("reason").and_then(Value::as_str).map(str::to_owned);
+                    }
                     let mux = mux.upgrade()?;
                     answer(&mux, share_id, text.as_str(), &mut ready)
                 }
@@ -807,7 +817,7 @@ async fn session(
                     if code == Some(4001)
                         && let Some(mux) = mux.upgrade()
                     {
-                        ended_by_room(&mux, share_id);
+                        ended_by_room(&mux, share_id, room_end.as_deref());
                     }
                     // The room refused this host for good: no host will serve the share.
                     if code == Some(4003)
