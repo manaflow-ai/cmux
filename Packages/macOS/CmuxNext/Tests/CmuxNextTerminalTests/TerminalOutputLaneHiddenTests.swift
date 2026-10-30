@@ -17,7 +17,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-hidden-off") { _, data in
             parses.append(String(decoding: data, as: UTF8.self), qos: qos_class_self())
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         lane.setHidden(true)
         lane.processOutput(Data("hidden".utf8))
         await lane.drained()
@@ -35,7 +35,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-hidden", lowersHidden: true) { _, data in
             parses.append(String(decoding: data, as: UTF8.self), qos: qos_class_self())
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         // Drained between phases: a shown chunk queued behind a hidden one would raise it (an override).
         lane.processOutput(Data("shown".utf8))
         await lane.drained()

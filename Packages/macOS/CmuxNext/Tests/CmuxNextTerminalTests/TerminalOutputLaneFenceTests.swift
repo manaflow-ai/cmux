@@ -32,7 +32,7 @@ import Testing
         var iterator = started.makeAsyncIterator()
         _ = await iterator.next()
 
-        let closed = Task.detached { lane.close() }
+        let closed = Task.detached { lane.close {} }
         // Returns only once the close set its flag: the gate is still shut, so no parse freed capacity.
         await lane.waitForCapacity()
         gate.signal()
@@ -51,7 +51,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-surface") { surface, _ in
             log.append("chunk", surface)
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         lane.processOutput(Data("chunk".utf8))
         lane.perform { log.append("perform", $0) }
         await lane.drained()

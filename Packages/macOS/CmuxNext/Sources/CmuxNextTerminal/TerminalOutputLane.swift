@@ -432,7 +432,7 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// pushes with `.forever`) that only the main thread's `ghostty_app_tick` empties. Queued output,
     /// echo marks and ``perform(_:)`` work are skipped from now on (``liveSurface``): the closed pane has
     /// no view for its titles and bells.
-    func close(then last: @escaping @Sendable () -> Void = {}) {
+    func close(then last: @escaping @Sendable () -> Void) {
         closing.store(true, ordering: .relaxed)
         echoStage?.close()
         let (waiters, wakes) = backlog.withLock { $0.release() }
