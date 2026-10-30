@@ -67,7 +67,10 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
                 contextBox.evaluate(reason: reason, reply: reply)
             }
         }, onCancel: {
-            contextBox.invalidate()
+            // LAContext.invalidate is main-actor isolated in the current SDK. Queue it on the
+            // actor from this nonisolated cancellation callback, while the reply fence closes
+            // immediately so a late authentication result cannot authorize the cancelled task.
+            Task { @MainActor in contextBox.invalidate() }
             reply.finish(false)
         })
     }
