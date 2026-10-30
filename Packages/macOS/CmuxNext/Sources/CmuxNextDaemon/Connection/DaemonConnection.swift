@@ -139,18 +139,28 @@ public actor DaemonConnection {
         guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
-        var request = request
-        if identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
-           let carrier = request as? any ShellIntegrationArgumentCarrying,
-           let integrated = carrier.addingShellIntegrationArguments() as? R {
-            request = integrated
-        }
         do {
-            return try await self.request(request, timeout: configuration.spawnTimeout)
+            return try await self.request(withShellIntegration(request), timeout: configuration.spawnTimeout)
         } catch DaemonError.timedOut(let what) {
             // cmux-tui keeps starting the terminal after the client gave up.
             throw DaemonError.terminalStartTimedOut(what)
         }
+    }
+
+    /// A terminal start the daemon makes exactly once under its client-chosen terminal id (`new-tab` with
+    /// `terminal-placement-env-v1`): sent once, with the shell-integration arguments ``request(_:)`` adds, and answered
+    /// by its reply or the connection's end (``LineTransport`` fails every pending request on close). No client deadline
+    /// decides it: the start's outcome is the daemon's (principled-audit R5, R-L5).
+    func requestAwaitingStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        try await self.request(withShellIntegration(request), timeout: nil)
+    }
+
+    /// `request` with Ghostty's shell-integration arguments when this daemon serves them.
+    private func withShellIntegration<R: DaemonRequest>(_ request: R) -> R {
+        guard identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
+              let carrier = request as? any ShellIntegrationArgumentCarrying,
+              let integrated = carrier.addingShellIntegrationArguments() as? R else { return request }
+        return integrated
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
