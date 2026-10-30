@@ -70,10 +70,23 @@ const agents: Subagent[] = ["workflow-a", "workflow-b"].map((id) => ({
   id, name: id, parent: null, state: "running", kind: "workflow", startedAt: Date.now(),
   tokens: 1000, agents: { started: 3, done: 0 },
 }));
-const snapshot = (items: Subagent[]) => fixtures.chat([
+const snapshot = (items: Subagent[], changed: readonly Subagent[] = []) => fixtures.chat([
   fixtures.user("Review both modules", 2),
   fixtures.row("subagents", 1, { subagents: items }),
-], { isWorking: true });
+], {
+  isWorking: true,
+  ...(changed.length > 0
+    ? {
+        subagentProgress: Object.fromEntries(
+          changed.map((agent) => [agent.id, {
+            agents: agent.agents,
+            tokens: agent.tokens,
+            toolUses: agent.toolUses,
+          }]),
+        ),
+      }
+    : {}),
+});
 const receive = (value: unknown) => (dom.window as unknown as {
   cmuxAcpmuxBridge?: { receive(value: unknown): void };
 }).cmuxAcpmuxBridge?.receive(value);
@@ -81,8 +94,13 @@ const receive = (value: unknown) => (dom.window as unknown as {
 for (const producer of [false, true]) test(`App delivers usage-only snapshots to one workflow row (${producer ? "direct producer" : "bridge"})`, async () => {
   const fold = new SubagentFold();
   let seq = 0;
+  let bridgeSnapshot = 0;
   const publish = (items: Subagent[]) => {
-    if (!producer) return snapshot(items);
+    if (!producer) {
+      // The bridge protocol publishes a keyed progress delta alongside its full row snapshot.
+      // This keeps the compatibility path on the same per-agent update contract as direct mode.
+      return snapshot(items, bridgeSnapshot++ === 0 ? [] : [items[0]!]);
+    }
     const update = { sessionUpdate: seq === 0 ? "subagent_spawned" : "subagent_progress" };
     fold.reduce({ seq: ++seq, at: Date.now(), msg: { params: { _meta: { acpmux: { subagents: items } } } } }, update);
     const next = fixtures.chat([fixtures.user("Review both modules", 2), ...fold.takeRows()], { isWorking: true });
