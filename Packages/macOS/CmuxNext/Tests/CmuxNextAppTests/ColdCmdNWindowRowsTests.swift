@@ -108,6 +108,35 @@ import Testing
         }
     }
 
+    /// A placement waiting for the current row whose new workspace closes (or whose create is undone) meanwhile:
+    /// its entry goes with it, rather than waiting forever for a workspace the daemon no longer has.
+    @Test func aWaitingPlacementWhoseWorkspaceClosesIsDropped() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.machines.local.store
+        let identity = try PlacementStaleRowsTests.identity(mixedOrder: false)
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: PlacementStaleRowsTests.tree(["k1", "k2"], personal: ["k1", "k2"]))
+        let windows = services.windows
+        windows.ordersWindowsIn = false
+        let controller = try #require(windows.openWindow(workspaces: ["k2"]))
+        defer { controller.teardown(); controller.window?.close() }
+        controller.sidebar.resync()
+        let machine = try #require(services.machines.daemon(forWorkspace: "k1")?.machineID)
+        try await Self.withDocument(shown: false) { _ in
+            let ran = Ran()
+            NewWorkspacePlacements.expect("k2", in: controller.state.id, byDefault: NewWorkspaceDefaultSlot(placement: .afterCurrent, current: "k1", currentMachine: machine),
+                                          then: { _, _ in ran.value = true }, windows: windows)
+            try #require(windows.pendingPlacements["k2"] != nil, "the placement did not wait")
+            store.apply(snapshot: PlacementStaleRowsTests.tree(["k1"], personal: ["k1"]))
+            windows.retryDeferredPlacements()
+            #expect(windows.pendingPlacements["k2"] == nil, "a placement for closed workspace k2 is kept")
+            #expect(!windows.pendingPlacementOrder.contains("k2"))
+            #expect(!ran.value, "then ran for a workspace that is gone")
+        }
+    }
+
     /// A current row the window could list (no window owns it yet) that never comes: the wait ends at its limit,
     /// with no rows pass to retry it, and the placement resolves by the fallback.
     @Test func aCurrentRowThatNeverComesStopsWaitingAtTheLimit() async throws {
