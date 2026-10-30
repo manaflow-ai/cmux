@@ -311,9 +311,9 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
     const owner = conversationOf(env, conversation)
     // An intent that failed while no upload of it lives gives its slot and reservation back at once (best effort: the
     // slot's expiry does both anyway). A live upload keeps them: the slot is its record until expiry aborts it.
+    // The refund comes first: the slot goes only once it succeeded, so a failed refund leaves the slot for its expiry to refund.
     const release = async () => {
-      await owner.dropUploadSlot(conversation, slot.id).catch(() => undefined)
-      await users.refundAttachmentQuota(caller.user, slotId).catch(() => undefined)
+      if (await users.refundAttachmentQuota(caller.user, slotId).then(() => true, () => false)) await owner.dropUploadSlot(conversation, slot.id).catch(() => undefined)
     }
     const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } }).catch(async (e: unknown) => {
       await release()
