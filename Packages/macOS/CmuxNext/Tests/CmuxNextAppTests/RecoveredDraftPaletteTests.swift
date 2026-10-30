@@ -69,7 +69,8 @@ struct RecoveredDraftPaletteTests {
     @Test func noDraftsListNothing() async {
         let directory = Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(await Self.items(RecoveredDraftPage(store: RecoveryDraftStore(directory: directory)).spec).isEmpty)
+        let store = RecoveryDraftStore(directory: directory)
+        #expect(await Self.items(RecoveredDraftPage(store: store).spec).isEmpty)
     }
 
     /// Without an editor side to open drafts, rows show but cannot run.
@@ -77,7 +78,9 @@ struct RecoveredDraftPaletteTests {
         let directory = Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         await RecoveryDraftFiles.write(Self.draft("notes.md", savedAt: 1000), in: directory, maxTotalBytes: .max)
-        let rows = await Self.items(RecoveredDraftPage(store: RecoveryDraftStore(directory: directory)).spec)
+        // The page holds its store weakly (the app's store lives as long as the app): keep it here.
+        let store = RecoveryDraftStore(directory: directory)
+        let rows = await Self.items(RecoveredDraftPage(store: store).spec)
         #expect(rows.count == 1)
         #expect(rows.first?.isEnabled == false)
     }

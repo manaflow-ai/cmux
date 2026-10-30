@@ -46,10 +46,11 @@ enum FilePageHandlers {
         }
         // Open Recovered Draft… (R96): the drafts on disk as a palette page; the page reads them
         // when it opens, so the handler only shows it.
-        services.palette.sources.actionPages[RecoveredDraftPage.id] = { [weak services] in
+        let recoveredDrafts = ActionID(rawValue: RecoveredDraftPage.id)
+        services.palette.sources.actionPages[recoveredDrafts] = { [weak services] in
             services.map { RecoveredDraftPage(store: $0.recoveryDrafts).spec }
         }
-        registry.bindEffect(ActionID(rawValue: RecoveredDraftPage.id), effect: { [weak services] _ in
+        registry.bindEffect(recoveredDrafts, effect: { [weak services] _ in
             guard let services else { return .done }
             services.palette.show(page: RecoveredDraftPage(store: services.recoveryDrafts).spec,
                                   relativeTo: context.activeWindow?.window)
