@@ -51,6 +51,11 @@ pub(super) fn record_bytes(v: &Value) -> u64 {
             Ok(buf.len())
         }
 
+        fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+            self.0 = self.0.saturating_add(buf.len() as u64);
+            Ok(())
+        }
+
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }

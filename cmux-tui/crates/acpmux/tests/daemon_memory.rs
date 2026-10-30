@@ -723,16 +723,18 @@ fn peer_memory_case(closed: bool, fillers: u64) -> (u64, u64) {
     (peak_kib, cpu_ms)
 }
 
-/// Recorded bounds for the peer snapshot benchmark below (BOUNDS_RUN).
-const PEAK_MB: u64 = 0;
-const CPU_MS: u64 = 0;
+/// Bounds for the peer snapshot benchmark below: the worst case of three paired
+/// base/head rounds in the dev profile on a 32-vCPU Linux runner (1,124 MiB peak,
+/// 9,540 ms CPU; run 41012834259), plus about 25% headroom.
+const PEAK_MB: u64 = 1_400;
+const CPU_MS: u64 = 12_000;
 
 /// Hermetic exact-daemon saturation cost of peer snapshots. The fixed retained
 /// workload exercises removed-record accounting and the N fillers drive the cache
 /// through 0, 288 and 1000 sessions in both statuses. Each case's lifetime peak RSS
 /// and snapshot CPU must stay within `ACPMUX_PEER_SNAPSHOT_PEAK_MB` and
 /// `ACPMUX_PEER_SNAPSHOT_CPU_MS`; the defaults are the worst case measured on the
-/// fleet's Linux runner plus headroom (BOUNDS_RUN). Opt-in like the list benchmark:
+/// fleet's Linux runner plus headroom. Opt-in like the list benchmark:
 /// run with --ignored --test-threads=1 on base and head on one host.
 #[test]
 #[ignore = "same-host peer snapshot benchmark; run explicitly with --ignored"]
