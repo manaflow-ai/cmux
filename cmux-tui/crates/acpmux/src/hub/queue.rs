@@ -944,8 +944,7 @@ impl Hub {
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
-        // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
-        // moved here was the source's until its `imported` record.
+        // A begun move not yet ended (`transfer_out.rs` `restored_moving`), until `imported`.
         let mut moving: Option<String> = None;
         // What a paused agent pair held here, what its releases took, its pauses and resumes,
         // and the prompt ids that reached the session (`agent_pairs.rs`).
@@ -1008,8 +1007,11 @@ impl Hub {
                     | "agent_pair_dropped"
                     | "agent_pair_paused"
                     | "agent_pair_resumed" => pair_records.push(e),
-                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                    "transfer_aborted" | "imported" => moving = None,
+                    // The daemon's own records only: an agent's update may carry any kind.
+                    "transfer_out" if e.dir == "mux" => {
+                        moving = e.msg.get("transferId").and_then(Value::as_str).map(str::to_owned)
+                    }
+                    "transfer_aborted" | "imported" if e.dir == "mux" => moving = None,
                     // Left the queue for a turn that has not started (`lost_start.rs`): its
                     // `queued` record stays waiting, so later records apply to it, and it goes
                     // back ahead of the queue.
@@ -1093,7 +1095,8 @@ impl Hub {
             self.restore_git_branch(session, branch);
         }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
-        session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
+        *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
+            transfer_out::restored_moving(scanned.is_ok(), moving);
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
@@ -1210,6 +1213,7 @@ impl Hub {
     /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
         for session in sessions {
+            self.restore_auto_resume(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
                 let (hub, session) = (self.clone(), session.clone());

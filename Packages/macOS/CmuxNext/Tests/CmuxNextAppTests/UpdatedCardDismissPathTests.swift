@@ -58,6 +58,14 @@ struct UpdatedCardDismissPathTests {
         #expect(host.closeButton.accessibilityLabel() == "Close")
         #expect(host.closeButton.frame.maxX == 200 - SidebarUpdatedCardHost.closeInset.width, "the x sits at the card's top right")
         #expect(host.subviews.last === host.closeButton, "the page never covers the x")
+        // Leo 2026-10-30: "I don't like the non-glassness". The card's glass is the sidebar cards'
+        // native surface, under the page, with the page's own card corner.
+        #expect(host.subviews.first === host.surface, "the glass is under the page and the x")
+        #expect(host.surface.frame == host.bounds, "the glass fills the card")
+        #expect(host.surface.cornerRadius == SidebarUpdatedCardHost.cornerRadius)
+        if let page = host.island?.view {
+            #expect(host.subviews.firstIndex(of: page).map { $0 > 0 } == true, "the page draws its words over the glass")
+        }
         #expect(host.closeButton.acceptsFirstMouse(for: nil), "a first click in a window that is not key presses the x")
 
         host.closeButton.performClick(nil)
