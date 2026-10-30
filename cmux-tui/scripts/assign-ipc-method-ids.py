@@ -78,7 +78,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
-        "client-hello", "bridge-hello",
+        "client-hello", "bridge-hello", "open-stream", "close-stream",
     )),
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
@@ -342,9 +342,9 @@ MEMORY = (
     # Cancels an in-flight apps-run or script cell of this connection only.
     "cancel-request",
     # Connection state that ends with the connection: its role and proof, its
-    # bridge kind, its loopback streams, its browser hosts and its machine
-    # catalog lease.
-    "client-hello", "bridge-hello", "loopback-open", "loopback-data", "loopback-credit",
+    # bridge kind, a page relay's page streams, its loopback streams, its
+    # browser hosts and its machine catalog lease.
+    "client-hello", "bridge-hello", "open-stream", "close-stream", "loopback-open", "loopback-data", "loopback-credit",
     "loopback-shutdown", "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",

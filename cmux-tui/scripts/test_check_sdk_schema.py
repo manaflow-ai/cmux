@@ -818,7 +818,10 @@ struct SurfaceParams {
         self.assertEqual(set(fields["loopback-open"]), {"stream", "host", "port", "window"})
         self.assertEqual(set(fields["loopback-data"]), {"stream", "data"})
         self.assertEqual(set(fields["loopback-status"]), set())
-        self.assertEqual(set(fields["client-hello"]), {"role", "install_id", "page", "proof"})
+        # features: the app's daemon features (e96ba3539cc); streams: one page relay for every page (6311359bcfc4).
+        self.assertEqual(set(fields["client-hello"]), {"role", "install_id", "page", "proof", "features", "streams"})
+        self.assertEqual(set(fields["open-stream"]), {"stream", "page"})
+        self.assertEqual(set(fields["close-stream"]), {"stream"})
         # The owner fence and the publication struct in client_registry/.
         self.assertEqual(
             set(fields["machine-catalog-publish"]),

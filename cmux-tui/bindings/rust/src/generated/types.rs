@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e.
+// cmux-tui mux protocol 12, IR 8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -836,6 +836,8 @@ pub struct ClientHelloResult {
     pub page_events: Option<Vec<String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub page_operations: Option<ClientHelloPageOperations>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page_streams: Option<bool>,
     pub user_origin_allowed: bool,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub verified: Option<bool>,
@@ -880,6 +882,13 @@ pub enum ClientTransport {
 pub enum CloseReason {
     #[serde(rename = "session_end")]
     SessionEnd,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseStreamResult {
+    pub closed: bool,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]
@@ -2063,6 +2072,15 @@ pub enum NotificationSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NotifyResult {
     pub notification: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenStreamResult {
+    pub page: String,
+    pub page_operations: ClientHelloPageOperations,
+    pub relay_id: String,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]

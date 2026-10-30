@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e'
+IR_SHA256 = '8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977'
 
 
 @dataclass(frozen=True)
@@ -1062,6 +1062,7 @@ COMMANDS = {
             'page': CommandFieldMetadata(None, None),
             'proof': CommandFieldMetadata(None, None),
             'role': CommandFieldMetadata(None, None),
+            'streams': CommandFieldMetadata(None, None),
         },
     ),
     'close-pane': CommandMetadata(
@@ -1111,6 +1112,17 @@ COMMANDS = {
         {
             'end_terminals': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
+        },
+    ),
+    'close-stream': CommandMetadata(
+        'close-stream',
+        'local-admin',
+        12,
+        'page-streams-v1',
+        ('local-admin',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'close-surface': CommandMetadata(
@@ -3324,6 +3336,18 @@ COMMANDS = {
             'source': CommandFieldMetadata(12, 'notification-source-v1'),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'open-stream': CommandMetadata(
+        'open-stream',
+        'local-admin',
+        12,
+        'page-streams-v1',
+        ('local-admin',),
+        None,
+        {
+            'page': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'page-credential': CommandMetadata(

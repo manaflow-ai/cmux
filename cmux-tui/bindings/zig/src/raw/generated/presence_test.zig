@@ -285,6 +285,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ClientHelloResult, "page");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "page_events");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "page_operations");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "page_streams");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "verified");
     try expectExplicitNullRejected(protocol.ConversationChange, "conversation");
     try expectExplicitNullRejected(protocol.ConversationChange, "message");

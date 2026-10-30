@@ -93,6 +93,7 @@ public final class Commands {
     public static final CommandMetadata CLOSE_PROVIDER_MANAGED_WORKSPACE = new CommandMetadata("close-provider-managed-workspace", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_SCREEN = new CommandMetadata("close-screen", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_SCREEN_GROUP = new CommandMetadata("close-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOSE_STREAM = new CommandMetadata("close-stream", Authority.LOCAL_ADMIN, 12, "page-streams-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_SURFACE = new CommandMetadata("close-surface", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOSE_TAB_GROUP = new CommandMetadata("close-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.ofEntries(Map.entry("end_terminals", 12L)), Map.ofEntries(Map.entry("end_terminals", "batch-close-v1")));
     public static final CommandMetadata CLOSE_TABS = new CommandMetadata("close-tabs", Authority.CONTROL, 12, "batch-close-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("reason", "close-reason-v1")));
@@ -258,6 +259,7 @@ public final class Commands {
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTE_SIZE_ACTIVITY = new CommandMetadata("note-size-activity", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("source", 12L)), Map.ofEntries(Map.entry("source", "notification-source-v1")));
+    public static final CommandMetadata OPEN_STREAM = new CommandMetadata("open-stream", Authority.LOCAL_ADMIN, 12, "page-streams-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAGE_CREDENTIAL = new CommandMetadata("page-credential", Authority.LOCAL_ADMIN, 12, "page-credential-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -463,6 +465,7 @@ public final class Commands {
         values.put("close-provider-managed-workspace", CLOSE_PROVIDER_MANAGED_WORKSPACE);
         values.put("close-screen", CLOSE_SCREEN);
         values.put("close-screen-group", CLOSE_SCREEN_GROUP);
+        values.put("close-stream", CLOSE_STREAM);
         values.put("close-surface", CLOSE_SURFACE);
         values.put("close-tab-group", CLOSE_TAB_GROUP);
         values.put("close-tabs", CLOSE_TABS);
@@ -628,6 +631,7 @@ public final class Commands {
         values.put("new-workspace", NEW_WORKSPACE);
         values.put("note-size-activity", NOTE_SIZE_ACTIVITY);
         values.put("notify", NOTIFY);
+        values.put("open-stream", OPEN_STREAM);
         values.put("page-credential", PAGE_CREDENTIAL);
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);

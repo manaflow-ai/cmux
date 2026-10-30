@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e";
+inline constexpr std::string_view kProtocolIrSha256 = "8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -96,6 +96,7 @@ struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
 enum class CloseReason;
+struct CloseStreamResult;
 struct CloseTerminalResult;
 struct ColorHex;
 enum class ColumnMoveDirection;
@@ -193,6 +194,7 @@ enum class NotificationLevel;
 struct NotificationMarker;
 enum class NotificationSource;
 struct NotifyResult;
+struct OpenStreamResult;
 struct Pane;
 enum class PaneDirection;
 enum class PaneKind;
@@ -438,6 +440,7 @@ struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
 struct CloseScreenGroupRequest;
+struct CloseStreamRequest;
 struct CloseSurfaceRequest;
 struct CloseTabGroupRequest;
 struct CloseTabGroupResult;
@@ -641,6 +644,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct OpenStreamRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
@@ -2600,6 +2604,7 @@ struct ClientHelloRequest {
     Field<std::string> page{};
     std::optional<std::string> proof{};
     std::optional<std::string> role{};
+    Field<bool> streams{};
     friend bool operator==(const ClientHelloRequest&, const ClientHelloRequest&) = default;
 };
 
@@ -2611,6 +2616,7 @@ struct ClientHelloResult {
     std::optional<std::string> page{};
     std::optional<std::vector<std::string>> page_events{};
     std::optional<ClientHelloPageOperations> page_operations{};
+    std::optional<bool> page_streams{};
     bool user_origin_allowed{};
     std::optional<bool> verified{};
     friend bool operator==(const ClientHelloResult&, const ClientHelloResult&) = default;
@@ -2674,6 +2680,17 @@ struct CloseScreenRequest {
     std::optional<bool> end_terminals{};
     Id screen{};
     friend bool operator==(const CloseScreenRequest&, const CloseScreenRequest&) = default;
+};
+
+struct CloseStreamRequest {
+    std::uint16_t stream{};
+    friend bool operator==(const CloseStreamRequest&, const CloseStreamRequest&) = default;
+};
+
+struct CloseStreamResult {
+    bool closed{};
+    std::uint16_t stream{};
+    friend bool operator==(const CloseStreamResult&, const CloseStreamResult&) = default;
 };
 
 struct CloseSurfaceRequest {
@@ -5636,6 +5653,20 @@ struct NotifyResult {
     friend bool operator==(const NotifyResult&, const NotifyResult&) = default;
 };
 
+struct OpenStreamRequest {
+    std::string page{};
+    std::uint16_t stream{};
+    friend bool operator==(const OpenStreamRequest&, const OpenStreamRequest&) = default;
+};
+
+struct OpenStreamResult {
+    std::string page{};
+    ClientHelloPageOperations page_operations{};
+    std::string relay_id{};
+    std::uint16_t stream{};
+    friend bool operator==(const OpenStreamResult&, const OpenStreamResult&) = default;
+};
+
 struct TerminalColors {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
@@ -8389,6 +8420,12 @@ struct Codec<CloseReason> {
 };
 
 template <>
+struct Codec<CloseStreamResult> {
+    static Result<Json> encode(const CloseStreamResult& value);
+    static Result<CloseStreamResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseTerminalResult> {
     static Result<Json> encode(const CloseTerminalResult& value);
     static Result<CloseTerminalResult> decode(const Json& value);
@@ -8968,6 +9005,12 @@ template <>
 struct Codec<NotifyResult> {
     static Result<Json> encode(const NotifyResult& value);
     static Result<NotifyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<OpenStreamResult> {
+    static Result<Json> encode(const OpenStreamResult& value);
+    static Result<OpenStreamResult> decode(const Json& value);
 };
 
 template <>
@@ -10441,6 +10484,12 @@ struct Codec<CloseScreenGroupRequest> {
 };
 
 template <>
+struct Codec<CloseStreamRequest> {
+    static Result<Json> encode(const CloseStreamRequest& value);
+    static Result<CloseStreamRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseSurfaceRequest> {
     static Result<Json> encode(const CloseSurfaceRequest& value);
     static Result<CloseSurfaceRequest> decode(const Json& value);
@@ -11656,6 +11705,12 @@ template <>
 struct Codec<NotifyRequest> {
     static Result<Json> encode(const NotifyRequest& value);
     static Result<NotifyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<OpenStreamRequest> {
+    static Result<Json> encode(const OpenStreamRequest& value);
+    static Result<OpenStreamRequest> decode(const Json& value);
 };
 
 template <>

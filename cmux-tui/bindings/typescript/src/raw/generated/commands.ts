@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e. */
+/* cmux-tui mux protocol 12, IR 8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977. */
 
 
 import type * as T from "./types.js";
@@ -845,6 +845,7 @@ export interface ClientHelloRequest extends CmuxRequestBase {
   "page"?: (string) | null;
   "proof"?: string;
   "role"?: string;
+  "streams"?: (boolean) | null;
 }
 
 /** Protocol v5; authority: control. */
@@ -879,6 +880,12 @@ export interface CloseScreenGroupRequest extends CmuxRequestBase {
   "group": string;
 }
 export type CloseScreenGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloseStreamRequest extends CmuxRequestBase {
+  cmd: "close-stream";
+  "stream": number;
+}
 
 /** Protocol v5; authority: control. */
 export interface CloseSurfaceRequest extends CmuxRequestBase {
@@ -2589,6 +2596,13 @@ export interface NotifyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: local-admin. */
+export interface OpenStreamRequest extends CmuxRequestBase {
+  cmd: "open-stream";
+  "page": string;
+  "stream": number;
+}
+
+/** Protocol v12; authority: local-admin. */
 export interface PageCredentialRequest extends CmuxRequestBase {
   cmd: "page-credential";
   "page"?: (string) | null;
@@ -3765,6 +3779,7 @@ export type CmuxRequest =
   | CloseProviderManagedWorkspaceRequest
   | CloseScreenRequest
   | CloseScreenGroupRequest
+  | CloseStreamRequest
   | CloseSurfaceRequest
   | CloseTabGroupRequest
   | CloseTabsRequest
@@ -3930,6 +3945,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | OpenStreamRequest
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -4713,6 +4729,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "screen-groups-v1";
+    stream: null;
+  };
+  "close-stream": {
+    request: CloseStreamRequest;
+    result: T.CloseStreamResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "page-streams-v1";
     stream: null;
   };
   "close-surface": {
@@ -6033,6 +6057,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "open-stream": {
+    request: OpenStreamRequest;
+    result: T.OpenStreamResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "page-streams-v1";
     stream: null;
   };
   "page-credential": {

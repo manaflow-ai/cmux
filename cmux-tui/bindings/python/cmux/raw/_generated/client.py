@@ -246,8 +246,8 @@ class GeneratedClientMixin:
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
 
-    def client_hello(self, *, features: Union[ClientHelloFeatures, None, MissingType] = MISSING, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
-        return self._invoke_command('client-hello', ClientHelloRequest(features=features, install_id=install_id, page=page, proof=proof, role=role))
+    def client_hello(self, *, features: Union[ClientHelloFeatures, None, MissingType] = MISSING, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING, streams: Union[bool, None, MissingType] = MISSING) -> ClientHelloResult:
+        return self._invoke_command('client-hello', ClientHelloRequest(features=features, install_id=install_id, page=page, proof=proof, role=role, streams=streams))
 
     def close_pane(self, pane: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('close-pane', ClosePaneRequest(pane=pane, end_terminals=end_terminals))
@@ -260,6 +260,9 @@ class GeneratedClientMixin:
 
     def close_screen_group(self, group: str, *, end_terminals: Union[bool, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('close-screen-group', CloseScreenGroupRequest(group=group, end_terminals=end_terminals))
+
+    def close_stream(self, stream: int) -> CloseStreamResult:
+        return self._invoke_command('close-stream', CloseStreamRequest(stream=stream))
 
     def close_surface(self, surface: Id) -> EmptyResult:
         return self._invoke_command('close-surface', CloseSurfaceRequest(surface=surface))
@@ -756,6 +759,9 @@ class GeneratedClientMixin:
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
 
+    def open_stream(self, page: str, stream: int) -> OpenStreamResult:
+        return self._invoke_command('open-stream', OpenStreamRequest(page=page, stream=stream))
+
     def page_credential(self, *, page: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('page-credential', PageCredentialRequest(page=page))
 
@@ -1194,6 +1200,7 @@ GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']
 GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMANDS['close-provider-managed-workspace']
 GeneratedClientMixin.close_screen.__cmux_command__ = COMMANDS['close-screen']
 GeneratedClientMixin.close_screen_group.__cmux_command__ = COMMANDS['close-screen-group']
+GeneratedClientMixin.close_stream.__cmux_command__ = COMMANDS['close-stream']
 GeneratedClientMixin.close_surface.__cmux_command__ = COMMANDS['close-surface']
 GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-group']
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
@@ -1359,6 +1366,7 @@ GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.note_size_activity.__cmux_command__ = COMMANDS['note-size-activity']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
+GeneratedClientMixin.open_stream.__cmux_command__ = COMMANDS['open-stream']
 GeneratedClientMixin.page_credential.__cmux_command__ = COMMANDS['page-credential']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']

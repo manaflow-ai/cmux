@@ -112,6 +112,32 @@
             "features": {
               "type": "Option<HelloFeatures>",
               "presence": "optional"
+            },
+            "streams": {
+              "type": "Option<bool>",
+              "presence": "optional"
+            }
+          },
+          "handler": "observe"
+        },
+        "open-stream": {
+          "fields": {
+            "stream": {
+              "type": "u16",
+              "presence": "required"
+            },
+            "page": {
+              "type": "String",
+              "presence": "required"
+            }
+          },
+          "handler": "observe"
+        },
+        "close-stream": {
+          "fields": {
+            "stream": {
+              "type": "u16",
+              "presence": "required"
             }
           },
           "handler": "observe"

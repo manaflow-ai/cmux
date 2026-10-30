@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e";
+pub const ir_sha256 = "8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977";
 
 pub const AccessRequestKind = enum {
     file,
@@ -976,6 +976,7 @@ pub const ClientHelloResult = struct {
     page: ?[]const u8 = null,
     page_events: ?[]const []const u8 = null,
     page_operations: ?ClientHelloPageOperations = null,
+    page_streams: ?bool = null,
     user_origin_allowed: bool,
     verified: ?bool = null,
 
@@ -986,6 +987,7 @@ pub const ClientHelloResult = struct {
         "page",
         "page_events",
         "page_operations",
+        "page_streams",
         "verified",
     };
 };
@@ -1042,6 +1044,11 @@ pub const CloseReason = enum {
             .session_end => "session_end",
         };
     }
+};
+
+pub const CloseStreamResult = struct {
+    closed: bool,
+    stream: u16,
 };
 
 pub const CloseTerminalResult = struct {
@@ -2427,6 +2434,13 @@ pub const NotificationSource = enum {
 
 pub const NotifyResult = struct {
     notification: Id,
+};
+
+pub const OpenStreamResult = struct {
+    page: []const u8,
+    page_operations: ClientHelloPageOperations,
+    relay_id: []const u8,
+    stream: u16,
 };
 
 pub const Pane = union(enum) {
@@ -6343,6 +6357,7 @@ pub const ClientHelloRequest = struct {
     page: wire.Field([]const u8) = .absent,
     proof: ?[]const u8 = null,
     role: ?[]const u8 = null,
+    streams: wire.Field(bool) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "install_id",
@@ -6458,6 +6473,23 @@ pub fn closeScreenGroup(client: anytype, request: CloseScreenGroupRequest) !wire
             .authority = "control",
             .since = 12,
             .capability = "screen-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const CloseStreamRequest = struct {
+    stream: u16,
+};
+
+pub fn closeStream(client: anytype, request: CloseStreamRequest) !wire.Decoded(CloseStreamResult) {
+    return client.callTyped(
+        CloseStreamResult,
+        .{
+            .name = "close-stream",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-streams-v1",
         },
         request,
     );
@@ -10392,6 +10424,24 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
             .fields = &.{
                 .{ .name = "source", .since = 12, .capability = "notification-source-v1" },
             },
+        },
+        request,
+    );
+}
+
+pub const OpenStreamRequest = struct {
+    page: []const u8,
+    stream: u16,
+};
+
+pub fn openStream(client: anytype, request: OpenStreamRequest) !wire.Decoded(OpenStreamResult) {
+    return client.callTyped(
+        OpenStreamResult,
+        .{
+            .name = "open-stream",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-streams-v1",
         },
         request,
     );
@@ -15149,7 +15199,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 366;
+pub const command_count: usize = 368;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15234,6 +15284,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-provider-managed-workspace", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
     .{ .name = "close-screen", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
+    .{ .name = "close-stream", .authority = "local-admin", .since = 12, .capability = "page-streams-v1", .stream = null },
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
@@ -15399,6 +15450,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "open-stream", .authority = "local-admin", .since = 12, .capability = "page-streams-v1", .stream = null },
     .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },

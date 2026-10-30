@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e. */
+/* cmux-tui mux protocol 12, IR 8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -482,6 +482,7 @@ export type ClientHelloResult = {
   "page"?: string;
   "page_events"?: Array<string>;
   "page_operations"?: ClientHelloPageOperations;
+  "page_streams"?: true;
   "user_origin_allowed": boolean;
   "verified"?: true;
 };
@@ -507,6 +508,11 @@ export type ClientSize = {
 export type ClientTransport = "local" | "unix" | "ws";
 
 export type CloseReason = "session_end";
+
+export type CloseStreamResult = {
+  "closed": boolean;
+  "stream": number;
+};
 
 export type CloseTerminalResult = {
   "already_closed": boolean;
@@ -1216,6 +1222,13 @@ export type NotificationSource = "cli" | "terminal" | "agent" | "daemon";
 
 export type NotifyResult = {
   "notification": Id;
+};
+
+export type OpenStreamResult = {
+  "page": string;
+  "page_operations": ClientHelloPageOperations;
+  "relay_id": string;
+  "stream": number;
 };
 
 export type Pane = (LivePane) | (DeadPane);

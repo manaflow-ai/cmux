@@ -18,6 +18,7 @@ public final class ClientHelloResult implements WireValue {
     private final Field<String> page;
     private final Field<List<String>> pageEvents;
     private final Field<ClientHelloPageOperations> pageOperations;
+    private final Field<Boolean> pageStreams;
     private final boolean userOriginAllowed;
     private final Field<Boolean> verified;
 
@@ -30,6 +31,7 @@ public final class ClientHelloResult implements WireValue {
         this.page = builder.page;
         this.pageEvents = builder.pageEvents.map(value -> List.copyOf(value));
         this.pageOperations = builder.pageOperations;
+        this.pageStreams = builder.pageStreams;
         if (!builder.userOriginAllowedSet) throw new IllegalArgumentException("user_origin_allowed is required");
         this.userOriginAllowed = builder.userOriginAllowed;
         this.verified = builder.verified;
@@ -44,6 +46,7 @@ public final class ClientHelloResult implements WireValue {
     public Field<String> page() { return page; }
     public Field<List<String>> pageEvents() { return pageEvents; }
     public Field<ClientHelloPageOperations> pageOperations() { return pageOperations; }
+    public Field<Boolean> pageStreams() { return pageStreams; }
     public boolean userOriginAllowed() { return userOriginAllowed; }
     public Field<Boolean> verified() { return verified; }
 
@@ -76,6 +79,10 @@ public final class ClientHelloResult implements WireValue {
         if (!Wire.isMissing(rawPageOperations)) {
             builder.pageOperations(ClientHelloPageOperations.fromWire(rawPageOperations));
         }
+        Object rawPageStreams = Wire.optional(object, "page_streams");
+        if (!Wire.isMissing(rawPageStreams)) {
+            builder.pageStreams(ProtocolSupport.literal(rawPageStreams, true, "ClientHelloResult.page_streams"));
+        }
         Object rawUserOriginAllowed = Wire.required(object, "user_origin_allowed");
         builder.userOriginAllowed(Wire.bool(rawUserOriginAllowed, "ClientHelloResult.user_origin_allowed"));
         Object rawVerified = Wire.optional(object, "verified");
@@ -95,6 +102,7 @@ public final class ClientHelloResult implements WireValue {
         Wire.put(object, "page", page);
         Wire.put(object, "page_events", pageEvents);
         Wire.put(object, "page_operations", pageOperations);
+        Wire.put(object, "page_streams", pageStreams);
         Wire.put(object, "user_origin_allowed", userOriginAllowed);
         Wire.put(object, "verified", verified);
         return Collections.unmodifiableMap(object);
@@ -103,11 +111,11 @@ public final class ClientHelloResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ClientHelloResult that)) return false;
-        return Objects.equals(connectionId, that.connectionId) && Objects.equals(features, that.features) && Objects.equals(installId, that.installId) && Objects.equals(nonce, that.nonce) && Objects.equals(page, that.page) && Objects.equals(pageEvents, that.pageEvents) && Objects.equals(pageOperations, that.pageOperations) && Objects.equals(userOriginAllowed, that.userOriginAllowed) && Objects.equals(verified, that.verified);
+        return Objects.equals(connectionId, that.connectionId) && Objects.equals(features, that.features) && Objects.equals(installId, that.installId) && Objects.equals(nonce, that.nonce) && Objects.equals(page, that.page) && Objects.equals(pageEvents, that.pageEvents) && Objects.equals(pageOperations, that.pageOperations) && Objects.equals(pageStreams, that.pageStreams) && Objects.equals(userOriginAllowed, that.userOriginAllowed) && Objects.equals(verified, that.verified);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connectionId, features, installId, nonce, page, pageEvents, pageOperations, userOriginAllowed, verified); }
+    public int hashCode() { return Objects.hash(connectionId, features, installId, nonce, page, pageEvents, pageOperations, pageStreams, userOriginAllowed, verified); }
 
     @Override
     public String toString() { return "ClientHelloResult" + toWire(); }
@@ -121,6 +129,7 @@ public final class ClientHelloResult implements WireValue {
         private Field<String> page = Field.omitted();
         private Field<List<String>> pageEvents = Field.omitted();
         private Field<ClientHelloPageOperations> pageOperations = Field.omitted();
+        private Field<Boolean> pageStreams = Field.omitted();
         private Boolean userOriginAllowed;
         private boolean userOriginAllowedSet;
         private Field<Boolean> verified = Field.omitted();
@@ -152,6 +161,11 @@ public final class ClientHelloResult implements WireValue {
         }
         public Builder pageOperations(ClientHelloPageOperations value) {
             this.pageOperations = Field.of(value);
+            return this;
+        }
+        public Builder pageStreams(Boolean value) {
+            ProtocolSupport.literal(value, true, "ClientHelloResult.page_streams");
+            this.pageStreams = Field.of(value);
             return this;
         }
         public Builder userOriginAllowed(boolean value) {

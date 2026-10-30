@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e. */
+/* cmux-tui mux protocol 12, IR 8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e" as const;
+export const SDK_IR_SHA256 = "8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1140,6 +1140,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "close-stream": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only on stream 0 of a streamed page relay (origin.forbidden {reason: page_stream_not_here} otherwise).",
+      "Ends the stream and every confirmation token issued for it; idempotent."
     ]
   },
   "close-surface": {
@@ -3097,6 +3108,17 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "open-stream": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Only on stream 0 of a streamed page relay (client-hello role page_relay with streams: true); any other connection gets origin.forbidden {reason: page_stream_not_here}.",
+      "The stream's page never changes: page_stream.in_use while it is open; page_stream.limit past the relay's stream limit."
+    ]
   },
   "page-credential": {
     "authority": "local-admin",
@@ -8033,6 +8055,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "ClientHelloPageOperations"
         }
       },
+      "page_streams": {
+        "constraints": [
+          "Step 1 of a page relay that asked for streams: stream 0 now opens and closes page streams only."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      },
       "user_origin_allowed": {
         "constraints": [
           "Whether a request with origin user is accepted on this connection now."
@@ -8186,6 +8219,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "values": [
       "session_end"
     ]
+  },
+  "CloseStreamResult": {
+    "additional_properties": false,
+    "fields": {
+      "closed": {
+        "constraints": [
+          "false for a stream that was not open (the command is idempotent)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
   },
   "CloseTerminalResult": {
     "additional_properties": false,
@@ -12405,6 +12463,56 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "OpenStreamResult": {
+    "additional_properties": false,
+    "fields": {
+      "page": {
+        "constraints": [
+          "The page the stream speaks for until close-stream."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page_operations": {
+        "constraints": [
+          "The page's allow list (page-router-v1)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloPageOperations"
+        }
+      },
+      "relay_id": {
+        "constraints": [
+          "The stream's relay_connection_id for origin.confirmation.issue."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "stream": {
+        "constraints": [
+          "The stream the request named."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },
@@ -22392,6 +22500,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "string"
           }
+        },
+        "streams": {
+          "constraints": [
+            "page-streams-v1: true only for role page_relay without a page; its pages then come with open-stream (client_hello.bad_request {field: streams} otherwise)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -22529,6 +22648,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "close-stream": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "constraints": [
+            "A page stream id, 1-65535; stream 0 is the connection's own (page_stream.bad_request {field: stream} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "CloseStreamResult"
     }
   },
   "close-surface": {
@@ -30955,6 +31097,40 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "NotifyResult"
+    }
+  },
+  "open-stream": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "page": {
+          "constraints": [
+            "A page id: 1-64 characters of a-z 0-9 -, starting with a letter (page_stream.bad_request {field: page} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "A page stream id, 1-65535; stream 0 is the connection's own (page_stream.bad_request {field: stream} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "OpenStreamResult"
     }
   },
   "page-credential": {

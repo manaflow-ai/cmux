@@ -685,6 +685,8 @@
       "loopback-status",
       "bridge-hello",
       "client-hello",
+      "open-stream",
+      "close-stream",
       "machine-catalog-publish",
       "agent-inventory",
       "agent-inventory-refresh",

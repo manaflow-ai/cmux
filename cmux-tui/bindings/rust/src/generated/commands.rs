@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5e5ca282cf1475d8635e3ce99136e98c935c2e60898304579199609acdf2b51e.
+// cmux-tui mux protocol 12, IR 8f80374032a2b43588dbfd1be8e1a7ad20218568b41a2e09ba654a7601ef4977.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1139,6 +1139,8 @@ pub struct ClientHelloRequest {
     pub proof: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub streams: Optional<bool>,
 }
 
 #[rustfmt::skip]
@@ -1184,6 +1186,12 @@ pub struct CloseScreenGroupRequest {
 
 #[rustfmt::skip]
 pub type CloseScreenGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseStreamRequest {
+    pub stream: u16,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3654,6 +3662,13 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OpenStreamRequest {
+    pub page: String,
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5587,6 +5602,10 @@ impl CmuxClient {
         self.execute(&CLOSE_SCREEN_GROUP_METADATA, &request)
     }
 
+    pub fn close_stream(&mut self, request: CloseStreamRequest) -> Result<T::CloseStreamResult> {
+        self.execute(&CLOSE_STREAM_METADATA, &request)
+    }
+
     pub fn close_surface(&mut self, request: CloseSurfaceRequest) -> Result<CloseSurfaceResult> {
         self.execute(&CLOSE_SURFACE_METADATA, &request)
     }
@@ -6491,6 +6510,10 @@ impl CmuxClient {
             self.require_capability_field("notify", "notification-source-v1")?;
         }
         self.execute(&NOTIFY_METADATA, &request)
+    }
+
+    pub fn open_stream(&mut self, request: OpenStreamRequest) -> Result<T::OpenStreamResult> {
+        self.execute(&OPEN_STREAM_METADATA, &request)
     }
 
     pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {

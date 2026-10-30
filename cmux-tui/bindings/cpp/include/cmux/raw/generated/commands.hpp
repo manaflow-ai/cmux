@@ -124,6 +124,7 @@ public:
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_screen_group(const CloseScreenGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<CloseStreamResult> close_stream(const CloseStreamRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_surface(const CloseSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTabGroupResult> close_tab_group(const CloseTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
@@ -289,6 +290,7 @@ public:
     [[nodiscard]] Result<SurfaceResult> new_workspace(const NewWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<NoteSizeActivityResult> note_size_activity(const NoteSizeActivityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NotifyResult> notify(const NotifyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<OpenStreamResult> open_stream(const OpenStreamRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> page_credential(const PageCredentialRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});

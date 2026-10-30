@@ -975,6 +975,7 @@ class ClientHelloResult:
     page: Union[str, MissingType] = field(default=MISSING)
     page_events: Union[List[str], MissingType] = field(default=MISSING)
     page_operations: Union[ClientHelloPageOperations, MissingType] = field(default=MISSING)
+    page_streams: Union[Literal[True], MissingType] = field(default=MISSING)
     verified: Union[Literal[True], MissingType] = field(default=MISSING)
 
 
@@ -998,6 +999,13 @@ class ClientSize:
     cols: Union[int, None]
     rows: Union[int, None]
     size_participating: bool
+
+
+@dataclass(frozen=True)
+class CloseStreamResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/CloseStreamResult'
+    closed: bool
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -1809,6 +1817,15 @@ class NotificationMarker:
 class NotifyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/NotifyResult'
     notification: Id
+
+
+@dataclass(frozen=True)
+class OpenStreamResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/OpenStreamResult'
+    page: str
+    page_operations: ClientHelloPageOperations
+    relay_id: str
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -3825,6 +3842,7 @@ class ClientHelloRequest:
     page: Union[str, None, MissingType] = field(default=MISSING)
     proof: Union[str, MissingType] = field(default=MISSING)
     role: Union[str, MissingType] = field(default=MISSING)
+    streams: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3854,6 +3872,12 @@ class CloseScreenGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-screen-group/request'
     group: str
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloseStreamRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-stream/request'
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -5598,6 +5622,13 @@ class NotifyRequest:
     level: Union[NotificationLevel, None, MissingType] = field(default=MISSING)
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     source: Union[NotificationSource, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class OpenStreamRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/open-stream/request'
+    page: str
+    stream: int
 
 
 @dataclass(frozen=True)
@@ -7882,6 +7913,7 @@ __all__ = [
     'ClientHelloResult',
     'ClientInfo',
     'ClientSize',
+    'CloseStreamResult',
     'CloseTerminalResult',
     'ColumnPin',
     'ConversationChange',
@@ -7964,6 +7996,7 @@ __all__ = [
     'NoteSizeActivityResult',
     'NotificationMarker',
     'NotifyResult',
+    'OpenStreamResult',
     'PaneNeighborResult',
     'PaneSurfaceResult',
     'PingResult',
@@ -8192,6 +8225,7 @@ __all__ = [
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
     'CloseScreenGroupRequest',
+    'CloseStreamRequest',
     'CloseSurfaceRequest',
     'CloseTabGroupRequest',
     'CloseTabGroupResult',
@@ -8398,6 +8432,7 @@ __all__ = [
     'NewWorkspaceRequest',
     'NoteSizeActivityRequest',
     'NotifyRequest',
+    'OpenStreamRequest',
     'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',

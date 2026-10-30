@@ -17,6 +17,7 @@ public final class ClientHelloRequest implements WireValue {
     private final Field<String> page;
     private final Field<String> proof;
     private final Field<String> role;
+    private final Field<Boolean> streams;
 
     private ClientHelloRequest(Builder builder) {
         this.features = builder.features;
@@ -24,6 +25,7 @@ public final class ClientHelloRequest implements WireValue {
         this.page = builder.page;
         this.proof = builder.proof;
         this.role = builder.role;
+        this.streams = builder.streams;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -33,6 +35,7 @@ public final class ClientHelloRequest implements WireValue {
     public Field<String> page() { return page; }
     public Field<String> proof() { return proof; }
     public Field<String> role() { return role; }
+    public Field<Boolean> streams() { return streams; }
 
     public static ClientHelloRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ClientHelloRequest");
@@ -57,6 +60,10 @@ public final class ClientHelloRequest implements WireValue {
         if (!Wire.isMissing(rawRole)) {
             builder.role(Wire.string(rawRole, "ClientHelloRequest.role"));
         }
+        Object rawStreams = Wire.optional(object, "streams");
+        if (!Wire.isMissing(rawStreams)) {
+            builder.streams(rawStreams == null ? null : Wire.bool(rawStreams, "ClientHelloRequest.streams"));
+        }
         return builder.build();
     }
 
@@ -68,17 +75,18 @@ public final class ClientHelloRequest implements WireValue {
         Wire.put(object, "page", page);
         Wire.put(object, "proof", proof);
         Wire.put(object, "role", role);
+        Wire.put(object, "streams", streams);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ClientHelloRequest that)) return false;
-        return Objects.equals(features, that.features) && Objects.equals(installId, that.installId) && Objects.equals(page, that.page) && Objects.equals(proof, that.proof) && Objects.equals(role, that.role);
+        return Objects.equals(features, that.features) && Objects.equals(installId, that.installId) && Objects.equals(page, that.page) && Objects.equals(proof, that.proof) && Objects.equals(role, that.role) && Objects.equals(streams, that.streams);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(features, installId, page, proof, role); }
+    public int hashCode() { return Objects.hash(features, installId, page, proof, role, streams); }
 
     @Override
     public String toString() { return "ClientHelloRequest" + toWire(); }
@@ -89,6 +97,7 @@ public final class ClientHelloRequest implements WireValue {
         private Field<String> page = Field.omitted();
         private Field<String> proof = Field.omitted();
         private Field<String> role = Field.omitted();
+        private Field<Boolean> streams = Field.omitted();
 
         public Builder features(ClientHelloFeatures value) {
             this.features = Field.ofNullable(value);
@@ -108,6 +117,10 @@ public final class ClientHelloRequest implements WireValue {
         }
         public Builder role(String value) {
             this.role = Field.of(value);
+            return this;
+        }
+        public Builder streams(Boolean value) {
+            this.streams = Field.ofNullable(value);
             return this;
         }
         public ClientHelloRequest build() { return new ClientHelloRequest(this); }

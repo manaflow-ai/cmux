@@ -428,6 +428,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final CloseStreamResult closeStream(CloseStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOSE_STREAM, request.toWire());
+        return CloseStreamResult.fromWire(result);
+    }
+
     public final EmptyResult closeSurface(CloseSurfaceRequest request) throws CmuxException {
         Object result = execute(Commands.CLOSE_SURFACE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -1255,6 +1260,11 @@ public abstract class GeneratedCmuxClient {
     public final NotifyResult notify(NotifyRequest request) throws CmuxException {
         Object result = execute(Commands.NOTIFY, request.toWire());
         return NotifyResult.fromWire(result);
+    }
+
+    public final OpenStreamResult openStream(OpenStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.OPEN_STREAM, request.toWire());
+        return OpenStreamResult.fromWire(result);
     }
 
     public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
