@@ -45,7 +45,7 @@ concurrency:
 
 jobs:
   reachable:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The provider key lives in this environment, not in a repo-wide secret,
     # so only a job that names it can read it. No reviewers and no branch
     # policy, or the daily run and PR runs could not use it; fork PRs get no
@@ -98,6 +98,7 @@ jobs:
           key: devbox-reachable-${{ hashFiles('web/scripts/check-devbox-image-reachable.ts', 'web/scripts/devbox-image-common.ts', 'web/services/vms/drivers/cmuxTuiDaemon.ts', 'web/services/vms/images/**', '.github/workflows/cloud-vm-image-reachability.yml') }}-${{ steps.pair.outputs.key }}
 
       - name: Reach the shipped image
+        id: reach
         if: steps.gate.outputs.run == 'true' && (steps.seen.outputs.cache-hit != 'true' || inputs.image != '')
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
@@ -106,6 +107,15 @@ jobs:
           bun scripts/check-devbox-image-reachable.ts --kind base --size sm ${IMAGE:+--image "$IMAGE"}
           # Only a pass is recorded, so a failure re-runs next time.
           echo "${{ steps.pair.outputs.key }}" > .devbox-reachable
+
+      # The check deletes its machine, but not when the run is cancelled (a
+      # newer push cancels this one) or killed. This step runs then too and
+      # deletes every machine tagged with this run, and nothing else.
+      - name: Delete this run's machines
+        if: always() && steps.reach.outcome != 'skipped' && steps.reach.outcome != ''
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+        run: bun scripts/cloud-vm/ci-leftovers.ts vms
 
       - name: Report a skipped run
         if: steps.gate.outputs.run == 'true' && steps.seen.outputs.cache-hit == 'true'
