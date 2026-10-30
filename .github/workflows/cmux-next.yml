@@ -116,6 +116,9 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_cmux_next_base_tier.py
+      - scripts/ci/cmux_next_base_tier.py
+      - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
@@ -378,6 +381,9 @@ on:
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
+      - tests/test_cmux_next_base_tier.py
+      - scripts/ci/cmux_next_base_tier.py
+      - .github/workflows/cmux-next-base-tier-kick.yml
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
@@ -2027,6 +2033,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_route.py
+          python3 tests/test_cmux_next_base_tier.py
           python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
