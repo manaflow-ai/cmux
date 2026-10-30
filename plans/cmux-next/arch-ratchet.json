@@ -608,6 +608,8 @@
       "date": "2026-10-30",
       "row": "blocking_allow_escapes",
       "allow": 1,
+      "owner": "Performance Lead (P-MAIN S5, PR #28065)",
+      "expires": "2026-12-31: when CmuxNextCompat gets a system-call seam (blockingCall(.systemCall)), wrap the read in it and delete this entry",
       "why": "EventSourceProcesses (P-MAIN S5) reads a posting process's start time (proc_pidinfo PROC_PIDTBSDINFO) only in its read, on its own serial queue com.cmuxterm.next.event-source-processes, never on the main thread: the fix moves the per-event proc_pidpath off the key path onto that queue. feat-cmux-next's CmuxNextCompat has no system-call seam (no blockingCall(.systemCall)) to wrap it in, so the line carries a blocking-allow naming the queue. Independent review of the PR covers it."
     }
   ],
