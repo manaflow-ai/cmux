@@ -166,7 +166,7 @@ struct ContextMenuEssentialsTests {
     @Test func theTabAndPaneMenusKeepTheirFrequentRows() {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
-        #expect(tab.suffix(5) == ["closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "More"])
+        #expect(tab.suffix(6) == ["closeTab", "closeOtherTabsInPane", "closeTabsToRight", "—", "palette.copySurfaceLink", "More"])
         #expect(!["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].contains(where: tab.contains))
         #expect(allActions(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
