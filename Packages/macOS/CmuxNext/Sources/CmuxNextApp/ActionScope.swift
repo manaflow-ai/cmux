@@ -34,8 +34,8 @@ struct ActionScope {
                 return controller
             case .pane:
                 for controller in services.windows.controllers {
-                    if let pane = controller.content?.panes.values.first(where: { pane in
-                        pane.paneKey == target.id && invocation.targetMachineID.map { pane.daemon.machineID == $0 } ?? true
+                    if let pane = controller.content?.panes.values.first(where: {
+                        $0.paneKey == target.id && invocation.targetMachineID.map { machine in $0.daemon.machineID == machine } ?? true
                     }) { return pane }
                 }
                 return notFound(RefusalStrings.noPaneID(target.id))
