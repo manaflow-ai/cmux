@@ -268,6 +268,9 @@ impl Hub {
                 super::drop_display_lines(params);
             }
             let mut subagent = None;
+            // Whether this update changed which background subagents run: a root learned late
+            // drops its phantom with no subagent event of its own (`SubagentTree::set_root`).
+            let mut background_changed = false;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
@@ -283,10 +286,12 @@ impl Hub {
                     .clone();
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
+                let before = tree.background_running();
                 if let Some(root) = own.as_deref() {
                     tree.set_root(root);
                 }
                 subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
+                background_changed = tree.background_running() != before;
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -320,7 +325,7 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
-            if subagent_events {
+            if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
             }
             // A background shell, a subagent's too (`processes.rs`).
