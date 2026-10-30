@@ -173,7 +173,7 @@ fn agent_session_is_bound_from_null() {
 #[cfg(unix)]
 #[test]
 fn a_live_registry_root_session_may_reopen_on_its_daemon_only() {
-    let fake = super::super::agent_session_attach_tests::FakeAcpmux::start("registry-root");
+    let fake = agent_session_attach_tests::FakeAcpmux::start("registry-root");
     let mux = test_mux("agent-tabs-registry-root-reopen");
     mux.set_acpmux_socket(Some(fake.socket.clone()));
     let (_, pane) = terminal_pane(&mux);
