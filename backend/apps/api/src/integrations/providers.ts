@@ -62,7 +62,10 @@ export const installationToken = async (env: Env, http: Http, installation: numb
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))
   if (!res.ok) {
-    // The status rides along: a 401 or 404 means the installation is revoked or gone (a relink).
+    // The status rides along: a 401 or 404 means the installation is revoked or gone, and a 403
+    // naming a suspension means it is suspended (each a relink, as the token mint treats them).
+    const message = res.status === 403 ? String(((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message ?? "") : ""
+    if (res.status === 403 && /suspend/i.test(message)) throw new ProviderError("needs_reauth", "github installation token failed: the installation is suspended", false, 403)
     const error = failed("github", res, "installation token")
     throw new ProviderError(error.code, error.message, error.retryable, res.status)
   }

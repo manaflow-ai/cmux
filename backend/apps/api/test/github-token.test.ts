@@ -146,8 +146,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       const original = Object.values(state.connections).find((c) => c.provider === "github")!
       const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
       // Only a pending connection expires (connection.expire): it never got an account.
-      const { account: _account, ...unlinked } = original
-      const expired: Connection = { ...unlinked, status: "expired", updated_at: original.updated_at + 1 }
+      const expired: Connection = { ...original, account: null, status: "expired", updated_at: original.updated_at + 1 }
       const relink: Connection = { ...original, id: "conn_00000000000000000003", status: "needs_reauth", updated_at: original.updated_at + 1 }
       const hidden: Connection = { ...original, id: "conn_00000000000000000001", sharing: "private", created_by: "usr_other", updated_at: original.updated_at + 2 }
       const active: Connection = { ...original, id: "conn_00000000000000000002" }

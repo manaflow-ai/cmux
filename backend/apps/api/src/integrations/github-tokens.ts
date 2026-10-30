@@ -176,7 +176,8 @@ export const githubRepos = async (
       try {
         token = await installationToken(h.env, h.http, installation)
       } catch (error) {
-        if (error instanceof ProviderError && (error.status === 401 || error.status === 404)) gone = error.status === 404 ? "the GitHub App installation is gone" : "GitHub refused the App installation"
+        if (error instanceof ProviderError && (error.code === "needs_reauth" || error.status === 404))
+          gone = error.status === 404 ? "the GitHub App installation is gone" : error.status === 403 ? "the GitHub App installation is suspended" : "GitHub refused the App installation"
         return null
       }
       const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
@@ -368,13 +369,14 @@ export const nextLedgerAt = (sql: SqlStorage): number | null => {
 
 /** GET /v1/integrations/github/status: whether the App is configured, and the connection this principal would use. */
 export const githubStatus = (env: Env, state: ConnectionsState, p: Principal) => {
-  const usable = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && c.status !== "revoked" && c.status !== "pending")
+  // `expired` is a pending link that timed out (no account, and activate refuses it): hidden, as on /repos.
+  const usable = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && c.status !== "revoked" && c.status !== "expired" && c.status !== "pending")
   const c = usable.find((x) => x.status === "active") ?? usable.sort((a, b) => b.updated_at - a.updated_at)[0]
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
     app_slug: env.GITHUB_APP_SLUG ?? null,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
-    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status === "expired" ? "needs_reauth" : c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true } : null
+    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true } : null
   }
 }
