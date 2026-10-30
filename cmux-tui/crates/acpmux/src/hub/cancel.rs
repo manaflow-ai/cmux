@@ -186,29 +186,38 @@ impl Hub {
         child: &Arc<ChildAgent>,
         turn: &TurnInfo,
     ) {
+        {
+            // Under the agent slot: it is still this agent's, and the turn still runs, as the
+            // marks are set, so the turn's end (`finish_turn`) reads them, whenever it comes.
+            let mut slot = session.child.lock().await;
+            if !slot.as_ref().is_some_and(|c| c.generation == child.generation) {
+                return;
+            }
+            *session.stop_restart.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(turn.turn_id.clone());
+            session.stop_respawn.store(true, Ordering::SeqCst);
+            if session.turn().is_none_or(|t| t.turn_id != turn.turn_id) {
+                // It ended by itself just now: nothing to stop, and nothing marked stays.
+                session.stop_respawn.store(false, Ordering::SeqCst);
+                session.stop_restart.lock().unwrap_or_else(|e| e.into_inner()).take();
+                return;
+            }
+            // No other Stop's timer settles this turn now: this one does, once the process ended.
+            *session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(turn.turn_id.clone());
+            session.stopped_agent.store(child.generation, Ordering::SeqCst);
+            // Ended on purpose: no failover and no continuation starts it again for this turn.
+            child.end_on_purpose();
+            *slot = None;
+        }
         tracing::warn!(session = %session.id, turn_id = %turn.turn_id, pid = ?child.pid, "the agent works on after two cancels: restarting it");
-        // No other Stop's timer settles this turn now: this one does, once the process ended.
-        *session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(turn.turn_id.clone());
-        *session.stop_restart.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(turn.turn_id.clone());
-        session.stopped_agent.store(child.generation, Ordering::SeqCst);
-        session.stop_respawn.store(true, Ordering::SeqCst);
         self.append(
             session,
             "mux",
             "stop_escalated",
             json!({"turnId": turn.turn_id, "step": "restart", "pid": child.pid}),
         );
-        // Ended on purpose: no failover and no continuation starts it again for this turn.
-        child.end_on_purpose();
         self.cancel_pending_permissions(session);
-        {
-            let mut slot = session.child.lock().await;
-            if slot.as_ref().is_some_and(|c| c.generation == child.generation) {
-                *slot = None;
-            }
-        }
         // Its own process group only (`ChildAgent::kill`), and it waits for the process to end.
         child.kill().await;
         if session.turn().is_some_and(|t| t.turn_id == turn.turn_id) {

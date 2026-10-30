@@ -211,7 +211,9 @@ async fn from_agent_must_be_one_short_line() {
 /// closed", 2026-10-21, behind every newer message).
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    // Their own retry (10 s by default) must not come first on a loaded machine.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![120_000]);
     let id = busy(&mut c).await;
     queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
