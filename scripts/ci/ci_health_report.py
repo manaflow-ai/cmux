@@ -65,6 +65,7 @@ from runner_label_policy import (  # noqa: E402
     PolicyUnreadable,
     drifted_runner_variables,
 )
+import actions_cache_report as cache_report  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -1053,6 +1054,7 @@ def render_report(
     now: dt.datetime,
     api_calls: int,
     limit: int = 12,
+    cache_section: Sequence[str] = (),
 ) -> str:
     """The whole report as markdown; identical in the step summary and the issue."""
     lines: list[str] = []
@@ -1243,6 +1245,7 @@ def render_report(
         f"{fork_minutes:.0f} runner minutes."
     )
     lines.append("")
+    lines += list(cache_section)
     lines.append(
         "_This report only measures. Cancelling wasted demand is the queue janitor's job "
         "(`scripts/ci/queue_janitor.py`). Thresholds and what to do when one trips: "
@@ -1394,6 +1397,59 @@ class GitHub:
                 break
         return jobs
 
+    def caches(self, max_pages: int) -> list[dict[str, Any]]:
+        """The repository's GitHub cache entries, largest first."""
+        entries: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            query = urllib.parse.urlencode(
+                {"per_page": 100, "page": page, "sort": "size_in_bytes", "direction": "desc"}
+            )
+            batch = self.request("GET", f"/repos/{self.repo}/actions/caches?{query}").get("actions_caches") or []
+            entries.extend(batch)
+            if len(batch) < 100:
+                break
+        return entries
+
+    def cache_usage(self) -> dict[str, Any]:
+        return self.request("GET", f"/repos/{self.repo}/actions/cache/usage")
+
+    def job_log(self, job_id: int, max_bytes: int = 32 * 1024 * 1024) -> str:
+        """One job's log. The API answers with a redirect to signed blob storage,
+        which is fetched without the token: the token must not leave GitHub."""
+        self.calls += 1
+        endpoint = f"/repos/{self.repo}/actions/jobs/{job_id}/logs"
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        request = urllib.request.Request(API + endpoint, headers=self.headers, method="GET")
+        location = ""
+        try:
+            with opener.open(request, timeout=60) as response:
+                raw = response.read(max_bytes)
+                if response.headers.get("Content-Encoding") == "gzip":
+                    raw = gzip.decompress(raw)
+                return raw.decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as error:
+            if error.code not in (301, 302, 303, 307, 308):
+                remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
+                if error.code in (403, 429) and remaining == "0":
+                    raise RateLimited(f"rate limited on {endpoint} ({error.code})") from error
+                raise RuntimeError(f"GET {endpoint} failed ({error.code})") from error
+            location = error.headers.get("Location") or ""
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"GET {endpoint} failed ({error.reason})") from error
+        if not location.startswith("https://"):
+            raise RuntimeError(f"GET {endpoint} redirected nowhere usable")
+        blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
+        try:
+            with urllib.request.urlopen(blob, timeout=120) as response:
+                return response.read(max_bytes).decode("utf-8", errors="replace")
+        except (urllib.error.HTTPError, urllib.error.URLError) as error:
+            raise RuntimeError(f"job {job_id} log download failed ({error})") from error
+
     def issue(self, number: int) -> dict[str, Any]:
         return self.request("GET", f"/repos/{self.repo}/issues/{number}")
 
@@ -1426,6 +1482,7 @@ def collect_window(
     jobs_per_workflow: int,
     window_slices: int,
     linux_only: frozenset[str],
+    cache_jobs: list[tuple[str, str, int]] | None = None,
 ) -> WindowMetrics:
     runs, slices, partial = github.runs_in_window(window, max_run_pages, window_slices)
     runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
@@ -1445,8 +1502,37 @@ def collect_window(
             break
         sampled += 1
         rows.extend(job_rows(run, jobs, repo))
+        if cache_jobs is not None:
+            cache_jobs.extend(
+                (workflow_name(run), str(job.get("name") or ""), int(job["id"]))
+                for job in jobs
+                if job.get("id") and cache_report.is_cache_job(job)
+            )
     return build_metrics(
         window=window, runs=runs, rows=rows, sampled_runs=sampled, partial=partial, slices=slices
+    )
+
+
+def collect_cache_section(github: GitHub, cache_jobs: Sequence[tuple[str, str, int]], *, log_sample: int) -> list[str]:
+    """The Actions cache section: the GitHub store, and restores from a bounded
+    sample of job logs. A failed read leaves a note, never a failed report."""
+    notes: list[str] = []
+    store = None
+    try:
+        store = cache_report.summarize_store(
+            github.caches(cache_report.MAX_STORE_PAGES), github.cache_usage()
+        )
+    except (RateLimited, RuntimeError) as error:
+        notes.append(f"GitHub cache store not read: {error}")
+    sampled: list[tuple[str, int, list[cache_report.CacheEvent]]] = []
+    for workflow, _job, job_id in cache_report.choose_log_jobs(cache_jobs, log_sample):
+        try:
+            sampled.append((workflow, job_id, cache_report.parse_job_log(github.job_log(job_id))))
+        except (RateLimited, RuntimeError) as error:
+            notes.append(f"log sampling stopped after {len(sampled)} jobs: {error}")
+            break
+    return cache_report.render_section(
+        store, cache_report.aggregate_restores(sampled), sampled_logs=len(sampled), notes=notes
     )
 
 
@@ -1507,8 +1593,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_job_listings = args.max_job_listings if args.max_job_listings is not None else env_int("MAX_JOB_LISTINGS", DEFAULT_MAX_JOB_LISTINGS)
         jobs_per_workflow = args.jobs_per_workflow if args.jobs_per_workflow is not None else env_int("JOBS_PER_WORKFLOW", DEFAULT_JOBS_PER_WORKFLOW)
         window_slices = args.window_slices if args.window_slices is not None else env_int("WINDOW_SLICES", AUTO_WINDOW_SLICES)
+        cache_log_jobs = env_int("CACHE_LOG_JOBS", cache_report.DEFAULT_LOG_SAMPLE)
     except ValueError:
         print("ci-health-report: window and cap settings must be integers", file=sys.stderr)
+        return 2
+    if not 0 <= cache_log_jobs <= 60:
+        print("ci-health-report: cache log jobs must be 0..60", file=sys.stderr)
         return 2
     if window_hours < 1 or not 1 <= max_run_pages <= 100 or not 0 <= max_job_listings <= 400:
         print("ci-health-report: window must be >= 1h, run pages 1..100, job listings 0..400", file=sys.stderr)
@@ -1527,10 +1617,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     current_window, previous_window = windows(now, window_hours)
     linux_only = linux_only_workflow_paths(args.workflows_dir)
 
+    cache_jobs: list[tuple[str, str, int]] = []
     current = collect_window(
         github, current_window, repo=args.repo, max_run_pages=max_run_pages,
         max_job_listings=max_job_listings, jobs_per_workflow=jobs_per_workflow,
-        window_slices=window_slices, linux_only=linux_only,
+        window_slices=window_slices, linux_only=linux_only, cache_jobs=cache_jobs,
     )
     # The previous window only has to carry the headline comparison, so it gets
     # a smaller share of the call budget.
@@ -1540,7 +1631,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         window_slices=window_slices, linux_only=linux_only,
     )
 
-    report = render_report(current, previous, repo=args.repo, now=now, api_calls=github.calls)
+    cache_section = collect_cache_section(github, cache_jobs, log_sample=cache_log_jobs)
+    report = render_report(
+        current, previous, repo=args.repo, now=now, api_calls=github.calls, cache_section=cache_section
+    )
     print(report)
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:

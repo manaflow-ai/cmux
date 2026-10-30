@@ -713,6 +713,35 @@ class RenderTests(unittest.TestCase):
         )
         self.assertIn("web \\| lint", report.render_report(metrics, self.previous, repo=REPO, now=NOW, api_calls=1))
 
+    def test_the_cache_section_renders_before_the_footer(self):
+        text = report.render_report(
+            self.current, self.previous, repo=REPO, now=NOW, api_calls=1,
+            cache_section=["### Actions cache", "", "cache body", ""],
+        )
+        self.assertIn("### Actions cache", text)
+        self.assertLess(text.index("cache body"), text.index("_This report only measures."))
+
+    def test_a_failed_cache_read_leaves_a_note_and_keeps_what_was_read(self):
+        class CacheGitHub:
+            def caches(self, max_pages):
+                raise RuntimeError("GET /actions/caches failed (500)")
+
+            def cache_usage(self):
+                return {}
+
+            def job_log(self, job_id):
+                if job_id == 2:
+                    raise report.RateLimited("rate limited on logs (403)")
+                return "##[group]Run actions/cache@abc\n  key: k-1-deadbeefcafe\nCache not found for input keys: k-1-deadbeefcafe\n"
+
+        lines = report.collect_cache_section(
+            CacheGitHub(), [("a.yml", "x", 1), ("b.yml", "y", 2)], log_sample=5
+        )
+        text = "\n".join(lines)
+        self.assertIn("GitHub cache store not read", text)
+        self.assertIn("log sampling stopped after 1 jobs", text)
+        self.assertIn("| a.yml | `k-1` | 1 | 1 | 0 | 0 | 1 | 0 | 0% | 0 |", text)
+
     def test_the_report_says_it_only_measures(self):
         self.assertIn("only measures", self.text)
         self.assertIn("queue_janitor.py", self.text)
