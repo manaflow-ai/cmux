@@ -79,7 +79,7 @@ const frames = async () => {
 };
 const cancelled = (node: Element) => node.dispatchEvent(new dom.window.Event("animationcancel", { bubbles: true }));
 Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 300 });
-// A ghost's exit is an 80 ms animation; nothing else animates in this document.
+// A ghost's exit is an 80 ms animation, and the fold animates a folding list (conversation/fold.ts).
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains("acpmux-running-tray--ghost")
@@ -96,7 +96,8 @@ setPaneLanguage("en");
 
 /// Turns Web Animations on (the tray checks `animate` before it moves anything) or off.
 const motion = (on: boolean) => {
-  if (on) proto.animate = () => ({});
+  // The fold (conversation/fold.ts) cancels its running animation when it folds again or unmounts.
+  if (on) proto.animate = () => ({ cancel: () => {} });
   else delete proto.animate;
 };
 

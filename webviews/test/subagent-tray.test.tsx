@@ -432,13 +432,11 @@ describe("the tray", () => {
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__status"))).toBe(true);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-slot"))).toBe(true);
       // Stop's track, then the chevron's, last in every line's status column.
-      expect(
-        lines.every(
-          (line) =>
-            line.querySelector(".acpmux-agent-line__status > :last-child")?.className === "acpmux-agent-line__chevron" &&
-            line.querySelector(".acpmux-agent-line__stop-track + .acpmux-agent-line__chevron"),
-        ),
-      ).toBe(true);
+      for (const line of lines) {
+        const last = line.querySelector(".acpmux-agent-line__status > :last-child");
+        expect(last?.className).toBe("acpmux-agent-line__chevron");
+        expect(last?.previousElementSibling?.className).toBe("acpmux-agent-line__stop-track");
+      }
       expect(
         lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
           ?.textContent,

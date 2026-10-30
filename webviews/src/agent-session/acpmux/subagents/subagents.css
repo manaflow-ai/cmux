@@ -516,7 +516,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   flex: 0 0 var(--acpmux-tray-stop-width);
 }
-.acpmux-running-tray .acpmux-agent-line__chevron {
+.acpmux-running-tray :is(.acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
   flex: 0 0 var(--acpmux-tray-chevron-width);
   margin-left: 0;
 }
