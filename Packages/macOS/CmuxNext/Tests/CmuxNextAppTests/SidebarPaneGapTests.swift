@@ -35,7 +35,8 @@ import Testing
         let rowEnd = sidebar.frame.maxX + sidebar.paneReach - SidebarStyle.rowEdgeGap
         #expect(root.contentHost.frame.minX - rowEnd == SidebarStyle.rowToPaneGap)
         #expect(sidebar.paneReach > 0)
-        #expect(sidebar.handleFrameForTesting().minY >= root.contentHost.frame.maxY - 0.01)
+        let line = sidebar.handle.convert(sidebar.handleFrameForTesting(), to: root)
+        #expect(line.minY >= root.contentHost.frame.maxY - 0.01)
     }
 
     @Test func flatStyleKeepsTheSidebarAtTheCardEdgeAndItsFullHeightLine() throws {
