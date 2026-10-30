@@ -67,10 +67,10 @@ async function renderOpen(onConfirm: () => void) {
       />,
     );
   });
-  // The dialog moves focus after it mounts (a frame or two).
-  for (let frame = 0; frame < 5; frame++)
+  // The dialog moves focus after it mounts: wait for focus to land in it, a frame at a time.
+  for (let frame = 0; frame < 30 && !document.activeElement?.closest(".acpmux-delete-dialog"); frame++)
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
     });
 }
 

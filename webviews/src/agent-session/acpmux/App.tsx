@@ -399,8 +399,6 @@ import {
   type ChatMenuItem,
 } from "./header/ChatHeaderTools";
 import { ThreadTitle } from "./header/ThreadTitle";
-import { Dialog } from "../../ui/Dialog";
-import { DialogButton } from "../../ui/DialogButton";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { LegacyPullRequestDock } from "./summary/PullRequestDockLegacy";
