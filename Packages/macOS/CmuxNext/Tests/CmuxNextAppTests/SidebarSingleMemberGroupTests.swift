@@ -152,6 +152,28 @@ import Testing
         #expect(target(0.95) == .position(DropPosition(section: section, group: group.id, index: 0)), "lower half: into the group")
     }
 
+    /// Astra review: with inline tabs, a workspace drag over the one row's tab rows drops after it in the group, as over
+    /// a member's tab rows on base (the resolver reads the tab rows' workspace, which the one row still is for them).
+    @Test func aDropOnTheOneRowsTabRowsGoesIntoTheGroup() throws {
+        var coord = ws("w-coord", "release-coord")
+        coord.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
+        let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [coord])
+        let sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(group)])]
+        var options = SidebarLayoutOptions()
+        options.showWorkspaceTabs = true
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        #expect(try #require(layout.row(for: .workspace(WorkspaceID("w-coord")))).standsForGroup)
+        let section = SectionID.machine(machine.id)
+        for tab in ["t1", "t2"] {
+            let row = try #require(layout.row(for: .tab(WorkspaceID("w-coord"), TabID(tab))))
+            for fraction: CGFloat in [0.2, 0.8] {
+                let target = DropResolver.resolve(y: row.y + row.height * fraction, payload: .workspaces([WorkspaceID("w-loose")]),
+                                                  base: layout, sections: sections, onto: (0, 0))
+                #expect(target == .position(DropPosition(section: section, group: group.id, index: 1)), "tab \(tab) at \(fraction)")
+            }
+        }
+    }
+
     /// A parent whose own members are all behind its closed "Done (N)" row still draws a subgroup when that subgroup is
     /// one same-named row: the drop resolver reads the parent as open, as it did with the subgroup's header, so a drop
     /// on the parent header's body goes into the parent at its start (not "into" a folded group).
@@ -192,6 +214,22 @@ import Testing
         #expect(tick.patchWorkspaces([busy]))
         let other = SidebarModel(sections: sections("Draft"))
         #expect(other.patchWorkspaces([ws("w-coord", "Draft 2")]))
+    }
+
+    /// Astra review: a workspace listed twice (cf. #28033) is checked copy by copy: a rename that turns the group copy
+    /// into its group's one row rebuilds the rows even when another copy already had the new title.
+    @Test func aRenameFlippingAnyListedCopyRebuildsTheRows() throws {
+        let other = SidebarMachine(id: MachineID("m-other"), name: "Other", kind: .ssh)
+        let grouped = SidebarSection(kind: .machine(machine), nodes: [
+            .group(SidebarGroup(id: GroupID("g-coord"), name: "release-coord", workspaces: [ws("w-coord", "Draft")])),
+        ])
+        let loose = SidebarSection(kind: .machine(other), nodes: [.workspace(ws("w-coord", "release-coord"))])
+        for sections in [[loose, grouped], [grouped, loose]] {
+            let model = SidebarModel(sections: sections)
+            var renamed = ws("w-coord", "release-coord")
+            renamed.activity = .busy(progress: nil)
+            #expect(!model.patchWorkspaces([renamed]), "the group copy becomes the group's one row: not a patch")
+        }
     }
 
     /// Sol review: opening a folded same-named single-member group draws its one row, as a full layout does (the
