@@ -11,6 +11,7 @@ import importlib.util
 import contextlib
 import io
 import itertools
+import json
 import os
 import re
 import subprocess
@@ -127,6 +128,48 @@ class Counts(unittest.TestCase):
         self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
         shot["gates"]["labels"][GUI].update(listening=1, held_offline={"total": 0}, queued=0, oldest_queued_s=0)
         self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
+
+    def test_fresh_gate_listener_does_not_depend_on_artifact_age(self):
+        gates = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 1,
+            "held_offline": {"total": 0}, "queued": 1, "oldest_queued_s": 240}}}
+        for shot in ({"gates": gates}, {**snapshot(minutes_old=20), "gates": gates}):
+            with self.subTest(shot=shot):
+                self.assertFalse(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=300))
+                seen = cascade.seen(shot, NOW)
+                self.assertTrue(seen.owned_full_known[GUI])
+                self.assertFalse(seen.owned_full[GUI])
+                self.assertEqual(seen.owned[GUI], 5)
+
+    def test_gate_reading_preserves_stale_nightly_reservations(self):
+        shot = snapshot(minutes_old=20)
+        shot["pools"][SMALL]["reserved_queued"] = 1
+        shot["gates"] = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 1, "queued": 0}}}
+        seen = cascade.seen(shot, NOW)
+        self.assertTrue(seen.stale)
+        self.assertEqual(seen.reserved, {SMALL: 1})
+        self.assertFalse(seen.owned_full[GUI])
+
+    def test_gate_missing_timestamp_does_not_claim_a_live_listener(self):
+        shot = {"gates": {"labels": {GUI: {"listening": 1}}}}
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=240))
+
+    def test_gate_variable_is_read_when_artifact_is_unavailable(self):
+        gates = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 1, "queued": 0}}}
+        live, waiting, seen = cascade.read({"CI_FLEET_GATES": json.dumps(gates)},
+                                           mock.Mock(), now=NOW, log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertTrue(seen.owned_full_known[GUI])
+        self.assertFalse(seen.owned_full[GUI])
+
+    def test_gate_queue_does_not_add_age_to_rescues_live_wait(self):
+        shot = {"gates": {"labels": {GUI: {
+            "as_of": "2026-10-19T21:58:00Z", "listening": 0,
+            "held_offline": {"total": 1}, "queued": 1, "oldest_queued_s": 120}}}}
+        self.assertFalse(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=120))
+        self.assertTrue(cascade.owned_label_full(shot, GUI, NOW))
 
     def test_owned_health_full_then_overflows(self):
         shot = snapshot(minutes_old=1)

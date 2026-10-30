@@ -377,6 +377,7 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
     if not isinstance(gates, Mapping):
         pools = snapshot.get("pools") if isinstance(snapshot, Mapping) else None
         entry = pools.get(label) if isinstance(pools, Mapping) else None
+    observed_wait = queued_wait_s is not None
     if queued_wait_s is None:
         if not isinstance(entry, Mapping):
             return False  # placement has no evidence a job is already queued
@@ -394,12 +395,17 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
             generated_age = (now - generated).total_seconds() if generated.tzinfo else float("inf")
         except (TypeError, ValueError):
             generated_age = float("inf")
-        if as_of.tzinfo is None or not 0 <= snapshot_age <= OWNED_HEALTH_STALE_SECONDS                 or not 0 <= generated_age <= OWNED_HEALTH_STALE_SECONDS:
+        # Authoritative gates have their own clock and can be newer than the
+        # artifact (CI_FLEET_GATES). Only legacy pool records require both.
+        if (as_of.tzinfo is None or not 0 <= snapshot_age <= OWNED_HEALTH_STALE_SECONDS
+                or not isinstance(gates, Mapping)
+                and not 0 <= generated_age <= OWNED_HEALTH_STALE_SECONDS):
             return True
         # The queue age is measured at `as_of`; include time elapsed since the
         # reading so a fresh-at-read queue cannot be admitted after it crosses
         # the three-minute overflow boundary.
-        queued_wait_s += snapshot_age
+        if not observed_wait:
+            queued_wait_s += snapshot_age
         if queued_wait_s < OWNED_HEALTH_QUEUE_SECONDS:
             return False
         listening, queued = int(entry.get("listening", 0)), int(entry.get("queued", 0))
@@ -408,13 +414,7 @@ def owned_label_full(snapshot: Mapping[str, Any] | None, label: str, now: dt.dat
         if min(listening, queued, held_total) < 0:
             return True
     except (KeyError, TypeError, ValueError):
-        # Legacy records may contain listening but omit newer held counters.
-        # A listening runner is not full; otherwise use the queue alarm.
-        try:
-            if int(entry.get("listening", 0)) > 0:
-                return False
-        except (TypeError, ValueError):
-            pass
+        # An unreadable timestamp or counter is not a fresh listener reading.
         return queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS
     return listening == 0 and (held_total > 0 or (queued > 0 and queued_wait_s >= OWNED_HEALTH_QUEUE_SECONDS))
 
@@ -457,18 +457,31 @@ def queued(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, in
 def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     """Each label's oldest queued wait by now, from the same fresh snapshot."""
     fresh = _fresh(snapshot, now)
-    if fresh is None:
-        return None
-    age, pools = fresh
-    age = max(0.0, age)
     gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
-    if isinstance(gates, Mapping) and isinstance(gates.get("labels"), Mapping):
-        pools = {**pools, **gates["labels"]}
+    gate_labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    if fresh is None and not isinstance(gate_labels, Mapping):
+        return None
+    age, pools = fresh if fresh is not None else (0.0, {})
+    age = max(0.0, age)
+    if isinstance(gate_labels, Mapping):
+        # Class-pool queue counts include concurrency waiters. Once gates are
+        # available, only their per-label reading describes owned listeners.
+        pools = {**{k: v for k, v in pools.items() if not str(k).startswith("glaeda-")},
+                 **gate_labels}
     waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + age
              if _field(pools, label, "queued") else 0.0 for label in LABELS}
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
     owned = {str(label): float(_field(pools, str(label), "oldest_queued_minutes")) + age
              for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
+    if isinstance(gate_labels, Mapping):
+        for label in owned:
+            entry = gate_labels[label]
+            try:
+                as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
+                owned[label] = (float(entry.get("oldest_queued_s", 0))
+                                + max(0.0, (now - as_of).total_seconds())) / 60
+            except (TypeError, ValueError):
+                owned[label] = OWNED_HEALTH_QUEUE_SECONDS / 60
     owned_queued = {str(label): _field(pools, str(label), "queued")
                     for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
     labels = {str(label) for label in pools if str(label).startswith("glaeda-")}
@@ -480,8 +493,12 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
             full[label] = result
             entry = pools[label]
             known[label] = isinstance(entry, Mapping) and "listening" in entry and "as_of" in entry
+    if fresh is None:
+        stale_reservations = reserved_from(snapshot, now)
+        reserved = stale_reservations.reserved if stale_reservations is not None else {}
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
-                owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot)
+                owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot,
+                stale=fresh is None)
 
 
 def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -891,16 +908,17 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
     # the organization's, so a refused runner read leaves `live` and `waiting` None and only FRESH_JOBS move
     # (place()). Its waits are still read then, so a feed's compile skips a stalled queue (fresh_stalled()).
+    snapshot = None
     if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
-            snapshot = _fleet_gates(snapshot, env)
-            found = seen(snapshot, now) or reserved_from(snapshot, now)
-            if live is not None:
-                waiting = queued(snapshot, now)
-                live = with_running(live, snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
+    snapshot = _fleet_gates(snapshot, env)
+    found = seen(snapshot, now) or reserved_from(snapshot, now)
+    if live is not None:
+        waiting = queued(snapshot, now)
+        live = with_running(live, snapshot, now)
     return live, waiting, found
 
 
