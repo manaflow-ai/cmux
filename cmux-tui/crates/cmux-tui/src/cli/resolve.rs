@@ -40,6 +40,13 @@ pub(super) enum Failure {
     },
 }
 
+/// Failure while waiting for a typed response. A refusal is a wire-level
+/// connection refusal, rather than a resource error or a broken transport.
+pub(super) enum ResponseFailure {
+    Transport(String),
+    Refused,
+}
+
 impl Failure {
     pub(super) fn report(self, output: OutputMode) -> i32 {
         match self {
@@ -627,19 +634,28 @@ pub(super) fn encode_request_bytes(request: &Value) -> Result<Vec<u8>, String> {
 pub(super) fn read_response(
     reader: &mut Reader,
     request_id: &str,
-) -> Result<Result<Value, Value>, String> {
+) -> Result<Result<Value, Value>, ResponseFailure> {
     loop {
-        let value = read_envelope(reader, false)?
-            .ok_or_else(|| "transport closed before response".to_string())?;
+        let value = read_envelope(reader, false)
+            .map_err(ResponseFailure::Transport)?
+            .ok_or_else(|| ResponseFailure::Transport("transport closed before response".into()))?;
+        if value.get("type").and_then(Value::as_str) == Some("refused") {
+            return Err(ResponseFailure::Refused);
+        }
         if value.get("type").and_then(Value::as_str) != Some("response") {
             continue;
         }
-        let response: ResponseEnvelope = serde_json::from_value(value)
-            .map_err(|error| format!("protocol error: invalid response envelope: {error}"))?;
+        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
+            ResponseFailure::Transport(format!(
+                "protocol error: invalid response envelope: {error}"
+            ))
+        })?;
         if response.id.as_str() != request_id {
             continue;
         }
-        response.validate().map_err(|error| format!("protocol error: {}", error.message))?;
+        response.validate().map_err(|error| {
+            ResponseFailure::Transport(format!("protocol error: {}", error.message))
+        })?;
         if response.ok {
             return Ok(Ok(response.result.unwrap_or(Value::Null)));
         }
@@ -659,6 +675,31 @@ pub(super) fn send(reader: &mut Reader, encoded: &[u8]) -> Result<(), String> {
         .and_then(|()| stream.write_all(b"\n"))
         .and_then(|()| stream.flush())
         .map_err(|error| format!("transport error: {error}"))
+}
+
+/// Sends a request and preserves a refusal frame that arrives with EPIPE or
+/// connection reset. Those sockets carry no request outcome, but the daemon
+/// has explicitly told us the connection limit refused it.
+pub(super) fn send_request(reader: &mut Reader, encoded: &[u8]) -> Result<(), Failure> {
+    let result = {
+        let stream = reader.get_mut();
+        stream
+            .write_all(encoded)
+            .and_then(|()| stream.write_all(b"\n"))
+            .and_then(|()| stream.flush())
+    };
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if super::wire::refused_at_connect(reader, &error) => Err(Failure::Refused),
+        Err(error) => Err(Failure::Transport(format!("transport error: {error}"))),
+    }
+}
+
+pub(super) fn response_failure(failure: ResponseFailure) -> Failure {
+    match failure {
+        ResponseFailure::Transport(message) => Failure::Transport(message),
+        ResponseFailure::Refused => Failure::Refused,
+    }
 }
 
 /// One read on the connection; returns its result.
@@ -705,8 +746,8 @@ pub(super) fn call_as(
         request.set("credential", Value::String(credential.to_owned()));
     }
     let encoded = serde_json::to_vec(&request).expect("JSON values serialize");
-    send(reader, &encoded).map_err(Failure::Transport)?;
-    match read_response(reader, &id).map_err(Failure::Transport)? {
+    send_request(reader, &encoded)?;
+    match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
         Err(error) => Err(Failure::Resource(error)),
     }

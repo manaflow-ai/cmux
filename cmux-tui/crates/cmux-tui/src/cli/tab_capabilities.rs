@@ -15,7 +15,7 @@ pub(super) fn negotiate(
         "conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1"
     ]});
     let bytes = resolve::encode_request_bytes(&request).map_err(resolve::Failure::Transport)?;
-    resolve::send(reader, &bytes).map_err(resolve::Failure::Transport)?;
+    resolve::send_request(reader, &bytes)?;
     let response = wire::read_envelope(reader, false)
         .map_err(resolve::Failure::Transport)?
         .ok_or_else(|| {

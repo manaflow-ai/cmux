@@ -171,9 +171,12 @@ pub(super) fn resource(
     // Once sent, a mutation's outcome is unknown until it answers; a read
     // changed nothing either way.
     let sent = if plan.operation.class() == OperationClass::Mutation { InProgress } else { NotRun };
-    resolve::send(&mut reader, &encoded)
-        .map_err(|message| fail(sent, "transport.failed", message))?;
-    match resolve::read_response(&mut reader, &request_id) {
+    resolve::send_request(&mut reader, &encoded).map_err(|failure| match failure {
+        resolve::Failure::Refused => fail(sent, "session.busy", "session is busy".into()),
+        resolve::Failure::Transport(message) => fail(sent, "transport.failed", message),
+        _ => fail(sent, "transport.failed", "request could not be sent".into()),
+    })?;
+    match resolve::read_response(&mut reader, &request_id).map_err(resolve::response_failure) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => {
             // A browser the cmux app draws: the app runs the verb
@@ -253,7 +256,11 @@ pub(super) fn session_events(
     })?;
     let encoded = resolve::encode_request_bytes(&request)
         .map_err(|message| local("validation.invalid", message))?;
-    resolve::send(&mut reader, &encoded).map_err(|message| local("transport.failed", message))?;
+    resolve::send_request(&mut reader, &encoded).map_err(|failure| match failure {
+        resolve::Failure::Refused => local("session.busy", "session is busy".into()),
+        resolve::Failure::Transport(message) => local("transport.failed", message),
+        _ => local("transport.failed", "request could not be sent".into()),
+    })?;
     let mut opened = false;
     let mut line = Vec::new();
     loop {

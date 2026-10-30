@@ -393,6 +393,9 @@ fn require_server_capability(
                 true,
             )
         })?;
+    if response.get("type").and_then(Value::as_str) == Some("refused") {
+        return Err(transport_failure(global.output, "session.busy", hints::session_busy(), true));
+    }
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
@@ -760,7 +763,7 @@ fn run_response(
 /// Whether a write that failed because the session closed the socket met
 /// the refusal line a session at its connection limit sends before closing
 /// (`type: "refused"`), so the error says "busy", not "broken pipe".
-fn refused_at_connect(
+pub(super) fn refused_at_connect(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     error: &io::Error,
 ) -> bool {
