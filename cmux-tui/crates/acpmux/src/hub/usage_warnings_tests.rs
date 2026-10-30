@@ -38,6 +38,7 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
     assert_eq!(
         w[1],
         json!({"rule": "contextTokens", "value": 412_000, "limit": 400_000,
+        "finding": "Context 412k tokens, above the 400k warning line",
         "text": "Context 412k tokens, above the 400k warning line. Compact it (acpmux send dep-1 /compact) \
                  or rotate to a fresh session (lane-place rotate dep-1, leo-workspace#1617)",
         "actions": [
@@ -48,6 +49,7 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
     assert_eq!(
         w[2],
         json!({"rule": "subagentsPerHour", "value": 90, "limit": 40,
+        "finding": "90 subagents started in the last hour, above 40",
         "text": "90 subagents started in the last hour, above 40. Open the session to see what it starts; \
                  cancel its turn to stop it (acpmux session cancel dep-1)",
         "actions": [{"label": "Open the session to see what it starts; cancel its turn to stop it",
