@@ -207,14 +207,25 @@ final class CloudMachineSession {
             ticket = try await appLink.connect(origin: origin)
         } catch {
             // A pause or a disconnect cancelled this connect: not a failure.
-            guard !disconnected, suspends == suspendsBefore, !Task.isCancelled else { return }
+            if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
+                await appLink.end(reason: "connect cancelled")
+                return
+            }
             // An ended link on a paused machine reads as the pause; a failed
             // connect that was to start it says why (`CloudMachineStageInput`).
             if machine.status == .paused { resumeFailure = CloudAppLinks.endedMessage(error) }
             showEnded(error)
             return
         }
-        guard !disconnected, suspends == suspendsBefore, !Task.isCancelled, !machine.shownStatus.isChanging else { return }
+        if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
+            // The transition overtook this connect after the carrier answered. End the
+            // ticket/transport so the carrier cannot remain attached without a daemon.
+            await appLink.end(reason: "connect cancelled")
+            appTicket = nil
+            daemon.shutdownConnection()
+            linkPhase = .idle
+            return
+        }
         appTicket = ticket.id
         linkPhase = .up
         let localIdentity = localIdentity

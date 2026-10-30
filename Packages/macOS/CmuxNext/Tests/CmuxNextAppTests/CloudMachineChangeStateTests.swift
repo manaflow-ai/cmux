@@ -94,6 +94,17 @@ struct CloudMachineChangeStateTests {
         #expect(fields["machine_id"] == .string("vm-delete"))
     }
 
+    @Test func anAcceptedMutationSurvivesAStaleListUntilItsTerminalRecord() async throws {
+        let session = Self.session(status: .running)
+        let changes = CloudMachineChanges(sleep: { _ in })
+        try await changes.run(.pausing, machineID: session.machineID, of: { session }) {}
+
+        let stale = CloudMachine(id: session.machineID, status: .running)
+        #expect(changes.pendingStatus(for: stale) == .pausing)
+        #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .paused)) == nil)
+        session.disconnect()
+    }
+
     // MARK: The record
 
     @Test func everyBackendStatusKeepsItsOwnState() throws {

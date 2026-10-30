@@ -490,7 +490,11 @@ final class CloudService {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
-        for machine in visible {
+        for listedMachine in visible {
+            var machine = listedMachine
+            if let pending = changes.pendingStatus(for: machine) {
+                machine.pendingChange = pending
+            }
             if let session = machines.session(machine.id) {
                 session.applyRecord(machine)
             } else {
@@ -499,6 +503,7 @@ final class CloudService {
         }
         let ids = Set(visible.map(\.id))
         for session in machines.cloud where !ids.contains(session.machineID) {
+            changes.removed(session.machineID)
             if let user = auth.user {
                 let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
                 let machineID = session.machineID
@@ -629,7 +634,7 @@ final class CloudService {
     func deleteMachine(_ machineID: String) async throws {
         // Retain credentials and broker registration until a list confirms removal. Both
         // the request and the asynchronous provider deletion can still fail.
-        try await CloudMachineChanges.run(.deleting, of: { machines.session(machineID) }) { try await api.deleteMachine(machineID) }
+        try await changes.run(.deleting, machineID: machineID, of: { machines.session(machineID) }) { try await api.deleteMachine(machineID) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
@@ -638,12 +643,12 @@ final class CloudService {
     }
 
     func pauseMachine(_ machineID: String) async throws {
-        try await CloudMachineChanges.run(.pausing, of: { machines.session(machineID) }) { try await api.pauseMachine(machineID) }
+        try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) }) { try await api.pauseMachine(machineID) }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
 
     func resumeMachine(_ machineID: String) async throws {
-        try await CloudMachineChanges.run(.starting, of: { machines.session(machineID) }) { try await api.resumeMachine(machineID) }
+        try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) }) { try await api.resumeMachine(machineID) }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
