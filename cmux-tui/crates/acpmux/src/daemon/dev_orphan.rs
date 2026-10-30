@@ -139,13 +139,13 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
     // One read of the executable's path, opened at once: a second read could name a rebuild
     // that replaced it in between, and the watch would hold that one.
     let facts = std::env::current_exe().ok().and_then(|exe| {
-        let executable = Executable::open(&exe);
+        let opened = std::fs::File::open(&exe);
         let socket = dev_app_socket(&exe)?;
         // A DEV bundle whose binary was already unlinked (a rebuild in the instant before the
-        // open): gone from the start, or the watch could never see it go.
-        let executable =
-            if executable.0.is_none() { executable.gone_at_start() } else { executable };
-        Some((socket, executable))
+        // open): gone from the start, or the watch could never see it go. Only "not found":
+        // any other refusal (a binary it may not read) is never taken for gone.
+        let missing = matches!(&opened, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+        Some((socket, Executable(opened.ok(), missing)))
     });
     async move {
         match facts {
@@ -175,6 +175,7 @@ impl Executable {
     }
 
     /// One already unlinked when a DEV daemon started (see `watch`): always gone.
+    #[cfg(test)]
     fn gone_at_start(self) -> Self {
         Self(self.0, true)
     }
