@@ -640,8 +640,12 @@ class BunTestReds(unittest.TestCase):
             f"{UNAVAILABLE} > ChatUnavailableState > a deleted chat names the machine it was on, not the tab's",
             f"{UNAVAILABLE} > ChatUnavailableState > every case keeps the session id and Resume; Close Tab on all but "
             "deleted (Remove from Sidebar)"])
-        self.assertEqual(sorted(found.messages.values()), [f"expect(received).toContain(expected) at {UNAVAILABLE}:{line}"
-                                                           for line in (133, 140, 155)])
+        for said, line, expected in zip(sorted(found.messages.values(), key=lambda said: said[-3:]), (133, 140, 155),
+                                        ("It&#x27;s no longer on build-box.", "Can&#x27;t find this chat",
+                                         "Session 01a1201b-d3c3")):
+            self.assertTrue(said.startswith(f'expect(received).toContain(expected) / Expected to contain: "{expected}" / '
+                                            'Received: "<div class='), said)
+            self.assertTrue(said.endswith(f" at {UNAVAILABLE}:{line}"), said)
         self.assertEqual((found.crashes, found.truncated), ([], []))
         # The base ran it from webviews/: the same tests by name.
         base = head.replace("##[group]webviews/test/", "##[group]test/")
@@ -655,7 +659,8 @@ class BunTestReds(unittest.TestCase):
                 "with no blank band")
         found = reds.read(head)
         self.assertEqual(found.failed, {name})
-        said = "expect(received).toBeLessThan(expected) at test/reopened-chat-history.test.ts:505"
+        said = ("expect(received).toBeLessThan(expected) / Expected: < 96 / Received: 368.25 "
+                "at test/reopened-chat-history.test.ts:505")
         self.assertEqual(found.messages[name], said)
         passing = head.replace("(fail) a reopened pasteWall", "(pass) a reopened pasteWall").replace(" 1 fail", " 0 fail")
         verdict = reds.classify(head, passing, "fast checks", "feat-cmux-next")
@@ -667,8 +672,10 @@ class BunTestReds(unittest.TestCase):
         found = reds.read(BUN_RAW.read_text())
         red, load = "test/zz-capture/red.test.ts > chat unavailable > ", "test/zz-capture/load.test.ts > "
         self.assertEqual(found.messages, {
-            red + "shows the notice": "expect(received).toBe(expected) at test/zz-capture/red.test.ts:3",
-            red + "pasteWall settles at the bottom": "expect(received).toBeLessThan(expected) at test/zz-capture/red.test.ts:5",
+            red + "shows the notice": ('expect(received).toBe(expected) / Expected: "unavailable" / Received: "open" '
+                                       "at test/zz-capture/red.test.ts:3"),
+            red + "pasteWall settles at the bottom": ("expect(received).toBeLessThan(expected) / Expected: < 2 / "
+                                                      "Received: 3.5 at test/zz-capture/red.test.ts:5"),
             red + "reads the slow history": "timed out after 50ms",
             "test/zz-capture/unhandled.test.ts > waits": "late failure outside a test at test/zz-capture/unhandled.test.ts:3",
         })
@@ -709,13 +716,32 @@ class BunTestReds(unittest.TestCase):
                 self.assertTrue(verdict.own)
                 self.assertEqual(verdict.shared, [])
                 self.assertIn(f"1 test(s) fail differently on feat-cmux-next: {name} (", verdict.reasons[0])
-                self.assertIn("expect(received).toBeLessThan(expected) at test/reopened-chat-history.test.ts:505 on "
-                              "feat-cmux-next", verdict.reasons[0])
+                self.assertIn("expect(received).toBeLessThan(expected) / Expected: < 96 / Received: 368.25 at "
+                              "test/reopened-chat-history.test.ts:505 on feat-cmux-next", verdict.reasons[0])
         # The checkout's path and spacing are not the error: the same failure elsewhere is still the base's.
         moved = base.replace("/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/", "/Users/ci/cmux/webviews/")
         self.assertFalse(reds.classify(moved, base).own)
         # Swift names carry no error and still compare by name.
         self.assertFalse(reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), SUMMARY)).own)
+
+    def test_the_same_assertion_with_other_values_on_the_base_is_its_own(self):
+        # Sol on #28330 at 9ae70ca2: the headline alone (`expect(received).toBe(expected)`) excused a test whose
+        # Expected / Received changed. The whole block is compared; only paths, timings and spacing are not.
+        base = BUN_PASTE_WALL.read_text()
+        for head in (base.replace("Received: 368.25", "Received: 512"), base.replace("Expected: < 96", "Expected: < 48")):
+            with self.subTest(head=head[-300:]):
+                verdict = reds.classify(head, base, "fast checks", "feat-cmux-next")
+                self.assertTrue(verdict.own)
+                self.assertIn("1 test(s) fail differently on feat-cmux-next", verdict.reasons[0])
+        def run(took, path):
+            return log("##[group]test/a.test.ts:", "error: expect(received).toBe(expected)", "",
+                       f"Expected: \"ready after {took}\"", f"Received:   \"{path}/webviews/test/a.test.ts\"", "",
+                       f"      at <anonymous> ({path}/webviews/test/a.test.ts:4:9)", "(fail) a > b [1.00ms]",
+                       "##[endgroup]", " 0 pass", " 1 fail")
+        self.assertFalse(reds.classify(run("120ms", "/home/runner/_work/cmux/cmux"), run("95.5 ms", "/Users/ci/cmux")).own)
+        self.assertEqual(reds.read(run("1s", "/x")).messages,
+                         {"test/a.test.ts > a > b": 'expect(received).toBe(expected) / Expected: "ready after <time>" / '
+                                                    'Received: "test/a.test.ts" at test/a.test.ts:4'})
 
     def test_the_command_line_judges_a_bun_log_instead_of_exiting_2(self):
         with tempfile.TemporaryDirectory() as tmp:

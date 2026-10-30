@@ -121,7 +121,8 @@ BUN_FILE = re.compile(r"^(?:##\[group\]|::group::)?(\S+\.(?:test|spec)\.[cm]?[jt
 # A header's path from wherever bun ran (the repo root, the package, `./`): relative to its package, as
 # webviews_test_results.py names it.
 BUN_PACKAGE = re.compile(r"^(?:\./)*(?:\S*?/)?(?:webviews|web)/|^(?:\./)+")
-BUN_ABSOLUTE = re.compile(r"(?<=['\"(])/\S*?/(?:webviews|web)/")
+BUN_ABSOLUTE = re.compile(r"(?<![\w.])/[^\s'\"()]*?/(?:webviews|web)/")
+BUN_TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?m?s\b")
 BUN_RUN = re.compile(r"^bun test v\d")
 BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
 # A stack frame of the failure: `at <anonymous> (/abs/webviews/test/x.test.ts:12:5)`.
@@ -288,10 +289,10 @@ def signal_of(text: str) -> str | None:
     return None
 
 
-def bun_diagnostic(said: str, where: str = "") -> str:
-    """A bun failure's error, compared across runs: the `error:` line without the checkout's path, and the test file's
-    line it failed at."""
-    said = " ".join(BUN_ABSOLUTE.sub("", said).split())
+def bun_diagnostic(said: list, where: str = "") -> str:
+    """A bun failure's error, compared across runs: its whole assertion block (the `error:` line and the Expected /
+    Received lines under it), without the checkout's path, timings or spacing, and the test file's line it failed at."""
+    said = " / ".join(" ".join(BUN_TIMING.sub("<time>", BUN_ABSOLUTE.sub("", part)).split()) for part in said)
     return f"{said} at {where}" if said and where else said
 
 
@@ -302,7 +303,8 @@ def read_bun(lines: list[str], result: Result) -> None:
     its ` N fail` count: a run started (`bun test v…`, a file header or a result) with no count after it was cut short.
     (web_failures hands read() its log without result lines; a red file's log there ends with its count, and a file the
     wrapper killed is its own red already.)"""
-    file, said, where, last, recap, unhandled, counted = "", "", "", None, False, False, True
+    file, said, where, last, recap, unhandled, counted = "", [], "", None, False, False, True
+    block = False  # reading the assertion block under an `error:` line, up to its stack or annotation
     run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
 
     def fail(name: str, message: str) -> str:
@@ -318,8 +320,8 @@ def read_bun(lines: list[str], result: Result) -> None:
         elif BUN_RECAP.match(text):
             recap, last = True, None
         elif match := BUN_FILE.match(text):
-            file, said, where, last, recap, counted = BUN_PACKAGE.sub("", match.group(1)), "", "", None, False, False
-            run_file = file
+            file, said, where, last, recap, counted = BUN_PACKAGE.sub("", match.group(1)), [], "", None, False, False
+            run_file, block = file, False
         elif text == WEB_RETRY and run_file:
             # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
             for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
@@ -332,16 +334,24 @@ def read_bun(lines: list[str], result: Result) -> None:
                 last = fail(f"{file} > {name}" if file else name, bun_diagnostic(said, where))
             elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
                 last = fail(name, "")  # failed before its file's header printed
-            said, where = "", ""
+            said, where, block = [], "", False
         elif BUN_UNHANDLED.match(text):
             unhandled = True
         elif match := BUN_ERROR.match(text):
             if unhandled:
-                said_where = bun_diagnostic(match.group(1))  # the checkout's path differs from run to run
+                said_where = bun_diagnostic([match.group(1)])  # the checkout's path differs from run to run
                 fail(f"{file} > unhandled error: {said_where}" if file else f"unhandled error: {said_where}", "")
                 unhandled = False
             elif not said:
-                said = match.group(1)
+                said, block = [match.group(1)], True
+            else:
+                block = False  # a later error of the same test: the first one names it
+        elif block and (text.lstrip().startswith("at ") or text.startswith(("##[error]", "::error"))):
+            block = False  # the stack, or GitHub's annotation repeating the block
+            if (match := BUN_AT.match(text)) and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
+                where = f"{file}:{match.group(2)}"
+        elif block and text.strip():
+            said.append(text.strip())
         elif (match := BUN_AT.match(text)) and said and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
             where = f"{file}:{match.group(2)}"
         elif (match := BUN_TIMED_OUT.match(text)) and last:
@@ -349,7 +359,8 @@ def read_bun(lines: list[str], result: Result) -> None:
         elif BUN_COUNT.match(text):
             if unhandled:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")
-            file, said, where, last, recap, unhandled, counted = "", "", "", None, False, False, True
+            file, said, where, last, recap, unhandled, counted = "", [], "", None, False, False, True
+            block = False
     if not counted:
         result.truncated.append("a bun test run printed no ` N pass` / ` N fail` summary after it started")
 
