@@ -69,24 +69,123 @@ import Testing
         #expect(CATransform3DIsIdentity(try #require(lift.layer).sublayerTransform))
     }
 
-    /// The card's background is the one overlay glass: Liquid Glass on macOS
-    /// 26+, the frosted material before, opaque under Reduce Transparency.
-    @Test(arguments: [OverlayMaterial.liquidGlass, .vibrancy, .opaque])
-    func theCardDrawsTheOverlayMaterial(material: OverlayMaterial) throws {
-        let lift = DragLiftView(content: NSView(), count: 1, material: material)
-        lift.frame = NSRect(x: 0, y: 0, width: 220, height: 28)
-        lift.layout()
-        #expect(lift.background.material == material)
-        #expect(lift.background.isInteractive == false, "the card must let the pointer through")
-        switch material {
-        case .liquidGlass:
-            let glass = Self.descendants(lift.background).compactMap { $0 as? GlassPanelView }.first
-            #expect(glass != nil, "no glass panel")
-            #expect(glass?.isLiquidGlass == Glass.isLiquidGlassAvailable, "glass not chosen per OS version")
-        case .vibrancy:
-            #expect(Self.descendants(lift.background).contains { $0 is NSVisualEffectView }, "no frosted material before macOS 26")
-        case .opaque:
-            #expect(!Self.descendants(lift.background).contains { $0 is NSVisualEffectView })
+    private func translucent(_ body: () throws -> Void) rethrows {
+        let original = ThemeScope.app.store.input
+        let reduced = ReduceTransparency.shared.override
+        defer {
+            _ = ThemeScope.app.store.apply(original)
+            ReduceTransparency.shared.override = reduced
+        }
+        var input = original
+        input.backgroundOpacity = 0.65
+        _ = ThemeScope.app.store.apply(input)
+        ReduceTransparency.shared.override = false
+        try body()
+    }
+
+    /// No second material or opaque sheet can cover the window's patterned backdrop.
+    /// This fails for both the old regular overlay and the unsuccessful clear-glass overlay.
+    @Test(arguments: [OverlayMaterial.liquidGlass, .vibrancy])
+    func translucentLiftReusesTheWindowBackdrop(material: OverlayMaterial) throws {
+        try translucent {
+            let lift = DragLiftView(content: NSView(), count: 1, material: material)
+            lift.frame = NSRect(x: 0, y: 0, width: 220, height: 80)
+            lift.layoutSubtreeIfNeeded()
+            #expect(lift.isGlass)
+            for view in [lift as NSView] + Self.descendants(lift) {
+                #expect(!(view is NSVisualEffectView) && !(view is GlassPanelView), "a second material flattens the checker")
+                #expect((view.layer?.backgroundColor?.alpha ?? 0) == 0, "an opaque sheet covers the checker")
+            }
+        }
+    }
+
+    /// The accessibility observer rebuilds the live card in both directions during a drag.
+    @Test func transparencyReturnsAfterReduceTransparencyTurnsOff() throws {
+        try translucent {
+            let lift = DragLiftView(content: NSView(), count: 1)
+            ReduceTransparency.shared.override = true
+            #expect(!lift.isGlass)
+            #expect(Self.descendants(lift.background).contains { $0.layer?.backgroundColor?.alpha == 1 })
+            ReduceTransparency.shared.override = false
+            #expect(lift.isGlass)
+            #expect(Self.descendants(lift.background).allSatisfy { ($0.layer?.backgroundColor?.alpha ?? 0) == 0 })
+        }
+    }
+
+    @Test func opaqueWindowKeepsItsCard() {
+        let original = ThemeScope.app.store.input
+        let selection = ThemeScope.app.backdropSelection
+        defer {
+            _ = ThemeScope.app.store.apply(original)
+            ThemeScope.app.setBackdropSelection(selection)
+        }
+        var input = original
+        input.backgroundOpacity = 1
+        _ = ThemeScope.app.store.apply(input)
+        ThemeScope.app.setBackdropSelection(nil)
+        let lift = DragLiftView(content: NSView(), count: 1)
+        #expect(!lift.isGlass)
+        #expect(Self.descendants(lift.background).contains { $0.layer?.backgroundColor?.alpha == 1 })
+    }
+
+    /// Real workspace and group drag content uses the same alpha fills as the resting rows.
+    @Test(arguments: [false, true])
+    func liftedRowsNeverIncreaseTheirStateFillOpacity(group: Bool) throws {
+        try translucent {
+            let (list, window) = Self.list()
+            defer { window.close() }
+            let key: SidebarRowKey = group ? .group(Self.group) : .workspace(WorkspaceID("loose-a"))
+            let header = try #require(list.displayed.row(for: key))
+            list.press = SidebarPress(key: key, point: NSPoint(x: 80, y: header.y + header.height / 2))
+            list.beginDrag(try #require(list.press))
+            defer {
+                list.cancelDrag()
+                if let landing = list.landing { list.finishLand(landing, then: nil) }
+            }
+            let lift = try #require(list.subviews.first { $0 is DragLiftView } as? DragLiftView)
+            #expect(!Self.descendants(lift).contains { $0 is NSVisualEffectView || $0 is GlassPanelView })
+            let rows = Self.descendants(lift).compactMap { $0 as? SidebarRowView }
+            #expect(!rows.isEmpty)
+            for row in rows {
+                #expect(row.isLifted)
+                row.isSelected = true
+                row.updateLayer()
+                let restingAlpha = row.performWithTheme { Palette.selectionFill.alphaComponent }
+                if let header = row as? GroupHeaderRowView {
+                    let bound = WindowBackdrop.dragPreview(header.themeScope, reduceTransparency: false).dragLiftAlpha
+                    #expect((header.pill.backgroundColor?.alpha ?? 0) <= bound)
+                }
+                if let workspace = row as? WorkspaceRowView {
+                    #expect((workspace.layer?.backgroundColor?.alpha ?? 0) <= restingAlpha)
+                    #expect(workspace.rowBadge.ringColor.alpha <= restingAlpha)
+                }
+            }
+            let child = SidebarTabRowView(key: .tab(WorkspaceID("m1"), TabID("terminal")))
+            child.isHovered = true
+            child.updateLayer()
+            let restingChild = try #require(child.layer?.backgroundColor)
+            child.isLifted = true
+            child.updateLayer()
+            #expect(child.layer?.backgroundColor == restingChild,
+                    "a faint child-row highlight must not become a dense drag fill")
+        }
+    }
+
+    /// The badge cutout must use the same state fill as the lifted row, including when selected.
+    @Test func liftedWorkspaceBadgeUsesTheLiftedStateFill() throws {
+        try translucent {
+            let row = WorkspaceRowView(key: .workspace(WorkspaceID("badge-lift")))
+            row.isSelected = true
+            row.updateLayer()
+            let restingRing = row.rowBadge.ringColor
+            row.isLifted = true
+            row.updateLayer()
+            let expected = row.performWithTheme { row.liftedFill(Palette.selectionFill).cgColor }
+            #expect(row.rowBadge.ringColor == expected, "badge ring still uses an opaque resting backdrop")
+            #expect(row.rowBadge.ringColor.alpha < 1)
+            row.isLifted = false
+            row.updateLayer()
+            #expect(row.rowBadge.ringColor == restingRing)
         }
     }
 

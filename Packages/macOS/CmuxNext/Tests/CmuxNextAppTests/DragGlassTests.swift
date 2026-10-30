@@ -42,12 +42,14 @@ import Testing
         #expect(opaque.dragCardFill(.red)?.alphaComponent == 1)
     }
 
-    /// The lifted row is the overlay glass in every window (u5506) but under Reduce Transparency;
+    /// The lifted row reuses a translucent window’s glass, except under Reduce Transparency;
     /// its snapshot does not draw the glass, so the handoff tells the ghost to.
     @Test func aLiftedSidebarRowHandsItsGlassToTheGhost() {
-        #expect(DragLiftView(content: NSView(), count: 1, material: .liquidGlass).isGlass)
-        #expect(DragLiftView(content: NSView(), count: 1, material: .vibrancy).isGlass)
-        #expect(!DragLiftView(content: NSView(), count: 1, material: .opaque).isGlass)
+        translucent {
+            #expect(DragLiftView(content: NSView(), count: 1, material: .liquidGlass).isGlass == !Self.reducesTransparency)
+            #expect(DragLiftView(content: NSView(), count: 1, material: .vibrancy).isGlass == !Self.reducesTransparency)
+            #expect(!DragLiftView(content: NSView(), count: 1, material: .opaque).isGlass)
+        }
     }
 
     @Test func aLiftedTabLetsTheWindowsGlassReadThrough() throws {

@@ -65,7 +65,11 @@ final class SidebarItemListRowView: SidebarRowView {
     override func updateLayer() {
         performWithTheme {
             title.textColor = archived ? Palette.textPrimary.withAlphaComponent(SidebarStyle.archivedAlpha) : Palette.textPrimary
-            paintFill(isSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil)
+            let fill = isSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil
+            let liftedFill = isLifted ? fill.map {
+                self.liftedFill($0)
+            } : fill
+            paintFill(liftedFill)
         }
     }
 
