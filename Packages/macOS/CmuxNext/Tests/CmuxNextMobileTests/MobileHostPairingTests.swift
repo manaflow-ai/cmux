@@ -364,15 +364,14 @@ import Testing
         devices.remove(Self.request.phoneDeviceID)
         seal.holdNextClear()
         file.saveInBackground(devices)
-        // concurrency-allow: test only; the removal's save reached the seal (a safety net of 10 s)
-        let started = seal.entered.wait(timeout: .now() + 10)
+        let started = seal.heldClearStarted()
         let watch = MobileHostPairedQuitWatch()
         watch.watch(file)
         let cutOff = watch.failClosedIfSaving()
         let relaunched = Self.relaunched(directory, seal: seal)
         seal.gate.signal()
         await file.drained()
-        #expect(started == .success, "the removal's save never started")
+        #expect(started, "the removal's save never started")
         #expect(cutOff == [MobileHostPairedDevicesFile.fileName], "the quit deadline named \(cutOff)")
         #expect(relaunched.approvers.isEmpty, "the removed phone is an approver after a relaunch: \(relaunched.approvers)")
         #expect(relaunched.hostd.isEmpty, "hostd pins the removed phone after a relaunch: \(relaunched.hostd)")
@@ -539,6 +538,12 @@ final class HeldSeal: MobileHostPairingSealStore, Sendable {
 
     func holdNextClear() {
         held.signal()
+    }
+
+    /// Whether a held clear began to wait at `gate` (a safety net of 10 s, never a verdict on time).
+    func heldClearStarted() -> Bool {
+        // concurrency-allow: test only; waits for the held clear on the save queue
+        entered.wait(timeout: .now() + 10) == .success
     }
 
     func digest() -> Data? { inner.digest() }

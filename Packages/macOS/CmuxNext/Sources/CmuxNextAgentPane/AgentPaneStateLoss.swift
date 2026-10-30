@@ -74,9 +74,9 @@ public nonisolated struct AgentPaneStateLoss: Sendable {
 
     /// Takes the last quit's record and shows its notices in `window`.
     @MainActor
-    public func showNotice(in window: NSWindow, toasts: CmuxToastCenter = .shared) async {
+    public func showNotice(in window: NSWindow) async {
         for (index, message) in Self.notices(for: await take()).enumerated() {
-            _ = toasts.show(CmuxToast(id: "state-lost-\(index)", message: message, duration: .seconds(12)), in: window)
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "state-lost-\(index)", message: message, duration: .seconds(12)), in: window)
         }
     }
 
