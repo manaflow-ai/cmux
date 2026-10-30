@@ -40,7 +40,6 @@ export const emailDomainOf = (email: string | null | undefined): string | undefi
 
 const scopeClaim = (value: unknown): string | undefined => {
   if (typeof value === "string") return value
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value.join(" ")
   return undefined
 }
 
@@ -67,7 +66,6 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
     // Only an explicit `true` counts: absent, false or any other value means unverified.
     const emailVerified = email !== null && payload.email_verified === true
     const name = typeof payload.name === "string" && payload.name ? payload.name : undefined
-    const scope = scopeClaim(payload.scope)
     return {
       kind: "session",
       identity: `session:${user}`,
@@ -78,7 +76,6 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       email_verified: emailVerified,
       ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
       ...(name ? { display_name: name } : {}),
-      ...(scope ? { scope } : {}),
       // SSO is never read from the token (Stack tokens carry no custom claims); policy-gate.ts
       // resolves it from TeamDO's record of the sessions our OIDC callback created.
       ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {})
@@ -106,6 +103,8 @@ export const signer = async (env: Env) => {
 }
 
 export interface InstallClaims {
+  /** Derived from the live install grant by UserDO.redeem, never from the token request. */
+  readonly scope?: string
   readonly user: string
   readonly team: string
   readonly install: string
@@ -126,7 +125,7 @@ export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.team_vm ? { tvm: true } : {}) })
+  const token = await new SignJWT({ ...(c.scope ? { scope: c.scope } : {}), team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}), ...(c.email_domain ? { edom: c.email_domain } : {}), ...(c.agent ? { agt: c.agent } : {}), ...(c.vm ? { vm: true } : {}), ...(c.team_vm ? { tvm: true } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")

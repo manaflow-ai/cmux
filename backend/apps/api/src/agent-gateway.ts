@@ -4,7 +4,8 @@ import { canonicalJson } from "@cmux/ownership"
 import type { ExternalReply } from "./connection-do.ts"
 import type { Env } from "./env.ts"
 import { agentGatewayOn, agentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
-import { authenticate, hasScope } from "./auth.ts"
+import { authenticate, hasScope, withGrantClasses } from "./auth.ts"
+import { mcpScopesForGrant } from "./mcp-grant.ts"
 import { selectTeam, type TeamPrincipal } from "./team-select.ts"
 
 export interface AgentIssueCommentRequest {
@@ -40,10 +41,13 @@ export class AgentGateway extends WorkerEntrypoint<Env> {
     const bearer = /^Bearer\s+([^\s]+)$/i.exec(input.authorization)?.[1]
     const authenticated = await authenticate(this.env, bearer)
     if (!authenticated?.user || !authenticated.team) return refused("auth.forbidden")
-    if (!hasScope(authenticated, "mcp:write")) return refused("auth.insufficient_scope")
-    const selected = await selectTeam(this.env, authenticated as TeamPrincipal, input.team)
+    if (authenticated.kind !== "install" || !hasScope(authenticated, "mcp:write")) return refused("auth.insufficient_scope")
+    const live = await withGrantClasses(this.env, authenticated)
+    if (!live) return refused("auth.forbidden")
+    if (!mcpScopesForGrant(live.install_kind, live.grant_classes).includes("mcp:write")) return refused("auth.insufficient_scope")
+    const selected = await selectTeam(this.env, live as TeamPrincipal, input.team)
     if (!selected.ok || selected.principal.team !== input.team) return refused("auth.forbidden")
-    const principal = agentGatewayPrincipal(selected.principal.user, selected.principal.team, input.mcpSessionId)
+    const principal = agentGatewayPrincipal(selected.principal, input.mcpSessionId)
     try {
       const resolved = await resolveConnectionPrincipal(this.env, principal)
       if (!resolved || "refused" in resolved) return refused("auth.forbidden")
