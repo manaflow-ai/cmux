@@ -77,7 +77,7 @@ struct WorkspaceWithTerminalLateCreateTests {
         let key = WorkspaceKey.generate()
         // The first terminal as every workspace-with-a-terminal caller makes it (Open Folder, fork, teams, incognito).
         let made = try await WorkspaceCreation.create(key, name: "late", on: connection, repair: repair) { created in
-            _ = try await WorkspaceCreation.firstTerminal(in: created, cwd: "/tmp", on: connection)
+            _ = try await connection.createTerminalWaitingForStart(in: created, cwd: "/tmp")
             return created.rawValue
         }
         let recorded = try await connection.request(Recorded())

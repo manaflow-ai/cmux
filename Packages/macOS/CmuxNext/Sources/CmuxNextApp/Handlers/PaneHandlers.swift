@@ -46,8 +46,10 @@ enum PaneHandlers {
 
     // MARK: Splits
 
+    /// The split actions and their directions (a refused split's notice names its action by this table).
+    private static let splits: [(ActionID, PaneDirection)] = [("splitRight", .right), ("splitDown", .down), ("splitLeft", .left), ("splitUp", .up)]
+
     private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let splits: [(ActionID, PaneDirection)] = [("splitRight", .right), ("splitDown", .down), ("splitLeft", .left), ("splitUp", .up)]
         for (id, direction) in splits {
             registry.bind(id, invoke: { split(ctx, $0, direction: direction) })
         }
@@ -171,17 +173,7 @@ enum PaneHandlers {
         }
         if intended != nil { content?.pendingCreate = work }
         // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
-        ctx.registry.trackRollingBack(splitAction(direction), work)
-    }
-
-    /// The action a split in `direction` runs (its title names a refused split).
-    static func splitAction(_ direction: PaneDirection) -> ActionID {
-        switch direction {
-        case .left: "splitLeft"
-        case .right: "splitRight"
-        case .up: "splitUp"
-        case .down: "splitDown"
-        }
+        ctx.registry.trackRollingBack(splits.first { $0.1 == direction }?.0 ?? "splitDown", work)
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {
