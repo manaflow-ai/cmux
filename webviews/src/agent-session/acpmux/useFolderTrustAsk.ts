@@ -554,6 +554,7 @@ export function useFolderTrustAsk(
       local,
       authorityEpoch,
       ownerEpoch,
+      bumpRevision,
       sameAuthority,
       sameVisit,
       visitValue,
@@ -669,7 +670,7 @@ export function useFolderTrustAsk(
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, family, authorityEpoch, sameAuthority, sameVisit, visitValue],
+      [sessionId, cwd, family, authorityEpoch, bumpRevision, sameAuthority, sameVisit, visitValue],
     ),
   };
 }
