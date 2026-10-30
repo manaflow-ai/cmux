@@ -867,8 +867,6 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        #[cfg(test)]
-        after_finish_replaced_check();
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         if let Err(why) = self.fire_pending(session, cut_turn) {
@@ -938,6 +936,8 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+        #[cfg(test)]
+        after_finish_replaced_check();
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         match result {
             Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled") => {
