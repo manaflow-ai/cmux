@@ -192,7 +192,9 @@ struct WorkspaceHoverCardContent: Equatable {
     static func usageFact(_ detail: SidebarWorkspaceDetail) -> Fact? {
         let context = detail.contextTokens.map { Strings.usageContext($0.formatted(.number.notation(.compactName))) }
         let cost = detail.costUsd24h.map {
-            Strings.usageCost($0.formatted(.currency(code: "USD").precision(.fractionLength($0 >= 100 ? 0 : 2))))
+            // Half away from zero, as the page's Intl rounds it ($1,420.50 is $1,421 in both).
+            Strings.usageCost($0.formatted(.currency(code: "USD").precision(.fractionLength($0 >= 100 ? 0 : 2))
+                .rounded(rule: .toNearestOrAwayFromZero)))
         }
         let parts = [context, cost].compactMap { $0 }
         guard !parts.isEmpty else { return nil }

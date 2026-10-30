@@ -1,5 +1,6 @@
 import CmuxNextBridge
 @testable import CmuxNextDesign
+import CmuxNextIcons
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -49,5 +50,7 @@ import Testing
         #expect(cost?.accessory == nil)
         let context = WorkspaceHoverCardContent.usageFact(SidebarWorkspaceDetail(contextTokens: 80_000))
         #expect(context?.text == "80K context")
+        // Half away from zero, as Session Info's Usage rounds it.
+        #expect(WorkspaceHoverCardContent.usageFact(SidebarWorkspaceDetail(costUsd24h: 1_420.5))?.text == "$1,421 in 24h")
     }
 }
