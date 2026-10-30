@@ -108,7 +108,6 @@ final class SidebarListDrag {
     /// edge elsewhere (DropResolver.resolveDrag).
     func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, sections: [SidebarSection],
                  ungroupedFirst: Bool) -> DropTarget?? {
-        guard !displayed.hostHeadersShowing else { return .some(nil) }
         let leading = movingUp ? card.minY : card.maxY
         guard let resolved = DropResolver.resolveDrag(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift,
                                                       payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst) else {
