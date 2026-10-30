@@ -406,11 +406,24 @@ fn is_interpreter(w: &str) -> bool {
     })
 }
 
-/// A launcher's argv: an interpreter running a script by path (`node /home/u/.local/bin/codex -c x
+/// A launcher: an interpreter running a script by path (`node /home/u/.local/bin/codex -c x
 /// app-server`, npm's Codex launcher). Its script's file name and the args after the script.
-fn launcher(argv: &[String]) -> Option<(&str, &[String])> {
-    let [interp, script, args @ ..] = argv else { return None };
+/// Argv is the leader's own to rewrite too, so the executable the kernel says it runs must be
+/// that interpreter: the file argv names, or for a bare name (`node`), an interpreter of that
+/// same name.
+#[cfg(unix)]
+fn launcher(who: &crate::agent_host::tree::Identity) -> Option<(&str, &[String])> {
+    let [interp, script, args @ ..] = who.argv.as_slice() else { return None };
     if !is_interpreter(interp) || !script.starts_with('/') {
+        return None;
+    }
+    let name = |p: &Path| p.file_name().map(|n| n.to_owned());
+    let runs_interp = if interp.contains('/') {
+        runs_file(who, interp)
+    } else {
+        name(&who.exe).as_deref() == Some(std::ffi::OsStr::new(interp))
+    };
+    if !runs_interp {
         return None;
     }
     Some((Path::new(script).file_name()?.to_str()?, args))
@@ -452,7 +465,7 @@ fn part_of(who: &crate::agent_host::tree::Identity, harness_programs: &[String])
 
 /// `Busy` with the first process that is neither a server (a child of the harness), under one, the
 /// harness's relayed program (`relays`) nor one of its helpers (`part_of`). Each is told by its
-/// identity (`identity_of`: exact argv and executable), the leader's own included, never by the
+/// identity (`identity_of`: exact argv and executable), the leader's own included (`launcher`), never by the
 /// line `ps` prints; one whose identity cannot be read is none of them.
 #[cfg(unix)]
 fn classify(
@@ -462,8 +475,8 @@ fn classify(
     identity_of: impl Fn(u32) -> Option<crate::agent_host::tree::Identity>,
 ) -> Census {
     use crate::agent_host::tree::Identity;
-    let leader_argv = identity_of(leader).map(|who| who.argv).unwrap_or_default();
-    let launched = launcher(&leader_argv);
+    let leader_identity = identity_of(leader);
+    let launched = leader_identity.as_ref().and_then(launcher);
     let mut harness: Vec<u32> = vec![leader];
     let mut harness_programs: Vec<String> = Vec::new();
     let mut parts: Vec<u32> = Vec::new();
@@ -695,6 +708,35 @@ mod tests {
         // A name in the helper's folder is not enough: the executable must be that file.
         let elsewhere = who(&format!("{bin}/codex"), &[&format!("{bin}/codex-evil")]);
         assert!(matches!(census(&relayed, &elsewhere), Census::Busy { pid: 13, .. }));
+        // A leader that names itself the launcher but runs another program relays nothing: its
+        // native-looking child is not the harness.
+        for exe in ["/usr/bin/python3", "/tmp/node-evil", "/opt/bin/codex"] {
+            let spoofed = who(exe, &["node", "/Users/me/my apps/bin/codex", "app-server"]);
+            let census = classify(&found, 10, &servers, |pid| match pid {
+                10 => Some(spoofed.clone()),
+                11 => Some(relayed.clone()),
+                12 => Some(server.clone()),
+                13 => Some(own_helper.clone()),
+                _ => None,
+            });
+            assert!(matches!(census, Census::Busy { pid: 11, .. }), "{exe}");
+        }
+        // A leader run by the interpreter's full path relays only when that is its executable.
+        let full = |exe: &str| {
+            who(exe, &["/usr/local/bin/node", "/Users/me/my apps/bin/codex", "app-server"])
+        };
+        for (leader, relays) in
+            [(full("/usr/local/bin/node"), true), (full("/usr/bin/python3"), false)]
+        {
+            let census = classify(&found, 10, &servers, |pid| match pid {
+                10 => Some(leader.clone()),
+                11 => Some(relayed.clone()),
+                12 => Some(server.clone()),
+                13 => Some(own_helper.clone()),
+                _ => None,
+            });
+            assert_eq!(matches!(census, Census::Clear), relays, "{leader:?}");
+        }
     }
 
     #[test]
