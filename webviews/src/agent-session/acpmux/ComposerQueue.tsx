@@ -197,8 +197,13 @@ export function ComposerQueue({
   const pressedBy = useRef<string>(undefined);
   const toggle = (id: string, hovered: boolean) => {
     // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
-    // leave it, and must never keep the list from fitting.
+    // leave it, and must never keep the list from fitting. Held, the list keeps its height both
+    // ways: its max-height stops it growing, and a min-height stops a row that closes from
+    // shrinking it.
     held.current = hovered;
+    const current = list.current;
+    if (hovered && current) current.style.minHeight = `${current.getBoundingClientRect().height}px`;
+    else current?.style.removeProperty("min-height");
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
@@ -735,6 +740,7 @@ export function ComposerQueue({
         onPointerLeave={(event) => {
           if (!held.current) return;
           held.current = false;
+          event.currentTarget.style.removeProperty("min-height");
           fitList(event.currentTarget);
         }}
         onPointerDown={(event) => {
