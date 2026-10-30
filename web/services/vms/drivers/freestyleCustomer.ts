@@ -27,24 +27,27 @@ export function freestyleCreateCustomer(customer: ProviderCustomer | undefined):
   return customerId ? { customer: { customerId } } : {};
 }
 
+/** What a wake did about the machine's customer. */
+export type FreestyleWakeCustomerTag = "skipped" | "tagged" | "failed";
+
 /**
  * Tag a machine created before customer tagging the next time it wakes. The
  * wake has already succeeded, so a refused update is reported and the machine
- * stays usable; the next wake, or the backfill, tries again. Returns whether an
- * update was sent.
+ * stays usable; the next wake, or the backfill, tries again.
  */
 export async function tagFreestyleCustomerOnWake(
   vm: Pick<Vm, "update">,
   data: Pick<VmData, "customerId">,
   customer: ProviderCustomer | undefined,
   onError: (error: unknown) => void,
-): Promise<boolean> {
+): Promise<FreestyleWakeCustomerTag> {
   const customerId = freestyleCustomerId(customer);
-  if (!customerId || data.customerId === customerId) return false;
+  if (!customerId || data.customerId === customerId) return "skipped";
   try {
     await vm.update({ customer: { customerId } });
+    return "tagged";
   } catch (error) {
     onError(error);
+    return "failed";
   }
-  return true;
 }

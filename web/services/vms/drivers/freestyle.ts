@@ -1484,9 +1484,9 @@ export class FreestyleProvider implements VMProvider {
           }
           // Machines created before customer tagging carry no customer until
           // the backfill reaches them; tag each one the first time it wakes.
-          const customerTagged = await tagFreestyleCustomerOnWake(vm, data, options?.customer, (error) => recordSpanError(span, error));
+          const customerTag = await tagFreestyleCustomerOnWake(vm, data, options?.customer, (error) => recordSpanError(span, error));
           const status = mapFreestyleState(data.state);
-          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status, "cmux.vm.customer_tagged": customerTagged });
+          setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status, "cmux.vm.customer_tag": customerTag });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
           // stopped) relies on the baked systemd unit. Resume does no guest
           // work (see NO-WORK INVARIANT at the top of this file). The client's

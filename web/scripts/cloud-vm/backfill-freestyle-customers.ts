@@ -72,6 +72,9 @@ async function readOwnerRows(pool: Pool): Promise<BackfillOwnerRow[]> {
     );
     await client.query("commit");
     return result.rows.map((row) => ({ cloudVmId: row.id, providerVmId: row.provider_vm_id, userId: row.user_id, status: row.status }));
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
   } finally {
     client.release();
   }
@@ -154,6 +157,10 @@ const program = Effect.acquireUseRelease(
       const results = yield* Effect.forEach(selected, (action) => Effect.promise(() => applyTag(fs, action)), { concurrency: options.concurrency });
       for (const result of results) outcomes[result] += 1;
     }
+    // Offset paging drifts when machines come and go mid-listing; a short
+    // listing may have skipped some, which only a rerun would reach.
+    const incomplete = vms.length < totalCount;
+    if (incomplete) console.error(`warning: listed ${vms.length} of ${totalCount} Freestyle machines; rerun to reach the rest`);
     const unowned = actions.filter((action): action is Extract<BackfillAction, { kind: "unowned" }> => action.kind === "unowned");
     console.log(JSON.stringify({
       target: project.label,
@@ -165,7 +172,7 @@ const program = Effect.acquireUseRelease(
       unownedCloudVms: unowned.filter((action) => action.cmux === "cloud").length,
       ...(options.apply ? { applied: outcomes, notAttempted: tags.length - selected.length } : {}),
     }, null, 2));
-    if (outcomes.failed > 0) process.exitCode = 1;
+    if (outcomes.failed > 0 || (options.apply && incomplete)) process.exitCode = 1;
   }),
   ({ pool }) => Effect.promise(() => pool.end()),
 );

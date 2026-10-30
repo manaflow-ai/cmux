@@ -484,8 +484,8 @@ Stack Auth user id) and nothing else: no email, IP, OAuth identity, secret or to
   restore, fork and Base open/reset. An id outside Freestyle's alphabet (1–128 of
   `A-Za-z0-9_.:@-`) is left out rather than failing the create.
 - **Wake:** `resume` with `customer` tags a machine that does not carry its owner yet with a
-  `PATCH /v5/vms/{id}` holding only `customer`. A refused tag is recorded on the span and never
-  fails the wake.
+  `PATCH /v5/vms/{id}` holding only `customer`. The span's `cmux.vm.customer_tag` says `tagged`,
+  `failed` or `skipped`; a refused tag never fails the wake.
 - **Existing machines:** `scripts/cloud-vm/backfill-freestyle-customers.ts <staging|production>`
   plans from the target's rows (read-only transaction) and changes nothing without `--apply`.
   The Freestyle account is shared by every environment, so a machine no row names is reported
