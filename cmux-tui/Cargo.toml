@@ -256,7 +256,7 @@ ip_network = "0.4"
 # smoltcp is the userspace TCP/IP stack those tunnels terminate in. Without a
 # congestion-control feature it runs with none and bursts a full window into
 # any bottleneck; CUBIC is the controller cmux-wg selects.
-smoltcp = { version = "0.14", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
+smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
 memchr = "2"

@@ -283,71 +283,9 @@ where
     (ws, rate)
 }
 
-
-// DIAG (HQ 5080, removed before landing): counts smoltcp's debug events.
-mod diag {
-    use std::collections::BTreeMap;
-    use std::sync::{Mutex, OnceLock};
-    use std::time::Instant;
-
-    pub struct Counter {
-        started: Instant,
-        events: Mutex<BTreeMap<String, (u64, Vec<f64>)>>,
-    }
-
-    impl log::Log for Counter {
-        fn enabled(&self, metadata: &log::Metadata) -> bool {
-            metadata.target().starts_with("smoltcp")
-        }
-        fn log(&self, record: &log::Record) {
-            if !self.enabled(record.metadata()) {
-                return;
-            }
-            let text = record.args().to_string();
-            if text.starts_with("send:") || text.starts_with("recv:") {
-                return;
-            }
-            let template: String = text
-                .split(|c: char| c.is_ascii_digit())
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join("#");
-            let at = self.started.elapsed().as_secs_f64() * 1000.0;
-            let mut events = self.events.lock().unwrap();
-            let entry = events.entry(template).or_default();
-            entry.0 += 1;
-            if entry.1.len() < 6 {
-                entry.1.push(at);
-            }
-        }
-        fn flush(&self) {}
-    }
-
-    static COUNTER: OnceLock<&'static Counter> = OnceLock::new();
-
-    pub fn mark(label: &str) {
-        let counter = COUNTER.get_or_init(|| {
-            let counter: &'static Counter = Box::leak(Box::new(Counter {
-                started: Instant::now(),
-                events: Mutex::new(BTreeMap::new()),
-            }));
-            log::set_logger(counter).unwrap();
-            log::set_max_level(log::LevelFilter::Debug);
-            counter
-        });
-        let at = counter.started.elapsed().as_secs_f64() * 1000.0;
-        let events = std::mem::take(&mut *counter.events.lock().unwrap());
-        println!("DIAG mark={label} at_ms={at:.1}");
-        for (template, (count, first)) in events {
-            println!("DIAG   {count:>8} first_ms={first:.1?} {template}");
-        }
-    }
-}
-
 #[test]
 fn loopback_throughput_and_shutdown() {
     runtime().block_on(async {
-        diag::mark("start");
         let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let target_address = target.local_addr().unwrap();
         let a_socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -390,13 +328,11 @@ fn loopback_throughput_and_shutdown() {
         direct.set_nodelay(true).unwrap();
         let before_handshake_ms = started.elapsed().as_secs_f64() * 1000.0;
         let (mut direct, before_rate) = measure_websocket(direct, &payload).await;
-        diag::mark("after-direct");
         direct.close(None).await.unwrap();
         let started = std::time::Instant::now();
         let stream = tokio::time::timeout(BOUND, a.connect(a.route("b").unwrap())).await.unwrap().unwrap();
         let after_handshake_ms = started.elapsed().as_secs_f64() * 1000.0;
         let (mut tunneled, after_rate) = measure_websocket(stream, &payload).await;
-        diag::mark("after-wg");
         println!("WIREGUARD_PERF before_tcp_ms={before_handshake_ms:.3} after_wg_tcp_ms={after_handshake_ms:.3} before_authenticated_ws_mib_s={before_rate:.3} after_authenticated_ws_mib_s={after_rate:.3} bytes={}", payload.len());
         #[cfg(target_os = "linux")]
         assert!(this_process_holds(&a_socket_link), "the transport runs on its UDP socket");
