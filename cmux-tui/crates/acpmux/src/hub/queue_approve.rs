@@ -142,38 +142,53 @@ impl Hub {
     pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<(), RpcError> {
         use std::io::BufRead;
         let check = || -> anyhow::Result<Vec<String>> {
-            let file = std::fs::File::open(bundle.join("events/000001.ndjson"))?;
+            // Every segment, in name order, as import restores them (`copy_bundle_events`).
+            let mut segments = Vec::new();
+            for entry in std::fs::read_dir(bundle.join("events"))? {
+                let path = entry?.path();
+                if path.extension().is_some_and(|e| e == "ndjson") {
+                    segments.push(path);
+                }
+            }
+            segments.sort();
             let mut waiting = queue_waiting::Waiting::default();
             let mut approved: HashMap<String, u64> = HashMap::new();
-            for line in std::io::BufReader::new(file).lines() {
-                let e: EventRecord = serde_json::from_str(&line?)?;
-                let turn = e.msg.get("turnId");
-                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
-                    && let Some(id) = e.msg.get("promptId")
-                {
-                    waiting.remove_other_turns(id, turn);
-                }
-                match e.kind.as_str() {
-                    "queued" => waiting.push(e),
-                    // Older daemons do not understand queue_declined. Until the subsequent
-                    // legacy queue_removed is in this snapshot, they would still run it.
-                    "queue_removed" | "user_message" | "turn_started" => {
-                        waiting.remove_turn(turn)
+            for segment in segments {
+                let file = std::fs::File::open(segment)?;
+                for line in std::io::BufReader::new(file).lines() {
+                    let line = line?;
+                    if line.trim().is_empty() {
+                        continue;
                     }
-                    "queue_updated" => {
-                        if let Some(q) = waiting.first_of_turn(turn) {
-                            q.msg["revision"] = e.msg["revision"].clone();
-                            q.msg["awaitingOwner"] = e.msg["awaitingOwner"].clone();
+                    let e: EventRecord = serde_json::from_str(&line)?;
+                    let turn = e.msg.get("turnId");
+                    if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                        && let Some(id) = e.msg.get("promptId")
+                    {
+                        waiting.remove_other_turns(id, turn);
+                    }
+                    match e.kind.as_str() {
+                        "queued" => waiting.push(e),
+                        // Older daemons do not understand queue_declined. Until the subsequent
+                        // legacy queue_removed is in this snapshot, they would still run it.
+                        "queue_removed" | "user_message" | "turn_started" => {
+                            waiting.remove_turn(turn)
                         }
-                    }
-                    "queue_approved" => {
-                        if let (Some(turn), Some(revision)) =
-                            (turn.and_then(Value::as_str), e.msg["revision"].as_u64())
-                        {
-                            approved.insert(turn.to_owned(), revision);
+                        "queue_updated" => {
+                            if let Some(q) = waiting.first_of_turn(turn) {
+                                q.msg["revision"] = e.msg["revision"].clone();
+                                q.msg["awaitingOwner"] = e.msg["awaitingOwner"].clone();
+                            }
                         }
+                        "queue_approved" => {
+                            if let (Some(turn), Some(revision)) =
+                                (turn.and_then(Value::as_str), e.msg["revision"].as_u64())
+                            {
+                                approved.insert(turn.to_owned(), revision);
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             let mut held: Vec<String> = waiting
