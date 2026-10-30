@@ -285,6 +285,13 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
     return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
 
 
+def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
+    """Package Swift files the push deletes (a rename's old path too). Deleting a baseline import's last file makes its
+    IMPORT_BASELINE line stale, so the dependency check runs on them: the base tree holds them, the head tree not."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head).decode()
+    return sorted(n for n in names.split("\0") if n.startswith(MANIFEST_SOURCES) and n.endswith(".swift"))
+
+
 # ---------------------------------------------------------------- pinned tools
 
 def platform_key() -> str:
@@ -928,18 +935,20 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
         return reserved
     changed = changed_files(repo, base, head)
+    deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
     if restrict is not None:
         changed = [p for p in changed if p in restrict]
+        deleted = [p for p in deleted if p in restrict]
     # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
     dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
-    if not changed and not dropped:
+    if not changed and not dropped and not deleted:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts)
+        base_tree, head_tree = build_trees(repo, base, head, changed + deleted, Path(tmp), trusted_scripts)
         # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
@@ -952,7 +961,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 continue  # a commit older than this check
             if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
-        if dropped and DEPS_CHECK not in jobs:
+        if (dropped or deleted) and DEPS_CHECK not in jobs:
             jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
         if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
@@ -1078,7 +1087,7 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
     found = gate(repo, own.base, own.head, only, timings, trusted_scripts)
     if not own.before or not found:
         return found
-    changed = set(changed_files(repo, own.base, own.head))
+    changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
     before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed)) for b, a in own.before]
     push_range = sys.modules[PUSH_RANGE_MODULE]
     kept = []
