@@ -231,7 +231,10 @@ the side label only after build-nightly-app finishes, so it lasts until the
 run finishes, within NIGHTLY_WATCH_LIMIT_SECONDS. Side lanes upload no marker
 (cmux-next.yml aside), so the sweeper finds one's run by path once it has
 failed (GitHub.failed_runs()), which a refused job makes it: its failed jobs
-are re-run then. A failed job of such a run that is not a refusal keeps it
+are re-run then. It also finds one by path while it is queued
+(GitHub.queued_side_runs()): a job waiting on a label that starts nothing
+never fails its run, so before that listing such a run was never watched
+(run 41055587932, 2026-10-30, over five hours). A failed job of such a run that is not a refusal keeps it
 red (a re-run of failed jobs would repeat it), except one that needs a refused
 job, directly or through others, with no other failure or cancel upstream of it:
 an `if: always()` aggregator such as cmux-tui.yml's hosted-verification fails
@@ -1912,6 +1915,32 @@ class GitHub:
             # in_flight_runs()), so only an empty page ends the listing before `pages`.
             if not runs and status == "failure":
                 listings = [listing for listing in listings if listing[0] != "failure"]
+        return found
+
+    def queued_side_runs(self, count: int, oldest: dt.datetime, pages: int = 1) -> list[tuple[int, int]]:
+        """(run id, attempt) of the queued runs of SIDE_WORKFLOW_PATHS created since `oldest`, cmux-next.yml's
+        aside (its placement's marker adopts it): newest first, `count` a page, at most `pages` pages.
+
+        A side-lane job waiting on a label that starts nothing never fails its run, so failed_runs() never
+        lists it; GitHub lists a run `queued` while its jobs wait and none runs, which is when the open-head
+        failover (unstarted_failover()) may move it. A delivery run (never_fails_over(): a scheduled launch smoke,
+        say) is not listed: nothing here cancels one that has not failed.
+        """
+        created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        found: list[tuple[int, int]] = []
+        for page in range(1, pages + 1):
+            data = self.request("GET", f"/actions/runs?status=queued&exclude_pull_requests=true&per_page={count}"
+                                       f"&page={page}&created=%3E%3D{created}")
+            runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
+            for run in runs:
+                entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
+                path = str(run.get("path") or "")
+                if entry[0] and entry not in found and path in SIDE_WORKFLOW_PATHS and path != CMUX_NEXT_WORKFLOW_PATH \
+                        and not never_fails_over(path, run.get("event")):
+                    found.append(entry)
+            # As in failed_runs(): only an empty page ends the listing before `pages`.
+            if not runs:
+                break
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
@@ -4307,7 +4336,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 # names every such run, finished or not, so one job watches them all: each
 # run gets a thread running follow(), the per-run watch. The side lanes,
 # which upload no marker, are found by one listing of failed runs a tick
-# (GitHub.failed_runs()).
+# (GitHub.failed_runs()) and one of queued runs (GitHub.queued_side_runs()).
 WATCH_MARKER = "owned-pool-watch"
 LATE_WATCH_MARKER = "owned-pool-watch-late"
 # cmux-next.yml's placement uploads this instead of WATCH_MARKER when it found
@@ -4454,6 +4483,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     seen: set[int] = set()
     rerun_seen: set[tuple[int, int]] = set()  # re-runs, once per attempt (owned_reruns())
     failed_seen: set[tuple[int, int]] = set()  # failed side-lane runs, once per attempt (failed_runs())
+    queued_seen: set[tuple[int, int]] = set()  # queued side-lane runs, once per attempt (queued_side_runs())
     ticks = 0
     refusals_runs: set[int] = set()  # runs with REFUSALS_WATCH_MARKER, re-runs included
     threads: list[threading.Thread] = []
@@ -4591,6 +4621,21 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             except READ_ERRORS as error:
                 log(f"could not list failed runs ({error}); next tick")
                 ticks -= 1  # try again on the next tick
+            # A side-lane job waiting on a label that starts nothing never fails its run: list the queued ones
+            # too, so the watch's open-head failover sees them. Run 41055587932 (nightly-next-launch-smoke.yml,
+            # a pull request) waited over five hours on glaeda-side-std-xcode-26.6 on 2026-10-30, never watched.
+            if hasattr(client, "queued_side_runs"):
+                try:
+                    queued = client.queued_side_runs(SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES)
+                except READ_ERRORS as error:
+                    log(f"could not list queued side-lane runs ({error}); a later tick")
+                    queued = []
+                for run_id, attempt in queued:
+                    if (run_id, attempt) in queued_seen or (run_id, attempt) in rerun_seen \
+                            or attempt <= 1 and run_id in seen:
+                        continue
+                    if adopt(run_id, False, refusals_known=refusals_listed):
+                        queued_seen.add((run_id, attempt))  # not before: a read that failed is tried again
         ticks += 1
         for run_id, attempt in failed:
             # A marked run's own watch (or the re-run listing) already follows it. One whose watch has
