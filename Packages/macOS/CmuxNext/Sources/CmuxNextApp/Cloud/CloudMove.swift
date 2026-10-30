@@ -154,9 +154,15 @@ struct CloudMove {
             toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: .seconds(600))
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
+        // The Cloud API's answer for this app on the link in use, read now and never kept: the
+        // machine takes the chat only on `owner`, never on its own record (its agents can write it).
+        // The answer is bound to the link process it came from (`--to-pid`): the pump sends it
+        // only over a connection that process serves, so a link replaced meanwhile gets none.
+        let ownerPID = await machine.link?.ownerPID
         let moved: CloudMoveCLI.Answer
         do {
-            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat)
+            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat,
+                                            vmKind: ownerPID == nil ? "none" : "owner", toPID: ownerPID)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")

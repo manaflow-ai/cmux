@@ -38,6 +38,10 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// The open workspace a workspace tile names: its row shows a workspace row's hover more
     /// button and close x (`SidebarItemRowView+HoverActions`). Nil for every other item.
     public var workspace: WorkspaceID?
+    /// The open workspace's own row, as the workspace list maps it (`SidebarMapping.row`): a pinned
+    /// workspace row opens the list's workspace hover card from it, the card a list row shows. Nil for
+    /// every other item.
+    public var workspaceRow: SidebarWorkspace?
     /// The blue unread dot instead of a count, in every look (Home's unread conversations): a row
     /// draws a workspace row's dot on the trailing column, an icon look dots its glyph in the same blue.
     public var unreadDot = false

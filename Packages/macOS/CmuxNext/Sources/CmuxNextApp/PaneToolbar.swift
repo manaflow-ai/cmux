@@ -39,6 +39,8 @@ final class PaneToolbar {
 
     let view = PaneToolbarView()
     private let registry: () -> ActionRegistry?
+    private let paneTarget: ActionTargetRef?
+    static let creationActions: [ActionID] = ["newSurface", "openBrowser"]
     /// The strip plus's menu for this pane (what opens in it).
     private let newTabMenu: () -> NSMenu?
     /// The shown content's own rows, first in the menu (``PaneMoreMenuContributing``: the docked
@@ -52,9 +54,10 @@ final class PaneToolbar {
     var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
 
-    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?,
+    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?, paneTarget: ActionTargetRef? = nil,
          contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
         self.registry = registry
+        self.paneTarget = paneTarget
         self.newTabMenu = newTabMenu
         self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
@@ -75,6 +78,7 @@ final class PaneToolbar {
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
                       pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
                   },
+                  paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
@@ -151,6 +155,7 @@ final class PaneToolbar {
         // A zoomed pane keeps the zoom button's room whichever tab is selected (a chat shows none).
         let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
         let buttons = shownButtons()
+        // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
         view.show(buttons.compactMap(item), more: shown, lit: zoomed && shown,
                   reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1)
     }
@@ -174,10 +179,14 @@ final class PaneToolbar {
         let lit = zoomed && id == Self.zoom
         let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right"]
         return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : symbols[id] ?? descriptor.symbol,
-                               shortcut: registry.shortcutDisplay(for: id), lit: lit)
+                               shortcut: registry.shortcutDisplay(for: id), lit: lit, alwaysVisible: Self.creationActions.contains(id))
     }
 
     private func perform(_ id: ActionID) {
+        if Self.creationActions.contains(id), let paneTarget {
+            _ = registry()?.perform(id, invocation: ActionInvocation(target: paneTarget, origin: .user))
+            return
+        }
         guard let target else { return }
         _ = registry()?.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: target), origin: .user))
     }
@@ -197,7 +206,10 @@ final class PaneToolbar {
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
-        let buttons = shownButtons()
+        view.layoutSubtreeIfNeeded()
+        let buttons = zip(view.items, view.buttons).compactMap { item, button in
+            button.isHidden ? nil : ActionID(rawValue: item.id)
+        }
         let tabOwn = registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: target),
                                               entries: tabActions().filter { !buttons.contains($0) }.map { .action($0) })
         if !menu.items.isEmpty, !tabOwn.items.isEmpty { menu.addItem(.separator()) }

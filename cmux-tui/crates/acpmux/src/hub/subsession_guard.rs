@@ -28,6 +28,7 @@
 //!   walk reads that answer.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::path::{Path, PathBuf};
 
 /// How much a session's harness runs without asking.
@@ -108,7 +109,7 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
 /// A sub-session refusal: invalid params with `data.reason`.
 pub(super) fn refusal(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
-    data["reason"] = json!(reason);
+    data.set("reason", json!(reason));
     RpcError::invalid_params(message).with_data(data)
 }
 
@@ -516,23 +517,16 @@ impl Hub {
         m: &SessionMeta,
         bound: super::full_access_bound::MdmSnapshot,
     ) -> PermissionPolicy {
-        let policy = match m.permission_policy.as_deref() {
-            Some(p) => p.parse().unwrap_or(PermissionPolicy::Ask),
-            None => self.config.read().await.permission_policy,
-        };
+        let policy = self.set_policy_of(m).await;
         if super::full_access_bound::policy_is_full_access(policy) && bound.off {
             return PermissionPolicy::Ask;
         }
         policy
     }
 
-    /// Whether session `m` runs a laxer policy than `than`.
-    pub(super) async fn policy_laxer(&self, m: &SessionMeta, than: &SessionMeta) -> bool {
-        self.policy_laxer_under(m, than, self.mdm_snapshot()).await
-    }
-
-    /// [`Self::policy_laxer`], both ranked under one read of MDM's bound (review 86 of #23322).
-    async fn policy_laxer_under(
+    /// Whether session `m` runs a laxer policy than `than`, both ranked under one read of MDM's
+    /// bound (review 86 of #23322).
+    pub(super) async fn policy_laxer_under(
         &self,
         m: &SessionMeta,
         than: &SessionMeta,
@@ -543,6 +537,22 @@ impl Hub {
             self.effective_policy_under(than, bound).await,
         );
         policy_rank(m) > policy_rank(than)
+    }
+
+    /// The policy session `m` is set to run, before MDM's off caps it (`effective_policy`): its
+    /// own, else the daemon default; one acpmux cannot parse counts as `ask`. Holding a new chat
+    /// to its caller compares and stores these (`policy_set_laxer`), so a chat held while MDM
+    /// forces full access off is no laxer than its caller once the off is unset.
+    pub(super) async fn set_policy_of(&self, m: &SessionMeta) -> PermissionPolicy {
+        match m.permission_policy.as_deref() {
+            Some(p) => p.parse().unwrap_or(PermissionPolicy::Ask),
+            None => self.config.read().await.permission_policy,
+        }
+    }
+
+    /// Whether session `m` is set to run a laxer policy than `than` (`set_policy_of`).
+    pub(super) async fn policy_set_laxer(&self, m: &SessionMeta, than: &SessionMeta) -> bool {
+        policy_rank(self.set_policy_of(m).await) > policy_rank(self.set_policy_of(than).await)
     }
 
     /// [`Access`] of session `m` as the reviewed lists name it; None when
@@ -760,8 +770,8 @@ impl Hub {
         pm: &SessionMeta,
         child: &Arc<Session>,
     ) -> Result<(), RpcError> {
-        let caller_policy = self.effective_policy(pm).await;
-        if self.policy_laxer(&child.meta(), pm).await {
+        let caller_policy = self.set_policy_of(pm).await;
+        if self.policy_set_laxer(&child.meta(), pm).await {
             self.set_policy(child, caller_policy).await;
         }
         self.hold_mode(pm, child).await

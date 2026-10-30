@@ -118,7 +118,8 @@ test("new user and assistant rows enter once, while streamed versions stay still
     const hidden = { ...row("hidden-1", "user", ""), incoming: { kind: "hidden" as const } };
     await render([...existing, hidden]);
     const hiddenNode = dom.window.document.querySelector<HTMLElement>('[data-row-id="hidden-1"]');
-    expect(hiddenNode?.matches(":empty")).toBe(true);
+    // Base always appends the row's gap hit target; a hidden row draws nothing else.
+    expect([...(hiddenNode?.children ?? [])].map((child) => child.className)).toEqual(["acpmux-row__gap"]);
     expect(hiddenNode?.querySelector(".acpmux-row__message-presentation")).toBeNull();
   } finally {
     await act(async () => root.unmount());

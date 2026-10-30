@@ -273,7 +273,7 @@ impl Hub {
             let open = m.watching.take().and_then(|w| w.open);
             // A fork resumes nothing as itself: its first spawn branches the conversation off.
             if fork {
-                m.agent_session_id = None;
+                m.set_agent_session_id(None, &family);
             }
             open
         };

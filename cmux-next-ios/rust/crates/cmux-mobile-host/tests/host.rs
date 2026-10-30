@@ -207,7 +207,6 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         pairing: None,
         agent_tab_host: Some("install:mac-test".into()),
         uploads_dir: uploads.path().to_path_buf(),
-        upload_max_bytes: 1024 * 1024,
         browser: cmux_mobile_host::browser::BrowserConfig::new(
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
             4,
@@ -540,15 +539,12 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     let root = std::fs::canonicalize(&fixture.root).unwrap();
     assert!(path.starts_with(root.join(".cmux/attachments")), "{path:?}");
-    // A folder that is no tab's and outside the roots, or too large: refused.
+    // A folder that is no tab's and outside the roots: refused.
     let mut outside = link
         .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
         .await
         .unwrap();
     assert_eq!(drain(&mut outside).await.1, "forbidden");
-    let mut large =
-        link.open("upload", serde_json::json!({"name": "x", "size": 2 * 1024 * 1024})).await.unwrap();
-    assert_eq!(drain(&mut large).await.1, "too_large");
     // browser: hostd sends the hello, the phone reads the host's carrier.
     let tab = format!("s{}", kind as u8);
     let mut first =
@@ -890,6 +886,36 @@ async fn services_over_wireguard_turn_tls_with_udp_blocked() {
     };
     exercise_services_with(&fixture, TransportKind::WireGuard, &phone).await;
     assert!(turn.stream_connections() >= 1, "the phone never connected to TURN over TLS");
+}
+
+/// A phone attachment has no size cap (Leo, 2026-10-26: "WE NEED ARBITARRILY LARGE FILES
+/// OF ANY TYPE"): a file just past the old 100 MiB default, streamed in chunks, is saved
+/// whole. The test never holds the file in memory; it checks the saved length.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
+    const CHUNK: usize = 256 * 1024;
+    let size: u64 = 100 * 1024 * 1024 + 1;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut upload =
+        connected.link.open("upload", serde_json::json!({"name": "big.bin", "size": size})).await.unwrap();
+    let chunk = Bytes::from(vec![0x5a_u8; CHUNK]);
+    let mut sent: u64 = 0;
+    while sent < size {
+        let take = usize::try_from(size - sent).unwrap_or(CHUNK).min(CHUNK);
+        if upload.send(chunk.slice(..take)).await.is_err() {
+            break;
+        }
+        sent += take as u64;
+    }
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
+    assert_eq!(sent, size);
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert_eq!(reply["size"].as_u64(), Some(size));
+    let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
+    assert!(path.starts_with(&fixture.uploads), "{path:?}");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::conversation_store::runs::{RunRejected, valid_key};
+use cmux_json::JsonSet as _;
 
 /// `conversation-live-publish`, `conversation-live` and the
 /// `conversation-live` event on `subscribe` for a connection that echoes
@@ -132,7 +133,7 @@ impl LiveFrame {
                     "text": text,
                 });
                 if *last == Some(true) {
-                    value["final"] = json!(true);
+                    value.set("final", json!(true));
                 }
                 value
             }
@@ -298,18 +299,21 @@ impl LiveBuffers {
                             "text": step.text,
                         });
                         if step.ended {
-                            value["final"] = json!(true);
+                            value.set("final", json!(true));
                         }
                         value
                     })
                     .collect();
                 let mut value = json!({"run": run, "author": live.author, "steps": steps});
                 if let Some(activity) = &live.activity {
-                    value["activity"] = json!({
-                        "line": activity.line,
-                        "since": activity.since,
-                        "at": activity.at,
-                    });
+                    value.set(
+                        "activity",
+                        json!({
+                            "line": activity.line,
+                            "since": activity.since,
+                            "at": activity.at,
+                        }),
+                    );
                 }
                 value
             })

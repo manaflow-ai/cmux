@@ -747,6 +747,14 @@ final class Counter: @unchecked Sendable {
         #expect(records.map(decision) == [.permissionDecision(permissionId: "perm", optionId: nil)])
     }
 
+    /// A question's decision record carries the answers acpmux put into the tool's input
+    /// (live rig, `question: Which environment?`); the phone used to drop them.
+    @Test func decisionCarriesTheRecordedAnswers() {
+        let decision = json(#"{"seq":3,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"q","outcome":{"outcome":"selected","optionId":"allow_once","_meta":{"updatedInput":{"answers":{"Which environment?":"B"}}}}}}"#)
+        #expect(records.map(decision) == [.permissionDecision(permissionId: "q", optionId: "allow_once",
+                                                               answers: .object(["Which environment?": .string("B")]))])
+    }
+
     @Test func permissionRequestIsToolPermissionOrQuestion() {
         let tool = json(#"{"seq":6,"dir":"mux","kind":"permission_request","msg":{"permissionId":"p1","request":{"sessionId":"x","toolCall":{"toolCallId":"c1","title":"rm -rf build","kind":"execute","rawInput":{"command":"rm -rf build"}},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}}}"#)
         guard case .permissionRequest(let request)? = records.map(tool).first else { Issue.record("no permission"); return }

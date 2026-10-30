@@ -8,6 +8,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-subsessions";
@@ -262,8 +263,11 @@ async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
     let check = json!({"sessionId": session, "text": "", "attachCheck": true});
     daemon.request(method::MUX_SUBSESSION_SEND, check).await?;
     let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths).await?;
-    args["attachments"] = Value::Array(blocks);
+    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths, &|line| {
+        tracing::info!(session = %session, "{line}");
+    })
+    .await?;
+    args.set("attachments", Value::Array(blocks));
     Ok(args)
 }
 
@@ -272,7 +276,7 @@ fn retry_params(args: &Value) -> Value {
     let session = args.get("session").or_else(|| args.get("sessionId"));
     let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
     if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
-        params["subagentId"] = subagent.clone();
+        params.set("subagentId", subagent.clone());
     }
     params
 }

@@ -17,6 +17,8 @@ struct ChiefQuestionBar: View {
     /// The bar starts fading out (true) or in (false) over `duration`: the
     /// host fades its backing band with it (R3-2).
     var fading: (_ out: Bool, _ duration: Double) -> Void = { _, _ in }
+    /// The away-Mac bar's Ask Cloud Chief (the screen hands over the composer's text).
+    var askCloudChief: () -> Void = {}
 
     /// What the bar shows. It outlives `session.barItem` by the fade, so
     /// the bar leaves before the conversation moves up into its room (R3-2).
@@ -61,6 +63,7 @@ struct ChiefQuestionBar: View {
         case .question(let question)?: question.id + (session.answers[question.id]?.statusText ?? "")
         case .failure(let id, _)?: id
         case .unavailable(let reason, let retrying)?: reason + (retrying ? "\u{0}" : "")
+        case .macAway(let reason)?: "away\u{0}" + reason
         case nil: ""
         }
     }
@@ -70,6 +73,8 @@ struct ChiefQuestionBar: View {
             failureBar(failure)
         } else if case .unavailable(let reason, let retrying)? = shown {
             unavailableBar(reason: reason, retrying: retrying)
+        } else if case .macAway(let reason)? = shown {
+            macAwayBar(reason: reason)
         } else if case .question(let question)? = shown {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
             Button { open(question) } label: {
@@ -158,6 +163,37 @@ struct ChiefQuestionBar: View {
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.unavailable.bar")
         .accessibilityHint(session.canRetryConnecting ? "Tries to reach Chief on your Mac again" : "")
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+    }
+
+    /// The Mac is away: Chief reads its cloud copy, so what is sent waits
+    /// for the Mac. Ask Cloud Chief hands the composer's text (or the newest
+    /// message) to the Cloud Chief now. It was a navigation bar button the
+    /// hidden bar never showed.
+    private func macAwayBar(reason: String) -> some View {
+        Button { askCloudChief() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "icloud").font(.body).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(reason).font(.footnote.weight(.semibold)).lineLimit(2)
+                    Text("Messages wait for your Mac.").font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Text("Ask Cloud Chief").font(.footnote.weight(.semibold)).foregroundStyle(.tint)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("chief.askCloudChief")
+        .accessibilityHint("Sends your message to Cloud Chief with this chat's recent messages")
         .opacity(visible ? 1 : 0)
         .allowsHitTesting(visible)
     }

@@ -87,11 +87,11 @@ pub(super) fn parse(rest: &[String]) -> Result<Invocation, UsageError> {
     };
     let mut words: Vec<&str> = Vec::new();
     let mut index = 0;
-    while index < rest.len() {
-        let arg = rest[index].as_str();
+    while let Some(arg) = rest.get(index) {
+        let arg = arg.as_str();
         index += 1;
         if arg == "--" {
-            words.extend(rest[index..].iter().map(String::as_str));
+            words.extend(rest.get(index..).unwrap_or_default().iter().map(String::as_str));
             break;
         }
         match arg {

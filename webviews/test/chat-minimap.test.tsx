@@ -285,8 +285,13 @@ test("off by default; on, but not with Full Width or a column too wide for the r
     await pane.render("Done.");
     await act(async () => flushFrames());
     expect(pane.host.querySelector(".acpmux-chat-minimap")).toBeNull();
-    // The thread rail at the left is there either way.
-    expect(pane.host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
+    // The thread rail stays available independently, with a window of the full prompt list.
+    const ticks = pane.host.querySelectorAll("[data-tick]");
+    expect(ticks.length).toBeGreaterThan(0);
+    expect(ticks.length).toBeLessThan(PROMPTS);
+    const entries = pane.host.querySelectorAll(".acpmux-minimap__list [aria-setsize]");
+    expect(entries.length).toBe(ticks.length);
+    for (const entry of entries) expect(entry.getAttribute("aria-setsize")).toBe(String(PROMPTS));
     await act(async () => setChatDisplay({ "agentPane.display.vscodeMinimap": true }));
     await pane.render("Done.");
     await act(async () => flushFrames());

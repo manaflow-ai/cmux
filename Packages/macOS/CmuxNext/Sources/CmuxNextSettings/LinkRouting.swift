@@ -7,7 +7,8 @@ public import Foundation
 /// "browser": {
 ///   "openLinksInCmuxBrowser": true,                     // false: every link opens in the default browser
 ///   "hostsToOpenInEmbeddedBrowser": ["*.example.com"],  // empty: every host opens in cmux
-///   "urlsToAlwaysOpenExternally": ["re:^https://[^/]*\\.example\\.com/billing"]
+///   "urlsToAlwaysOpenExternally": ["re:^https://[^/]*\\.example\\.com/billing"],
+///   "openSignInPagesInCmux": true                       // false: sign-in pages follow the keys above
 /// }
 /// ```
 ///
@@ -20,20 +21,29 @@ public import Foundation
 /// `browser.enabled` (classic's Disable cmux Browser switch, on by default) turns the cmux browser
 /// off: every link goes to the system whatever the other keys, and no browser tab opens for a web
 /// page (``browserEnabled``).
+///
+/// `browser.openSignInPagesInCmux` (on by default, ``signInPagesInCmux``): a sign-in or
+/// device-code page (``SignInPage``) opens in a cmux browser tab even when the toggle is off or
+/// the host list misses its host; an external rule still sends it out.
 public nonisolated struct LinkRouting: Sendable, Hashable {
     public var opensInCmuxBrowser: Bool
     public var embeddedHosts: [String]
     public var externalRules: [String]
     /// `browser.enabled`: false turns the cmux browser off (no web browser tab, every link to the system).
     public var browserEnabled: Bool
+    /// `browser.openSignInPagesInCmux`: true opens every ``SignInPage`` in a cmux browser tab unless an
+    /// external rule matches it; false leaves sign-in pages to the other keys like any link.
+    public var signInPagesInCmux: Bool
 
     public static let fallback = LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [])
 
-    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = true) {
+    public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String], browserEnabled: Bool = true,
+                signInPagesInCmux: Bool = true) {
         self.opensInCmuxBrowser = opensInCmuxBrowser
         self.embeddedHosts = embeddedHosts
         self.externalRules = externalRules
         self.browserEnabled = browserEnabled
+        self.signInPagesInCmux = signInPagesInCmux
     }
 
     /// Where one link goes.
@@ -47,6 +57,8 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     public static let openPath = ["browser", "openLinksInCmuxBrowser"]
     /// `browser.enabled`, the Settings row Enable cmux Browser.
     public static let enabledPath = ["browser", "enabled"]
+    /// `browser.openSignInPagesInCmux`, the Settings row Open Sign-In Pages in cmux Browser.
+    public static let signInPagesPath = ["browser", "openSignInPagesInCmux"]
     /// Classic's key, read when ``openPath`` is absent (``EffectiveSettings`` copies it over).
     public static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
     static let hostsPath = ["browser", "hostsToOpenInEmbeddedBrowser"]
@@ -65,15 +77,18 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
     }
 
     /// True when this http(s) link opens in a cmux browser tab, false when it
-    /// goes to the default browser: the cmux browser is off, the setting is off (unless `explicit`, a
-    /// click that picked a cmux browser profile), an external rule matches,
-    /// the host is unusable, or the host list is set and misses the host.
+    /// goes to the default browser: the cmux browser is off, an external rule matches, the host is
+    /// unusable, or, for a link that is not a sign-in page kept in cmux (``keepsSignInPageInCmux(_:)``),
+    /// the setting is off (unless `explicit`, a click that picked a cmux browser profile) or the
+    /// host list is set and misses the host.
     public func opensInCmux(_ url: URL, explicit: Bool = false) -> Bool {
-        guard browserEnabled, opensInCmuxBrowser || explicit else { return false }
+        guard browserEnabled else { return false }
         if !externalRules.isEmpty, BrowserExternalURLPatternMatcher(patterns: externalRules).matches(url.absoluteString) {
             return false
         }
         guard let host = Self.normalizedHost(url.host ?? "") else { return false }
+        if keepsSignInPageInCmux(url) { return true }
+        guard opensInCmuxBrowser || explicit else { return false }
         guard !embeddedHosts.isEmpty else { return true }
         return embeddedHosts.contains { raw in
             let pattern = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -83,6 +98,12 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
             }
             return Self.normalizedHost(pattern) == host
         }
+    }
+
+    /// Whether `url` is a ``SignInPage`` that ``signInPagesInCmux`` keeps in a cmux browser tab
+    /// (the cmux browser is on). An external rule still wins (``opensInCmux(_:explicit:)``).
+    public func keepsSignInPageInCmux(_ url: URL) -> Bool {
+        browserEnabled && signInPagesInCmux && SignInPage(url: url) != nil
     }
 
     /// Classic's host normalizer (`RemoteLoopbackProxyAlias.normalizeHost`):
@@ -121,6 +142,13 @@ public nonisolated struct LinkRouting: Sendable, Hashable {
                 setting.browserEnabled = flag
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: enabledPath.joined(separator: "."), message: "expected true or false"))
+            }
+        }
+        if let value = browser[signInPagesPath[1]] {
+            if let flag = value.boolValue {
+                setting.signInPagesInCmux = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: signInPagesPath.joined(separator: "."), message: "expected true or false"))
             }
         }
         // The new key wins; classic's is read only without it.
