@@ -6,22 +6,31 @@ import Testing
 
 /// Where a chat opens (#27627): switching to a Chief makes a new transcript view for it, as
 /// Messages opens a conversation. It lands on the newest message, or, when the person had
-/// scrolled up in that chat earlier in this session, on the message they were reading.
+/// scrolled up in that chat, on the message they were reading, at the same distance above the
+/// field.
 ///
-/// Each test opens the view as Home does (`HomeNativeTranscriptView` in a new `HomeHostView`):
-/// made at zero size, its rows installed from the store's cached transcript at once, then put in
-/// the pane at the pane's size; the width change then measures every row again off main.
+/// Each test opens the view in Home's order (`HomeNativeTranscriptView` in a new `HomeHostView`):
+/// made with no size (its rows installed from the store's cached transcript in init, at the
+/// controller's fixture size), added to the pane at zero size, then given the pane's size by a
+/// later layout; a width change then measures every row again off main.
 @MainActor @Suite(.serialized) struct HomeOpenPlacementTests {
     /// A new view of the rig's conversation, opened as Home opens one, settled.
-    private func open(_ rig: HomeChatRig) async throws -> MessagesLabHomeView {
+    private func open(_ rig: HomeChatRig, height: CGFloat? = nil) async throws -> MessagesLabHomeView {
         let view = MessagesLabHomeView(store: rig.store, conversation: HomeChatRig.conversation, me: rig.me, wake: HomeChatRig.NoWake())
         view.setBareTop()
         let pane = try #require(rig.window.contentView)
-        view.frame = pane.bounds
+        if let height { rig.window.setContentSize(NSSize(width: pane.frame.width, height: height)) }
         pane.addSubview(view)
+        pane.layoutSubtreeIfNeeded()
+        view.frame = pane.bounds
         pane.layoutSubtreeIfNeeded()
         await settle(view)
         return view
+    }
+
+    /// The place a closing view keeps: the newest message on screen and its bottom's distance from the field.
+    private func place(_ view: MessagesLabHomeView) throws -> (message: String, offset: CGFloat) {
+        try #require(view.controller.demo?.readingPlace(keeps: { _ in true }))
     }
 
     /// The chat's view closes, as Home drops it for another Chief's (its pane stays in the window).
@@ -92,22 +101,24 @@ import Testing
         } == true)
     }
 
-    @Test func aChatLeftScrolledUpOpensWhereThePersonWasReading() async throws {
+    @Test(arguments: [nil, 1100.0] as [CGFloat?])
+    func aChatLeftScrolledUpOpensWhereThePersonWasReading(reopenHeight: CGFloat?) async throws {
         let rig = try await HomeChatRig(history: 300)
         defer { rig.stop() }
         close(rig.view, in: rig)
 
         let first = try await open(rig)
         try scrollUp(first, by: 2400)
-        let left = try #require(first.controller.demo?.anchorProbe)
+        let left = try place(first)
         #expect(first.controller.store?.state.ui.scroll.pinnedToBottom == false)
         close(first, in: rig)
 
-        let again = try await open(rig)
+        // The same pane, or a taller one (the window grew meanwhile): the message keeps its distance from the field.
+        let again = try await open(rig, height: reopenHeight)
         defer { again.stop() }
-        let back = try #require(again.controller.demo?.anchorProbe)
-        #expect(back.key == left.key, "opened at row \(back.key), left at \(left.key)")
-        #expect(abs(back.y - left.y) < 1, "the row sits at \(back.y), was at \(left.y)")
+        let back = try place(again)
+        #expect(back.message == left.message, "opened at message \(back.message), left at \(left.message)")
+        #expect(abs(back.offset - left.offset) < 1, "its bubble ends \(back.offset) pt above the field, was \(left.offset)")
         #expect(again.controller.store?.state.ui.scroll.pinnedToBottom == false)
     }
 

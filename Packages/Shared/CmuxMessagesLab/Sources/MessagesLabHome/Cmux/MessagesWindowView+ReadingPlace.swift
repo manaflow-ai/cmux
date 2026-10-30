@@ -2,29 +2,38 @@ import AppKit
 
 /// cmux (#27627): the person's place in a transcript, by message, so a new view of the same chat
 /// opens where they left it (Messages: a conversation opens at its newest message, or where it was
-/// left scrolled up). The place is the newest message with a row on screen and how far its last row's
-/// bottom sits above the transcript's bottom edge (`anchorY`), as `HomeScrollAnchor` keeps it.
+/// left scrolled up). The place is the newest message with a bubble on screen and how far its last
+/// bubble's bottom sits above the transcript's bottom edge (`anchorY`), as `HomeScrollAnchor` keeps
+/// it. Bubbles only: a receipt, edited or replies line under a message comes and goes between views.
 extension MessagesWindowView {
-    /// Where the person reads: the engine id of the newest message on screen and its offset; nil with
-    /// no rows or when the transcript shows its newest message at the bottom.
-    var readingPlace: (message: String, offset: CGFloat)? {
+    /// Where the person reads: the engine id of the newest message on screen that `keeps` accepts,
+    /// and its offset; nil with no such message or when the transcript shows its newest message.
+    func readingPlace(keeps: (String) -> Bool) -> (message: String, offset: CGFloat)? {
         guard model.count > 0, !(store.state.ui.scroll.pinnedToBottom && store.state.atNewest) else { return nil }
         var i = firstVisibleRow
         while i + 1 < model.count, windowY(contentY: layout.contentTop(i + 1)) < anchorY { i += 1 }
-        guard let id = model.rows[checked: i].flatMap({ Self.message(ofRow: $0.spec.key) }), // checked
-              let last = lastRow(of: id) else { return nil }
-        return (id, anchorY - windowY(contentY: rowBottom(last)))
+        // Back from the bottom edge to a kept message's bubble (past typing dots, a notice, a
+        // fading row, a running reply's stream).
+        while i >= 0 {
+            if let row = model.rows[checked: i], !row.ghost, let id = Self.bubbleMessage(ofRow: row.spec.key), keeps(id), // checked
+               let last = lastBubble(of: id) {
+                return (id, anchorY - windowY(contentY: rowBottom(last)))
+            }
+            i -= 1
+        }
+        return nil
     }
 
-    /// Scrolls so message `id`'s last row sits `offset` above the transcript's bottom edge, within
-    /// the loaded rows (at the bottom it is pinned again). False when no row of `id` is loaded.
+    /// Scrolls so message `id`'s last bubble sits `offset` above the transcript's bottom edge, within
+    /// the loaded rows (at the bottom it is pinned again). False when no bubble of `id` is loaded.
     @discardableResult
     func show(message id: String, offset: CGFloat, in scrollView: TranscriptScrollView) -> Bool {
-        guard let last = lastRow(of: id) else { return false }
+        guard let last = lastBubble(of: id) else { return false }
         let y = rowBottom(last) + MessagesWindowView.cvTop - (anchorY - offset)
         let clamped = min(max(y, minOffset), pinnedOffset)
         if clamped >= pinnedOffset - 0.5, store.state.atNewest {
             pinToBottom()
+            scrollView.syncFromModel()
         } else {
             store.dispatch(.setScroll(offset: pinnedOffset - clamped, pinned: false))
             scrollView.scroll(toModelOffset: clamped)
@@ -40,13 +49,13 @@ extension MessagesWindowView {
         layout.contentTop(i) + (model.rows[checked: i]?.spec.height ?? 0) // checked
     }
 
-    private func lastRow(of id: String) -> Int? {
-        model.rows.lastIndex { !$0.ghost && RowBuilder.key($0.spec.key, belongsTo: id) }
+    private func lastBubble(of id: String) -> Int? {
+        model.rows.lastIndex { !$0.ghost && Self.bubbleMessage(ofRow: $0.spec.key) == id }
     }
 
-    /// The message a row key names ("kind:messageID[:part]"); nil for rows of no message.
-    private static func message(ofRow key: String) -> String? {
+    /// The message a bubble row names ("part:messageID:index"); nil for any other row.
+    private static func bubbleMessage(ofRow key: String) -> String? {
         let parts = key.split(separator: ":", maxSplits: 2)
-        return parts.count >= 2 ? String(parts[1]) : nil
+        return parts.count >= 2 && parts[0] == "part" ? String(parts[1]) : nil
     }
 }

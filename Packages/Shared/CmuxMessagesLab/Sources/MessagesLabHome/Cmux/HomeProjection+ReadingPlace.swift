@@ -11,25 +11,35 @@ extension HomeProjection {
     /// (closed before it had a size or its rows) leaves the kept place as it was.
     func keepReadingPlace() {
         guard !stopped, !placesOnOpen, let demo = controller.demo, demo.bounds.height > 0 else { return }
-        guard let place = demo.readingPlace,
-              let id = shown.last(where: { HomeMapping.id($0, aliases: aliases) == place.message })?.messageID else {
+        // A message the store names (a running reply's stream or my unlogged send is not one yet).
+        var ids: [ID: MessageID] = [:]
+        for item in shown { if let id = item.messageID { ids[HomeMapping.id(item, aliases: aliases)] = id } }
+        guard let place = demo.readingPlace(keeps: { ids[$0] != nil }), let id = ids[place.message] else {
             homeStore.setScrollAnchor(nil, for: conversation)
             return
         }
         homeStore.setScrollAnchor(HomeScrollAnchor(message: id, offset: Double(place.offset)), for: conversation)
     }
 
-    /// Once the view has its pane's size and its rows: the kept place, else the newest message. Once
-    /// per view; a permalink being opened (`reveal`) places the view itself.
+    /// The transcript has been laid out at its pane's size (not the controller's fixture size from
+    /// before the host's first layout, nor a zero frame).
+    private var laidOutInPane: Bool {
+        let host = controller.host
+        guard let pane = host.superview, let demo = controller.demo, host.bounds.height > 0 else { return false }
+        return host.frame.size == pane.bounds.size && demo.frame.size == host.bounds.size
+    }
+
+    /// Once the view is laid out in its pane and has its rows: the kept place, else the newest
+    /// message. Once per view. A permalink being opened (`reveal`) opens at the newest message, as
+    /// before; its thread or message is the reveal's.
     func placeOnOpen() {
-        guard placesOnOpen, !stopped, let demo = controller.demo, demo.bounds.height > 0, !shown.isEmpty else { return }
+        guard placesOnOpen, !stopped, let demo = controller.demo, !shown.isEmpty, laidOutInPane else { return }
         placesOnOpen = false
-        guard pendingReveal == nil else { return }
-        if let anchor = homeStore.scrollAnchor(for: conversation),
+        if pendingReveal == nil, let anchor = homeStore.scrollAnchor(for: conversation),
            let item = shown.last(where: { $0.messageID == anchor.message }) {
             let place = (message: HomeMapping.id(item, aliases: aliases), offset: CGFloat(anchor.offset))
             if demo.show(message: place.message, offset: place.offset, in: controller.host.scrollView) {
-                // A view opened at zero size laid its rows out at another width: estimates until measured.
+                // Rows laid out at another width keep estimates until the width's measure lands.
                 if demo.hasEstimatedRows { openedPlace = place }
                 return
             }
