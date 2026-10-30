@@ -93,7 +93,16 @@ export function HomeLists({
         sessions={sessions}
         look={look}
         shortcuts={shortcuts}
-        actions={{ answer: onAnswer, open: (item) => onOpen?.(item) ?? onSelect(item.sessionId) }}
+        actions={{
+          answer: onAnswer,
+          open: (item) => {
+            if (onOpen) {
+              onOpen(item);
+            } else {
+              onSelect(item.sessionId);
+            }
+          },
+        }}
       />
       {review.length > 0 && (
         <HomeList label={t(HOME_LABELS.readyForReview)}>
