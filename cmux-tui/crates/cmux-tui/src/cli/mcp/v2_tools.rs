@@ -611,6 +611,7 @@ impl V2Tool {
                 )));
             }
         }
+        let mut missing = Vec::new();
         for (name, field) in self.fields().as_object().into_iter().flatten() {
             if params.contains_key(name) {
                 continue;
@@ -618,18 +619,21 @@ impl V2Tool {
             if let Some(default) = self.default_of(name) {
                 params.insert(name.clone(), default);
             } else if field["required"] == Value::Bool(true) {
-                // The owner's answer ("required parameter is missing") named no field
-                // (tests/tool-evals r3m: `pane_neighbor_get({pane: "current"})`).
                 let schema = Generator::new(catalog()).field(field);
                 let values = schema["enum"]
                     .as_array()
                     .map(|values| {
                         let names: Vec<&str> = values.iter().filter_map(Value::as_str).collect();
-                        format!(": one of {}", names.join(", "))
+                        format!(" (one of {})", names.join(", "))
                     })
                     .unwrap_or_default();
-                return Err(invalid(format!("{} needs {name}{values}", self.name)));
+                missing.push(format!("{name}{values}"));
             }
+        }
+        // The owner's answer ("required parameter is missing") named no field
+        // (tests/tool-evals r3m: `pane_neighbor_get({pane: "current"})`); all of them at once.
+        if !missing.is_empty() {
+            return Err(invalid(format!("{} needs {}", self.name, missing.join(", "))));
         }
         if self.waits() {
             let timeout = match params.get("timeout_ms") {
