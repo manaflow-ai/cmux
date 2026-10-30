@@ -75,9 +75,12 @@ impl Hub {
 
     /// The person's Stop (`session/cancel` from the person's connection): the running turn's
     /// cancel, and the other agents' messages queued behind it are held (`hold_agent_messages`).
+    /// Also with no turn running while anything waits in the queue: the turn may have just ended
+    /// and the next one be about to start. A Stop of an idle chat with nothing queued holds nothing.
     pub async fn person_stop(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
-        if let Some(turn) = session.turn() {
-            self.hold_agent_messages(session, &turn.turn_id);
+        let turn = session.turn().map(|t| t.turn_id);
+        if turn.is_some() || session.queued() > 0 {
+            self.hold_agent_messages(session, turn.as_deref().unwrap_or_default());
         }
         self.cancel(session).await
     }
@@ -95,9 +98,10 @@ impl Hub {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .iter_mut()
-            .filter(|q| !q.held && !q.sent_now && q.run.agent.is_some())
+            .filter(|q| !q.held && q.run.agent.is_some())
             .map(|q| {
-                q.held = true;
+                // One sent now waits too: the Stop came after it.
+                (q.held, q.sent_now) = (true, false);
                 q.prompt_id.clone()
             })
             .collect();
