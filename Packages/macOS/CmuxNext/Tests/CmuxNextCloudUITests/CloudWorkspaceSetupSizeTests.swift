@@ -36,6 +36,13 @@ struct CloudWorkspaceSetupSizeTests {
         #expect(limits.vcpusByMemoryMb.isEmpty)
     }
 
+    @Test func aMalformedCountKeepsThePlanSizes() throws {
+        let limits = try Self.limits(#"{"maxActiveVms":"five","activeVmCount":null,"memoryOptionsMb":[4096],"vcpusByMemoryMb":{"4096":2}}"#)
+        #expect(limits.maxActiveVms == nil)
+        #expect(limits.activeVmCount == 0)
+        #expect(limits.memoryOptionsMb == [4096])
+    }
+
     @Test func aRateComesOnlyFromAListedMachineOfTheSameSize() throws {
         let limits = try Self.limits(Self.planLimits)
         let machines = [

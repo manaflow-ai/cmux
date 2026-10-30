@@ -29,8 +29,10 @@ public struct CloudMachineLimits: Sendable, Hashable, Decodable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        maxActiveVms = try c.decodeIfPresent(Int.self, forKey: .maxActiveVms)
-        activeVmCount = try c.decodeIfPresent(Int.self, forKey: .activeVmCount) ?? 0
+        // Each field on its own: one this client cannot read drops that field, never the others.
+        // An unreadable cap reads as none, as a missing `limits` does (the server still refuses).
+        maxActiveVms = (try? c.decodeIfPresent(Int.self, forKey: .maxActiveVms)) ?? nil
+        activeVmCount = ((try? c.decodeIfPresent(Int.self, forKey: .activeVmCount)) ?? nil) ?? 0
         planId = try? c.decodeIfPresent(String.self, forKey: .planId)
         // Size fields this client cannot read leave the sizes out, never the cap.
         let options = ((try? c.decodeIfPresent([Int].self, forKey: .memoryOptionsMb)) ?? nil) ?? []
