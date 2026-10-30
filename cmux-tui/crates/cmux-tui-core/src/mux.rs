@@ -581,6 +581,9 @@ pub struct Mux {
     /// apply (`advance_agent_roster`), so a test can append meanwhile.
     #[cfg(test)]
     agent_roster_fold_after_read: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Records per committed tail page of a roster fold; 0 is the default.
+    #[cfg(test)]
+    agent_roster_fold_page: AtomicUsize,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]

@@ -234,6 +234,19 @@ impl Mux {
         }
     }
 
+    /// Records per committed tail page of a roster fold (a test sets fewer,
+    /// so one fold spans several pages).
+    fn agent_roster_fold_page_size(&self) -> usize {
+        #[cfg(test)]
+        {
+            let page = self.agent_roster_fold_page.load(std::sync::atomic::Ordering::Relaxed);
+            if page > 0 {
+                return page;
+            }
+        }
+        AGENT_ROSTER_FOLD_PAGE
+    }
+
     /// Fold the journal into the roster through `through` (the journal head
     /// when `None`) and save the snapshot with its cursor. Returns the
     /// plugin deltas, each with its record's kind, or `None` when the roster
@@ -259,16 +272,17 @@ impl Mux {
         let (deltas, cursor, snapshot) = {
             let registry =
                 committed_reader.is_none().then(|| self.workspace_registry.lock().unwrap());
+            let page = self.agent_roster_fold_page_size();
             let read_page = |after: u64, through: u64| {
                 match &registry {
                     Some(registry) => {
-                        registry.session_journal_without_output_after(after, through, 512)
+                        registry.session_journal_without_output_after(after, through, page)
                     }
                     None => self
                         .registry_connection
                         .read_committed(|connection| {
                             crate::workspace_registry::session_journal::query_session_journal_without_output_after(
-                                connection, after, through, 512,
+                                connection, after, through, page,
                             )
                         })
                         .unwrap_or_else(|| anyhow::bail!("the registry reader closed")),
@@ -548,3 +562,6 @@ impl Mux {
         }
     }
 }
+
+/// Records per committed tail page of a roster fold.
+const AGENT_ROSTER_FOLD_PAGE: usize = 512;

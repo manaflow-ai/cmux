@@ -171,10 +171,22 @@ fn a_hook_that_changes_no_projection_takes_no_registry_lock() {
 /// replay of the whole journal.
 #[test]
 fn a_live_roster_fold_with_an_interleaved_append_equals_a_fresh_replay() {
-    use crate::journal_reducers::{AgentRoster, RosterEvent};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    interleaved_fold_equals_replay("fold-interleave", 0);
+}
 
-    let session = "fold-interleave";
+/// The same with one record per tail page: the fold spans several pages,
+/// the interleaved append commits between two page reads, and a page edge
+/// must neither skip nor repeat a record (the fold stops at its own
+/// committed sequence, not at the newer one).
+#[test]
+fn a_roster_fold_over_several_pages_with_an_append_between_pages_equals_a_fresh_replay() {
+    interleaved_fold_equals_replay("fold-pages", 1);
+}
+
+fn interleaved_fold_equals_replay(session: &str, page: usize) {
+    use crate::journal_reducers::{AgentRoster, RosterEvent};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
     let root = std::env::temp_dir()
         .join(format!("cmux-fold-interleave-{}", crate::workspace_registry::new_uuid_v4()));
     let mux = open_persistent_test_mux(session, &root);
@@ -198,13 +210,17 @@ fn a_live_roster_fold_with_an_interleaved_append_equals_a_fresh_replay() {
             .expect("a persistent registry has a reader")
             .unwrap()
     };
+    mux.agent_roster_fold_page.store(page, Ordering::Relaxed);
     let fired = Arc::new(AtomicBool::new(false));
+    let page_reads = Arc::new(AtomicUsize::new(0));
     let (spawned_tx, spawned_rx) = std::sync::mpsc::channel();
     {
         let fired = fired.clone();
+        let page_reads = page_reads.clone();
         let hook_mux = Arc::downgrade(&mux);
         let second_id = second_id.clone();
         *mux.agent_roster_fold_after_read.lock().unwrap() = Some(Arc::new(move || {
+            page_reads.fetch_add(1, Ordering::SeqCst);
             if fired.swap(true, Ordering::SeqCst) {
                 return;
             }
@@ -243,9 +259,23 @@ fn a_live_roster_fold_with_an_interleaved_append_equals_a_fresh_replay() {
         }));
     }
 
+    // A backlog the next agent fold must consume: workspace renames commit
+    // public journal records that no agent event folds until then.
+    let workspace = mux.with_state(|state| state.workspaces[0].id);
+    for name in ["one", "two", "three"] {
+        assert!(mux.rename_workspace(workspace, name.into()));
+    }
     let before_second = records_of(&second_id);
+    page_reads.store(0, Ordering::SeqCst);
     append_journal_hook(&mux, &first_id, "UserPromptSubmit", Some("fold-a"));
     assert!(fired.load(Ordering::SeqCst), "the live fold reached its seam");
+    if page == 1 {
+        assert!(
+            page_reads.load(Ordering::SeqCst) >= 3,
+            "the fold read fewer than 3 one-record pages: {}",
+            page_reads.load(Ordering::SeqCst)
+        );
+    }
     spawned_rx.recv_timeout(Duration::from_secs(10)).unwrap().join().unwrap();
     assert!(records_of(&second_id) > before_second, "the interleaved event is committed");
     *mux.agent_roster_fold_after_read.lock().unwrap() = None;
