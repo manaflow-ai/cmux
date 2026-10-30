@@ -81,21 +81,28 @@ class FakeGitHub:
         # {path: text}: run 10's workflow files at the head. Empty: the run names no workflow file, so every
         # job is judged as itself.
         self.workflow_files: dict[str, str] = {}
+        # The base run's (run 20's) workflow files at BASE_SHA; empty means the same as the head's.
+        self.base_workflow_files: dict[str, str] = {}
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
         if f"/contents/" in route:
             path, ref = route.split("/contents/", 1)[1].split("?ref=", 1)
-            assert ref == HEAD, route
-            if path not in self.workflow_files:
+            assert ref in (HEAD, BASE_SHA), route
+            files = self.workflow_files if ref == HEAD else self.base_workflow_files or self.workflow_files
+            if path not in files:
                 raise excuse.Refused(f"GitHub evidence request failed: HTTP 404 {path}")
-            return {"encoding": "base64", "content": base64.b64encode(self.workflow_files[path].encode()).decode()}
+            return {"encoding": "base64", "content": base64.b64encode(files[path].encode()).decode()}
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
         if "/actions/workflows/7/runs?" in route:
             assert "branch=feat-cmux-next" in route and "status=completed" in route, route
-            return {"workflow_runs": copy.deepcopy(self.base_runs)}
+            runs = copy.deepcopy(self.base_runs)
+            if self.workflow_files:
+                for run in runs:
+                    run.setdefault("path", next(iter(self.workflow_files)))
+            return {"workflow_runs": runs}
         if "/actions/runs/" in route:
             run = int(route.rsplit("/", 1)[1])
             found = {"id": run, "workflow_id": 7}
@@ -845,6 +852,19 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
         self.gh.jobs[3]["steps"] = [step for step in self.gh.jobs[3]["steps"] if step["name"] != "Check routed guard jobs"]
         self.gh.jobs[3]["steps"].append({"name": "Report", "status": "completed", "conclusion": "failure"})
         with self.assertRaisesRegex(excuse.Refused, "not in its log whole"):
+            self.judge()
+
+    def test_a_rollup_changed_at_the_head_is_not_judged_by_its_jobs(self):
+        # A step that just fails, given a needs expression, reads as a rollup at the head: the base's workflow decides.
+        changed = CI_GUARDS_WORKFLOW.replace("          sys.exit(any(", "          sys.exit(True or any(")
+        self.gh.base_workflow_files = dict(self.gh.workflow_files)
+        self.gh.workflow_files[".github/workflows/ci-guards.yml"] = changed
+        with self.assertRaisesRegex(excuse.Refused, f"'{GUARD_STATUS}': its job in the workflow at the head is not the one"):
+            self.judge()
+
+    def test_a_rollup_whose_base_workflow_cannot_be_read_stays_red(self):
+        self.gh.base_workflow_files = {".github/workflows/guards.yml": GUARDS_WORKFLOW}
+        with self.assertRaisesRegex(excuse.Refused, "that workflow cannot be read"):
             self.judge()
 
     def test_a_rollup_whose_own_output_is_not_in_its_log_stays_red(self):

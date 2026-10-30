@@ -34,9 +34,10 @@ run, every one of them is excused above, and the rollup itself is red the same w
 its failed steps and every line its own steps printed (their diagnostics: "workflow-guard-history: skipped (route
 ...)", "Generated cmux-next files are stale") among the base's. A rollup also fails on what no failed job shows: a
 required job that was skipped, a bad route, a verdict read from a need's outputs; those reasons are only the base's
-when the base printed them too. A rollup with nothing failed under it, one whose own output cannot be found in its
-log, and one whose workflow cannot be read (then it is judged as an ordinary job, with nothing to compare), stays
-red.
+when the base printed them too. Its job definition must be the same in the base run's workflow: a workflow edited
+at the head (a step that just fails, given a `needs` expression) is never judged as a rollup. A rollup with nothing
+failed under it, one whose own output cannot be found in its log, one changed at the head, and one whose workflow
+cannot be read (then it is judged as an ordinary job, with nothing to compare), stays red.
 """
 from __future__ import annotations
 
@@ -309,6 +310,8 @@ class Graph:
             regex, literal = name_pattern(str(job.get("name") or key), matrix)
             node = {"id": scope + str(key), "key": str(key), "needs": [scope + str(need) for need in needs],
                     "rollup": is_rollup(job), "caller": "uses" in job,
+                    # The whole job as written, to tell a rollup the head changed from the base's.
+                    "definition": json.dumps(job, sort_keys=True, default=str),
                     "headers": [step_header(step) for step in job.get("steps") or []] if is_rollup(job) else []}
             if node["caller"]:
                 # Every job of a called workflow shows as "<caller> / <job>".
@@ -424,9 +427,9 @@ class HeadJobs:
                 for job in page.get("jobs") or []]
         return self.run_jobs[run_id]
 
-    def graph(self, run_id: int) -> Graph | None:
+    def graph(self, run_id: int, run: dict | None = None) -> Graph | None:
         if run_id not in self.graphs:
-            self.graphs[run_id] = workflow_graph(self.repo, self.run(run_id), self.github)
+            self.graphs[run_id] = workflow_graph(self.repo, run or self.run(run_id), self.github)
         return self.graphs[run_id]
 
     def add(self, job: dict) -> None:
@@ -561,6 +564,11 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
         if job["id"] in reds.rollup_nodes:
+            base_graph = reds.graph(base_run["id"], base_run)
+            base_node = base_graph.resolve(name) if base_graph is not None else None
+            if base_node is None or base_node["definition"] != reds.rollup_nodes[job["id"]]["definition"]:
+                raise Refused(f"'{name}': its job in the workflow at the head is not the one {base} run {base_run['id']} "
+                              "ran (or that workflow cannot be read); a changed rollup is never judged by its jobs")
             steps = reds.rollup_nodes[job["id"]]["headers"]
             said = step_output(job, head_log, steps)
             if said is None:
