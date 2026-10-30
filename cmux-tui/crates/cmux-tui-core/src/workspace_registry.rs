@@ -3492,7 +3492,10 @@ impl WorkspaceRegistry {
         validate_identifier("projection subject", subject_key)?;
         let payload = canonical_json(projection)?;
         if payload.len() > MAX_PROJECTION_BYTES {
-            anyhow::bail!("frontend projection exceeds {MAX_PROJECTION_BYTES} bytes");
+            anyhow::bail!(
+                "frontend projection {frontend}/{scope}/{subject_key} is {} bytes, over {MAX_PROJECTION_BYTES}",
+                payload.len()
+            );
         }
         let fingerprint = canonical_json(&serde_json::json!({
             "frontend": frontend,

@@ -24,7 +24,8 @@ use crate::MuxEventReceiver;
 pub const LAUNCH_SNAPSHOT_FILE: &str = "launch-snapshot.json";
 const LAUNCH_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 /// A snapshot larger than this drops its projections, then is not written.
-const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
+/// The app reads the file before it connects (`LaunchSnapshot.maximumBytes`).
+pub(crate) const MAX_LAUNCH_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 /// Failed writes back off (a full disk must not turn into a write loop).
 const WRITE_RETRY_INITIAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY_MAX: Duration = Duration::from_secs(60);

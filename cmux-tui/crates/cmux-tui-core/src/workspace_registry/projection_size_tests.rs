@@ -54,7 +54,7 @@ fn a_window_state_projection_over_one_mebibyte_is_saved_and_restores_after_reope
     let document = window_state(4, 500, 6);
     let bytes = canonical_json(&document).unwrap().len();
     assert!(bytes > 1024 * 1024, "the document is over the old 1 MiB cap: {bytes} bytes");
-    assert!(bytes < crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES, "one request carries it");
+    assert!(bytes < crate::server::MAX_LAUNCH_SNAPSHOT_BYTES / 2, "the launch snapshot carries it");
     let root = temp_root("window-state");
     {
         let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -79,4 +79,31 @@ fn a_window_state_projection_over_one_mebibyte_is_saved_and_restores_after_reope
     assert_eq!(restored.projection, document);
     drop(registry);
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_projection_over_half_of_the_launch_snapshot_is_refused_with_its_size() {
+    let mut registry = WorkspaceRegistry::in_memory("projection-bound").unwrap();
+    let bound = crate::server::MAX_LAUNCH_SNAPSHOT_BYTES / 2;
+    let filler = |bytes: usize| json!({"windows": [], "pad": "x".repeat(bytes)});
+    let overhead = canonical_json(&filler(0)).unwrap().len();
+    let put = |registry: &mut WorkspaceRegistry, id: &str, document: &Value, expected: u64| {
+        registry.put_frontend_projection(
+            &WorkspaceMutation::daemon(id, "cmux-next").unwrap(),
+            "cmux-next",
+            "personal",
+            "windows",
+            1,
+            Some(expected),
+            document,
+        )
+    };
+    put(&mut registry, "at-bound", &filler(bound - overhead), 0)
+        .expect("a projection at the bound is stored");
+    let error =
+        put(&mut registry, "over-bound", &filler(bound - overhead + 1), 1).unwrap_err().to_string();
+    assert!(
+        error.contains(&format!("is {} bytes, over {bound}", bound + 1)),
+        "the refusal names the size: {error}"
+    );
 }

@@ -6,12 +6,16 @@
 //! grows with the session. A fixed 1 MiB cap refused a large session's save,
 //! and the next launch restored an older layout.
 
-/// Largest stored projection, in bytes of canonical JSON. It is the
-/// transport's message bound: one `put-frontend-projection` request carries
-/// at most this much, so any projection a frontend can send is stored whole.
-/// A larger value from inside the daemon is refused with an error; nothing
-/// is cut.
-pub(super) const MAX_PROJECTION_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
+/// Largest stored projection, in bytes of canonical JSON. Every native
+/// projection also goes into the launch snapshot, which the app reads before
+/// it connects to draw the last layout at once; a snapshot over its bound
+/// drops all projections and the first frame shows the connecting state. So
+/// the bound comes from the snapshot's: half of it, which leaves the other
+/// half for the workspace tree, the personal state and the sidebar document.
+/// It is far below the transport's message bound, so one request carries
+/// any projection the daemon stores. A larger projection is refused with an
+/// error that names its size; nothing is cut.
+pub(super) const MAX_PROJECTION_BYTES: usize = crate::server::MAX_LAUNCH_SNAPSHOT_BYTES / 2;
 
 /// Logs when a projection's size passes half of [`MAX_PROJECTION_BYTES`]
 /// (from below, so a document that stays large logs once, not on each
