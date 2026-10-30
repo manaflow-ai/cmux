@@ -12,14 +12,14 @@ import Testing
         try withList { list in
             let key: SidebarRowKey = showMore ? .showMore(Self.fold) : .doneFold(Self.fold)
             let hidden = SidebarRowKey.workspace(WorkspaceID(showMore ? "w2" : "w4"))
-            try press(.downArrow, code: 125, in: list)
-            if !showMore { try press(.downArrow, code: 125, in: list) }
+            try press(code: 125, in: list)
+            if !showMore { try press(code: 125, in: list) }
             #expect(list.model.activeWorkspaceID == WorkspaceID("w1"))
             #expect(list.displayed.row(for: hidden) == nil)
-            try press(.carriageReturn, code: 36, in: list)
+            try press(code: 36, in: list)
             #expect(list.displayed.row(for: key)?.isCollapsed == false)
             #expect(list.displayed.row(for: hidden) != nil)
-            try press(.carriageReturn, code: 36, in: list)
+            try press(code: 36, in: list)
             #expect(list.displayed.row(for: hidden) == nil)
             #expect(!list.inlineRename.isActive)
         }
@@ -27,18 +27,18 @@ import Testing
 
     @Test func tabSpaceAndDirectionalKeysOperateBothFolds() throws {
         try withList { list in
-            try press(.tab, code: 48, in: list)
+            try press(code: 48, in: list)
             try space(in: list)
             #expect(list.openShowMore.contains(Self.fold))
-            try press(.leftArrow, code: 123, in: list)
+            try press(code: 123, in: list)
             #expect(list.openShowMore.isEmpty)
-            try press(.rightArrow, code: 124, in: list)
-            try press(.rightArrow, code: 124, in: list)
+            try press(code: 124, in: list)
+            try press(code: 124, in: list)
             #expect(list.openShowMore.contains(Self.fold), "Right must not close an open disclosure")
-            try press(.tab, code: 48, in: list)
+            try press(code: 48, in: list)
             try space(in: list)
             #expect(list.openDoneFolds.contains(Self.fold))
-            try press(.tab, code: 48, flags: .shift, in: list)
+            try press(code: 48, flags: .shift, in: list)
             try space(in: list)
             #expect(list.openShowMore.isEmpty)
             #expect(list.openDoneFolds.contains(Self.fold))
@@ -47,34 +47,39 @@ import Testing
 
     @Test func walkingBackFromAFoldSelectsThePreviousWorkspace() throws {
         try withList { list in
-            try press(.downArrow, code: 125, in: list)
-            try press(.downArrow, code: 125, in: list)
-            try press(.upArrow, code: 126, in: list)
+            try press(code: 125, in: list)
+            try press(code: 125, in: list)
+            try press(code: 126, in: list)
             try space(in: list)
             #expect(list.openShowMore.contains(Self.fold))
-            try press(.upArrow, code: 126, in: list)
+            try press(code: 126, in: list)
             #expect(list.model.activeWorkspaceID == WorkspaceID("w3"))
         }
     }
 
     @Test func aRemovedFoldCannotConsumeReturnOrRetainItsRing() throws {
         try withList { list in
-            try press(.downArrow, code: 125, in: list)
+            try press(code: 125, in: list)
             let row = try #require(list.rowViews[.showMore(Self.fold)])
             #expect((row.layer?.borderWidth ?? 0) > 0)
             list.model.filterText = "Workspace 0"
             list.reload(animated: false)
-            #expect(!SidebarGroupKeys(list: list).handle(try event(.carriageReturn, code: 36), flags: []))
+            #expect(!SidebarGroupKeys(list: list).handle(try event(code: 36), flags: []))
             #expect(list.openShowMore.isEmpty)
         }
     }
 
-    private func press(_ key: NSEvent.SpecialKey, code: UInt16, flags: NSEvent.ModifierFlags = [], in list: SidebarListView) throws {
-        list.keyDown(with: try event(key, code: code, flags: flags))
+    private func press(code: UInt16, flags: NSEvent.ModifierFlags = [], in list: SidebarListView) throws {
+        list.keyDown(with: try event(code: code, flags: flags))
     }
 
-    private func event(_ key: NSEvent.SpecialKey, code: UInt16, flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
-        let characters = String(try #require(UnicodeScalar(key.rawValue)))
+    private func event(code: UInt16, flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        let characters = switch code {
+        case 36: "\r"
+        case 48: "\t"
+        case 49: " "
+        default: ""
+        }
         return try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
                                             timestamp: 0, windowNumber: 0, context: nil, characters: characters,
                                             charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
