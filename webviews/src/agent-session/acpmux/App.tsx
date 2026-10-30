@@ -202,7 +202,7 @@ import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
-import { runningBackgroundTasks } from "./summary/sessionSummary";
+import { transcriptBackgroundTasks } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
 import {
@@ -218,6 +218,9 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
+import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
+import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotion";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
 import { retryKey, runRetry, type RetryTarget } from "./subagents/retryState";
@@ -4928,6 +4931,18 @@ function AcpmuxPane() {
   // Each open is its own panel (`opened`), which starts on its preview.
   const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
   if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
+  // The Background tasks panel (backgroundTasks/BackgroundTasksPanel.tsx), opened from the chat's ⋯
+  // menu: the chat's right column, docked under the side panel when that is open. It is the open
+  // chat's, as the side panel is; another chat closes it. `dismissed` holds the ended groups Clear
+  // finished cleared. Closed, it reads nothing: its groups are derived only while it is open.
+  const [backgroundPanel, setBackgroundPanel] = useState<{
+    sessionId?: string;
+    expanded: boolean;
+    dismissed: ReadonlySet<string>;
+  }>();
+  if (backgroundPanel && snapshot.sessionId !== backgroundPanel.sessionId) setBackgroundPanel(undefined);
+  const backgroundOpen = backgroundPanel !== undefined;
+  const backgroundCache = useRef<TaskCache>(new WeakMap());
   const artifactSession = snapshot.sessionId;
   // Its versions (cx-ncc.64): the chat's finished replies' documents of its kind and title.
   const artifactRows = artifact ? snapshot.rows : undefined;
@@ -5816,7 +5831,8 @@ function AcpmuxPane() {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
-    useSummaryColumn(shell, artifact !== undefined || freshView),
+    // The side panel and Background tasks take the right column: the Summary stays a popover then.
+    useSummaryColumn(shell, artifact !== undefined || backgroundPanel !== undefined || freshView),
     summaryHasContent || childSessions.length > 0,
   );
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
@@ -5996,13 +6012,21 @@ function AcpmuxPane() {
   // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
   // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
   // chat sends no `_acpmux/process/list`.
-  const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const transcriptTasks = useMemo(() => transcriptBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const transcriptRunning = useMemo(
+    () => transcriptTasks.filter((task) => task.state === "running"),
+    [transcriptTasks],
+  );
   const inspectorOn = useHeaderState().inspector;
   const inspectorOpened = useInspectorOpen(shownSessionId);
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
-    (inspectorOn && inspectorOpened) || summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
+    (inspectorOn && inspectorOpened) ||
+      summaryCard.shown ||
+      backgroundOpen ||
+      snapshot.isWorking ||
+      transcriptRunning.length > 0,
   );
   const runningCommandList = useMemo(
     () =>
@@ -6020,6 +6044,48 @@ function AcpmuxPane() {
     [childSessions],
   );
   const cardSessions = useMemo(() => ({ list: childSessions, onOpen: openOfferChat }), [childSessions]);
+  // The Background tasks panel's commands, the ended ones too, and its groups: only while it is open.
+  const panelCommands = useMemo(
+    () =>
+      backgroundOpen ? backgroundCommands(processRegistry.processes, transcriptTasks, processRegistry.listed) : [],
+    [backgroundOpen, processRegistry, transcriptTasks],
+  );
+  const backgroundDismissed = backgroundPanel?.dismissed;
+  const backgroundList = useMemo(
+    () =>
+      backgroundOpen
+        ? backgroundGroups(
+            {
+              rows: snapshot.rows,
+              views: snapshot.subagentViews,
+              commands: panelCommands,
+              sessions: childSessions,
+              chatName,
+              sessionId: shownSessionId,
+              dismissed: backgroundDismissed,
+            },
+            backgroundCache.current,
+          )
+        : [],
+    [
+      backgroundOpen,
+      snapshot.rows,
+      snapshot.subagentViews,
+      panelCommands,
+      childSessions,
+      chatName,
+      shownSessionId,
+      backgroundDismissed,
+    ],
+  );
+  // A workflow agent's transcript in the panel reads as the workflow pane's does (Labs only).
+  const backgroundWorkflowReads = useMemo(
+    () =>
+      workflowLabsEnabled
+        ? { sessionId: shownSessionId, chat: chatName, connection: snapshot.connection, read: readWorkflowAgent }
+        : undefined,
+    [workflowLabsEnabled, shownSessionId, chatName, snapshot.connection, readWorkflowAgent],
+  );
   // The palette's Commit and Push reach the open changes view, or open it on the newest turn of
   // the selected chat. A chat with no turn yet has no changes view to open.
   const gitIntents = useRef(0);
@@ -6861,6 +6927,8 @@ function AcpmuxPane() {
       setHarnessesOpen(false);
       setReplaying(undefined);
       setNewTab(undefined);
+      // The side tab is a full-height overlay on the right: Background tasks gives it the side.
+      setBackgroundPanel(undefined);
       setWorkflowSideTabId(id);
     },
     [closeInspector],
@@ -6911,7 +6979,8 @@ function AcpmuxPane() {
     covered: environmentCovered || workflowSideTab !== undefined,
     onUncover: uncoverChat,
     onBeforeOpen: clearWorkflowSideTab,
-    beside: artifact?.opened,
+    // The Background tasks column takes the side panel's room too (backgroundTasks.css).
+    beside: `${artifact?.opened ?? ""}:${backgroundOpen}`,
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
@@ -9636,6 +9705,21 @@ function AcpmuxPane() {
           toggleInspector(true);
         },
       },
+      // Quick Chat's panel has no right column for it.
+      ...(quick
+        ? []
+        : [
+            {
+              key: "backgroundTasks",
+              label: t("backgroundTasks.title"),
+              icon: "task.status.backlog",
+              // A workflow's side tab would cover the panel (a full-height overlay): it closes.
+              onSelect: () => {
+                clearWorkflowSideTab();
+                setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set() });
+              },
+            },
+          ]),
       ...(checkpoints.supported
         ? [
             {
@@ -11784,6 +11868,34 @@ function AcpmuxPane() {
             onClose={() => setArtifact(undefined)}
             onSave={saveDocumentNatively}
           />
+        )}
+        {/* Under the side panel in its column, or the column itself (backgroundTasks.css). */}
+        {backgroundPanel && !harnessesOpen && !showNewTab && (
+          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+            <BackgroundTasksPanel
+              groups={backgroundList}
+              views={snapshot.subagentViews}
+              look={experimentArm(backgroundTasksLook)}
+              expanded={backgroundPanel.expanded}
+              stopsAgents={stopSubagent !== undefined}
+              workflow={backgroundWorkflowReads}
+              onStop={(target) =>
+                target.kind === "agent"
+                  ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))
+                  : stopProcess(target.id)
+              }
+              onClearFinished={(ids) =>
+                setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
+              }
+              onExpand={() => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })}
+              onClose={() => setBackgroundPanel(undefined)}
+              onOpenSession={openOfferChat}
+              onOpenCommand={(task) => {
+                const command = panelCommands.find((candidate) => candidate.id === task.id);
+                if (command) openTrayCommand(command);
+              }}
+            />
+          </SubagentClockContext.Provider>
         )}
         {imageView && (
           <ImageViewer
