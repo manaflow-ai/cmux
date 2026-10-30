@@ -581,12 +581,13 @@ impl Mux {
         }
         if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
             if agent_hook_terminal_gone(&error) {
-                if let Err(_bookkeeping_error) = self
-                    .workspace_registry
-                    .lock()
-                    .unwrap()
-                    .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
-                {
+                // The retry row is keyed by this hook's receipt: the
+                // connection alone, never the workspace registry lock.
+                if let Err(_bookkeeping_error) = self.registry_connection.clear_agent_hook_pending(
+                    &ingress.producer_id,
+                    origin,
+                    idempotency_key,
+                ) {
                     self.report_internal_diagnostic("terminal-gone agent hook cleanup deferred");
                 }
             } else {
@@ -608,12 +609,11 @@ impl Mux {
                     );
                 }
             }
-        } else if let Err(_bookkeeping_error) = self
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
-        {
+        } else if let Err(_bookkeeping_error) = self.registry_connection.clear_agent_hook_pending(
+            &ingress.producer_id,
+            origin,
+            idempotency_key,
+        ) {
             self.report_internal_diagnostic(
                 "agent hook projection applied; retry bookkeeping cleanup deferred",
             );

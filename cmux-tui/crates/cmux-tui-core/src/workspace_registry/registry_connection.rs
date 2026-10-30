@@ -196,6 +196,11 @@ impl RegistryConnection {
         })
     }
 
+    /// Whether the registry has a read-only connection ([`Self::read_committed`]).
+    pub(crate) fn has_reader(&self) -> bool {
+        self.reader.is_some()
+    }
+
     /// Run `read` on the registry's read-only connection: committed data,
     /// with no workspace registry lock and no wait for a writer (WAL). Its
     /// own mutex is a leaf held only for `read`. `None` when there is no

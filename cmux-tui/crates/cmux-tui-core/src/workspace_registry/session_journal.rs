@@ -1397,7 +1397,7 @@ pub(crate) fn query_session_journal_after(
     Ok(SessionJournalPage { head_sequence, records })
 }
 
-fn query_session_journal_without_output_after(
+pub(crate) fn query_session_journal_without_output_after(
     connection: &Connection,
     sequence: u64,
     through: u64,
@@ -2497,6 +2497,24 @@ impl RegistryConnection {
             "INSERT INTO meta(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+    /// Delete one agent hook's retry row after its projection applied (or
+    /// its terminal is gone). The row is keyed by the hook's own receipt,
+    /// so the caller need not hold the workspace registry lock: no topology
+    /// writer reads or writes it.
+    #[track_caller]
+    pub(crate) fn clear_agent_hook_pending(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.get().execute(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+            params![producer_id, origin, idempotency_key],
         )?;
         Ok(())
     }

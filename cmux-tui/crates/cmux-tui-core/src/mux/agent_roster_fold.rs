@@ -246,20 +246,44 @@ impl Mux {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
         let _fold = self.agent_roster_fold.lock().unwrap();
-        // Consume every intervening committed record under registry -> roster
-        // lock order. Concurrent appends and delayed hook retries cannot jump
-        // the cursor over a record that startup replay would have consumed.
+        // Consume every intervening committed record; the fold lock keeps
+        // folds in order, so concurrent appends and delayed hook retries
+        // cannot jump the cursor over a record that startup replay would
+        // have consumed. A live fold (`through` is a committed sequence)
+        // reads the committed tail on the registry's read-only connection,
+        // with no workspace registry lock: every record at or below a
+        // committed sequence is committed (one writer, sequences in commit
+        // order). A catch-up to the head, or a registry with no reader,
+        // reads under the registry (registry -> roster lock order).
+        let committed_reader = through.filter(|_| self.registry_connection.has_reader());
         let (deltas, cursor, snapshot) = {
-            let registry = self.workspace_registry.lock().unwrap();
-            let through = match through {
-                Some(through) => through,
-                None => match registry.session_journal_head() {
+            let registry =
+                committed_reader.is_none().then(|| self.workspace_registry.lock().unwrap());
+            let read_page = |after: u64, through: u64| {
+                match &registry {
+                    Some(registry) => {
+                        registry.session_journal_without_output_after(after, through, 512)
+                    }
+                    None => self
+                        .registry_connection
+                        .read_committed(|connection| {
+                            crate::workspace_registry::session_journal::query_session_journal_without_output_after(
+                                connection, after, through, 512,
+                            )
+                        })
+                        .unwrap_or_else(|| anyhow::bail!("the registry reader closed")),
+                }
+            };
+            let through = match (through, &registry) {
+                (Some(through), _) => through,
+                (None, Some(registry)) => match registry.session_journal_head() {
                     Ok(head) => head,
                     Err(error) => {
                         eprintln!("cmux-tui: reading the journal head failed: {error}");
                         return None;
                     }
                 },
+                (None, None) => return None,
             };
             let mut host = self.agent_roster.lock().unwrap();
             if through <= host.cursor {
@@ -269,11 +293,7 @@ impl Mux {
             while host.cursor < through {
                 // Terminal output between agent events is skipped by the read:
                 // the roster ignores it, and this runs under the registry lock.
-                let (records, reached) = match registry.session_journal_without_output_after(
-                    host.cursor,
-                    through,
-                    512,
-                ) {
+                let (records, reached) = match read_page(host.cursor, through) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
