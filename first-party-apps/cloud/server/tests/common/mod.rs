@@ -39,6 +39,8 @@ pub struct FakeControlPlane {
     vm_kind: Option<&'static str>,
     /// `connect_info` answers this error code instead (access ended).
     connect_info_error: Option<&'static str>,
+    /// The current host-reported team identity for auth status tests.
+    session_team: Option<String>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
 }
@@ -75,6 +77,7 @@ impl FakeControlPlane {
             connect_info: None,
             vm_kind: None,
             connect_info_error: None,
+            session_team: None,
             started: Vec::new(),
         };
         for name in names {
@@ -97,6 +100,10 @@ impl FakeControlPlane {
     /// answer changed: another sign-in, the machine moved teams).
     pub fn set_vm_kind(&mut self, kind: Option<&'static str>) {
         self.vm_kind = kind;
+    }
+
+    pub fn set_team(&mut self, team: &str) {
+        self.session_team = Some(team.to_owned());
     }
 
     /// Later `connect_info` answers fail with `code` (`cloud.machine.not_found`:
@@ -186,6 +193,10 @@ impl ControlPlane for FakeControlPlane {
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
-        self.wire.session_status()
+        let mut status = self.wire.session_status()?;
+        if self.session_team.is_some() {
+            status.team = self.session_team.clone();
+        }
+        Ok(status)
     }
 }

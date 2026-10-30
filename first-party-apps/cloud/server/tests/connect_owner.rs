@@ -46,7 +46,7 @@ fn a_worker_without_vm_kind_answers_team() {
 }
 
 #[test]
-fn every_connect_reads_the_answer_fresh_never_from_an_earlier_link_or_sign_in() {
+fn an_up_carrier_reuses_the_owner_answer_for_the_same_identity() {
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(
         FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
@@ -54,18 +54,64 @@ fn every_connect_reads_the_answer_fresh_never_from_an_earlier_link_or_sign_in() 
     );
     let first = connect(&mut s, "c-1");
     assert_eq!(first["vm_kind"], "owner");
-    // The Worker's answer changes (another sign-in or team) while the link
-    // is up: a connect over the same link answers what the Worker says now.
     s.control_plane_mut().set_vm_kind(Some("team"));
     let same = connect(&mut s, "c-2");
     assert_eq!(same["generation"], first["generation"], "the same link: {same}");
-    assert_eq!(same["vm_kind"], "team", "never a cached answer: {same}");
-    // The link ends; the reconnect comes before any link event is drained.
+    assert_eq!(same["vm_kind"], "owner", "the cached answer: {same}");
+    assert_eq!(s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.connect_info").count(), 1);
+}
+
+#[test]
+fn a_switched_identity_rereads_the_owner_answer() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    let first = connect(&mut s, "c-1");
+    assert_eq!(first["vm_kind"], "owner");
+    s.control_plane_mut().set_vm_kind(Some("team"));
+    s.control_plane_mut().set_team("team_t0000000000000000002");
+    s.handle(&Request::new("cloud.auth.status", json!({}))).expect("auth status");
+    let same = connect(&mut s, "c-2");
+    assert_eq!(same["generation"], first["generation"], "the same link: {same}");
+    assert_eq!(same["vm_kind"], "team", "the switched identity was reread: {same}");
+    assert_eq!(s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.connect_info").count(), 2);
+}
+
+#[test]
+fn a_new_link_reads_the_answer_again() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    let first = connect(&mut s, "c-1");
     s.control_plane_mut().set_vm_kind(Some("owner"));
+    // The link ends; the reconnect comes before any link event is drained.
     spawner.exit("vm-alpha01", 1);
     let next = connect(&mut s, "c-3");
     assert_ne!(next["generation"], first["generation"], "a new link: {next}");
     assert_eq!(next["vm_kind"], "owner");
+}
+
+#[test]
+fn a_not_bound_or_protocol_error_fails_an_up_connect_closed() {
+    for code in ["cloud.machine.not_bound", "vector.missing"] {
+        let spawner = FakeSpawner::default();
+        let mut s = Server::with_attach(
+            FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+            attach(&spawner, &FakeTransport::default()),
+        );
+        connect(&mut s, "c-1");
+        s.control_plane_mut().set_team("team_t0000000000000000002");
+        s.handle(&Request::new("cloud.auth.status", json!({}))).expect("auth status");
+        s.control_plane_mut().fail_connect_info(code);
+        let error = s
+            .handle(&Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2"))
+            .expect_err("a non-transient owner read must fail closed");
+        assert_eq!(error.code, if code == "vector.missing" { "cmux.cloud.protocol_error" } else { "cmux.cloud.not_bound" });
+    }
 }
 
 #[test]
@@ -94,6 +140,7 @@ fn a_sign_out_fails_the_connect_of_an_up_link_and_ends_it() {
     );
     assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
     s.control_plane_mut().wire.signed_in = false;
+    s.handle(&Request::new("cloud.auth.status", json!({}))).expect("auth status");
     let request =
         Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
     let refused = s.handle(&request).expect_err("no carrier after a sign-out");

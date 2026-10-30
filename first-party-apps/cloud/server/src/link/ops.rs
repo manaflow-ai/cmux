@@ -98,13 +98,14 @@ pub(crate) fn run<C: ControlPlane>(
             // The owner answer of this link: the connect_info read for it
             // (the info cache drops it when the link goes down or is
             // revoked, and on sign-out). A failed read is not the owner.
-            let owns = owner_answer(server, &id)?;
+            let owns = owner_answer(server, &id, &carrier)?;
             Ok(carrier_json(&carrier, owns))
         }
         DISCONNECT => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?;
             let attach = server.attach_mut();
             attach.supervisor.pump();
+            attach.owner_answers.remove(id);
             let existed = attach.supervisor.disconnect(id);
             Ok(json!({ "machine": id, "disconnected": existed }))
         }
@@ -113,22 +114,43 @@ pub(crate) fn run<C: ControlPlane>(
     }
 }
 
-/// The owner answer of a connect (cmux-platform#89): a fresh
-/// `connect_info` read under the current sign-in, never a cached answer of
-/// an earlier link or sign-in. A sign-out, or access to the machine that
-/// ended, ends its links as a connect's readiness read does
-/// ([`end_links_after`]) and fails the connect. A transient failure is not
-/// the owner.
+/// The owner answer of a connect (cmux-platform#89). A cached answer is
+/// usable only for the same link generation and authentication epoch, so a
+/// connect over an up carrier does not synchronously call Cloud. A sign-out,
+/// access loss, or identity change clears the cache and links as needed.
 fn owner_answer<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
+    carrier: &Carrier,
 ) -> Result<bool, CloudError> {
-    server.attach_mut().infos.forget(machine);
-    match super::info::connect_info(server, machine) {
-        Ok(info) => Ok(info.caller_owns_vm()),
-        Err(error) if end_links_after(server, machine, &error) => Err(error),
-        Err(_) => Ok(false),
+    let epoch = server.auth_epoch();
+    if let Some((generation, cached_epoch, owns)) =
+        server.attach().owner_answers.get(machine).copied()
+        && generation == carrier.generation
+        && cached_epoch == epoch
+    {
+        return Ok(owns);
     }
+    match super::info::connect_info(server, machine) {
+        Ok(info) => {
+            let owns = info.caller_owns_vm();
+            server
+                .attach_mut()
+                .owner_answers
+                .insert(machine.to_owned(), (carrier.generation, epoch, owns));
+            Ok(owns)
+        }
+        Err(error) if end_links_after(server, machine, &error) => Err(error),
+        Err(error) if transient_owner_error(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn transient_owner_error(error: &CloudError) -> bool {
+    matches!(
+        error.code,
+        codes::RELAY_UNAVAILABLE | codes::PROVIDER_UNAVAILABLE
+    )
 }
 
 /// Ends the links a Cloud read's `error` says may not go on: every link on
@@ -141,11 +163,15 @@ fn end_links_after<C: ControlPlane>(
 ) -> bool {
     if error.code == codes::AUTH_REQUIRED {
         // Signed out: no link may outlive the sign-in.
-        server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
+        let attach = server.attach_mut();
+        attach.owner_answers.clear();
+        attach.supervisor.disconnect_all("signed out of cmux Cloud");
         true
     } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
         // The machine is gone or access ended: refuse new links to it.
-        server.attach_mut().supervisor.revoke(machine, &error.message);
+        let attach = server.attach_mut();
+        attach.owner_answers.remove(machine);
+        attach.supervisor.revoke(machine, &error.message);
         true
     } else {
         false
@@ -316,7 +342,11 @@ pub(crate) fn begin_connect<C: ControlPlane>(
         Some(LinkState::Revoked { reason }) => {
             return Err(link_failure_for(machine, LinkFailure::Revoked(reason.clone())));
         }
-        _ => {}
+        _ => {
+            // A down/reconnecting link cannot use the answer from the old
+            // generation, even before its event is drained by the loop.
+            attach.owner_answers.remove(machine);
+        }
     }
     // A link that already connects (another connect, a respawn): follow it.
     if let Some(generation) = attach.supervisor.connecting(machine) {
@@ -426,7 +456,9 @@ fn ensure_running<C: ControlPlane>(
             .key(start_key);
         server.handle(&start)?;
         // The machine's state changed: read its link facts again.
-        server.attach_mut().infos.forget(machine);
+        let attach = server.attach_mut();
+        attach.infos.forget(machine);
+        attach.owner_answers.remove(machine);
     }
     Ok(())
 }
