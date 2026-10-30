@@ -58,6 +58,8 @@ pub struct Deferral {
     calls: HashMap<String, Call>,
     /// The newest turn diff, not stored whole yet, its turn and its bytes.
     diff: Option<(Option<String>, Value, usize)>,
+    /// Records made due that the store refused, in order: stored before anything else.
+    retry: Vec<(&'static str, Value)>,
 }
 
 struct Call {
@@ -83,6 +85,17 @@ impl Deferral {
     /// What the log keeps for a record the chat appends now (`at`, Unix ms). `may_hold`: whether
     /// this record may be held back; a copy (a fork's of its parent's turns) never is.
     pub fn keep(&mut self, dir: &str, kind: &str, msg: &Value, at: u64, may_hold: bool) -> Keep {
+        let mut keep = self.keep_one(dir, kind, msg, at, may_hold);
+        if !self.retry.is_empty() {
+            let mut before = std::mem::take(&mut self.retry);
+            before.append(&mut keep.before);
+            keep.before = before;
+        }
+        keep
+    }
+
+    /// [`Deferral::keep`], less the records the store refused before.
+    fn keep_one(&mut self, dir: &str, kind: &str, msg: &Value, at: u64, may_hold: bool) -> Keep {
         let mut keep = Keep::default();
         if dir == "in" && kind == DIFF_KIND {
             keep.stored = self.diff(msg, may_hold, &mut keep.before);
@@ -160,46 +173,42 @@ impl Deferral {
 
     /// Every held snapshot and turn diff, to be stored now.
     pub fn take_all(&mut self) -> Vec<(&'static str, Value)> {
-        let mut out: Vec<(&'static str, Value)> = self
-            .calls
-            .values_mut()
-            .filter_map(|call| call.held.take())
-            .map(|(held, _)| (UPDATE_KIND, late(held)))
-            .collect();
+        let mut out = std::mem::take(&mut self.retry);
+        out.extend(
+            self.calls
+                .values_mut()
+                .filter_map(|call| call.held.take())
+                .map(|(held, _)| (UPDATE_KIND, late(held))),
+        );
         out.extend(self.diff.take().map(|(_, diff, _)| (DIFF_KIND, diff)));
         out
     }
 
-    /// Holds again a record [`Deferral::keep`] or [`Deferral::take_all`] gave to be stored, when
-    /// the store refused it: it is stored at the next point that makes it due. Not when a newer
-    /// one of its call or turn is held (it is moot then). Never for a record a call id's next
-    /// `tool_call` made due: that id names a new call now.
-    pub fn put_back(&mut self, kind: &str, msg: Value) {
-        if kind == DIFF_KIND {
-            if self.diff.is_none() {
-                let turn = msg.pointer("/params/params/turnId").and_then(Value::as_str);
-                let bytes =
-                    msg.pointer("/params/params/diff").and_then(Value::as_str).map_or(0, str::len);
-                self.diff = Some((turn.map(str::to_owned), msg, bytes));
-            }
-            return;
-        }
-        let Some((key, _)) = call_of_msg(&msg) else { return };
-        let bytes = msg
-            .pointer("/params/update/content")
-            .and_then(Value::as_array)
-            .map_or(0, |parts| text_bytes(parts));
-        let call = self.calls.entry(key).or_insert(Call { stored: None, since: 0, held: None });
-        if call.held.is_none() {
-            call.held = Some((msg, bytes));
-        }
+    /// The tool output it holds, as it would be stored now, left held: what a fork copies after
+    /// its parent's log.
+    pub fn pending(&self) -> Vec<Value> {
+        let retried =
+            self.retry.iter().filter(|(kind, _)| *kind == UPDATE_KIND).map(|(_, m)| m.clone());
+        let held =
+            self.calls.values().filter_map(|call| call.held.as_ref()).map(|(m, _)| late(m.clone()));
+        retried.chain(held).collect()
     }
 
-    /// The snapshot and diff bytes held now.
+    /// Records [`Deferral::keep`] or [`Deferral::take_all`] gave to be stored that the store
+    /// refused, in order: they are stored first, before whatever comes next.
+    pub fn retry(&mut self, refused: Vec<(&'static str, Value)>) {
+        let mut later = std::mem::replace(&mut self.retry, refused);
+        self.retry.append(&mut later);
+    }
+
+    /// The snapshot and diff bytes held now, those waiting to be stored again included.
     fn held_bytes(&self) -> usize {
         let calls: usize =
             self.calls.values().filter_map(|c| c.held.as_ref()).map(|(_, bytes)| *bytes).sum();
-        calls.saturating_add(self.diff.as_ref().map_or(0, |(_, _, bytes)| *bytes))
+        let retried: usize = self.retry.iter().map(|(_, msg)| late_bytes(msg)).sum();
+        calls
+            .saturating_add(retried)
+            .saturating_add(self.diff.as_ref().map_or(0, |(_, _, bytes)| *bytes))
     }
 
     /// A turn diff: the stub to store in its place (it is held), if it is not stored whole. A held
@@ -253,6 +262,13 @@ fn text_bytes(parts: &[Value]) -> usize {
         .filter_map(Value::as_str)
         .map(str::len)
         .sum()
+}
+
+/// The bytes of a late record's content or diff.
+fn late_bytes(msg: &Value) -> usize {
+    let content = msg.pointer("/params/update/content").and_then(Value::as_array);
+    let diff = msg.pointer("/params/params/diff").and_then(Value::as_str);
+    content.map_or(0, |parts| text_bytes(parts)).saturating_add(diff.map_or(0, str::len))
 }
 
 /// A held snapshot as stored late: its content alone. Its stub already logged the rest (its

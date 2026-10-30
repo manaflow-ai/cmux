@@ -1554,7 +1554,7 @@ impl Hub {
 
     /// [`Hub::append_at_locked`] of one record. `stored_only`: a record the store refused is
     /// neither counted nor published (its caller appends it again), so no client or peer hears a
-    /// copy the journal does not hold. `stored`: the message the log keeps in place of `msg`.
+    /// copy the journal does not hold. `kept`: what the log stores for it.
     #[allow(clippy::too_many_arguments)]
     fn append_record_locked(
         &self,
@@ -1565,7 +1565,7 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
         stored_only: bool,
-        stored: Option<Value>,
+        kept: log_deferral::Kept,
     ) -> (EventRecord, bool) {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
@@ -1598,16 +1598,18 @@ impl Hub {
         if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
             self.touch(session);
         }
-        // A fenced record keeps its receipt.
-        let kept = stored.filter(|_| !fenced).map(|msg| EventRecord {
-            seq,
-            at,
-            dir: record.dir.clone(),
-            kind: record.kind.clone(),
-            msg,
-            host_seq,
-        });
-        let stored = match self.store.append(&session.id, kept.as_ref().unwrap_or(&record)) {
+        let appended = match kept {
+            log_deferral::Kept::Refused => {
+                Err(anyhow::anyhow!("a record it makes due was refused"))
+            }
+            // A fenced record keeps its receipt.
+            log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
+                &session.id,
+                &EventRecord { msg, dir: record.dir.clone(), kind: record.kind.clone(), ..record },
+            ),
+            _ => self.store.append(&session.id, &record),
+        };
+        let stored = match appended {
             Ok(()) => true,
             Err(e) => {
                 session.append_errors.fetch_add(1, Ordering::SeqCst);

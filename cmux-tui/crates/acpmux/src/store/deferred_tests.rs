@@ -338,19 +338,26 @@ fn a_snapshot_past_the_memory_caps_is_stored_whole() {
 }
 
 #[test]
-fn a_snapshot_the_store_refused_is_held_again_unless_a_newer_one_is() {
+fn records_the_store_refused_go_first_in_order_even_past_a_reused_call_id() {
     let mut deferral = Deferral::default();
-    let _ = deferral.keep("in", "tool_call", &start("c"), 0, true);
-    let _ = deferral.keep("in", "tool_call_update", &snapshot("c", "a"), 1, true);
-    let due = deferral.take_all();
-    assert_eq!(due.len(), 1);
-    let (kind, msg) = due.into_iter().next().unwrap();
-    deferral.put_back(kind, msg.clone());
-    assert_eq!(deferral.take_all(), vec![(kind, msg.clone())], "stored at the next point");
-    // A newer snapshot held since: the refused one is moot.
-    let _ = deferral.keep("in", "tool_call_update", &snapshot("c", "ab"), 2, true);
-    deferral.put_back(kind, msg);
-    let due = deferral.take_all();
-    assert_eq!(due.len(), 1);
-    assert_eq!(content(&due[0].1), content(&snapshot("c", "ab")));
+    let _ = deferral.keep("in", "tool_call", &start("0"), 0, true);
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("0", "old call"), 1, true);
+    // The id's next start makes the old call's output due, and the store refuses it.
+    let reuse = deferral.keep("in", "tool_call", &start("0"), 2, true);
+    assert_eq!(reuse.before.len(), 1);
+    deferral.retry(reuse.before.clone());
+    // Whatever comes next stores it first, ahead of that start again.
+    let again = deferral.keep("in", "tool_call", &start("0"), 3, true);
+    assert_eq!(again.before, reuse.before);
+    // So does a flush, ahead of what is held since.
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("0", "new call"), 4, true);
+    deferral.retry(again.before.clone());
+    let all = deferral.take_all();
+    assert_eq!(all.len(), 2);
+    assert_eq!(content(&all[0].1), content(&snapshot("0", "old call")));
+    assert_eq!(content(&all[1].1), content(&snapshot("0", "new call")));
+    // A fork copies what is held without taking it.
+    let _ = deferral.keep("in", "tool_call_update", &snapshot("0", "newer"), 5, true);
+    assert_eq!(deferral.pending().len(), 1);
+    assert_eq!(deferral.take_all().len(), 1);
 }

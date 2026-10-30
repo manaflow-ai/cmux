@@ -157,3 +157,72 @@ fn an_export_mid_command_carries_the_newest_output() {
         .find_map(|r| r.pointer("/msg/params/update/content").cloned());
     assert_eq!(last, Some(newest));
 }
+
+/// A memory store whose appends fail while `refusing` is set.
+struct RefusingStore {
+    inner: Box<dyn Store>,
+    refusing: Arc<AtomicBool>,
+}
+
+impl Store for RefusingStore {
+    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.refusing.load(Ordering::SeqCst), "disk full");
+        self.inner.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.inner.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.inner.delete(id)
+    }
+}
+
+/// A held snapshot the store refuses when it is due is stored at the next record, before it; the
+/// record that made it due is refused with it, so nothing is stored ahead of it.
+#[test]
+fn output_the_store_refused_is_stored_before_the_next_record() {
+    let mut config = Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let refusing = Arc::new(AtomicBool::new(false));
+    let hub = Hub::new(config, Box::new(RefusingStore { inner, refusing: refusing.clone() }));
+    let s = session(&hub, "r");
+    let chat = codex_chat(1, 8);
+    for (dir, kind, msg) in &chat {
+        hub.append(&s, dir, kind, msg.clone());
+    }
+    refusing.store(true, Ordering::SeqCst);
+    let (_, logged) = hub.append_logged(&s, "mux", "status", json!({"status": "idle"}), None);
+    assert!(!logged, "refused with the output it made due");
+    refusing.store(false, Ordering::SeqCst);
+    hub.append(&s, "mux", "status", json!({"status": "idle"}));
+    let logged = hub.store.events("r", 0, usize::MAX).unwrap();
+    let newest =
+        chat.iter().rev().find_map(|(_, _, m)| m.pointer("/params/update/content")).unwrap();
+    let last_output =
+        logged.iter().rev().find_map(|r| r.msg.pointer("/params/update/content")).unwrap();
+    assert_eq!(last_output, newest);
+    assert_eq!(logged.last().unwrap().kind, "status");
+    let sent: Vec<EventRecord> = chat
+        .iter()
+        .enumerate()
+        .map(|(i, (d, k, m))| EventRecord {
+            seq: i as u64 + 1,
+            at: 0,
+            dir: (*d).into(),
+            kind: k.clone(),
+            msg: m.clone(),
+            host_seq: None,
+        })
+        .collect();
+    assert_eq!(transcript(&logged), transcript(&sent));
+}

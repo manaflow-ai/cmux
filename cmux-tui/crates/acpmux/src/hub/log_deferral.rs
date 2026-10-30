@@ -26,34 +26,51 @@ impl Hub {
             at.unwrap_or_else(now_ms),
             at.is_none(),
         );
-        // A call id's next start makes its held snapshot due: that one is not held again.
-        self.store_late(session, keep.before, kind != "tool_call");
-        self.append_record_locked(session, dir, kind, msg, host_seq, at, stored_only, keep.stored)
+        // A record made due that the store refused waits for the next one, and so does this
+        // one: nothing is stored ahead of what it makes due.
+        let kept = if self.store_late(session, keep.before) {
+            keep.stored.map_or(Kept::Sent, Kept::Stub)
+        } else {
+            Kept::Refused
+        };
+        self.append_record_locked(session, dir, kind, msg, host_seq, at, stored_only, kept)
     }
 
-    /// Stores held records made due. One the store refuses is held again when `put_back`.
-    fn store_late(&self, session: &Session, late: Vec<(&'static str, Value)>, put_back: bool) {
-        for (kind, msg) in late {
+    /// Stores held records made due, in order. When the store refuses one, it and those after it
+    /// are stored again first, before the next record (`Deferral::retry`); false then.
+    fn store_late(&self, session: &Session, late: Vec<(&'static str, Value)>) -> bool {
+        let mut late = late.into_iter();
+        while let Some((kind, msg)) = late.next() {
             let (record, stored) =
-                self.append_record_locked(session, "in", kind, msg, None, None, true, None);
-            if !stored && put_back {
-                session
-                    .log_deferral
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .put_back(kind, record.msg);
+                self.append_record_locked(session, "in", kind, msg, None, None, true, Kept::Sent);
+            if !stored {
+                let mut refused = vec![(kind, record.msg)];
+                refused.extend(late);
+                session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).retry(refused);
+                return false;
             }
         }
+        true
     }
 
-    /// Stores every snapshot the session holds back, now: before a fork or an export copies the
-    /// log, and at shutdown, since a hosted agent's next daemon resumes after the stubs' `hostSeq`
-    /// and never hears them again.
-    pub(super) fn store_deferred(&self, session: &Session) {
+    /// Stores every snapshot the session holds back, now: before an export copies the log, and
+    /// at shutdown, since a hosted agent's next daemon resumes after the stubs' `hostSeq` and
+    /// never hears them again. False when the store refused one.
+    pub(super) fn store_deferred(&self, session: &Session) -> bool {
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let held = session.log_deferral.lock().unwrap_or_else(|e| e.into_inner()).take_all();
-        self.store_late(session, held, true);
+        self.store_late(session, held)
     }
+}
+
+/// What the log stores for a record ([`Hub::append_record_locked`]).
+pub(super) enum Kept {
+    /// The record as sent.
+    Sent,
+    /// This message in its place (`store/deferred.rs`).
+    Stub(Value),
+    /// Nothing: a record it makes due was refused, so it counts as refused too.
+    Refused,
 }
 
 #[cfg(test)]
