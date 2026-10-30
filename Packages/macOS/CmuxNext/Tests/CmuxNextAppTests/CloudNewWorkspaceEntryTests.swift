@@ -80,4 +80,22 @@ struct CloudNewWorkspaceEntryTests {
         #expect(route == .thisMac(notice: nil))
         #expect(services.cloud.creations.all.isEmpty)
     }
+
+    /// Cmd-N again while this window's toggle machine is still on its way shows that one again
+    /// instead of asking for a second paid machine; once it opened its workspace, a new press makes a new one.
+    @Test func aSecondPressWhileTheMachineIsOnItsWayReusesIt() {
+        let creations = CloudCreations()
+        let other = creations.begin(window: "w") // New Cloud Workspace's own, not the toggle's
+        #expect(CloudHandlers.pendingNewWorkspaceCreation(in: creations, window: "w") == nil)
+        let toggle = creations.begin(window: "w")
+        toggle.open = { _ in "ws" }
+        #expect(CloudHandlers.pendingNewWorkspaceCreation(in: creations, window: "w") === toggle)
+        #expect(CloudHandlers.pendingNewWorkspaceCreation(in: creations, window: "other-window") == nil)
+        toggle.fail(ActionFailure(message: "boot failed"))
+        #expect(CloudHandlers.pendingNewWorkspaceCreation(in: creations, window: "w") === toggle, "a failed one shows again with its Retry")
+        toggle.opened("ws")
+        #expect(CloudHandlers.pendingNewWorkspaceCreation(in: creations, window: "w") == nil)
+        _ = other
+    }
 }
+
