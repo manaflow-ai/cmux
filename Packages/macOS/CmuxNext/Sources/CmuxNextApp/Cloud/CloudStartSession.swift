@@ -208,7 +208,7 @@ struct CloudStartSession {
             let pending = try tabs.open(in: anchor.pane.handle, of: daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
             tabKey = try await Self.created(pending, name: name, id: id, agent: agent).key
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
-            let listed = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey) != nil }
+            let listed = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
             guard listed else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))) }
             switch tabs.remoteHost(tabKey) {

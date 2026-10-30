@@ -11,7 +11,7 @@
 // (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -27,6 +27,7 @@ const ROW_ICON = rowIconSize(12);
 export function AgentLine({
   name,
   detail,
+  progress,
   status,
   state,
   time,
@@ -51,6 +52,8 @@ export function AgentLine({
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
   detail?: string;
+  /// Reported agent counts, warnings and usage; separate from the current action.
+  progress?: string;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -98,11 +101,17 @@ export function AgentLine({
     <button
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-agent-line__button"
-      style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
+      style={
+        depth > 0
+          ? trayColumns
+            ? ({ "--acpmux-tray-indent": `${Math.min(depth, 3) * 14}px` } as CSSProperties)
+            : { paddingLeft: 8 + Math.min(depth, 3) * 14 }
+          : undefined
+      }
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
-      aria-label={label}
+      aria-label={label && progress ? `${label} · ${progress}` : label}
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
       disabled={!onOpen}
@@ -125,6 +134,7 @@ export function AgentLine({
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {progress && <span className="acpmux-agent-line__progress">{progress}</span>}
       </span>
       {trayColumns ? (
         <>

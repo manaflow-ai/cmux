@@ -18,7 +18,6 @@ struct ScreensPage: View {
             .navigationTitle("Screens")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 if source.canEditTabs {
                     ToolbarItem(placement: .primaryAction) {

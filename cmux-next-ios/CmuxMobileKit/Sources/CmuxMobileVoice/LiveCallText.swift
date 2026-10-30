@@ -16,7 +16,7 @@ enum LiveCallText {
     static var thinking: String { String(localized: "chiefLive.status.thinking", defaultValue: "Thinking…", bundle: .module) }
     static var muted: String { String(localized: "chiefLive.status.muted", defaultValue: "Muted", bundle: .module) }
     static var yourTurn: String { String(localized: "chiefLive.status.yourTurn", defaultValue: "Go ahead", bundle: .module) }
-    static var hint: String { String(localized: "chiefLive.hint", defaultValue: "Talk to Chief like a colleague. Ask what your agents are doing, or have Chief start work on your Macs.", bundle: .module) }
+    static var hint: String { String(localized: "chiefLive.hint", defaultValue: "Ask Chief what your agents are doing or start work on your Macs.", bundle: .module) }
     static var typePlaceholder: String { String(localized: "chiefLive.typePlaceholder", defaultValue: "Type to Chief", bundle: .module) }
     static var send: String { String(localized: "chiefLive.button.send", defaultValue: "Send", bundle: .module) }
     static var tryAgain: String { String(localized: "chiefLive.button.tryAgain", defaultValue: "Try Again", bundle: .module) }
