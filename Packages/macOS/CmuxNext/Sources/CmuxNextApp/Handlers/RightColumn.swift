@@ -26,10 +26,12 @@ enum RightColumn {
         return .init(sourceWidth: width(of: source), panes: panes.map(\.rawValue), widths: widths)
     }
 
-    /// `pane`'s width, nil while it has none (not laid out yet): an unmeasured pane sets no floor, so
-    /// it is never taken for one too narrow to split (fleet run of #28044 at 8e520360: a pane with no
-    /// window opened its links in place).
+    /// `pane`'s width as the window shows it, nil until it is in a window: a pane view starts at its
+    /// 400 pt placeholder frame (PaneContentView) before any layout, which is no measure, so an unshown
+    /// pane sets no floor and is never taken for one too narrow to split (fleet runs of #28044 at
+    /// 8e520360 and caf8e69e: SideOpenStripTests' windowless pane opened its links in place).
     static func width(of pane: PaneController) -> CGFloat? {
+        guard pane.view.window != nil else { return nil }
         let width = pane.view.bounds.width
         return width > 0 ? width : nil
     }
