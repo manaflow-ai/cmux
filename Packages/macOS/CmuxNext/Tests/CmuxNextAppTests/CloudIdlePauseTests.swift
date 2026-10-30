@@ -381,6 +381,56 @@ struct CloudIdlePauseTests {
         session.disconnect()
     }
 
+    @Test func aDestroyedDetailCompletesADeferredListRemoval() {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud, session = f.session
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead(machineID: session.machineID)
+        cloud.reconcile([], read: list)
+        #expect(f.services.machines.session(session.machineID) === session)
+        var destroyed = session.machine
+        destroyed.status = .destroyed
+        cloud.apply(destroyed, to: session, read: status)
+        #expect(f.services.machines.session(session.machineID) == nil)
+        #expect(cloud.recordReadsOutstanding.isEmpty)
+        #expect(!session.daemon.isStarting)
+        // The older list cannot bring back a machine the newer detail declared destroyed.
+        var stale = destroyed
+        stale.status = .paused
+        cloud.reconcile([stale], read: list)
+        #expect(f.services.machines.session(session.machineID) == nil)
+    }
+
+    @Test func aDestroyedDetailRemovesWithoutWaitingForAList() {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud, session = f.session
+        let older = cloud.beginRecordRead(machineID: session.machineID)
+        let detail = cloud.beginRecordRead(machineID: session.machineID)
+        var destroyed = session.machine
+        destroyed.status = .destroyed
+        cloud.apply(destroyed, to: session, read: detail)
+        #expect(f.services.machines.session(session.machineID) == nil)
+        var stale = destroyed
+        stale.status = .running
+        cloud.apply(stale, to: session, read: older)
+        #expect(session.machine.status == .destroyed)
+        #expect(cloud.recordReadsOutstanding.isEmpty)
+        #expect(!session.daemon.isStarting)
+    }
+
+    @Test func anOlderDestroyedDetailDoesNotRemoveANewerLiveRecord() {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud, session = f.session
+        let detail = cloud.beginRecordRead(machineID: session.machineID)
+        cloud.reconcile([session.machine], read: cloud.beginRecordRead())
+        var destroyed = session.machine
+        destroyed.status = .destroyed
+        cloud.apply(destroyed, to: session, read: detail)
+        #expect(f.services.machines.session(session.machineID) === session)
+        #expect(session.machine.status == .paused)
+        session.disconnect()
+    }
+
     /// A failed or cancelled Machine Status read has no future record to preserve.
     @Test(.timeLimit(.minutes(1)))
     func aFailedRecordReadDoesNotKeepAnOmittedMachine() throws {
