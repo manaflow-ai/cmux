@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDaemonService
+@testable import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSidebar
 import CryptoKit
@@ -154,6 +155,13 @@ final class ClassicUpgradeSimulator {
             return result
         }
         let migrating = clock.now
+        do { // DIAG (not for merge): why the registry is empty on a display host
+            let wm = services.windows
+            let ctl = wm.controllers.map { c in "\(c.state.id.prefix(6)) screen=\(c.window?.screen != nil) vis=\(c.window?.isVisible == true) occl=\(c.window.map { $0.occlusionState.contains(.visible) } ?? false) content=\(c.content?.workspace.id.prefix(6) ?? "nil")" }
+            let ws = services.daemon.store.workspaces.map { "\($0.id.prefix(6)):\($0.kind ?? "-"):tabs=\($0.screens.flatMap(\.panes).flatMap(\.tabs).count)" }
+            let live = WindowManager.orderedIDs(of: services.daemon, machines: services.machines)
+            print("CLASSIC-DIAG3 screens=\(NSScreen.screens.count) asleepOverride=\(String(describing: DisplaySleep.asleepOverride)) restored=\(wm.restored) restoring=\(wm.restoring) launch=\(wm.launchWindowID?.prefix(6) ?? "nil") closedLaunch=\(wm.closedLaunchWindowID?.prefix(6) ?? "nil") closedDuringRestore=\(wm.closedDuringRestore.map { $0.prefix(6) }) claims=\(wm.pendingClaims.count) held=\(FirstTabHold.held(live).count) awaiting=\(wm.awaitingContent.count) registry=\(wm.registry.value.windows.map { "\($0.id.prefix(6)):\($0.isOpen):\($0.workspaceIDs.count)" }) provisional=\(wm.registry.provisional.count) controllers=\(ctl) live=\(live.map { $0.prefix(6) }) workspaces=\(ws) background=\(services.background.isBackground)")
+        }
         launchMade = Set(made().keys)
         watch(from: migrating)
         final class Box { var result: Result<ClassicMigrationOutcome, any Error>? }
