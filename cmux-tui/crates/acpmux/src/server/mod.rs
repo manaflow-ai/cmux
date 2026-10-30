@@ -1613,13 +1613,6 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if watching {
         if let Some(remote) = &ev.remote {
-            // Another daemon's link hears no change of a row this daemon mirrors: the link
-            // drops every such row (`peer.rs` `watch_sessions`), so each change of one peer's
-            // row went out on every other peer's link for nothing (24 copies of every change
-            // with one daemon's 25 peers, 2026-10-30), and the row's origin hears it from its own.
-            if view::a_link(conn) {
-                return;
-            }
             // A peer's prompt the person must answer, for a unix socket or app
             // watcher that did not attach the session (`hub/person.rs` (c)):
             // never relayed on to a Web client or another peer daemon.
@@ -1632,8 +1625,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 }
                 return;
             }
-            // Peers already filter to the interesting kinds and send a summary.
-            if rec.dir == "peer" {
+            // Peers already filter to the interesting kinds and send a summary. Another
+            // daemon's link hears no change of a row this daemon mirrors: the link drops every
+            // such row (`peer.rs` `watch_sessions`), so each change of one peer's row went out on
+            // every other peer's link for nothing (24 copies of every change with one daemon's
+            // 25 peers, 2026-10-30), and the row's origin hears it from its own.
+            if rec.dir == "peer" && !view::a_link(conn) {
                 let sid = remote
                     .summary
                     .get("sessionId")
