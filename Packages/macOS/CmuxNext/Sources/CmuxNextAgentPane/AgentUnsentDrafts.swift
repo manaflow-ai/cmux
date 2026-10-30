@@ -31,11 +31,11 @@ public final class AgentUnsentDrafts {
         drafts = [:]
         undelivered = []
         store = file.map(AgentPaneStateFile.at)
-        guard let file, let store else { return }
+        guard let store else { return }
         // The store's read waits for the saves already queued for this file (another store of it).
-        guard let data = store.read() else {
-            // concurrency-allow: one existence check when the tab store is made and no file was read
-            if FileManager.default.fileExists(atPath: file.path) {
+        let loaded = store.readState()
+        guard case .readable(let data) = loaded else {
+            if case .unreadable = loaded {
                 unreadable = true
                 Self.logger.error("unsent drafts unreadable; set aside on the next write")
             }
@@ -134,20 +134,9 @@ public final class AgentUnsentDrafts {
     }
 
     private func save() {
-        guard let file, let store else { return }
+        guard let store else { return }
         if unreadable {
-            // Kept beside it, so whatever it held can still be recovered; never overwritten. No
-            // save of this store was queued before this one, so the rename runs ahead of every save.
-            // A set-aside that fails writes nothing and is tried again on the next save.
-            // concurrency-allow: one existence check, only on the first save after an unreadable file was found
-            if FileManager.default.fileExists(atPath: file.path) {
-                do {
-                    _ = try UnreadableStateFile.setAside(file)
-                } catch {
-                    Self.logger.error("unsent drafts not saved: the unreadable file could not be set aside: \(String(describing: error), privacy: .public)")
-                    return
-                }
-            }
+            store.preserveUnreadableFile()
             unreadable = false
         }
         let drafts = drafts

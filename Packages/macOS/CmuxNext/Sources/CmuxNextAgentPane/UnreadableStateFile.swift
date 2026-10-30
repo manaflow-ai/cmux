@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// A state file this run cannot read, set aside beside itself so whatever it held can still be
 /// recovered, never replaced by a fresh write (``AgentUnsentDrafts``, ``AgentPanePromptJournal``).
@@ -21,10 +22,10 @@ nonisolated enum UnreadableStateFile {
                 .appendingPathExtension("unreadable-\(Int(now.timeIntervalSince1970))-\(id())")
                 .appendingPathExtension(file.pathExtension)
             // concurrency-allow: one rename, only when a state file could not be read
-            if FileManager.default.fileExists(atPath: aside.path) { continue }
+            if FileManager.checked.fileExists(atPath: aside.path) { continue }
             do {
                 // concurrency-allow: one rename, only when a state file could not be read
-                try FileManager.default.moveItem(at: file, to: aside)
+                try FileManager.checked.moveItem(at: file, to: aside)
                 return aside
             } catch CocoaError.fileWriteFileExists {
                 // Taken between the check and the move: another id.

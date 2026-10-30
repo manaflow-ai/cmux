@@ -103,6 +103,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.prompt-journal")
     let url: URL
     let now: @Sendable () -> Date
+    private let readFile: @Sendable (URL) throws -> Data
     private let state = Mutex(State())
     /// The newest generation on disk; a write of an older one is skipped.
     private let written = Mutex(0)
@@ -110,9 +111,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private let keepsFile = Mutex(false)
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
 
-    public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+    public convenience init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.init(url: url, now: now, readFile: { try Data(contentsOf: $0) })
+    }
+
+    /// The read seam permits deterministic I/O failures even in tests running as root.
+    init(url: URL, now: @escaping @Sendable () -> Date = { Date() },
+         readFile: @escaping @Sendable (URL) throws -> Data) {
         self.url = url
         self.now = now
+        self.readFile = readFile
     }
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
@@ -291,7 +299,17 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     private func load(_ state: inout State) {
         guard !state.loaded else { return }
         state.loaded = true
-        guard let data = try? Data(contentsOf: url) else { return }
+        let data: Data
+        do { data = try readFile(url) }
+        catch CocoaError.fileReadNoSuchFile { return }
+        catch CocoaError.fileNoSuchFile { return }
+        catch {
+            // A read error is not absence. Keep the original in place, including on writable
+            // directories where an atomic replacement would otherwise silently destroy it.
+            keepsFile.withLock { $0 = true }
+            Self.logger.error("agent pane prompt journal read failed; original kept in place")
+            return
+        }
         guard let document = try? Self.decoder.decode(Document.self, from: data) else {
             // Set aside, never overwritten: the next write would replace what it holds. A file that
             // cannot be moved stays where it is, and this run writes nothing over it.
