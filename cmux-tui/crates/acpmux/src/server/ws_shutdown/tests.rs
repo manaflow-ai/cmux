@@ -212,3 +212,36 @@ async fn a_writer_that_sees_the_close_before_the_normal_stop_closes_normally() {
     assert!(matches!(frame, Frame::Close(None)), "an explicit stop sent {frame:?}");
     task.await.unwrap();
 }
+
+/// A connection that ends by itself while the daemon restarts still closes with 1012. As the
+/// daemon stops, a connection's serve loop can end (its reader stopped) before its listener
+/// closes its clients; the writer then left through its own end and sent a close with no code
+/// (daemon_restart_close.rs:101, `left: None`, in 3 of 605 copies under load, jobs
+/// 3d5725763bccfde7bda7b8e3 and 855a569eaae4f8b3bfb604c1). Forced order: the restart latch,
+/// then the connection's own end, then the listener's close.
+#[tokio::test]
+async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
+    let (ours, theirs) = tokio::io::duplex(4096);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let mut client = WebSocketStream::from_raw_socket(theirs, Role::Client, None).await;
+    let (_out, outbound) = mpsc::channel(1);
+    let (stop, stopped) = oneshot::channel();
+    let shared = WsShutdown::default();
+    let (local, _draining) = shared.listener();
+    let task = tokio::spawn(write(sink, outbound, stopped, local.clone()));
+    tokio::task::yield_now().await;
+    shared.restart();
+    stop.send(()).unwrap();
+    task.await.unwrap();
+    local.close_clients();
+    let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    match frame {
+        Frame::Close(Some(close)) => assert_eq!(close.code, CloseCode::Restart),
+        other => panic!("a restart closed a connection with {other:?}"),
+    }
+}
