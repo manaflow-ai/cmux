@@ -5,8 +5,10 @@
 //!
 //! The child is not reaped until the end: while it is unreaped (running or a zombie) its pid,
 //! and so its group id, cannot be taken by another process, so the kill can never reach an
-//! unrelated group. A descendant that left the group and keeps a pipe open is not killed; its
-//! reader thread is left behind, and the command exits soon after.
+//! unrelated group. If the unreaped wait fails (another reaper took the child, or `SIGCHLD` is
+//! ignored) the group id is no longer proven ours and only the child itself is signalled. A
+//! descendant that left the group and keeps a pipe open is not killed; its reader thread is left
+//! behind, and the command exits soon after.
 
 use std::io::{Read, Write};
 use std::process::{Child, ExitStatus};
@@ -38,8 +40,10 @@ pub(crate) fn wait(
     });
     let stdout = child.stdout.take().map(|pipe| in_thread(move || read_all(pipe)));
     let stderr = child.stderr.take().map(|pipe| in_thread(move || read_all(pipe)));
+    // Until the exit wait answers, the child is unreaped and its group id is ours.
+    let mut group_ours = true;
     let mut finish = || -> Result<_, Expired> {
-        exit_within(&mut child, deadline)?;
+        group_ours = exit_within(&mut child, deadline)?;
         let written = written.as_ref().map(|rx| within(rx, deadline)).transpose()?;
         let stdout = stdout.as_ref().map(|rx| within(rx, deadline)).transpose()?;
         let stderr = stderr.as_ref().map(|rx| within(rx, deadline)).transpose()?;
@@ -53,7 +57,7 @@ pub(crate) fn wait(
             written,
         }),
         Err(Expired) => {
-            kill_group(&mut child);
+            kill(&mut child, group_ours);
             let _ = child.wait();
             Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
@@ -88,9 +92,10 @@ fn read_all(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
     pipe.read_to_end(&mut bytes).map(|_| bytes)
 }
 
-/// Wait for CHILD to exit until DEADLINE, without reaping it.
+/// Wait for CHILD to exit until DEADLINE, without reaping it. True when the wait proved it
+/// exited unreaped; false when the wait failed, so its group id is not proven ours.
 #[cfg(unix)]
-fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expired> {
+fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<bool, Expired> {
     let pid: libc::id_t = child.id();
     let exited = in_thread(move || {
         loop {
@@ -99,10 +104,11 @@ fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expir
             // SAFETY: WNOWAIT leaves the child for `Child::wait` to reap.
             let done =
                 unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
-            if done == 0
-                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                return;
+            if done == 0 {
+                return true;
+            }
+            if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                return false;
             }
         }
     });
@@ -111,7 +117,7 @@ fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expir
 
 /// Wait for CHILD to exit until DEADLINE. Elsewhere there is no process group to protect.
 #[cfg(not(unix))]
-fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expired> {
+fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<bool, Expired> {
     use wait_timeout::ChildExt;
     let exited = match deadline {
         Some(deadline) => {
@@ -119,16 +125,19 @@ fn exit_within(child: &mut Child, deadline: Option<Instant>) -> Result<(), Expir
         }
         None => child.wait().ok(),
     };
-    exited.map(|_| ()).ok_or(Expired)
+    exited.map(|_| false).ok_or(Expired)
 }
 
-fn kill_group(child: &mut Child) {
+/// Kill CHILD, and its whole group when GROUP_OURS.
+fn kill(child: &mut Child, group_ours: bool) {
     #[cfg(unix)]
-    if let Ok(pid) = i32::try_from(child.id()) {
+    if group_ours && let Ok(pid) = i32::try_from(child.id()) {
         // SAFETY: CHILD is not reaped yet, so this group id is still its own (see the module
         // comment).
         unsafe { libc::kill(-pid, libc::SIGKILL) };
     }
+    #[cfg(not(unix))]
+    let _ = group_ours;
     let _ = child.kill();
 }
 
@@ -176,6 +185,18 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
         assert!(error.to_string().contains("timed out"), "{error}");
         assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
+    }
+
+    /// A child someone else already reaped is not proven to hold its group id, so a timeout
+    /// later signals only the child, never `-pid`.
+    #[test]
+    fn a_child_already_reaped_does_not_prove_its_group() {
+        let mut child = spawn("exit 0");
+        child.wait().unwrap();
+        assert!(matches!(exit_within(&mut child, None), Ok(false)));
+        let mut running = spawn("exit 0");
+        assert!(matches!(exit_within(&mut running, None), Ok(true)));
+        running.wait().unwrap();
     }
 
     /// The child exits at once, but a descendant keeps its stdout open: the read is bounded
