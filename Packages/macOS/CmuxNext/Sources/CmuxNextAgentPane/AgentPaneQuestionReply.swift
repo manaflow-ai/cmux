@@ -37,9 +37,11 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
     public let intent: AgentPaneGestureIntent
     public let canonicalJSON: String
 
-    static let maximumReplyBytes = 1_048_576
-    static let maximumRequestBytes = 1_048_576
-    static let maximumOptions = 256
+    /// Only a parse bound, above the largest reply the pane relay passes (its maximumAnswer* and
+    /// maximumAnnotationBytes bounds, per item); the per-field limits below are what decide.
+    static let maximumReplyBytes = 64 << 20
+    /// The captured native request, bounded the same way; acpmux sent it.
+    static let maximumRequestBytes = 64 << 20
     static let maximumNotesBytes = 8192
 
     public init(input: Input, replyJSON: String) throws(Failure) {
@@ -55,11 +57,7 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
               let harness = normalized["harness"] as? String, ["claude", "chief", "codex"].contains(harness),
               let items = normalized["items"] as? [[String: Any]],
               (1...AcpmuxPaneMethods.maximumAnswerItems).contains(items.count) else { throw .question }
-        guard let options = request["options"] as? [[String: Any]], !options.isEmpty,
-              options.count <= Self.maximumOptions else { throw .question }
-        let offered = options.compactMap { $0["optionId"] as? String }
-        guard offered.count == options.count, Set(offered.map { Data($0.utf8) }).count == offered.count,
-              offered.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 && !$0.contains("\u{0}") }) else { throw .question }
+        guard let options = request["options"] as? [[String: Any]], !options.isEmpty else { throw .question }
         // The one allow-once option, as AcpmuxPermissionPrompt.onceOption reads it: a request
         // offering two is ambiguous, so no reply to it is valid.
         guard let once = AcpmuxPermissionPrompt.onceOption(allow: true, offered: options),
@@ -110,7 +108,9 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
                 // Match the owner's choice-only validation (acpmux hub/questions.rs check_answers),
                 // including distinct multi choices: it splits a multi answer on ", " too, so a
                 // label holding ", " is refused there as well and accepting it here would not help.
-                guard Set(picked.map { Data($0.utf8) }).count == picked.count,
+                // A Codex answer is a list of the chosen options' labels, which may repeat when two
+                // options share a label; acpmux checks no Codex labels at all.
+                guard codex || Set(picked.map { Data($0.utf8) }).count == picked.count,
                       picked.allSatisfy({ picked in allowed.contains(where: { equalBytes($0, picked) }) }) else { return false }
             }
         }

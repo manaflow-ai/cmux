@@ -136,6 +136,10 @@ struct AgentPaneQuestionReplyTests {
         let multi = try Self.fixture(Self.prompt(allowsOther: false, multi: true))
         #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Glass, Paper"]], question: multi) == nil)
         #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Glass, Glass"]], question: multi) == .answers)
+        // Codex answers with each chosen option's label, so two options sharing a label repeat it.
+        let codexMulti = try Self.fixture(Self.prompt(harness: "codex", allowsOther: false, multi: true))
+        #expect(try Self.failure(["optionId": "yes", "answers": ["q": ["answers": ["Glass", "Glass"]]]],
+                                 question: codexMulti) == nil)
     }
 
     @Test func annotationsUseCurrentNativeRawPreviewsAndNotesBounds() throws {
