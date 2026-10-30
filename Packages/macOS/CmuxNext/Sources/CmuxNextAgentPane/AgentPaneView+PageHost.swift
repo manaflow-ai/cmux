@@ -22,6 +22,12 @@ extension AgentPaneView {
             self.questionKeyBinding = nil
             if visible { self.refreshQuestionKeyBinding() }
         }
+        page.onQuestionKeyChannelInvalidated = { [weak self] in
+            guard let self else { return }
+            self.model.transport.gestures.recordQuestionReturn(false)
+            self.questionKeyBinding = nil
+            self.refreshQuestionKeyBinding()
+        }
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
             let modifiers = page?.externalLinkModifiers ?? []

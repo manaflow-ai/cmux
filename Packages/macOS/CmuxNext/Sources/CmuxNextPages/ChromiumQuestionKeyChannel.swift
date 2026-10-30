@@ -45,6 +45,9 @@ final class ChromiumQuestionKeyChannel {
     private var targets: Set<PageQuestionKeyTarget> = []
     private var received: ((PageQuestionKeySnapshot) -> Void)?
     private var setup: Task<Void, Never>?
+    /// Called when Chromium destroys the execution context behind the cached binding.
+    /// The page owner clears its cache and asks for a fresh install.
+    var onInvalidated: (@MainActor () -> Void)?
 
     init(page: any PageChromiumPage, owns: @escaping (URL?) -> Bool) {
         self.page = page
@@ -134,11 +137,13 @@ final class ChromiumQuestionKeyChannel {
         guard let object = ChromiumPageHostWire.object(json), let method = object["method"] as? String else { return false }
         if method == "Runtime.executionContextsCleared" {
             invalidate()
+            onInvalidated?()
             return false
         }
         if method == "Runtime.executionContextDestroyed",
            let params = object["params"] as? [String: Any], params["executionContextId"] as? Int == context {
             invalidate()
+            onInvalidated?()
             return false
         }
         guard let call = ChromiumPageHostWire.BindingCall(event: json), call.name == binding else { return false }

@@ -142,6 +142,7 @@ extension PageWebView {
             if descriptor.isAgentPage {
                 let descriptor = descriptor
                 let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
+                questionKeys.onInvalidated = { [weak self] in self?.onQuestionKeyChannelInvalidated?() }
                 try await questionKeys.prepareDocumentGuard()
                 session.questionKeys = questionKeys
             }
