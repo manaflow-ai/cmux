@@ -517,6 +517,7 @@ function TurnFailure({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
   const [compacting, setCompacting] = useState(false);
   const kind = failureKind(message, route, code);
@@ -526,7 +527,25 @@ function TurnFailure({
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
-    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
+    [
+      "rate-limited",
+      "unreachable",
+      "invalid-key",
+      "proxy-auth",
+      "subscription-login",
+      "auth",
+      "needs-credits",
+    ].includes(kind);
+  // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
+  // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
+  // A paid plan lifts both, so Add Credits… leads as the card's one filled button.
+  const accessOffer = kind === "needs-credits" ? access : undefined;
+  const accessLeads = accessOffer !== undefined;
+  const accessButtons = accessOffer && (
+    <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={accessOffer.addCredits}>
+      {t("access.addCredits")}
+    </button>
+  );
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure; never for a sign-in or trust failure (errorRecovery.ts).
   const offersRetry = goOn !== undefined;
@@ -546,7 +565,7 @@ function TurnFailure({
   const switchButton = offersSwitch && (
     <button
       type="button"
-      className={`cv-turn-auth-action${switchFirst && !offerLeads ? " cv-turn-error__primary" : ""}`}
+      className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {t("turn.failure.switchModel")}
@@ -570,6 +589,7 @@ function TurnFailure({
         </span>
       </span>
       <span className="cv-turn-error__actions">
+        {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
@@ -590,7 +610,7 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads || compactFirst ? "" : " cv-turn-error__primary"}`}
             // The card's first stop in the tab order, so Return on the focused card goes on.
             aria-keyshortcuts="Enter"
             disabled={retrying}

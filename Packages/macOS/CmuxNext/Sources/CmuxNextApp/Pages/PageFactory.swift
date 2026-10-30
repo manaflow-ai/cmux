@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextApps
+import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -91,10 +92,7 @@ struct PageFactory {
     /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let account = services.cloud
-        let cloud = CloudPageProvider(op: account.appOps,
-                                      signIn: { [weak account] in await account?.auth.signIn() ?? false },
-                                      signOut: { [weak account] in await account?.signOut() })
+        let cloud = Self.cloudProvider(cloud: services.cloud, registry: services.machines)
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
@@ -105,6 +103,19 @@ struct PageFactory {
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store).start() }
         return page
+    }
+
+    /// The Cloud page's provider for `cloud`'s link. The Cloud app server reaches its backend only
+    /// through the credential relay, which the classic link never registers (cx-t2rz P3-1): there
+    /// the page reads Cloud's own `/api/vm` list (``CloudClassicPageOps``), as the CLI and the
+    /// sidebar do, instead of answering "not available until cmux reconnects" for good.
+    static func cloudProvider(cloud account: CloudService, registry: MachineRegistry) -> CloudPageProvider {
+        let classic = account.configuration.linkSource == .legacy
+            ? CloudClassicPageOps(backend: .app(cloud: account, registry: registry)) : nil
+        return CloudPageProvider(op: classic.map(CloudAppLinks.ops(classic:)) ?? account.appOps,
+                                 signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                                 signOut: { [weak account] in await account?.signOut() },
+                                 feed: classic.map(CloudAppLinks.feed(classic:)))
     }
 
     /// The Settings page's engine options.
@@ -274,6 +285,8 @@ struct PageFactory {
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
+                      // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
+                      PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
