@@ -19,6 +19,22 @@
 //! an agent host's reader what is on disk, so a host entry is acknowledged only once its record
 //! is written (`agent_host` keeps it until then).
 //!
+//! Order: requests and reads that wait for a session's lines (`expedite`, `settle`) are served
+//! in batches, in the order they arrived. The writer takes every session with a waiter as one
+//! batch; a waiter that arrives while a batch is written goes in the next batch, never ahead of
+//! one that waited before it (the newest waiter used to go first, and at 80 clients an early
+//! request waited until the others stopped: 20.4 s at p99, fleet job 7bc67123c95ede759d91350d).
+//! Between two batches the writer writes one session in its background turn, so a streaming chat
+//! and a shutdown flush are never starved by a steady stream of requests. A waiter therefore
+//! waits for at most: the write in progress, the rest of the current batch, one background
+//! write, and its own batch.
+//!
+//! Priority: the thread runs at Utility. A waiter raises it to the waiter's QoS for as long as
+//! it waits (`cmux_threads::OwnerBoost`: the writer holds it for each write, a waiter that comes
+//! during a write raises that write, and each later write starts raised while a waiter is
+//! counted), as Chromium's priority-inheritance locks raise the owner a higher thread waits on.
+//! With no waiter the writes run at Utility again.
+//!
 //! The thread is hang-watched (`daemon/hang_watch.rs`): each session's write is one item of
 //! [`WRITE_ITEM`], never the wait for the next one.
 
@@ -62,8 +78,17 @@ struct Queued {
 #[derive(Default)]
 struct State {
     queued: HashMap<String, Queued>,
-    /// Sessions with queued lines, in the order they first queued: each is written in turn.
+    /// Sessions with queued lines, in the order they first queued: each is written in turn (the
+    /// background turn). A session may be listed twice, or after its lines were written in a
+    /// batch: the writer skips an entry with nothing queued.
     order: VecDeque<String>,
+    /// Sessions a request or a read waits for, in the order the first waiter of each came, not in
+    /// the batch being written: the next batch.
+    waiting: VecDeque<String>,
+    /// The batch being written: the sessions that had a waiter when it began.
+    batch: VecDeque<String>,
+    /// The next write is the background turn's (one after each batch).
+    background_turn: bool,
     writing: Option<String>,
     /// The ticket of the last line of the batch being written.
     writing_ticket: u64,
@@ -107,25 +132,44 @@ impl State {
         q.ticket = ticket;
     }
 
-    /// The session whose queued lines the writer writes next.
+    /// The session whose queued lines the writer writes next: the rest of the current batch,
+    /// then one background session, then the sessions waited for since the batch began, as the
+    /// next batch.
     fn next(&mut self) -> Option<String> {
         loop {
-            let id = self.order.pop_front()?;
-            if self.queued.contains_key(&id) {
-                return Some(id);
+            while let Some(id) = self.batch.pop_front() {
+                if self.queued.contains_key(&id) {
+                    return Some(id);
+                }
+            }
+            if !self.waiting.is_empty() && !self.background_turn {
+                self.batch = std::mem::take(&mut self.waiting);
+                self.background_turn = true;
+                continue;
+            }
+            self.background_turn = false;
+            while let Some(id) = self.order.pop_front() {
+                if self.queued.contains_key(&id) {
+                    return Some(id);
+                }
+            }
+            if self.waiting.is_empty() {
+                return None;
             }
         }
     }
 
-    /// A request or a read waits for session `id`'s queued lines: they are written next, ahead
-    /// of other sessions'.
+    /// A request or a read waits for session `id`'s queued lines: they go in the current batch
+    /// if they are in it already, else in the next one, after every session waited for before.
+    /// Nothing queued (written, or being written): nothing to order.
     fn wait_first(&mut self, id: &str) {
-        if let Some(at) = self.order.iter().position(|o| o == id)
-            && at > 0
-            && let Some(id) = self.order.remove(at)
+        if !self.queued.contains_key(id)
+            || self.batch.iter().any(|b| b == id)
+            || self.waiting.iter().any(|w| w == id)
         {
-            self.order.push_front(id);
+            return;
         }
+        self.waiting.push_back(id.to_owned());
     }
 }
 
@@ -150,8 +194,9 @@ struct Segment {
 }
 
 struct Shared {
-    /// The writer's QoS boost (`cmux_threads::OwnerBoost`).
-    boost: cmux_threads::OwnerBoost,
+    /// The writer's QoS boost: the writer holds it for each write, a waiter raises it to its
+    /// own QoS while it waits (`cmux_threads::OwnerBoost`).
+    boost: Arc<cmux_threads::OwnerBoost>,
     state: Mutex<State>,
     work: Condvar,
     done: Condvar,
@@ -183,7 +228,7 @@ impl LogWriter {
         delay: Option<std::time::Duration>,
     ) -> Self {
         let shared = Arc::new(Shared {
-            boost: cmux_threads::OwnerBoost::new(),
+            boost: Arc::new(cmux_threads::OwnerBoost::new()),
             state: Mutex::new(State::default()),
             work: Condvar::new(),
             done: Condvar::new(),
@@ -234,8 +279,9 @@ impl LogWriter {
         Ok(())
     }
 
-    /// Writes session `id`'s queued lines next, ahead of other sessions' (a request waits for
-    /// them; `hub/request_writes.rs`): the person's request goes before background streaming.
+    /// Writes session `id`'s queued lines in the next batch of waited-for sessions, ahead of
+    /// background streaming (a request waits for them; `hub/request_writes.rs`), after every
+    /// session a request waited for before it.
     pub(super) fn expedite(&self, id: &str) {
         lock(&self.shared.state).wait_first(id);
     }
@@ -248,6 +294,8 @@ impl LogWriter {
         let mut state = lock(&self.shared.state);
         let Some(ticket) = state.pending(id) else { return };
         state.wait_first(id);
+        // The writer runs at this reader's QoS while it waits.
+        let _raise = self.shared.boost.wait();
         while !state.written(id, ticket) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
@@ -281,6 +329,8 @@ impl LogWriter {
         let mut state = lock(&self.shared.state);
         state.queued.remove(id);
         state.order.retain(|o| o != id);
+        state.waiting.retain(|o| o != id);
+        state.batch.retain(|o| o != id);
         state.close_after.remove(id);
         while state.writing.as_deref() == Some(id) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
@@ -322,6 +372,12 @@ impl LogWriter {
 
     fn running(&self) -> bool {
         lock(&self.thread).is_some()
+    }
+
+    /// The writer's QoS boost: a request that waits for a write holds a
+    /// [`cmux_threads::OwnerBoost::wait`] on it for as long as it waits (`hub/request_writes.rs`).
+    pub(super) fn boost(&self) -> Arc<cmux_threads::OwnerBoost> {
+        self.shared.boost.clone()
     }
 
     /// The QoS overrides the writer thread got from the requests that waited on it.
@@ -380,10 +436,12 @@ fn run(shared: &Shared, delay: Option<std::time::Duration>) {
         state.writing = Some(id.clone());
         state.writing_ticket = q.ticket;
         drop(state);
-        if let Some(delay) = delay {
-            cmux_threads::checked::sync::sleep(delay);
-        }
         let result = {
+            // Held for this write: it runs at the QoS of the highest waiter, if any.
+            let _hold = cmux_threads::OwnerBoost::hold(&*shared.boost);
+            if let Some(delay) = delay {
+                cmux_threads::checked::sync::sleep(delay);
+            }
             let _item = watched.item();
             lock(&shared.files).write(&id, &q.lines)
         };

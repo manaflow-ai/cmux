@@ -618,8 +618,14 @@ pub trait Store: Send + Sync {
     fn progress(&self, _id: &str) -> Option<tokio::sync::watch::Receiver<Progress>> {
         None
     }
-    /// Writes session `id`'s queued records next: a request waits for them (`request_writes.rs`).
+    /// Writes session `id`'s queued records in the next batch of waited-for sessions, after
+    /// every session a request waited for before: a request waits for them (`request_writes.rs`).
     fn expedite(&self, _id: &str) {}
+    /// The background writer's QoS boost, for a store that writes in the background: a request
+    /// raises the writer to its QoS while it waits (`log_writer.rs`, `request_writes.rs`).
+    fn write_boost(&self) -> Option<std::sync::Arc<cmux_threads::OwnerBoost>> {
+        None
+    }
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1112,6 +1118,9 @@ impl Store for LocalStore {
 
     fn expedite(&self, id: &str) {
         self.log.expedite(id);
+    }
+    fn write_boost(&self) -> Option<std::sync::Arc<cmux_threads::OwnerBoost>> {
+        Some(self.log.boost())
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
