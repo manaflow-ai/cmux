@@ -11,10 +11,10 @@
 //! Limits, decided here and nowhere else:
 //! - Width: a session has at most `maxChildren` live children. A child counts while its harness
 //!   is alive (`ready`, `running` or `waiting`); idle-finished, disconnected and closed children
-//!   do not use a slot. The limit is checked when a child starts. A prompt to a child that is
-//!   not live (hibernated, dead or closed) wakes it even past the limit, as a reopen always
-//!   did: a parent can always follow up on a child it has. `maxRunning` still bounds how many
-//!   run a turn, and a woken child frees its slot again when it hibernates.
+//!   do not use a slot. One with a prompt on its way to a turn (queued, or starting its
+//!   harness) counts as live (`waking_children`), so a start never takes the slot a wake needs.
+//!   The limit is checked when a child starts: a prompt to a child it has still wakes it even
+//!   past the limit, as a reopen always did, and the child frees its slot when it hibernates.
 //!   Depth: a session is started at depth `parent.depth + 1` only when that
 //!   is at most the parent's `maxDepth`.
 //! - Running: at most `maxRunning` children run a turn at once; a start or a
@@ -87,7 +87,6 @@ use cmux_json::JsonSet as _;
 #[path = "subsession_index.rs"]
 mod index;
 pub use index::Index;
-use index::holds_width_slot;
 
 /// The settings keys (schemas/settings/source/subsessions.json).
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
@@ -405,8 +404,30 @@ impl Hub {
         })
     }
 
+    /// `parent`'s children that are not live but have a prompt on its way to a turn: queued (for
+    /// the turn lock or a run slot), or holding the turn lock while their harness starts. They
+    /// count toward the width limit, so a wake never lets a start pass it. Prompts a failed turn
+    /// holds (`pause_queue`) wake nothing until released, so they do not count.
+    pub(super) fn waking_children(&self, parent: &str) -> Vec<String> {
+        let resting = self.subsessions.resting_children(parent);
+        let children: Vec<Arc<Session>> = {
+            let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            resting.iter().filter_map(|id| sessions.get(id).cloned()).collect()
+        };
+        let waking = |c: &Session| {
+            let held = c.queue().iter().filter(|q| q.held).count() as u64;
+            c.queued() > held || c.turn_lock.try_lock().is_err()
+        };
+        children.iter().filter(|c| waking(c)).map(|c| c.id.clone()).collect()
+    }
+
+    /// How many of `parent`'s children use a width slot now: live or waking.
+    pub(super) fn width_used(&self, parent: &str) -> u32 {
+        self.subsessions.live_count(parent) + self.waking_children(parent).len() as u32
+    }
+
     /// Tells the parent's watchers when a sub-session closed or reopened. Its width slot follows
-    /// every status write (`set_live`); hibernating or waking is not a close or a reopen.
+    /// every status write (`note_status`); hibernating or waking is not a close or a reopen.
     pub(super) fn subsession_status(
         &self,
         id: &str,
@@ -498,17 +519,18 @@ impl Hub {
                 json!({"depth": depth - 1, "maxDepth": limits.max_depth, "source": limits.max_depth_source.as_str()}),
             ));
         }
-        let slot = match self.subsessions.reserve(&parent.id, limits.max_children) {
+        let waking = self.waking_children(&parent.id);
+        let slot = match self.subsessions.reserve(&parent.id, limits.max_children, &waking) {
             Ok(slot) => slot,
             Err(live) => {
                 return Err(refused(
                     "subsessions.width_limit",
                     format!(
-                        "start_session refused: width limit reached. This session has {live} live sub-sessions (running, waiting for input, or with a harness process alive); finished, dead, idle-finished and closed sub-sessions do not count. It may have at most {} live at once (source: {}). Ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                        "start_session refused: width limit reached. This session has {live} live sub-sessions (running, waiting for input, with a harness process alive, or with a message on its way to a turn); finished, dead, idle-finished and closed sub-sessions do not count. It may have at most {} live at once (source: {}). Ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                         limits.max_children,
                         limits.max_children_source.as_str()
                     ),
-                    json!({"open": live, "live": live, "maxChildren": limits.max_children, "source": limits.max_children_source.as_str(), "counted": "running, waiting, or harness-alive"}),
+                    json!({"open": live, "live": live, "maxChildren": limits.max_children, "source": limits.max_children_source.as_str(), "counted": "running, waiting, harness-alive, or a message on its way"}),
                 ));
             }
         };
@@ -876,7 +898,7 @@ impl Hub {
                 "depth": self.lineage_depth(&m),
                 "startedBy": m.subsession.as_ref().map(|l| &l.started_by),
                 "openChildren": self.subsessions.open_count(&caller.id),
-                "liveChildren": self.subsessions.open_count(&caller.id),
+                "liveChildren": self.width_used(&caller.id),
                 "maxChildren": e.max_children,
                 "maxDepth": e.max_depth,
                 "maxRunning": e.max_running,

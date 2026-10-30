@@ -51,25 +51,32 @@ fn child_events(hub: &Hub, parent: &Session, child: &Session) -> Vec<String> {
 #[test]
 fn width_slots_count_live_children_only() {
     let index = Index::default();
-    index.set_live("parent", "finished", SessionStatus::Idle);
-    index.set_live("parent", "dead", SessionStatus::Disconnected);
-    index.set_live("parent", "closed", SessionStatus::Closed);
-    index.set_live("parent", "live", SessionStatus::Running);
+    index.note_status("parent", "finished", SessionStatus::Idle);
+    index.note_status("parent", "dead", SessionStatus::Disconnected);
+    index.note_status("parent", "closed", SessionStatus::Closed);
+    index.note_status("parent", "live", SessionStatus::Running);
 
-    assert_eq!(index.open_count("parent"), 1);
-    assert_eq!(index.open_children("parent"), vec!["live"]);
-    assert!(index.reserve("parent", 1).is_err(), "the live child still binds the cap");
+    assert_eq!(index.live_count("parent"), 1);
+    // Not closed: the work below a parent looks at them all (`work_below.rs`).
+    assert_eq!(index.open_children("parent"), vec!["dead", "finished", "live"]);
+    assert_eq!(index.resting_children("parent"), vec!["dead", "finished"]);
+    assert!(index.reserve("parent", 1, &[]).is_err(), "the live child still binds the cap");
 
-    index.set_live("parent", "live", SessionStatus::Idle);
-    assert_eq!(index.open_count("parent"), 0);
-    assert!(index.reserve("parent", 1).is_ok(), "finished children free the slot");
+    index.note_status("parent", "live", SessionStatus::Idle);
+    assert_eq!(index.live_count("parent"), 0);
+    assert!(index.reserve("parent", 1, &[]).is_ok(), "finished children free the slot");
+    // A resting child waking counts; a closed one is not resting, and a name it does not
+    // know counts for nothing.
+    let waking = ["finished".to_owned(), "closed".to_owned(), "gone".to_owned()];
+    assert_eq!(index.reserve("parent", 1, &waking).err(), Some(1), "a waking child binds it");
 }
 
 #[tokio::test]
 async fn only_live_children_hold_a_width_slot() {
     let (hub, parent) = hub_with_parent().await;
     let child = child_of(&hub, &parent, "a").await;
-    let count = || hub.subsessions.open_count(&parent.id);
+    let count = || hub.width_used(&parent.id);
+    let reserve = || hub.subsessions.reserve(&parent.id, 1, &hub.waking_children(&parent.id));
     assert_eq!(child.status(), SessionStatus::Ready);
     assert_eq!(count(), 1, "a child whose harness is up holds a slot");
 
@@ -81,12 +88,20 @@ async fn only_live_children_hold_a_width_slot() {
     // Hibernated after its turn: its harness exited, its history stays.
     hub.set_status(&child, SessionStatus::Idle);
     assert_eq!(count(), 0, "a finished, hibernated child frees its slot");
-    drop(hub.subsessions.reserve(&parent.id, 1).expect("the freed slot takes a new start"));
+    drop(reserve().expect("the freed slot takes a new start"));
 
-    // Woken by a prompt: it holds a slot again.
+    // A prompt queued for it (behind a turn, or for one of the parent's run slots) will wake it.
+    child.queued.fetch_add(1, Ordering::SeqCst);
+    assert_eq!(count(), 1, "a child with a queued prompt holds a slot");
+    assert!(reserve().is_err(), "a start never takes the slot its wake needs");
+    child.queued.fetch_sub(1, Ordering::SeqCst);
+    // Its prompt holds the turn lock while its harness starts.
+    let starting = child.turn_lock.lock().await;
+    assert_eq!(count(), 1, "a child starting its harness for a prompt holds a slot");
+    assert!(reserve().is_err());
     hub.set_status(&child, SessionStatus::Running);
-    assert_eq!(count(), 1, "a woken child holds its slot again");
-    assert!(hub.subsessions.reserve(&parent.id, 1).is_err(), "a running child binds the cap");
+    drop(starting);
+    assert_eq!(count(), 1, "a woken child holds its slot");
 
     // Its harness died.
     hub.set_status(&child, SessionStatus::Disconnected);
@@ -96,6 +111,7 @@ async fn only_live_children_hold_a_width_slot() {
     hub.kill(&child, false).await.unwrap();
     assert_eq!(child.status(), SessionStatus::Closed);
     assert_eq!(count(), 0, "a closed child frees its slot");
+    assert_eq!(hub.subsessions.open_count(&parent.id), 0);
 
     // The parent's log says closed only for the real close: hibernating and dying are not one.
     assert_eq!(child_events(&hub, &parent, &child), ["closed"]);

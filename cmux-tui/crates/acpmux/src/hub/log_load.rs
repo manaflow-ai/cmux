@@ -229,7 +229,7 @@ impl Hub {
                 // Its harness is gone: a sub-session frees its parent's width slot, under the
                 // same lock as the status, as `write_status` does (`subsessions.rs`).
                 if let Some(link) = &m.subsession {
-                    self.subsessions.set_live(&link.started_by, &session.id, m.status);
+                    self.subsessions.note_status(&link.started_by, &session.id, m.status);
                 }
             }
             session.mark_waiting(false);
