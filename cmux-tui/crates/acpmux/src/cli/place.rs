@@ -13,17 +13,70 @@ pub fn auto_work(host: Option<&str>) -> Option<&'static str> {
     host.and_then(crate::placement::Work::of_host).map(crate::placement::Work::as_str)
 }
 
+/// Where a command-line `new` with `--host` value `host` goes, on a machine the registry marks
+/// interactive or not (`placement::interactive`): `Some(work)` to place it (`resolve`), `None`
+/// for the host named (`Ok(None)`: this machine). With no `--host` a machine a person works at
+/// places an agent lane on a fleet host, so the agents started from its command line run there
+/// and not on it (Leo, 2026-10-29, after cosmic-gray beachballed under 94 sessions);
+/// `--host local` keeps it here. A `--cwd` or `-w` names a folder on this machine, which a
+/// fleet host refuses (`remote_guard.rs`: a peer may use only a known project or its webRoots),
+/// so such a launch stays here and says how to place it (`Target::HereForFolder`). The app's
+/// own chats never come through here: it creates them over its own connection (`session/new`),
+/// so they stay where they were opened.
+pub fn new_target(host: Option<&str>, interactive: bool, folder_named: bool) -> Target {
+    match host {
+        Some("local") => Target::Here,
+        None if interactive && folder_named => Target::HereForFolder,
+        None if interactive => Target::Place("agent"),
+        None => Target::Here,
+        Some(h) => match auto_work(Some(h)) {
+            Some(work) => Target::Place(work),
+            None => Target::Host(h.to_owned()),
+        },
+    }
+}
+
+/// What `new_target` decided.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Target {
+    /// This machine.
+    Here,
+    /// This machine, a person's, because the launch names a folder on it: warn and say how to
+    /// place it (`FOLDER_HERE`).
+    HereForFolder,
+    /// The peer named.
+    Host(String),
+    /// The placement's pick for this work (`agent`, `build`).
+    Place(&'static str),
+}
+
+/// What a `Target::HereForFolder` launch prints.
+pub const FOLDER_HERE: &str = "starting on this machine, which a person works at, because --cwd or \
+-w names a folder here; leave them out to place it on a fleet host (`acpmux host place`), or \
+pass --host local to say this machine on purpose";
+
+/// Whether this machine is one a person works at, by the fleet registry.
+pub fn here_is_interactive() -> bool {
+    crate::placement::interactive(
+        crate::placement::load_registry().as_ref(),
+        crate::hub::host_label(),
+    )
+}
+
 /// The host `new --host auto` creates on: the one already running a session
 /// of that name, else the daemon's pick. `None` is this machine. A running
 /// session is used only with `--reuse`, as for `new -n`; without it this
 /// says where it runs instead of making a second one elsewhere. Prints the
 /// pick and why to stderr. A name running on more than one machine is not
-/// guessed at: `--host` chooses.
+/// guessed at: `--host` chooses. `off_interactive` (this machine is one a person works at)
+/// leaves every interactive machine out of the pick; when that leaves none, the session starts
+/// here with a warning, as load and lane caps only warn.
 pub async fn resolve(
     client: &Client,
     work: &str,
     name: Option<&str>,
     reuse: bool,
+    off_interactive: bool,
 ) -> Result<Option<String>> {
     if let Some(name) = name {
         let list = client.request(method::MUX_SESSIONS, json!({})).await?;
@@ -40,14 +93,30 @@ pub async fn resolve(
             }
         }
     }
-    let v = client.request("_acpmux/place", json!({"work": work})).await?;
+    let mut params = json!({"work": work});
+    if off_interactive {
+        params["offInteractive"] = json!(true);
+    }
+    let v = client.request("_acpmux/place", params).await?;
     let (Some(pick), Some(placed)) =
         (v.get("pick").and_then(Value::as_str), crate::placement::placed(&v))
     else {
+        if off_interactive {
+            eprintln!("{}", no_fleet_host(&v));
+            return Ok(None);
+        }
         bail!("{}", v.get("why").and_then(Value::as_str).unwrap_or_default());
     };
     eprintln!("{placed}");
     Ok((v.get("local").and_then(Value::as_bool) != Some(true)).then(|| pick.to_owned()))
+}
+
+/// The warning when a machine a person works at finds no fleet host to place on.
+fn no_fleet_host(v: &Value) -> String {
+    let why = v.get("why").and_then(Value::as_str).unwrap_or("no connected fleet host");
+    format!(
+        "starting on this machine: no fleet host took it ({why}); `acpmux peer add` connects one"
+    )
 }
 
 /// Why `new --host auto -n NAME` without `--reuse` stops: NAME already runs.
@@ -125,6 +194,30 @@ mod tests {
         assert_eq!(auto_work(Some("auto")), Some("agent"));
         assert_eq!(auto_work(Some("auto-build")), Some("build"));
         assert_eq!(auto_work(Some("huge-blue")), None);
+    }
+
+    /// On a machine a person works at, a command-line `new` with no `--host` is placed on a
+    /// fleet host; `--host local` and a named host are kept; elsewhere nothing changes.
+    #[test]
+    fn a_new_from_an_interactive_machine_is_placed_unless_a_host_is_named() {
+        assert_eq!(new_target(None, true, false), Target::Place("agent"));
+        assert_eq!(new_target(None, true, true), Target::HereForFolder);
+        for folder in [true, false] {
+            assert_eq!(new_target(None, false, folder), Target::Here);
+            for interactive in [true, false] {
+                let t = |h| new_target(Some(h), interactive, folder);
+                assert_eq!(t("local"), Target::Here);
+                assert_eq!(t("auto"), Target::Place("agent"));
+                assert_eq!(t("auto-build"), Target::Place("build"));
+                assert_eq!(t("box"), Target::Host("box".into()));
+            }
+        }
+        let none = json!({"pick": null, "why": "no host has room for this"});
+        assert_eq!(
+            no_fleet_host(&none),
+            "starting on this machine: no fleet host took it (no host has room for this); \
+             `acpmux peer add` connects one"
+        );
     }
 
     #[test]

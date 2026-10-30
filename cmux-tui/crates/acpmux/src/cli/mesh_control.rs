@@ -38,8 +38,10 @@ pub struct RouteArgs {
     /// Use the mesh hub instead of this daemon's local/peer session resolver.
     #[arg(long)]
     pub mesh: bool,
-    /// Treat TARGET as an exact session id (UUID ids are recognized automatically).
-    #[arg(long, requires = "mesh")]
+    /// Treat TARGET as an exact session id (UUID ids are recognized automatically). Without
+    /// `--mesh` an id already resolves as one, so the flag changes nothing there; it is taken
+    /// so `session stop --id ID` works as `session stop ID` does.
+    #[arg(long)]
     pub id: bool,
     /// Reuse this key when retrying an uncertain enqueue.
     #[arg(long, requires = "mesh")]
@@ -181,5 +183,38 @@ mod tests {
         assert_eq!(resume["to"], json!({"sessionId": "stable-id"}));
         let receipt = parse(&["acpmux", "session", "receipt", "msg_test"]);
         assert_eq!(receipt, json!({"receipt": "msg_test"}));
+    }
+
+    /// `session stop --id ID` and `session resume --id ID` need no `--mesh`: they run as the
+    /// positional forms do, on this daemon's resolver.
+    #[test]
+    fn id_without_mesh_runs_the_local_command() {
+        let local = |args: &[&str]| flatten(Cli::try_parse_from(args).unwrap().command.unwrap());
+        let id = "0b7e7c2e-6f43-4a51-9d0e-2a4c3b1f5e6d";
+        for argv in [
+            &["acpmux", "session", "stop", "--id", id][..],
+            &["acpmux", "session", "stop", id, "--id"][..],
+            &["acpmux", "session", "kill", "--id", id, "--purge"][..],
+        ] {
+            match local(argv) {
+                Command::Kill { session, purge } => {
+                    assert_eq!(session, id, "{argv:?}");
+                    assert_eq!(purge, argv.contains(&"--purge"), "{argv:?}");
+                }
+                _ => panic!("{argv:?} did not run the local stop"),
+            }
+        }
+        match local(&["acpmux", "session", "resume", "--id", id]) {
+            Command::ResumeQueue { session } => assert_eq!(session, id),
+            _ => panic!("resume --id did not run the local resume"),
+        }
+        // `--idempotency-key` is still a mesh-only flag.
+        assert!(
+            Cli::try_parse_from(["acpmux", "session", "stop", id, "--idempotency-key", "k"])
+                .is_err()
+        );
+        // With --mesh, --id still names the exact id.
+        let stop = parse(&["acpmux", "session", "stop", "stable-id", "--mesh", "--id"]);
+        assert_eq!(stop["to"], json!({"sessionId": "stable-id"}));
     }
 }

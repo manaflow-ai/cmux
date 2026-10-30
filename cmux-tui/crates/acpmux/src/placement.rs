@@ -91,6 +91,8 @@ struct Lanes {
     cores_per_lane: f64,
     max_lanes: Option<f64>,
     max_swap_used_fraction: Option<f64>,
+    /// Why the host takes no new work: its registry entry's `hold` (`lane_hosts`).
+    held: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,6 +114,7 @@ impl Default for Lanes {
             cores_per_lane: 1.0,
             max_lanes: None,
             max_swap_used_fraction: None,
+            held: None,
         }
     }
 }
@@ -143,13 +146,90 @@ impl Lanes {
                 .and_then(Value::as_f64)
                 .filter(|f| f.is_finite() && *f > 0.0)
                 .map(|f| f.min(1.0)),
+            held: v.get(HELD).and_then(Value::as_str).map(str::to_owned),
         }
     }
 }
 
+/// The key `lane_hosts` sets in a held machine's `lanes` value: why it is held.
+const HELD: &str = "_held";
+
+/// Why a machine's registry entry holds it at `now_ms` (Unix ms): its `hold`, as `true`, a
+/// reason, or `{reason|why, owner, until}`. A hold whose `until` passed holds nothing; one whose
+/// `until` cannot be read still holds (fail closed, as the registry's `reservations` readers do).
+/// `None`: no hold, or `hold: false`/null.
+pub fn hold(machine: &Value, now_ms: u64) -> Option<String> {
+    let hold = machine.get("hold")?;
+    let text = |k: &str| hold.get(k).and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+    let (reason, until) = match hold {
+        Value::Bool(true) => (None, None),
+        Value::String(s) if !s.trim().is_empty() => (Some(s.clone()), None),
+        Value::Object(_) => (
+            text("reason").or_else(|| text("why")).map(str::to_owned),
+            hold.get("until")
+                .map(|u| u.as_str().and_then(crate::server::machine_health::rfc3339_ms)),
+        ),
+        _ => return None,
+    };
+    if let Some(Some(end)) = until
+        && end <= now_ms
+    {
+        return None;
+    }
+    let mut why = "held".to_owned();
+    if let Some(owner) = text("owner") {
+        why.push_str(&format!(" for {owner}"));
+    }
+    if let Some(until) = text("until") {
+        why.push_str(&format!(" until {until}"));
+    }
+    if let Some(reason) = reason {
+        why.push_str(&format!(": {reason}"));
+    }
+    Some(why)
+}
+
+/// Whether `name` (by name or alias) is a machine a person works at, so new work started there
+/// from the command line goes to a fleet host instead (`new` with no `--host`): its registry
+/// entry says `interactive: true`, or it holds the registry's role for a person's own machine
+/// (`leo-mac`, "one of Leo's own Macs, where he works", or `attended`, "a person is the recovery
+/// path"). False without a registry or for a machine it does not list.
+pub fn interactive(registry: Option<&Value>, name: &str) -> bool {
+    let Some(machines) = registry.and_then(|r| r.get("machines")).and_then(Value::as_object) else {
+        return false;
+    };
+    let want = canonical(name);
+    machines
+        .iter()
+        .find(|(n, m)| {
+            canonical(n) == want
+                || m.get("aliases")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .any(|a| canonical(a) == want)
+        })
+        .is_some_and(|(_, m)| {
+            m.get("interactive").and_then(Value::as_bool) == Some(true)
+                || m.get("roles")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .any(|r| r == "leo-mac" || r == "attended")
+        })
+}
+
 /// The registry's lane hosts by every name they answer to (`name`, `aliases`).
-/// `None`: no registry, so every candidate is sized by the defaults.
+/// `None`: no registry, so every candidate is sized by the defaults. A machine whose `hold`
+/// holds now (`hold`) carries why in its `lanes` value, and placement refuses it.
 pub fn lane_hosts(registry: Option<&Value>) -> Option<Vec<(Vec<String>, Value)>> {
+    lane_hosts_at(registry, crate::store::now_ms())
+}
+
+/// [`lane_hosts`] at `now_ms` (Unix ms), for the holds it reads.
+pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<String>, Value)>> {
     let machines = registry?.get("machines")?.as_object()?;
     Some(
         machines
@@ -161,7 +241,11 @@ pub fn lane_hosts(registry: Option<&Value>) -> Option<Vec<(Vec<String>, Value)>>
                         names.push(canonical(a));
                     }
                 }
-                (names, m.get("lanes").cloned().unwrap_or(Value::Null))
+                let mut lanes = m.get("lanes").cloned().unwrap_or(Value::Null);
+                if let (Some(why), Some(l)) = (hold(m, now_ms), lanes.as_object_mut()) {
+                    l.insert(HELD.into(), json!(why));
+                }
+                (names, lanes)
             })
             .collect(),
     )
@@ -238,6 +322,11 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         w.refused = Some("not a lane host (no lanes entry in fleet-registry.json)".into());
         return w;
     };
+    // A held host takes no new work, even when no other host has room.
+    if let Some(why) = &lanes.held {
+        w.refused = Some(why.clone());
+        return w;
+    }
     if !known {
         w.why = "resources unknown (a build without host health)".into();
         return w;

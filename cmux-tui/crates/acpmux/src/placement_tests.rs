@@ -226,3 +226,69 @@ fn a_reading_without_live_agents_leaves_the_lane_cap_out_never_counts_zero() {
     assert_eq!(host(&v, "light")["room"], 11.0, "{v:#}");
     assert_eq!(host(&v, "light")["live"], Value::Null, "{v:#}");
 }
+
+/// A machine whose registry entry carries a `hold` takes no new work, even when every other host
+/// is out of room; a hold whose `until` passed holds nothing, and one whose `until` cannot be
+/// read still holds.
+#[test]
+fn a_held_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    for held in [
+        json!(true),
+        json!("lawrence is using it"),
+        json!({"owner": "lawrencecchen", "reason": "a teammate's", "until": "2999-01-01T00:00:00Z"}),
+        json!({"until": "not a time"}),
+    ] {
+        let mut reg = registry();
+        reg["machines"]["big"]["hold"] = held.clone();
+        let v = place(&both, Some(&reg), Work::Agent);
+        // small has no room (RAM 5 - 4 under one lane), so it takes the work anyway.
+        assert_eq!(v["pick"], "small", "{held}: {v}");
+        assert_eq!(v["overloaded"], true, "{held}: {v}");
+        let big = host(&v, "big");
+        assert_eq!(big["ok"], false);
+        assert!(big["refused"].as_str().unwrap().starts_with("held"), "{big}");
+        // Alone, the held host is still refused: a hold is not load.
+        let v = place(&both[..1], Some(&reg), Work::Build);
+        assert_eq!(v["pick"], Value::Null, "{held}: {v}");
+    }
+    let mut reg = registry();
+    reg["machines"]["big"]["hold"] = json!({"owner": "lawrencecchen", "reason": "a teammate's", "until": "2999-01-01T00:00:00Z"});
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(
+        host(&v, "big")["refused"],
+        "held for lawrencecchen until 2999-01-01T00:00:00Z: a teammate's"
+    );
+    // Lapsed, or `hold: false`: big is a candidate again.
+    for lapsed in [json!({"until": "2001-01-01T00:00:00Z"}), json!(false), Value::Null] {
+        reg["machines"]["big"]["hold"] = lapsed.clone();
+        assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big", "{lapsed}");
+    }
+    // By alias too, and at a chosen time.
+    reg["machines"]["big"]["hold"] = json!({"until": "2026-10-30T20:50:00Z"});
+    let hosts = lane_hosts_at(Some(&reg), 0).unwrap();
+    assert!(registry_lanes(&hosts, "big-box").unwrap()[HELD].is_string());
+    let after = crate::server::machine_health::rfc3339_ms("2026-10-30T20:50:01Z").unwrap();
+    let hosts = lane_hosts_at(Some(&reg), after).unwrap();
+    assert!(registry_lanes(&hosts, "big-box").unwrap().get(HELD).is_none());
+}
+
+/// A machine a person works at: `interactive: true`, or the registry's role for one (`leo-mac`,
+/// `attended`), by name or alias. Fleet hosts and unlisted machines are not.
+#[test]
+fn interactive_machines_come_from_the_registry() {
+    let reg = json!({"machines": {
+        "cosmic": {"aliases": ["mbp"], "roles": ["mac-build", "leo-mac"]},
+        "air": {"roles": ["attended", "leo-mac"]},
+        "desk": {"interactive": true},
+        "lane": {"roles": ["session-host", "codex-lanes"], "lanes": {}},
+        "quiet": {"interactive": false}}});
+    for name in ["cosmic", "MBP.local", "air", "desk"] {
+        assert!(interactive(Some(&reg), name), "{name}");
+    }
+    for name in ["lane", "quiet", "unlisted"] {
+        assert!(!interactive(Some(&reg), name), "{name}");
+    }
+    assert!(!interactive(None, "cosmic"), "no registry: nothing is interactive");
+}

@@ -1058,7 +1058,10 @@ pub struct NewArgs {
     /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
     /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
     /// machine as a remote client, are refused with the command that works instead.
-    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick. Left out on a
+    /// machine the fleet registry marks interactive (a person's own Mac), the session is placed
+    /// as with `auto`, off every such machine, unless `--cwd` or `-w` names a folder here;
+    /// `local` keeps it on this machine.
     #[arg(long)]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
