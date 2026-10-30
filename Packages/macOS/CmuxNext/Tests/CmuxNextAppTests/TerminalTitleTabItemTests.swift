@@ -33,6 +33,13 @@ struct TerminalTitleTabItemTests {
         #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").title == "Release")
     }
 
+    @Test(arguments: ["~", "zsh", "bash"])
+    func aUserNameThatLooksLikeAShellTitleKeepsItsName(name: String) throws {
+        let tab = try #require(store(title: "zsh", name: name).tab(surface: 1))
+        tab.setObservedCwd("/tmp/cmux-demo")
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").title == name)
+    }
+
     @Test func aBareShellTitleUsesTheReportedFolder() throws {
         let tab = try #require(store(title: "~").tab(surface: 1))
         tab.setObservedCwd("/tmp/cmux-demo")
