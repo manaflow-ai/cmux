@@ -5,7 +5,7 @@ import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation } fro
 import { manageChiefs } from "../chief-brain/brain-chiefs.ts"
 import type { BrainConfig } from "../chief-brain/brain-store.ts"
 import { OWNER_APPROVAL_REQUIRED } from "../chief-brain/effect-policy.ts"
-import { attachmentLine, ownsRoot, replyTarget, rootOf, sharedChief, type AttachmentMeta } from "../chief-brain/brain-text.ts"
+import { answerTarget, attachmentLine, inboxKind, sharedChief, type AttachmentMeta } from "../chief-brain/brain-text.ts"
 
 /**
  * The Chief Protocol HOST services O's brain calls (brain -> host JSON-RPC requests), as the Chief
@@ -40,16 +40,15 @@ const str = (v: unknown, name: string): string => {
 }
 
 /**
- * Where a post that answers `message` without naming a thread goes: in the thread Home shows `message` in
- * (brain-text rootOf), named the way the owner takes it (replyTarget: `reply_to` only with the answered
- * message's own root). `reply_to` alone, as before, when `message` is not among the newest messages.
+ * Where a post that answers `message` without naming a thread goes (brain-text `answerTarget`, by the
+ * conversation's own kind). `reply_to` alone, as before, when `message` is not among the newest messages.
  */
-const answerTarget = async (env: Env, conversation: string, principal: Principal, message: string): Promise<{ reply_to?: string; thread_root?: string }> => {
+const postTarget = async (env: Env, conversation: string, principal: Principal, message: string): Promise<{ reply_to?: string; thread_root?: string }> => {
   // A failed read never costs the reply: it goes as before, `reply_to` alone.
   const view = await readConversation(env, conversation, principal, 100).catch(() => ({ refused: "owner.unreachable" }) as const)
   const answered = "refused" in view ? undefined : view.messages.find((m) => m.id === message)
   if (!answered || "refused" in view) return { reply_to: message }
-  return replyTarget("group", message, rootOf(message, view.messages), ownsRoot(answered))
+  return answerTarget(inboxKind(view.head), answered, view.messages)
 }
 
 export const hostCall = async (env: Env, who: Who, method: string, params: Record<string, unknown>): Promise<unknown> => {
@@ -95,7 +94,7 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
       const replyTo = typeof params.reply_to === "string" ? params.reply_to : undefined
       // A reply names its thread: with `reply_to` alone it would show at the top level and its parent again above it.
       const target =
-        typeof params.thread_root === "string" ? { ...(replyTo ? { reply_to: replyTo } : {}), thread_root: params.thread_root } : replyTo ? await answerTarget(env, conversation, principal, replyTo) : {}
+        typeof params.thread_root === "string" ? { ...(replyTo ? { reply_to: replyTo } : {}), thread_root: params.thread_root } : replyTo ? await postTarget(env, conversation, principal, replyTo) : {}
       const res = await postReply(env, principal, {
         conversation,
         text: body,

@@ -1,6 +1,6 @@
 import { conversation } from "@cmux/home-core"
 import { describe, expect, it } from "vitest"
-import { ownsRoot, replyTarget, rootOf, SHARED_CHIEF, threadOf } from "../src/chief-brain/brain-text.ts"
+import { answerTarget, ownsRoot, replyTarget, rootOf, SHARED_CHIEF, threadOf } from "../src/chief-brain/brain-text.ts"
 
 /**
  * #25588: where a Cloud Chief's reply goes. A message that answers another without naming a thread
@@ -37,9 +37,13 @@ const answers = (id: string) => ({ reply_to: { message_id: id, part_index: 0 } }
 const messages = [msg(1), msg(2, { ...answers("msg_1"), thread_root: "msg_1" }), msg(3, answers("msg_2")), msg(4, answers("msg_1"))]
 const byId = new Map(messages.map((m) => [m.id, m]))
 
+type Target = { reply_to?: string; thread_root?: string }
+
 /** The Chief's answer to `question` as `post` sends it, applied by the owner: the committed message, or the refusal. */
-const answer = (kind: string, question: conversation.Message) => {
-  const target = replyTarget(kind, question.id, threadOf(question, messages), ownsRoot(question))
+const answer = (kind: string, question: conversation.Message) => commit(replyTarget(kind, question.id, threadOf(question, messages), ownsRoot(question)))
+
+/** `target` sent by the Chief and applied by the owner: the committed message, or the refusal. */
+const commit = (target: Target) => {
   const result = conversation.apply(head, {
     actor: CHIEF,
     idempotency_key: "reply",
@@ -107,5 +111,32 @@ describe("the Chief's reply, as the owner commits it", () => {
 
   it("rows from before own_root keep the old target (the root is the message's own)", () => {
     expect(replyTarget("chief", "msg_2", "msg_1")).toEqual({ reply_to: "msg_2", thread_root: "msg_1" })
+  })
+})
+
+describe("the opencode host's post with reply_to only (answerTarget), as the owner commits it", () => {
+  const post = (kind: string, id: string) => commit(answerTarget(kind, byId.get(id)!, messages))
+
+  it("quotes a top-level message on the main timeline of the Chief's line, a shared Chief line and a DM", () => {
+    for (const kind of ["chief", SHARED_CHIEF, "dm"]) expect(post(kind, "msg_1")).toEqual({ reply_to: "msg_1", thread_root: undefined })
+  })
+
+  it("threads a channel answer under a top-level message", () => {
+    expect(post("group", "msg_1")).toEqual({ reply_to: "msg_1", thread_root: "msg_1" })
+  })
+
+  it("answers a thread reply, or a reply without a root, in its thread, in every kind", () => {
+    for (const kind of ["chief", SHARED_CHIEF, "dm", "group"]) {
+      expect(post(kind, "msg_2")).toEqual({ reply_to: "msg_2", thread_root: "msg_1" })
+      expect(post(kind, "msg_3")).toEqual({ reply_to: undefined, thread_root: "msg_1" })
+    }
+  })
+})
+
+describe("ownsRoot", () => {
+  it("takes a null thread_root as none, as threadOf does, so the target is one the owner takes", () => {
+    const nullRoot = { ...msg(5, answers("msg_2")), thread_root: null } as unknown as conversation.Message
+    expect(ownsRoot(nullRoot)).toBe(false)
+    expect(replyTarget("chief", nullRoot.id, threadOf(nullRoot, messages), ownsRoot(nullRoot))).toEqual({ thread_root: "msg_1" })
   })
 })

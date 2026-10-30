@@ -226,7 +226,20 @@ export const replyTarget = (kind: string, message: string, threadRoot: string | 
 }
 
 /** Whether `threadOf(m)` is the root `m` names itself (or none): a reply to `m` may then name it with `reply_to: m`. */
-export const ownsRoot = (m: Message): boolean => m.thread_root !== undefined || m.reply_to === undefined
+export const ownsRoot = (m: Message): boolean => m.thread_root != null || m.reply_to == null
+
+/**
+ * Where a post that names `reply_to` but no thread goes, in a conversation of inbox `kind` (opencode host
+ * `message.send`): in the thread Home shows `answered` in (`rootOf`), named the way the owner takes it
+ * (`replyTarget`). The model asked to quote `answered`, so a top-level message in the Chief's line or a DM
+ * keeps that quote on the main timeline (`reply_to` alone, as before) instead of starting a thread there.
+ */
+export const answerTarget = (kind: string, answered: Message, messages: ReadonlyArray<Message>): { reply_to?: string; thread_root?: string } => {
+  const root = rootOf(answered.id, messages)
+  const own = ownsRoot(answered)
+  if (own && oneLine(kind) && root === answered.id) return { reply_to: answered.id }
+  return replyTarget("group", answered.id, root, own)
+}
 
 /** The model's "post nothing" answer, with punctuation and case ignored ("NO_REPLY.", "no_reply"). */
 export const isNoReply = (text: string) => text.replace(/[^A-Za-z_]/g, "").toUpperCase() === NO_REPLY
