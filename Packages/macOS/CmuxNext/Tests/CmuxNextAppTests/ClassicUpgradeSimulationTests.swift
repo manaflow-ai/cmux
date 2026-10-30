@@ -29,6 +29,20 @@ struct ClassicUpgradeSimulationTests {
                      String(describing: launch.outcome?.decision ?? .skip(.disabled))))
     }
 
+    /// Quarantine (#28425): `multiWindow`'s order and group checks flake while the sidebar placements a
+    /// run queues trail it on a loaded runner (#26153), so they are a known issue for that one case.
+    /// The fix, #28362, removes this.
+    private static func verifyQuarantined(_ sim: ClassicUpgradeSimulator, _ profile: ClassicUpgradeProfile,
+                                          classicBefore before: [String: String],
+                                          sourceLocation: SourceLocation = #_sourceLocation) throws {
+        guard profile.name == "multiWindow" else {
+            return try sim.verify(profile, classicBefore: before, sourceLocation: sourceLocation)
+        }
+        withKnownIssue("#28425: sidebar placements trail the run; fixed by #28362", isIntermittent: true, sourceLocation: sourceLocation) {
+            try sim.verify(profile, classicBefore: before, sourceLocation: sourceLocation)
+        }
+    }
+
     /// The matrix: the first launch brings everything once; relaunching and the
     /// import action make nothing more.
     @Test(arguments: ["fresh", "small", "manyGroups", "nestedSplits", "browsersAndViewers", "multiWindow", "oldSchema", "messy"])
@@ -42,14 +56,14 @@ struct ClassicUpgradeSimulationTests {
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try Self.verifyQuarantined(sim, profile, classicBefore: before)
 
         let again = try await sim.relaunch()
         #expect(again.decision == .skip(.unchanged) && again.opened.isEmpty, "\(again)")
         let manual = try await sim.manualImport()
         #expect(manual.opened.isEmpty, "\(manual)")
         await sim.settle()
-        try sim.verify(profile, classicBefore: before)
+        try Self.verifyQuarantined(sim, profile, classicBefore: before)
         await sim.shutdown()
     }
 

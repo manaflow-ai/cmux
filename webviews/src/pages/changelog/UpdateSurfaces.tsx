@@ -23,6 +23,7 @@
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
+import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { distinctSummary, readableUpdate } from "./model";
 import { compareVersions } from "./store";
@@ -208,7 +209,9 @@ export function UpdateReadyHighlights({
                 {index + 1}
               </span>
               <div>
-                <span className="wn-pop-item">{item.title}</span>
+                <span className="wn-pop-item">
+                  {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+                </span>
                 {item.summary && distinctSummary(item.title, item.summary) && (
                   <span className="wn-pop-line">{item.summary}</span>
                 )}
@@ -232,7 +235,9 @@ export function UpdateReadyHighlights({
                 <h4>{strings.t(`changelog.group.${category}`)}</h4>
                 <ul>
                   {items.map((item) => (
-                    <li key={item.id}>{item.title}</li>
+                    <li key={item.id}>
+                      {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}
+                    </li>
                   ))}
                 </ul>
               </section>
