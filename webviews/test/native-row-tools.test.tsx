@@ -68,10 +68,12 @@ const flatten = (menu: readonly NativeRowMenuItem[]): NativeRowMenuItem[] =>
 function nativeHarness() {
   const container = mount();
   let tools: NativeRowTool[] = [];
+  const sent: string[] = [];
   const host = {
     enabled: true,
     callNative: async (_method: string, params: Record<string, unknown>) => {
       tools = params.tools as NativeRowTool[];
+      sent.push(JSON.stringify(tools));
     },
   };
   const render = async (props: Partial<ComponentProps<typeof ChatHeaderTools>> = {}) => {
@@ -107,7 +109,7 @@ function nativeHarness() {
     await act(async () => invoke(id, item.id));
     return item.id;
   };
-  return { container, render, tool, row, invoke, click };
+  return { container, render, tool, row, invoke, click, sent };
 }
 
 test("a native worktree without mutation handlers opens its informational menu", async () => {
@@ -460,6 +462,70 @@ test("native Needs You compact policy and same-target replacements use the DOM a
   expect(calls).toHaveLength(4);
   await act(async () => h.invoke("needsYou", h.tool("needsYou").menu![1]!.children![0]!.id));
   expect(calls.at(-1)).toBe("go:two");
+});
+
+test("native Needs You keeps colliding ask and answer identifiers distinct", async () => {
+  const h = nativeHarness();
+  const calls: string[] = [];
+  const items = [ask("costarring"), ask("liquid")];
+  const actions = {
+    answer: async (item: (typeof items)[number], choice: { id: string }) => {
+      calls.push(`answer:${item.id}:${choice.id}`);
+    },
+    goTo: (item: (typeof items)[number]) => {
+      calls.push(`go:${item.id}`);
+    },
+    ask: async () => {},
+  };
+  await h.render({ nativeNeedsYou: { items, mode: "pinned", actions } });
+  const rows = h.tool("needsYou").menu!;
+  const ids = flatten(rows).map(({ id }) => id);
+  expect(new Set(ids).size).toBe(ids.length);
+  for (const row of rows) {
+    await act(async () => h.invoke("needsYou", row.children!.find(({ id }) => id.includes(":answer:"))!.id));
+    await act(async () => h.invoke("needsYou", row.children!.find(({ id }) => id.endsWith(":goToSource"))!.id));
+  }
+  expect(calls).toEqual(["answer:costarring:yes", "go:costarring", "answer:liquid:yes", "go:liquid"]);
+  calls.length = 0;
+  const choices = ["costarring", "liquid"].map((id) => ({ id, label: id, tone: "allow" as const }));
+  await h.render({ nativeNeedsYou: { items: [{ ...ask("choice"), answers: choices }], mode: "pinned", actions } });
+  const answers = h.tool("needsYou").menu![0]!.children!.filter(({ id }) => id.includes(":answer:"));
+  expect(answers[0]!.id).not.toBe(answers[1]!.id);
+  for (const row of answers) await act(async () => h.invoke("needsYou", row.id));
+  expect(calls).toEqual(["answer:choice:costarring", "answer:choice:liquid"]);
+});
+
+test("unchanged menu inputs do not resend, and returning to an old target never reuses its action IDs", async () => {
+  const h = nativeHarness();
+  const calls: string[] = [];
+  const actions = {
+    answer: async (item: { id: string }) => {
+      calls.push(item.id);
+    },
+    goTo: () => {},
+    ask: async () => {},
+  };
+  const first = { items: [ask("costarring")], mode: "pinned" as const, actions };
+  await h.render({ nativeNeedsYou: first });
+  const firstId = h.tool("needsYou").menu![0]!.children![0]!.id;
+  const count = h.sent.length;
+  await h.render({ nativeNeedsYou: { ...first, items: [...first.items], actions: { ...actions } } });
+  expect(h.sent).toHaveLength(count);
+  expect(h.tool("needsYou").menu![0]!.children![0]!.id).toBe(firstId);
+  await h.render({ nativeNeedsYou: { ...first, items: [ask("liquid")] } });
+  const secondId = h.tool("needsYou").menu![0]!.children![0]!.id;
+  expect(secondId).not.toBe(firstId);
+  await act(async () => h.invoke("needsYou", firstId));
+  await h.render({ nativeNeedsYou: first });
+  const returnedId = h.tool("needsYou").menu![0]!.children![0]!.id;
+  expect(returnedId).not.toBe(firstId);
+  await act(async () => {
+    h.invoke("needsYou", firstId);
+    h.invoke("needsYou", secondId);
+  });
+  expect(calls).toEqual([]);
+  await act(async () => h.invoke("needsYou", returnedId));
+  expect(calls).toEqual(["costarring"]);
 });
 
 test("native Needs You surfaces rejected answer and ask actions while keeping retry enabled", async () => {

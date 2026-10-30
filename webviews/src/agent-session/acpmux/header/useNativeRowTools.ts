@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { HeaderQuickTool } from "./headerQuickTools";
 import {
   dispatchNativeRowTool,
+  createNativeMenuKeys,
   nativeRowToolBindings,
   onNativeRowToolInvocation,
   type NativeRowPanel,
@@ -25,7 +26,8 @@ export function useNativeRowTools(
 ): boolean {
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
-  const bindings = nativeRowToolBindings(quick, host?.panel, extras, t);
+  const [menuKeys] = useState(createNativeMenuKeys);
+  const bindings = nativeRowToolBindings(quick, host?.panel, extras, t, menuKeys);
   const current = useRef(bindings);
   current.current = bindings;
   const payload = JSON.stringify({ tools: bindings.map(({ tool }) => tool) });

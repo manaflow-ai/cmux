@@ -130,15 +130,24 @@ function nativeMenuURL(value: string | undefined): string | undefined {
     // Invalid URL: keep the row as information, without a link action.
   }
 }
-const stableMenuKey = (value: string): string => {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-};
-const identityKey = (value: string, fallback: string) => stableMenuKey(value || fallback);
+type NativeMenuKey = (value: string) => string;
+let nextMenuKey = 0n;
+/// One hook owns a scope. Exact values keep their IDs across unchanged renders; values absent
+/// from the next build are forgotten. The page-wide counter never reuses a retired ID, including
+/// across unmounts. Only the current descriptor inputs are retained, not a history of targets.
+export function createNativeMenuKeys(): () => NativeMenuKey {
+  let previous = new Map<string, string>();
+  return () => {
+    const prior = previous;
+    const current = new Map<string, string>();
+    previous = current;
+    return (value) => {
+      const id = current.get(value) ?? prior.get(value) ?? (++nextMenuKey).toString(36);
+      current.set(value, id);
+      return id;
+    };
+  };
+}
 const menuLabel = (label: string, fallback = "…") => boundedNativeText(label, fallback);
 function menuCost(item: NativeRowMenuItem): number {
   return 1 + (item.children?.reduce((sum, child) => sum + menuCost(child), 0) ?? 0);
@@ -197,9 +206,13 @@ function addMessages(menu: NativeRowMenuItem[], prefix: string, messages: string
     menu.push({ id: `${prefix}.message:${index}`, label: menuLabel(message), enabled: false }),
   );
 }
-function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>, t: Translate): RowToolBinding {
+function worktreeBinding(
+  extra: NonNullable<NativeRowExtras["worktree"]>,
+  t: Translate,
+  key: NativeMenuKey,
+): RowToolBinding {
   const { value, ops } = extra;
-  const identity = identityKey(ops.identity, "worktree");
+  const identity = key(ops.identity || "worktree");
   const menu: NativeRowMenuItem[] = [],
     runs = new Map<string, () => void>();
   // Like the DOM popover, a new chat still opens the worktree facts before mutations are available.
@@ -224,10 +237,14 @@ function worktreeBinding(extra: NonNullable<NativeRowExtras["worktree"]>, t: Tra
     menuRuns: runs,
   };
 }
-function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, t: Translate): RowToolBinding {
+function pullRequestBinding(
+  extra: NonNullable<NativeRowExtras["pullRequest"]>,
+  t: Translate,
+  key: NativeMenuKey,
+): RowToolBinding {
   const { value, ops } = extra;
-  const identity = identityKey(ops.identity, "pullRequest");
-  const revision = stableMenuKey(JSON.stringify(value.checkList));
+  const identity = key(ops.identity || "pullRequest");
+  const revision = key(JSON.stringify(value.checkList));
   const menu: NativeRowMenuItem[] = [],
     runs = new Map<string, () => void>();
   const openId = `pullRequest.open:${identity}`;
@@ -262,16 +279,16 @@ function pullRequestBinding(extra: NonNullable<NativeRowExtras["pullRequest"]>, 
     variableMenu,
   };
 }
-function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBinding | undefined {
+function needsYouBinding(extra: NativeRowNeedsYou, t: Translate, key: NativeMenuKey): RowToolBinding | undefined {
   if (extra.mode === "off") return undefined;
   const capabilities = needsYouModeCapabilities(extra.mode);
   const runs = new Map<string, () => void>();
-  const revision = stableMenuKey(JSON.stringify([extra.mode, extra.items]));
-  const menu = extra.items.map((item) => {
-    const itemKey = `${revision}:${stableMenuKey(item.id)}`,
+  const revision = key(JSON.stringify([extra.mode, extra.items]));
+  const menu = extra.items.map((item, itemIndex) => {
+    const itemKey = `${revision}:${itemIndex}`,
       children: NativeRowMenuItem[] = [];
-    for (const choice of capabilities.answers ? item.answers : []) {
-      const id = `needsYou:${itemKey}:answer:${stableMenuKey(choice.id)}`;
+    for (const [choiceIndex, choice] of (capabilities.answers ? item.answers : []).entries()) {
+      const id = `needsYou:${itemKey}:answer:${choiceIndex}`;
       children.push({
         id,
         label: menuLabel(
@@ -348,10 +365,12 @@ export function nativeRowToolBindings(
   panel?: NativeRowPanel,
   extras?: NativeRowExtras,
   t: Translate = translate,
+  menuKeys = createNativeMenuKeys(),
 ): RowToolBinding[] {
+  const key = menuKeys();
   const bindings: RowToolBinding[] = [
-    ...(extras?.worktree ? [worktreeBinding(extras.worktree, t)] : []),
-    ...(extras?.pullRequest ? [pullRequestBinding(extras.pullRequest, t)] : []),
+    ...(extras?.worktree ? [worktreeBinding(extras.worktree, t, key)] : []),
+    ...(extras?.pullRequest ? [pullRequestBinding(extras.pullRequest, t, key)] : []),
     ...(panel
       ? [
           {
@@ -367,7 +386,7 @@ export function nativeRowToolBindings(
         ]
       : []),
     ...(extras?.needsYou?.nativeMenu
-      ? [needsYouBinding(extras.needsYou, t)].filter((binding): binding is RowToolBinding => binding !== undefined)
+      ? [needsYouBinding(extras.needsYou, t, key)].filter((binding): binding is RowToolBinding => binding !== undefined)
       : []),
     ...quick.map(({ id, icon, label, pressed, run }) => ({
       tool: {
