@@ -189,6 +189,51 @@ struct WorkspaceGroupPinLiveTests {
         }
     }
 
+    /// Delete Group on a pinned group (https://github.com/manaflow-ai/cmux/issues/27700): the group leaves the
+    /// document and the personal store, and its workspace stays open.
+    @Test func deleteGroupRemovesAPinnedGroup() async throws {
+        try await Self.withLaunched { launched in
+            let services = launched.services
+            let group = try await Self.makeGroup("delete-pinned", launched)
+            let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.shown.rawValue), origin: .user)
+            #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "Pin Group")
+            let workspaces = services.daemon.store.workspaces.count
+            #expect(services.registry.perform("workspaceGroup.delete", invocation: target), "\(launched.refusals.reasons)")
+            @MainActor func gone() -> Bool {
+                SidebarDocStore.current?.records.items[group.shown.rawValue] == nil
+                    && services.machines.local.store.personal.group(group.personal) == nil
+                    && services.windows.active.flatMap { services.windows.controller(for: $0.state.id)?.sidebar.model.group(group.shown) } == nil
+            }
+            await Self.wait(within: .seconds(20)) { gone() }
+            #expect(gone(), "Delete Group left the pinned group: \(Self.state(group, launched)), refusals \(launched.refusals.reasons)")
+            #expect(services.daemon.store.workspaces.count == workspaces, "Delete Group keeps the workspaces")
+        }
+    }
+
+    /// Unpin Group on a pinned group whose fold changed while it was pinned (a fold writes the group back to the
+    /// personal store, which the document then follows): it stays unpinned.
+    @Test func aPinnedGroupUnpinsAfterItsFoldChanges() async throws {
+        try await Self.withLaunched { launched in
+            let services = launched.services
+            let group = try await Self.makeGroup("fold-unpin", launched)
+            let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: group.shown.rawValue), origin: .user)
+            @MainActor func collapsed() -> Bool? {
+                guard case .group(_, _, _, let collapsed)? = SidebarDocStore.current?.records.items[group.shown.rawValue]?.body else { return nil }
+                return collapsed
+            }
+            #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(true, group, launched, "Pin Group")
+            #expect(services.registry.perform("toggleFocusedWorkspaceGroupCollapsed", invocation: target), "\(launched.refusals.reasons)")
+            await Self.wait(within: .seconds(10)) { collapsed() == true }
+            #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
+            await Self.expectPinned(false, group, launched, "Unpin Group after a fold")
+            #expect(services.registry.perform("toggleFocusedWorkspaceGroupCollapsed", invocation: target), "\(launched.refusals.reasons)")
+            await Self.wait(within: .seconds(10)) { collapsed() == false }
+            await Self.expectPinned(false, group, launched, "a fold after Unpin Group")
+        }
+    }
+
     /// The MCP tool names the group by its own id and sets a state: the same state twice is no toggle.
     @Test func pinnedArgumentSetsTheState() async throws {
         try await Self.withLaunched { launched in
