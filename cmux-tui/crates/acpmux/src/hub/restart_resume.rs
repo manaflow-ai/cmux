@@ -245,7 +245,7 @@ struct BoundedJsonWriter<'a> {
 impl std::io::Write for BoundedJsonWriter<'_> {
     fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
         let remaining = self.limit.saturating_sub(self.bytes.len());
-        self.bytes.extend_from_slice(&input[..input.len().min(remaining)]);
+        self.bytes.extend(input.iter().take(remaining));
         if input.len() > remaining {
             // Stop serialization immediately, rather than visiting the rest of a large input.
             Err(std::io::Error::other("restart input prefix is full"))

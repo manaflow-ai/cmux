@@ -29,6 +29,7 @@
 //! own queued prompts run next as before.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::AtomicU64;
 
 /// How long a cancelled turn waits for its agent's answer before acpmux ends it.
@@ -43,7 +44,7 @@ const INTERRUPT_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 pub(super) fn forced_answer(restarted: bool) -> Value {
     let mut mux = json!({"cancelForced": true});
     if restarted {
-        mux["restarted"] = json!(true);
+        mux.set("restarted", json!(true));
     }
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
 }
