@@ -39,7 +39,8 @@ use super::*;
 use std::path::{Path, PathBuf};
 
 /// One configured MCP server: its command and args, word by word.
-/// `resolved`: for a command given by name, the program the harness's `PATH` runs for it.
+/// `resolved`: for a command given by name, the program the harness's `PATH` runs for it; for a
+/// relative path (`./mcp-server`), that path in the harness's folder, where the harness runs it.
 /// `interpreter`: for a script, the interpreter its `#!` line runs (`#!/usr/bin/env node`: the
 /// `node` the harness's `PATH` runs).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,15 +174,17 @@ impl ChildAgent {
     }
 }
 
-/// `servers` with each one given by name resolved on `path`, and each script's interpreter,
-/// without repeats.
-fn resolved(mut servers: Vec<Sidecar>, path: &str, _cwd: &Path) -> Vec<Sidecar> {
+/// `servers` with each one given by name resolved on `path`, each relative path in `cwd` (the
+/// harness's folder: never acpmux's own), and each script's interpreter, without repeats.
+fn resolved(mut servers: Vec<Sidecar>, path: &str, cwd: &Path) -> Vec<Sidecar> {
     for s in servers.iter_mut() {
         if !s.command.contains('/') {
             s.resolved = first_on_path(&s.command, path);
+        } else if Path::new(&s.command).is_relative() {
+            s.resolved = Some(cwd.join(&s.command).to_string_lossy().into_owned());
         }
         let program =
-            if s.command.contains('/') { Some(s.command.as_str()) } else { s.resolved.as_deref() };
+            s.resolved.as_deref().or(Path::new(&s.command).is_absolute().then_some(&*s.command));
         s.interpreter = program.and_then(|p| shebang(Path::new(p), path));
     }
     servers.dedup();
@@ -359,7 +362,8 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
     }
     let program = |w: &str| w == s.command || s.resolved.as_deref() == Some(w);
     // The executable is the program: the same path, or the same file once both are canonical (a
-    // symlinked install, `/private/var` for `/var`).
+    // symlinked install, `/private/var` for `/var`). Only an absolute path is canonicalized: a
+    // relative one would resolve in acpmux's folder, and `resolved` holds it in the harness's.
     let is_exe = |w: &str| {
         let w = Path::new(w);
         let canonical = |p: &Path| std::fs::canonicalize(p).ok();
@@ -367,7 +371,7 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
     };
     let runs_program = |first: &str| {
         program(first)
-            && [first.contains('/').then_some(first), s.resolved.as_deref()]
+            && [Path::new(first).is_absolute().then_some(first), s.resolved.as_deref()]
                 .into_iter()
                 .flatten()
                 .any(is_exe)
