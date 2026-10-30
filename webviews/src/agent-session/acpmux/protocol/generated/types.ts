@@ -1234,12 +1234,12 @@ export type ToolSummary = {
 /** The running turn. */
 export type TurnSummary = {
   /**
-   * What the turn does right now: its latest tool call's title; null
-   * until it calls one (`hub/activity.rs`).
+   * What the turn does right now: its latest tool call's title, masked
+   * (`secret_scan`); null until it calls one (`hub/activity.rs`).
    */
   activity: (string | null);
   client: string;
-  /** Its plan's entry in progress; null without one. */
+  /** Its plan's entry in progress, masked; null without one. */
   planStep: (string | null);
   prompt: string;
   promptId: string;
