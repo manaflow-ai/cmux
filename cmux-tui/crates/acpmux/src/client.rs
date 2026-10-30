@@ -16,6 +16,11 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// Absolute path to the CLI bundled with the app that started the daemon,
+    /// when the daemon was launched by an app. A standalone acpmux CLI does
+    /// not inherit the app's environment, so this is how `--group` finds the
+    /// matching app CLI from a plain shell.
+    daemon_cli_path: std::sync::Mutex<Option<std::path::PathBuf>>,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The person challenge `{nonce, connection}` of this connection, when the
@@ -91,6 +96,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            daemon_cli_path: std::sync::Mutex::new(None),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
             out,
@@ -122,6 +128,11 @@ impl Client {
         let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        *client.daemon_cli_path.lock_or_recover() = init
+            .pointer("/_meta/acpmux/cliPath")
+            .and_then(Value::as_str)
+            .filter(|path| std::path::Path::new(path).is_absolute())
+            .map(std::path::PathBuf::from);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
             *client.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -152,6 +163,11 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The CLI path reported by the daemon's app launcher, if any.
+    pub fn daemon_cli_path(&self) -> Option<std::path::PathBuf> {
+        self.daemon_cli_path.lock_or_recover().clone()
     }
 
     /// Whether the daemon listed `feature` at initialize.

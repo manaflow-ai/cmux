@@ -1,0 +1,19 @@
+{
+  "title": "Cloud sidebar: the Machines section's three layouts with sample machines",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "The right sidebar's Cloud section (Machines)", "cmux": ["action", "run", "switchRightSidebarToMachines"], "wait": 1.5},
+    {"title": "Sample Cloud, SSH and server machines (connected, connecting, offline)",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "machines.section.fixture", "value": true}}, "wait": 1.5,
+     "optional": "debug.tunables and machines.section.fixture are DEBUG only and new in this change"},
+    {"title": "Version B: grouped, the state under each name",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "machines.section.style", "value": "grouped"}}, "wait": 1.5,
+     "optional": "machines.section.style is new in this change"},
+    {"title": "Version C: one list, the state under each name",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "machines.section.style", "value": "flat"}}, "wait": 1.5,
+     "optional": "machines.section.style is new in this change"},
+    {"title": "Version A (the default): grouped, one line per machine",
+     "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "machines.section.style", "value": "compact"}}, "wait": 1.5,
+     "optional": "machines.section.style is new in this change"}
+  ]
+}

@@ -387,15 +387,19 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         expect(r.y).toBeGreaterThanOrEqual(list.y - 1);
         expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
       }
-      // The transcript runs under the stack to the pane's bottom (bottomStack.css), and the stack
-      // holds the question above the pull requests, the pull requests above the queue and the
-      // queue above the composer.
+      // The stack holds the question above the queue and the queue above the composer. The pull
+      // requests are no part of it since #26082: with no reply drawn to carry their links, they
+      // stand in a row after the latest one (summary/pullRequestPlacement.ts), in flow right above
+      // the stack; the transcript runs down to that row, and the row down to the stack.
       const card = await box(".acpmux-permission-card");
       const stack = await box(".acpmux-main > .acpmux-dock");
+      const links = await box(".acpmux-transcript-after-latest");
       expect(stack.y).toBeLessThanOrEqual(card.y + 1);
-      expect(Math.abs(scroller.y + scroller.height - (stack.y + stack.height))).toBeLessThanOrEqual(1);
-      expect(card.y + card.height).toBeLessThanOrEqual(dock.y + 1);
-      expect(dock.y + dock.height).toBeLessThanOrEqual(list.y + 1);
+      expect(await page.locator(".acpmux-main > .acpmux-dock .acpmux-pr-dock").count()).toBe(0);
+      expect(Math.abs(scroller.y + scroller.height - links.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(links.y + links.height - stack.y)).toBeLessThanOrEqual(1);
+      expect(dock.y + dock.height).toBeLessThanOrEqual(card.y + 1);
+      expect(card.y + card.height).toBeLessThanOrEqual(list.y + 1);
       // The queue shows its own bottom edge: nothing below tucks it under.
       expect(list.y + list.height).toBeLessThanOrEqual(composer.y + 1);
       await page.close();
