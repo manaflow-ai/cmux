@@ -135,6 +135,8 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // The App Group resolves once, off the main thread (its lookup is a synchronous XPC).
         PushAppGroup.prime()
         PushReplies.shared.registerCategories()
+        // One notification per Chief reply: the Mac's push when this phone gets them, else the app's own alert.
+        ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
         CmuxLinkOpener.shared.handler = { NotificationRouter.shared.open(link: $0) }
         #if DEBUG && targetEnvironment(simulator)
