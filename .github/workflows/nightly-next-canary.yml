@@ -56,8 +56,10 @@ jobs:
       length: ${{ steps.feed.outputs.length }}
       # The item's sparkle:edSignature, which the downloaded DMG's bytes must verify against.
       ed_signature: ${{ steps.feed.outputs.ed_signature }}
-      # The head of the build's nightly-next run, which the app's CMUXCommit must name.
+      # The commit the build was made from, which the app's CMUXCommit must name; empty when it
+      # cannot be read now, and then no canary runs (no verdict, the next tick tries again).
       source_commit: ${{ steps.source.outputs.commit }}
+      source_commit_from: ${{ steps.source.outputs.commit_source }}
       checked: ${{ steps.seen.outputs.cache-hit }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
@@ -68,6 +70,7 @@ jobs:
             scripts/ci/nightly_next_canary_mode.py
             scripts/ci/nightly_next_artifact_check.py
             scripts/ci/nightly_next_fix_forward.py
+            scripts/ci/release-signer/verify_appcast_item.py
           sparse-checkout-cone-mode: false
 
       # Resolve the compatibility mode; this workflow only performs static checks.
@@ -123,21 +126,26 @@ jobs:
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
           lookup-only: true
 
-      # The commit the durable verdict will name for this build (nightly_next_train.py
-      # checked_verdict reads the same run head). A read that fails fails this job: no
-      # canary runs, so no verdict, and the next tick tries again.
+      # The commit the build was made from: its signed release notes' head, else (no notes) the
+      # head of its completed nightly-next run (nightly_next_artifact_check.py expected-commit).
+      # Unreadable now prints commit= (empty) and a warning, so the canary job does not run: no
+      # verdict, nothing cached, and the next tick tries again. A crash fails the job, also with
+      # no verdict.
       - name: Resolve the build's source commit
         id: source
         if: steps.seen.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD: ${{ steps.feed.outputs.build }}
-        run: python3 -I scripts/ci/nightly_next_artifact_check.py expected-commit --repo "$GITHUB_REPOSITORY" --build "$BUILD" | tee -a "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          python3 -I scripts/ci/nightly_next_artifact_check.py expected-commit --repo "$GITHUB_REPOSITORY" \
+            --build "$BUILD" --notes-base "${NIGHTLY_NEXT_FEED%/*}/notes" | tee -a "$GITHUB_OUTPUT"
 
   canary:
     name: canary ${{ needs.pick.outputs.build }}
     needs: pick
-    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true'
+    if: needs.pick.result == 'success' && needs.pick.outputs.checked != 'true' && needs.pick.outputs.source_commit != ''
     # No secrets: this job inspects the published artifact only. An owned Mac's
     # side label on attempt 1 (a side lane: owned_pool_rescue.SIDE_WORKFLOW_PATHS
     # on main re-runs a refused job), Blacksmith macOS 26 from attempt 2 on. Never
@@ -158,6 +166,7 @@ jobs:
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
       DMG_ED_SIGNATURE: ${{ needs.pick.outputs.ed_signature }}
       SOURCE_COMMIT: ${{ needs.pick.outputs.source_commit }}
+      SOURCE_COMMIT_FROM: ${{ needs.pick.outputs.source_commit_from }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -192,12 +201,12 @@ jobs:
           echo "app=$app" >> "$GITHUB_OUTPUT"
           # The bytes and the source, not only the length and build number: the feed's
           # edSignature must verify over the downloaded DMG with the pinned key, and the
-          # app's CMUXCommit must name the head of the build's nightly-next run. Either
+          # app's CMUXCommit must name the commit the build was made from. Either
           # mismatch fails this step, so the verdict is fail.
           python3 -I scripts/ci/nightly_next_artifact_check.py dmg --dmg "$RUNNER_TEMP/canary.dmg" \
             --length "$DMG_LENGTH" --ed-signature "$DMG_ED_SIGNATURE" >> "$GITHUB_OUTPUT"
           python3 -I scripts/ci/nightly_next_artifact_check.py commit --plist "$app/Contents/Info.plist" \
-            --expected "$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
+            --expected "$SOURCE_COMMIT" --expected-source "$SOURCE_COMMIT_FROM" >> "$GITHUB_OUTPUT"
 
       - name: Detach the DMG
         if: always()

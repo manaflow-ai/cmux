@@ -14,16 +14,24 @@ the exact bytes they downloaded.
       cmux NEXT key, nightly.yml NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY). Prints sha256=<hex> of the
       bytes checked, for GITHUB_OUTPUT, and appends one line to GITHUB_STEP_SUMMARY when set.
 
-  expected-commit --repo OWNER/NAME --build BUILD
-      The source commit of BUILD: the head of the nightly-next nightly.yml run that made it (build =
-      run id + two-digit attempt), as nightly_next_fix_forward.build_commit reads it and the durable
-      verdict records it (nightly_next_train.checked_verdict). Prints commit=<40 hex> for
-      GITHUB_OUTPUT; exit 1 when the run cannot be read or is not a nightly-next publishing run.
-      Needs GH_TOKEN for `gh api`.
+  expected-commit --repo OWNER/NAME --build BUILD --notes-base URL
+      The commit BUILD was made from, as GITHUB_OUTPUT lines commit=<40 hex> and commit_source=.
+      nightly.yml may build an earlier commit than its run's head (pin-cmux-tui.sh
+      resolve-newest-published), and stamps that commit's first 7 hex as CMUXCommit. Its record is
+      the build's signed release notes, URL/<BUILD>.json ("head", signed with the content-signing
+      key, nightly.yml CONTENT_PUBLIC_KEY, in URL/<BUILD>.json.sig). A build with none (a recovered
+      build; the notes job publishes only a run's own build) falls back to the head of the
+      nightly-next nightly.yml run that made it (build = run id + two-digit attempt;
+      nightly_next_fix_forward.build_commit, the commit the durable verdict records), but only once
+      that run has completed, so a canary never reads the run head while the notes are on their way.
+      When neither can be read (an error, a bad signature, a run still going, a build no nightly-next
+      run made) it prints commit= (empty) and a warning, and exits 0: no expected commit, so the
+      canary records no verdict and the next tick checks the build again. Needs GH_TOKEN for `gh api`.
 
   commit --plist Info.plist --expected SHA
       Fails (exit 1) unless the app's CMUXCommit is a valid commit (7 to 40 lowercase hex; nightly.yml
-      stamps the build commit's first 7) and SHA (40 hex) starts with it, so a stale or misassembled
+      stamps the build commit's first 7) and SHA (40 hex, expected-commit's) starts with it, so a stale
+      or misassembled
       DMG that carries the expected build number but another commit never passes. Prints
       commit=<CMUXCommit> for GITHUB_OUTPUT and writes the comparison to GITHUB_STEP_SUMMARY.
 """
@@ -33,16 +41,22 @@ import argparse
 import base64
 import hashlib
 import importlib.util
+import json
 import os
 from pathlib import Path
 import plistlib
 import re
 import sys
+import tempfile
+import urllib.error
+import urllib.request
 
 HERE = Path(__file__).resolve().parent
 VERIFY = HERE / "release-signer" / "verify_appcast_item.py"
 # nightly.yml env NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY (tests/test_nightly_next_artifact_check.py keeps them equal).
 NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY = "IOPItMLjtc4NsROTNZ6a/jsUW+C4fcicl6SNjVVvzRM="
+# nightly.yml sign-release-notes env CONTENT_PUBLIC_KEY, the key the release notes are signed with (same test).
+CONTENT_PUBLIC_KEY = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -51,6 +65,10 @@ APP_COMMIT = re.compile(r"^[0-9a-f]{7,40}$")
 
 class Mismatch(Exception):
     pass
+
+
+class Unknown(Exception):
+    """The expected commit cannot be read now: no verdict, the next tick tries again."""
 
 
 def _ed25519_verify():
@@ -92,7 +110,7 @@ def check_commit(app_commit: str, expected: str) -> str:
     if not APP_COMMIT.match(app_commit):
         raise Mismatch(f"the app's CMUXCommit {app_commit!r} is not a commit SHA")
     if not expected.startswith(app_commit):
-        raise Mismatch(f"the app was built from {app_commit}, the build's nightly-next run is at {expected}")
+        raise Mismatch(f"the app was built from {app_commit}, the build's source commit is {expected}")
     return app_commit
 
 
@@ -102,31 +120,78 @@ def read_app_commit(plist: Path) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def expected_commit(repo: str, build: str, api=None) -> str:
-    """The head of BUILD's nightly-next run; Mismatch when there is none."""
+def fetch_url(url: str) -> bytes | None:
+    """URL's bytes, None on a 404; any other error raises."""
+    request = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-next-canary/1", "Cache-Control": "no-cache"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+
+
+def signed_notes_head(build: str, notes_base: str, fetch, public_key: str | None = None) -> str | None:
+    """The "head" of BUILD's signed release notes, None when they are not published; Unknown when
+    they cannot be read or trusted."""
+    public_key = public_key or CONTENT_PUBLIC_KEY
+    nonce = f"?canary={os.environ.get('GITHUB_RUN_ID', '0')}"  # past a cached 404 from an earlier tick
+    url = f"{notes_base.rstrip('/')}/{build}.json"
+    try:
+        body = fetch(url + nonce)
+        if body is None:
+            return None
+        signature = fetch(f"{url}.sig{nonce}")
+    except Exception as error:  # noqa: BLE001 - any read error is no answer this tick
+        raise Unknown(f"could not read {url}: {error}") from None
+    if signature is None:
+        raise Unknown(f"{url} has no signature")
+    try:
+        raw = base64.b64decode(signature.strip(), validate=True)
+        public = base64.b64decode(public_key, validate=True)
+    except ValueError:
+        raise Unknown(f"{url}.sig or the content key is not base64") from None
+    with tempfile.NamedTemporaryFile() as copy:
+        copy.write(body)
+        copy.flush()
+        if len(raw) != 64 or len(public) != 32 or not _ed25519_verify()(public, raw, copy.name):
+            raise Unknown(f"{url}.sig does not verify with the content-signing key {public_key}")
+    try:
+        notes = json.loads(body)
+    except ValueError:
+        raise Unknown(f"{url} is not JSON") from None
+    head = str(notes.get("head", "")) if isinstance(notes, dict) else ""
+    if str(notes.get("build", "")) != build or not FULL_SHA.match(head):
+        raise Unknown(f"{url} is not build {build}'s notes with a 40-hex head")
+    return head
+
+
+def expected_commit(repo: str, build: str, notes_base: str, api=None, fetch=fetch_url) -> tuple[str, str]:
+    """(commit, where it came from) for BUILD; Unknown when it cannot be read now."""
     sys.path.insert(0, str(HERE))
     import nightly_next_fix_forward as fix_forward  # noqa: PLC0415
 
-    errors: list[str] = []
-
-    def reading(path: str, *rest, **kwargs):
-        try:
-            return (api or fix_forward.gh_api)(path, *rest, **kwargs)
-        except Exception as error:  # noqa: BLE001 - build_commit treats it as no run; keep the reason
-            detail = (getattr(error, "stderr", "") or "").strip()  # gh's own message
-            errors.append(detail or str(error).strip() or type(error).__name__)
-            raise
-
     try:
-        run = fix_forward.build_run(build)
+        run_id = fix_forward.build_run(build)
     except ValueError as error:
-        raise Mismatch(str(error)) from None
-    commit = fix_forward.build_commit(reading, repo, build)
+        raise Unknown(str(error)) from None
+    head = signed_notes_head(build, notes_base, fetch)
+    if head:
+        return head, "its signed release notes"
+    try:
+        run = (api or fix_forward.gh_api)(f"repos/{repo}/actions/runs/{run_id}")
+    except Exception as error:  # noqa: BLE001 - any read error is no answer this tick
+        detail = (getattr(error, "stderr", "") or "").strip() or str(error).strip() or type(error).__name__
+        raise Unknown(f"build {build} has no signed release notes and run {run_id} could not be read: {detail}") from None
+    status = run.get("status") if isinstance(run, dict) else None
+    if status != "completed":
+        raise Unknown(f"build {build} has no signed release notes yet and run {run_id} is {status}")
+    commit = fix_forward.build_commit(lambda path, *rest, **kwargs: run, repo, build)
     if not commit:
-        why = f"could not read run {run}: {errors[-1]}" if errors else \
-            f"run {run} is not a nightly-next publishing run of {repo}"
-        raise Mismatch(f"build {build} has no source commit ({why})")
-    return commit
+        raise Unknown(f"build {build} has no signed release notes and run {run_id} is not a nightly-next "
+                      f"publishing run of {repo}")
+    return commit, f"the head of its nightly-next run {run_id} (it has no signed release notes)"
 
 
 def _summary(line: str) -> None:
@@ -147,17 +212,21 @@ def main(argv: list[str] | None = None) -> int:
     e = sub.add_parser("expected-commit")
     e.add_argument("--repo", required=True)
     e.add_argument("--build", required=True)
+    e.add_argument("--notes-base", required=True)
     c = sub.add_parser("commit")
     c.add_argument("--plist", type=Path, required=True)
     c.add_argument("--expected", default="")
+    c.add_argument("--expected-source", default="")
     args = parser.parse_args(argv)
     if args.command == "expected-commit":
         try:
-            commit = expected_commit(args.repo, args.build)
-        except Mismatch as error:
-            print(f"::error title=nightly-next source commit::{error}", file=sys.stderr)
-            return 1
-        print(f"commit={commit}")
+            commit, source = expected_commit(args.repo, args.build, args.notes_base)
+        except Unknown as error:
+            print(f"::warning title=nightly-next source commit::{error}; no verdict this tick", file=sys.stderr)
+            _summary(f"- Source commit of build {args.build}: unknown ({error}); not checked, no verdict this tick")
+            print("commit=\ncommit_source=")
+            return 0
+        print(f"commit={commit}\ncommit_source={source}")
         return 0
     if args.command == "commit":
         app_commit = read_app_commit(args.plist)
@@ -168,8 +237,8 @@ def main(argv: list[str] | None = None) -> int:
             _summary(f"- Source commit: **mismatch**: {error}")
             return 1
         print(f"commit={app_commit}")
-        _summary(f"- Source commit: the app's CMUXCommit `{app_commit}` is the build's nightly-next run head "
-                 f"`{args.expected}`")
+        _summary(f"- Source commit: the app's CMUXCommit `{app_commit}` is the build's source commit "
+                 f"`{args.expected}`" + (f" ({args.expected_source})" if args.expected_source else ""))
         return 0
     try:
         sha256 = check_dmg(args.dmg, args.length, args.ed_signature, args.public_key)

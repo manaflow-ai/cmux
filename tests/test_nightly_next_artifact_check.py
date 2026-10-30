@@ -10,7 +10,9 @@ from __future__ import annotations
 import base64
 import contextlib
 import importlib.util
+import hashlib
 import io
+import json
 import os
 import plistlib
 import re
@@ -137,33 +139,134 @@ class CommitTests(unittest.TestCase):
         self.assertEqual(self.run_commit({"CMUXCommit": HEAD[:7]}, expected=HEAD[:7])[0], 1)
 
 
+# RFC 8032 Ed25519 signing, in Python, for signed release notes the tests make.
+_ed = importlib.util.module_from_spec(importlib.util.spec_from_file_location(
+    "verify_appcast_item", ROOT / "scripts" / "ci" / "release-signer" / "verify_appcast_item.py"))
+_ed.__spec__.loader.exec_module(_ed)
+
+
+def _encode(point) -> bytes:
+    x, y, z, _ = point
+    inverse = pow(z, _ed.P - 2, _ed.P)
+    x, y = x * inverse % _ed.P, y * inverse % _ed.P
+    return (y | ((x & 1) << 255)).to_bytes(32, "little")
+
+
+def ed25519_keypair(seed: bytes) -> tuple[int, bytes, bytes]:
+    digest = hashlib.sha512(seed).digest()
+    scalar = int.from_bytes(digest[:32], "little") & ((1 << 254) - 8) | (1 << 254)
+    return scalar, digest[32:], _encode(_ed._mul(scalar, _ed.BASE))
+
+
+def ed25519_sign(seed: bytes, message: bytes) -> bytes:
+    scalar, prefix, public = ed25519_keypair(seed)
+    r = int.from_bytes(hashlib.sha512(prefix + message).digest(), "little") % _ed.L
+    big_r = _encode(_ed._mul(r, _ed.BASE))
+    k = int.from_bytes(hashlib.sha512(big_r + public + message).digest(), "little") % _ed.L
+    return big_r + ((r + k * scalar) % _ed.L).to_bytes(32, "little")
+
+
+SEED = bytes(range(32))
+CONTENT_KEY = base64.b64encode(ed25519_keypair(SEED)[2]).decode()
+NOTES = "https://files-next.cmux.com/nightly-next/next/notes"
+BUILD = "4097386595501"
+RUN = f"repos/{REPO}/actions/runs/40973865955"
+
+
 class ExpectedCommitTests(unittest.TestCase):
-    def test_the_head_of_the_builds_nightly_next_run(self) -> None:
-        seen = []
+    """The commit a build was made from: its signed release notes' head (nightly.yml may build an
+    earlier commit than its run's head), else its completed run's head; Unknown otherwise."""
+
+    def setUp(self) -> None:
+        patcher = mock.patch.object(check, "CONTENT_PUBLIC_KEY", CONTENT_KEY)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.api_calls: list[str] = []
+
+    def notes(self, head: str = OTHER, build: str = BUILD, seed: bytes = SEED) -> dict:
+        body = json.dumps({"build": build, "head": head}).encode()
+        return {f"{NOTES}/{BUILD}.json": body,
+                f"{NOTES}/{BUILD}.json.sig": base64.b64encode(ed25519_sign(seed, body)) + b"\n"}
+
+    def resolve(self, served: dict, run: dict | Exception | None = None):
+        def fetch(url):
+            return served.get(url.split("?", 1)[0])
 
         def api(path, *rest, **kwargs):
-            seen.append(path)
-            return run_record()
+            self.api_calls.append(path)
+            if isinstance(run, Exception):
+                raise run
+            return run
 
-        self.assertEqual(check.expected_commit(REPO, "4097386595501", api), HEAD)
-        self.assertEqual(seen, [f"repos/{REPO}/actions/runs/40973865955"])
+        return check.expected_commit(REPO, BUILD, NOTES, api, fetch)
 
-    def test_a_run_that_is_not_a_nightly_next_publication_has_none(self) -> None:
-        for run in (run_record(head_branch="feat-cmux-next"), run_record(event="pull_request"),
-                    run_record(head_repository={"full_name": "someone/cmux"}), run_record(head_sha="abc")):
-            with self.assertRaisesRegex(check.Mismatch, "not a nightly-next publishing run"):
-                check.expected_commit(REPO, "4097386595501", lambda path, *a, **k: run)
+    def test_the_signed_notes_head_wins_over_the_run_head(self) -> None:
+        # The run's head is HEAD; the build was made from the earlier OTHER (resolve-newest-published).
+        commit, source = self.resolve(self.notes(OTHER), run_record(status="completed"))
+        self.assertEqual(commit, OTHER)
+        self.assertIn("signed release notes", source)
+        self.assertEqual(self.api_calls, [])
 
-    def test_an_unreadable_run_names_the_error(self) -> None:
-        def api(path, *rest, **kwargs):
-            raise RuntimeError("HTTP 403")
+    def test_notes_signed_with_another_key_are_not_trusted(self) -> None:
+        with self.assertRaisesRegex(check.Unknown, "does not verify"):
+            self.resolve(self.notes(seed=bytes(32)), run_record(status="completed"))
 
-        with self.assertRaisesRegex(check.Mismatch, "HTTP 403"):
-            check.expected_commit(REPO, "4097386595501", api)
+    def test_notes_of_another_build_or_without_a_full_head_are_not_trusted(self) -> None:
+        for served in (self.notes(build="1"), self.notes(head=OTHER[:7])):
+            with self.assertRaises(check.Unknown):
+                self.resolve(served, run_record(status="completed"))
 
-    def test_a_malformed_build_has_none(self) -> None:
-        with self.assertRaises(check.Mismatch):
-            check.expected_commit(REPO, "7", lambda path, *a, **k: run_record())
+    def test_unsigned_notes_are_not_trusted(self) -> None:
+        served = self.notes()
+        del served[f"{NOTES}/{BUILD}.json.sig"]
+        with self.assertRaisesRegex(check.Unknown, "no signature"):
+            self.resolve(served, run_record(status="completed"))
+
+    def test_without_notes_a_completed_runs_head(self) -> None:
+        commit, source = self.resolve({}, run_record(status="completed"))
+        self.assertEqual(commit, HEAD)
+        self.assertIn("no signed release notes", source)
+        self.assertEqual(self.api_calls, [RUN])
+
+    def test_without_notes_a_run_still_going_is_unknown(self) -> None:
+        with self.assertRaisesRegex(check.Unknown, "in_progress"):
+            self.resolve({}, run_record(status="in_progress"))
+
+    def test_without_notes_a_run_that_is_not_a_nightly_next_publication_is_unknown(self) -> None:
+        for run in (run_record(status="completed", head_branch="feat-cmux-next"),
+                    run_record(status="completed", event="pull_request"),
+                    run_record(status="completed", head_repository={"full_name": "someone/cmux"})):
+            with self.assertRaisesRegex(check.Unknown, "not a nightly-next publishing run"):
+                self.resolve({}, run)
+
+    def test_read_errors_are_unknown(self) -> None:
+        with self.assertRaisesRegex(check.Unknown, "HTTP 403"):
+            self.resolve({}, RuntimeError("HTTP 403"))
+
+        def broken(url):
+            raise OSError("connection reset")
+
+        with self.assertRaisesRegex(check.Unknown, "connection reset"):
+            check.expected_commit(REPO, BUILD, NOTES, lambda *a, **k: run_record(status="completed"), broken)
+
+    def test_a_malformed_build_is_unknown(self) -> None:
+        with self.assertRaises(check.Unknown):
+            check.expected_commit(REPO, "7", NOTES, lambda *a, **k: run_record(), lambda url: None)
+
+    def test_unknown_prints_an_empty_commit_and_exits_0(self) -> None:
+        out = io.StringIO()
+        with mock.patch.object(check, "expected_commit", side_effect=check.Unknown("run 1 is queued")), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = check.main(["expected-commit", "--repo", REPO, "--build", BUILD, "--notes-base", NOTES])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), "commit=\ncommit_source=\n")
+
+    def test_the_content_key_is_the_one_nightly_signs_notes_with(self) -> None:
+        nightly = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+        pinned = re.search(r"^\s+CONTENT_PUBLIC_KEY:\s*(\S+)\s*$", nightly, re.M)
+        self.assertIsNotNone(pinned)
+        source = (ROOT / "scripts" / "ci" / "nightly_next_artifact_check.py").read_text(encoding="utf-8")
+        self.assertIn(f'CONTENT_PUBLIC_KEY = "{pinned.group(1)}"', source)
 
 
 class CanaryWiringTests(unittest.TestCase):
@@ -184,6 +287,11 @@ class CanaryWiringTests(unittest.TestCase):
         sparse = pick["steps"][0]["with"]["sparse-checkout"].split()
         self.assertIn("scripts/ci/nightly_next_artifact_check.py", sparse)
         self.assertIn("scripts/ci/nightly_next_fix_forward.py", sparse)
+        self.assertIn("scripts/ci/release-signer/verify_appcast_item.py", sparse)
+        self.assertIn("set -euo pipefail", source["run"])
+        self.assertIn('--notes-base "${NIGHTLY_NEXT_FEED%/*}/notes"', source["run"])
+        # No expected commit: no canary job, so no verdict and nothing cached.
+        self.assertIn("needs.pick.outputs.source_commit != ''", self.jobs["canary"]["if"])
         feed = next(step for step in pick["steps"] if step.get("id") == "feed")["run"]
         self.assertIn("ed_signature=", feed)
 
