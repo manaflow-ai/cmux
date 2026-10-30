@@ -199,6 +199,15 @@ export type ComposerHandle = {
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
+  /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
+  /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
+  /// `failure` and Retry (composer/attachmentIntake.tsx attachLater). Its × runs `stop`.
+  attachLater(
+    name: string,
+    make: () => Promise<ComposerAttachment | undefined>,
+    failure: string,
+    stop?: () => void,
+  ): void;
   /// Takes out the chips with these ids, leaving the prompt as typed (a design mode highlight removed on the page).
   detach(ids: readonly string[]): void;
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
@@ -585,6 +594,7 @@ export function Composer({
     drop,
     dropLanded,
     attach,
+    attachLater,
   } = useAttachmentIntake({
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -683,6 +693,7 @@ export function Composer({
           return next;
         });
       },
+      attachLater,
       detach(ids) {
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
       },
@@ -736,7 +747,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments],
+    [setAttachments, attachLater],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -2029,7 +2040,7 @@ export function Composer({
                                   ? t("sidebar.sessions")
                                   : section === "tabs"
                                     ? (t as unknown as (key: string) => string)("newTab.openTabs")
-                                    : t("sidebar.searchPlaceholder"),
+                                    : t("files.search"),
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,
