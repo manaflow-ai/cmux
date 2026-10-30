@@ -34,12 +34,13 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = TerminalFrameStore(directory: dir)
-        store.save(Data([1, 2, 3]), for: "s/12:tab")
-        // A new store (a new launch) reads it back; the id is a safe file name.
-        #expect(TerminalFrameStore(directory: dir).load("s/12:tab") == Data([1, 2, 3]))
-        #expect(store.url(for: "s/12:tab").lastPathComponent == "s_12_tab.jpg")
-        store.remove("s/12:tab")
-        #expect(store.load("s/12:tab") == nil)
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "s/12:tab")
+        store.save(Data([1, 2, 3]), for: key)
+        // A new store (a new launch) reads it back; the scoped key is a safe file name.
+        #expect(TerminalFrameStore(directory: dir).load(key) == Data([1, 2, 3]))
+        #expect(store.url(for: key).lastPathComponent.hasPrefix("v1-"))
+        store.remove(key)
+        #expect(store.load(key) == nil)
     }
 
     @Test func cooledFrameNeverCrossesMacsAcrossRelaunch() throws {
@@ -53,6 +54,8 @@ import Testing
 
         // Mac A's frame is saved before its host cools out of the warm set.
         store.save(frameA, for: macA)
+        // A pre-fix, unscoped entry cannot be assigned to either Mac.
+        try Data([0xFF]).write(to: dir.appendingPathComponent("s1.jpg"))
         // Mac B opens its same-numbered tab before live output arrives.
         #expect(store.load(macB) == nil)
         #expect(store.load(macA) == frameA)
@@ -69,16 +72,17 @@ import Testing
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = TerminalFrameStore(directory: dir)
-        let old = store.ticket(for: "t")
-        store.save(Data([2]), for: "t")  // a newer frame, written at once (going to the background)
-        store.save(Data([1]), for: "t", ticket: old)
-        #expect(store.load("t") == Data([2]))
-        let late = store.ticket(for: "t")
-        store.remove("t")  // the tab closed
-        store.save(Data([3]), for: "t", ticket: late)
-        #expect(store.load("t") == nil)
-        let next = store.ticket(for: "t")
-        store.save(Data([4]), for: "t", ticket: next)
-        #expect(store.load("t") == Data([4]))
+        let key = TerminalFrameKey(accountID: "account-a", macID: "mac-a", surfaceID: "t")
+        let old = store.ticket(for: key)
+        store.save(Data([2]), for: key)  // a newer frame, written at once (going to the background)
+        store.save(Data([1]), for: key, ticket: old)
+        #expect(store.load(key) == Data([2]))
+        let late = store.ticket(for: key)
+        store.remove(key)  // the tab closed
+        store.save(Data([3]), for: key, ticket: late)
+        #expect(store.load(key) == nil)
+        let next = store.ticket(for: key)
+        store.save(Data([4]), for: key, ticket: next)
+        #expect(store.load(key) == Data([4]))
     }
 }
