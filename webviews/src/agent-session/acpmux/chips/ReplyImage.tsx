@@ -15,6 +15,7 @@
 import { useContext, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
+import { useStableImage } from "../conversation/imageEntries";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
@@ -110,15 +111,20 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
-  // Use the shared compositor-only fade for a calm handoff from the placeholder.
-  // The motion is disabled under reduced-motion; opacity never affects layout.
+  // An image fades in the first time it draws in the pane only (imageEntries.ts): a row that
+  // remounts (a streaming turn, the virtual transcript, a thumbnail row regrouping) shows it as it
+  // was, decoded in the frame that mounts it, never faded or blank again (Leo, 2026-10-29: "when
+  // I'm looking at fucking images, I don't want the screen to flicker").
+  const shown = useStableImage({ src });
+  const base = thumb ? "cv-thumb__img" : "cv-img";
   const image = (
     <img
-      className={thumb ? "cv-thumb__img cv-img--enter" : "cv-img cv-img--enter"}
+      className={shown.fresh ? `${base} cv-img--enter` : base}
       src={src}
       alt={alt}
-      loading="lazy"
-      decoding="async"
+      // Never lazy: a lazy image remounted in view waits a frame for its load and paints blank.
+      decoding={shown.decoded ? "sync" : "async"}
+      onLoad={shown.onLoad}
     />
   );
   if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;
