@@ -82,6 +82,15 @@ has no runner online, and a job queued at snapshot time may since have run):
 a moving Blacksmith label starts a job in a few minutes (6 vCPU: median 2.6
 min, p90 14.7, 2026-10-20 01:04Z to 02:35Z).
 
+A dead label counts as stalled too, with or without a queue (dead():
+simple_pool_picker.blacksmith_dead(), nothing running and no job started on it
+for an hour, read from a snapshot up to six hours old). The stall rule alone
+cannot tell a dead label from a busy one, and a label whose queue was cleared
+reads as free: on 2026-10-30 blacksmith-12vcpu-macos-26 had started nothing for
+about a day. A dead label takes no slot, no overflow and no retry_runner, and a
+feed's compile counts it full (fresh_stalled()), while another label shows
+life; with every label dead the snapshot says nothing to choose by.
+
 Nothing goes to GitHub-hosted macOS (Leo, 2026-10-27: "THE GITHUB HOSTED MACS /
 ARE THE SLOWEST THINGS / THEY PREVIOUSLY WREN'T EVEN UNDER CONSIDERATINO"). Until
 then fast-tier and swift-canary overflowed to hosted `macos-26` while Blacksmith
@@ -347,14 +356,15 @@ class Seen:
     # online runners; the side-route dead-end check above keeps reading wait durations.
     owned_queued: Mapping[str, int] = dataclasses.field(default_factory=dict)
     # When the janitor carries glaeda's listener health fields, these maps say
-    # whether the contract was evaluated and whether the label is full.  Keeping
-    # the evaluation here lets callers swap the artifact reader in one place.
+    # whether the contract was evaluated and whether the label is full.
     owned_full: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     owned_full_known: Mapping[str, bool] = dataclasses.field(default_factory=dict)
     snapshot: Mapping[str, Any] | None = dataclasses.field(default=None, compare=False)
     observed_at: dt.datetime | None = dataclasses.field(default=None, compare=False)
     # Stale snapshots preserve only freshness reservations (#28341).
     stale: bool = False
+    # The LABELS the snapshot, fresh or not, shows dead (dead()).
+    dead: frozenset[str] = frozenset()
 
 
 def _fleet_gates(snapshot: Mapping[str, Any] | None, env: Mapping[str, str]) -> Mapping[str, Any] | None:
@@ -452,6 +462,13 @@ def _field(pools: Mapping[str, Any], label: str, key: str) -> int:
         return 0
 
 
+def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> frozenset[str]:
+    """The LABELS the snapshot (fresh or not) shows dead (simple_pool_picker.dead_macos_26(), blacksmith_dead():
+    nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
+    shows every one dead: with no label showing life it says nothing to choose by."""
+    return frozenset(_picker_rule.dead_macos_26(snapshot, now)) & frozenset(LABELS)
+
+
 def queued(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, int] | None:
     """Each pool label's queued jobs (LABELS always) from a janitor snapshot at most
     QUEUE_SNAPSHOT_MINUTES old, else None."""
@@ -506,7 +523,7 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
         reserved = stale_reservations.reserved if stale_reservations is not None else {}
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
                 owned_queued=owned_queued, owned_full=full, owned_full_known=known, snapshot=snapshot,
-                observed_at=now, stale=fresh is None)
+                observed_at=now, stale=fresh is None, dead=dead(snapshot, now))
 
 
 def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
@@ -534,7 +551,18 @@ def reserved_from(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen 
         return None
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
     reserved = {label: count for label, count in reserved.items() if count}
-    return Seen(waits={}, age=max(0.0, age), reserved=reserved, observed_at=now, stale=True) if reserved else None
+    if not reserved:
+        return None
+    return Seen(waits={}, age=max(0.0, age), reserved=reserved, observed_at=now, stale=True, dead=dead(snapshot, now))
+
+
+def stale_seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
+    """seen(), else reserved_from(), else a stale Seen carrying only dead labels."""
+    found = seen(snapshot, now) or reserved_from(snapshot, now)
+    if found is not None:
+        return found
+    gone = dead(snapshot, now)
+    return Seen(waits={}, stale=True, dead=gone) if gone else None
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
@@ -547,10 +575,11 @@ def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[
                       or live.get(label, 0) == 0 and waits.get(label, 0.0) - age >= IDLE_STALL_MINUTES))
 
 
-def fresh_stalled(waits: Mapping[str, float]) -> tuple[str, ...]:
+def fresh_stalled(waits: Mapping[str, float], gone: Sequence[str] = ()) -> tuple[str, ...]:
     """The labels a feed's compile counts as full: an oldest queued wait of FRESH_STALL_MINUTES by now (seen()
-    gives a wait only to a label with a queue)."""
-    return tuple(label for label in LABELS if _picker_rule.blacksmith_stalled(1, waits.get(label, 0.0)))
+    gives a wait only to a label with a queue), or dead (`gone`, Seen.dead)."""
+    return tuple(label for label in LABELS
+                 if label in gone or _picker_rule.blacksmith_stalled(1, waits.get(label, 0.0)))
 
 
 def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
@@ -760,12 +789,15 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         fresh = (tuple([job for job in candidates(env, owned, promote_busy)
                         if (not held or job in feeds) and SMALL not in unavailable][:MAX_PER_RUN]) if saturated
                  else unread_fresh_jobs(env, owned) if SMALL not in unavailable else ())
-        fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
+        fresh_stall = fresh_stalled(seen.waits, seen.dead) if seen is not None else ()
         if fresh:
             # A feed's compile takes the last resort. The snapshot, read even when the
             # runner groups were refused, still shows a stalled queue: a feed's compile does not join it
             # (2026-10-27 01:11Z: 6 vCPU's oldest job had waited 148 min) and keeps the owned label.
-            if SMALL in fresh_stall:
+            # A label the snapshot, however old, shows dead is never that last resort.
+            if SMALL in seen_dead(seen):
+                why += f"; `{SMALL}` is dead (nothing running, no job started in an hour)"
+            elif SMALL in fresh_stall:
                 why += f"; `{SMALL}`'s oldest queued job has waited {seen.waits[SMALL]:.0f} min"
             else:
                 reason = ("no idle mini can take them" if saturated else "a feed's freshness waits on them")
@@ -773,23 +805,25 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                  f"{why}; {reason}, so {', '.join(fresh)} take `{SMALL}`; "
                                  "the rest stay on the minis' queue", fresh_stall)
         return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
+    gone = seen_dead(seen)
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
-    # Controller-declared outages and at-capacity backlog cannot be made live
-    # by the older shorter-queue exception below.
-    stall = tuple(dict.fromkeys((*stall, *unavailable)))
+    # Controller-declared outages, full labels, and dead labels cannot be made live
+    # by the shorter-queue exception below.
+    stall = tuple(dict.fromkeys((*stall, *unavailable, *(label for label in LABELS if label in gone))))
     jobs = candidates(env, owned, promote_busy)
     # Freshness first across runs too: while a nightly's build or signing job is queued for a Blacksmith
     # label (2026-10-26: nightly-next's build-sign-notarize-nightly from 19:38Z behind 68 PR jobs on
     # blacksmith-6vcpu-macos-26), no PR job of this run takes a slot there, and neither does its overflow.
     reserved = tuple(label for label in LABELS if seen is not None and seen.reserved.get(label, 0) > 0)
     fresh = tuple((env.get("FRESH_JOBS") or "").split())
-    fresh_stall = fresh_stalled(seen.waits) if seen is not None else ()
+    fresh_stall = fresh_stalled(seen.waits, gone) if seen is not None else ()
     placed = cascade(jobs, live, waiting, stall=stall, reserved=reserved,
                      fresh=fresh, fresh_stall=fresh_stall)
     # Free slots taken, the jobs left would wait on the owned label. With the owned pool read saturated,
     # 6 vCPU's moving queue takes them instead (overflow()): it is the routing order's last resort.
     unplaced = [job for job in jobs if not any(job in names for names in placed.values())]
-    blocked = saturated and dead_end(route_wait, live, waiting, seen)
+    # A dead SMALL is no shorter queue: dead_end() never waives its stall.
+    blocked = saturated and SMALL not in gone and dead_end(route_wait, live, waiting, seen)
     spilled = (overflow(unplaced, waiting, stall=stall, reserved=reserved, fresh=fresh, fresh_stall=fresh_stall,
                         already=len(placed[SMALL]), dead_end=blocked)
                if saturated and SMALL not in unavailable else ())
@@ -814,7 +848,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     if rerun_owned:
         retry = ""
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
-                     + (f" (stalled: oldest queued {seen.waits[label]:.0f} min)" if label in stall and seen else "")
+                     + (" (dead: nothing running, no job started in an hour)" if label in gone
+                        else f" (stalled: oldest queued {seen.waits.get(label, 0.0):.0f} min)"
+                        if label in stall and seen else "")
                      for label in LABELS)
     used = POOL_VCPU - pool_room(live, waiting)
     others = ", ".join(f"`{label}` {live.get(label, 0)} + {waiting.get(label, 0)}"
@@ -850,6 +886,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                            if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"),
                      fresh_stall=fresh_stall, fleet_jobs=fleet_jobs)
+
+
+def seen_dead(seen: Seen | None) -> frozenset[str]:
+    """The labels `seen` shows dead (Seen.dead), none without it."""
+    return seen.dead if seen is not None else frozenset()
 
 
 def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
@@ -923,10 +964,11 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
+
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
     snapshot = _fleet_gates(snapshot, env)
-    found = seen(snapshot, now) or reserved_from(snapshot, now)
+    found = stale_seen(snapshot, now)
     if live is not None:
         waiting = queued(snapshot, now)
         live = with_running(live, snapshot, now)
