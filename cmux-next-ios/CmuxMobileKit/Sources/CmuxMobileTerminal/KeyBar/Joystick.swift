@@ -24,7 +24,8 @@ enum JoystickDirection: Sendable, Equatable {
 final class JoystickEngine {
     static let radius: CGFloat = 28
     static let deadZone: CGFloat = JoystickRepeat.deadZone
-    /// The thumb's lowest point: inside the 44 pt key bar, above the keyboard.
+    /// The thumb's lowest point: inside the key row and the composer below
+    /// it, above the keyboard.
     static let maxDownwardThumb: CGFloat = 14
 
     private(set) var thumb: CGSize = .zero
@@ -144,9 +145,6 @@ final class JoystickEngine {
     }
 }
 
-/// 36 pt glass circle with a 14 pt thumb and four faint chevrons, so it
-/// reads as a joystick, not a radio button (SPEC P8). The thumb grows 1.2x
-/// while touched; each cursor step is a light haptic (`JoystickEngine`).
 /// The joystick's thumb while dragged, drawn over the whole terminal page so
 /// the key bar's clip does not cut it: it follows the finger up to 1.5x the
 /// circle and springs back on release (user note 2026-10-14).
@@ -158,8 +156,8 @@ struct JoystickThumbOverlay: View {
             let origin = proxy.frame(in: .global).origin
             if engine.showsFloatingThumb {
                 Circle()
-                    .fill(Color.secondary)
-                    .frame(width: 14, height: 14)
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 12, height: 12)
                     .scaleEffect(engine.touching ? 1.2 : 1)
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     .position(x: engine.center.x - origin.x + engine.thumb.width,
@@ -176,24 +174,19 @@ struct Joystick: View {
     let engine: JoystickEngine
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(Color.primary.opacity(engine.gear > 0 ? 0.16 : 0.08))
-                .frame(width: 32, height: 32)
-            ForEach(Array(["chevron.up", "chevron.right", "chevron.down", "chevron.left"].enumerated()), id: \.offset) { index, name in
-                Image(systemName: name)
-                    .font(.system(size: 6, weight: .bold))
-                    .foregroundStyle(Color.primary.opacity(0.3))
-                    .offset(x: [0, 11, 0, -11][index], y: [-11, 0, 11, 0][index])
-            }
-            Circle()
-                .fill(Color.secondary)
-                .frame(width: 14, height: 14)
-                // While dragged the thumb is drawn above the key bar, where
-                // it can leave the circle (`JoystickThumbOverlay`).
-                .opacity(engine.showsFloatingThumb ? 0 : 1)
-        }
-        .frame(width: 34, height: 40)
+        // Classic cmux iOS's arrow nub: a 28 pt circle with a 12 pt dot.
+        let size = JoystickGeometry.circle
+        Circle()
+            .fill(Color.white.opacity(0.9))
+            .frame(width: 12, height: 12)
+            // While dragged the dot is drawn above the key row, where it can
+            // leave the circle (`JoystickThumbOverlay`).
+            .opacity(engine.showsFloatingThumb ? 0 : 1)
+            .frame(width: size, height: size)
+            // A glass circle under the dot, as classic's nub (`UIGlassEffect`);
+            // not interactive: the drag owns the touch. The dot draws on top,
+            // crisp.
+            .glassEffect(engine.gear > 0 ? .regular.tint(Color.white.opacity(0.15)) : .regular, in: .circle)
         .onGeometryChange(for: CGPoint.self) { proxy in
             let frame = proxy.frame(in: .global)
             return CGPoint(x: frame.midX, y: frame.midY)

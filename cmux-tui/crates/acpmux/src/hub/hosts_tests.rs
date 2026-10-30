@@ -118,6 +118,16 @@ fn hosted_log() -> Log {
         true,
     );
     log.ask(6_000, false);
+    // Two fenced lines the host took (protocol 3); the harness has only the first.
+    let note =
+        |method: &str, params: Value| json!({"jsonrpc": "2.0", "method": method, "params": params});
+    for (method, params) in [
+        (agent_host::QUEUED_METHOD, json!({"receipt": 41})),
+        (agent_host::WRITTEN_METHOD, json!({"receipt": 41, "written": true})),
+        (agent_host::QUEUED_METHOD, json!({"receipt": 42})),
+    ] {
+        log.push("out", method, note(method, params), true);
+    }
     log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}}));
     log
 }
@@ -189,11 +199,49 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[tokio::test]
+async fn a_withdrawal_after_the_recovery_snapshot_is_not_lost() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.ask(7, false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.recovery_work(&session, "inc", log.host_seq);
+    assert_eq!(work.requests.len(), 1);
+    // The snapshot is complete, but the recovered handler has not run yet.
+    hub.withdraw_permission(&session, Some("inc"), &json!(7));
+    let key = super::super::permission_groups::AgentRequestKey::new(Some("inc"), &json!(7));
+    assert!(
+        session
+            .permissions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cancelled_requests
+            .contains(&key),
+        "the cancellation vanished before recovery admitted it"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn adoption_recovers_a_main_compaction_in_progress() {
+    let mut log = hosted_log();
+    log.update(json!({"sessionUpdate": "compaction", "state": "running"}));
+    log.update_of("sub", json!({"sessionUpdate": "compaction", "state": "completed"}));
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.recovery_work(&session, "inc", log.host_seq);
+    assert!(work.compacting, "main compaction was not recovered from the host log");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Everything `open_work` recovers, in a fixed order.
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
     format!(
-        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?}",
+        "{:?} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {:?} {} {} {:?} {:?} {:?} {:?} {:?} {:?}",
         w.turn.as_ref().map(|t| (t.0, &t.1, &t.2, &t.3, &t.4, t.5)),
         w.turn_at,
         w.heard_at,
@@ -209,14 +257,62 @@ fn work_fields(w: &OpenWork) -> String {
         w.unsandboxed,
         w.doing,
         permissions,
+        w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
+        w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
+        w.withdrawn_asks.iter().collect::<std::collections::BTreeSet<_>>(),
+        (&w.unwritten, w.receipts_unproven),
     )
+}
+
+/// A receipt note that can not be read (no number) leaves adoption nothing to rule out: it fails
+/// closed (`OpenWork::receipts_unproven`), whatever the other notes say.
+#[tokio::test]
+async fn an_unreadable_receipt_note_fails_closed() {
+    let mut log = hosted_log();
+    let method = agent_host::WRITTEN_METHOD;
+    let params = json!({"receipt": "42", "written": true});
+    log.push("out", method, json!({"jsonrpc": "2.0", "method": method, "params": params}), true);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert!(work.receipts_unproven, "an unreadable receipt note was taken as proof");
+    assert!(!hub.open_work(&session, "old").receipts_unproven, "another host's note counted");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Review round 2: a log that can not be read to its end (a segment the store refuses: here one
+/// others may write), or that has no start of the adopted incarnation, proves no receipt.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_log_read_short_proves_no_receipt() {
+    use std::os::unix::fs::PermissionsExt;
+    let (hub, root) = hub_with(1, &hosted_log()).await;
+    let session = hub.resolve("chat0").unwrap();
+    assert!(!hub.open_work(&session, "inc").receipts_unproven, "a whole log proved nothing");
+    assert!(hub.open_work(&session, "gone").receipts_unproven, "a host the log never started");
+    let events = hub.store.session_dir("chat0").unwrap().join("events");
+    for segment in std::fs::read_dir(events).unwrap() {
+        let path = segment.unwrap().path();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o620)).unwrap();
+    }
+    let work = hub.open_work(&session, "inc");
+    assert!(work.receipts_unproven, "a log the store could not read was taken as proof");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
 }
 
 /// What `open_work` recovers from the heads is what a parse of every record recovers: for the
 /// adopted incarnation and an older one, with the last turn open and with it closed.
 #[tokio::test]
 async fn open_work_from_heads_matches_a_parse_of_every_record() {
-    let open = hosted_log();
+    let mut open = hosted_log();
+    open.push(
+        "mux",
+        "permission_withdrawn",
+        json!({"agentRequestId": 6_000, "incarnation": "inc"}),
+        false,
+    );
     let mut closed = hosted_log();
     let last_start = closed.records.iter().rposition(|r| r.kind == "turn_started").unwrap();
     closed.records.truncate(last_start);
@@ -233,7 +329,11 @@ async fn open_work_from_heads_matches_a_parse_of_every_record() {
             let turn = work.turn.as_ref().map(|t| t.1.as_str());
             assert_eq!(turn, Some(format!("t{TURNS}").as_str()));
             assert_eq!(work.requests.len(), 1, "{:?}", work.requests);
+            assert!(work.cancelled_permissions.contains("6000"));
+            assert_eq!(work.permissions["6000"].2, Some(json!({"outcome": "cancelled"})));
             assert_eq!(work.steers.len(), 1);
+            // The #26241 residual risk: the line with no receipt logged is the one held again.
+            assert_eq!(work.unwritten, std::collections::BTreeSet::from([42]));
             assert!(work.harness_grant, "the answered ask chose allow always");
             assert!(work.doing.open_tools.contains("open"), "{:?}", work.doing);
             assert!(
@@ -273,6 +373,9 @@ async fn a_line_cut_short_never_moves_the_resume_point() {
     append(format!(
         r#"{{"seq":{seq},"at":1,"dir":"in","kind":"response","msg":{{"id":7,"jsonrpc":"2.0","result":{{"a":0,"hostSeq":999999}}"#
     ));
+    append(format!(
+        r#"{{"seq":{seq},"at":1,"dir":"mux","kind":"permission_withdrawn","msg":{{"incarnation":"inc","hostSeq":999999}}"#
+    ));
     for after in [whole, whole + 1] {
         assert_eq!(hub.last_host_seq(&session, "inc"), after);
         assert_eq!(hub.last_host_seq_parsed(&session, "inc"), after);
@@ -292,4 +395,42 @@ async fn a_line_cut_short_never_moves_the_resume_point() {
     }
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A controller's deferred withdrawal cannot stand for an entry of the next host, even if an
+/// older record carried that host's sequence. Both adoption reads must retain the real cursor.
+#[tokio::test]
+async fn a_deferred_withdrawal_never_moves_either_adoption_cursor() {
+    for incarnation in ["old", "inc"] {
+        let mut log = Log { records: Vec::new(), host_seq: 0 };
+        log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+        log.ask(7, false);
+        let real_cursor = if incarnation == "inc" { 900 } else { log.host_seq };
+        log.push(
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 7, "incarnation": incarnation}),
+            false,
+        );
+        if let Some(marker) = log.records.last_mut() {
+            marker.host_seq = Some(900);
+        }
+        // A crash may precede the raw copy; a stale copy may follow a replacement.
+        if incarnation == "old" {
+            log.push("in", method::CANCEL_REQUEST, json!({"params": {"requestId": 7}}), false);
+        }
+        let (hub, root) = hub_with(1, &log).await;
+        let session = hub.resolve("chat0").unwrap();
+        assert_eq!(hub.last_host_seq(&session, "inc"), real_cursor);
+        assert_eq!(hub.last_host_seq_parsed(&session, "inc"), real_cursor);
+        let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+        let heads = hub.open_work(&session, "inc");
+        assert_eq!(heads.last_host_seq, real_cursor);
+        assert_eq!(work_fields(&heads), work_fields(&all));
+        let expected = (incarnation == "inc").then(|| json!({"outcome": "cancelled"}));
+        assert_eq!(heads.permissions["7"].2, expected);
+        assert!(heads.withdrawn.is_empty());
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

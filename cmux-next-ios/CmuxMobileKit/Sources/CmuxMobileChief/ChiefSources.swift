@@ -218,6 +218,14 @@ public final class ChiefSources {
         }
     }
 
+    /// Home shows again: reads `chief.list` again unless a look runs, so a
+    /// Cloud Chief archived or deleted on another device leaves Home here too
+    /// (a ready one is kept until the list says otherwise).
+    public func recheck() {
+        if case .looking = cloudState { return }
+        refresh()
+    }
+
     /// Reads `chief.list` (and the chief's brain state) and points the
     /// Cloud session at the preferred chief's main conversation.
     public func refresh() {
@@ -235,6 +243,13 @@ public final class ChiefSources {
     }
 
     private func apply(_ found: Lookup, userID: String, http: ChiefCloudHTTP) {
+        // A failed look (no network, a failed read) never takes down a Cloud Chief that works: only an
+        // answer does (the list without it: archived or deleted; its brain turned off; no brains here).
+        if case let .ready(current) = cloudState, case let .unavailable(_, nil, chiefs, brains) = found,
+           brains != false, chiefs?.contains(where: { $0.id == current.id }) ?? true {
+            if let chiefs { cloudChiefs = chiefs }
+            return
+        }
         if let chiefs = found.chiefs { cloudChiefs = chiefs }
         if let available = found.brainsAvailable { brainsAvailable = available }
         switch found {
@@ -368,10 +383,13 @@ public final class ChiefSources {
     /// its Cloud brain is on. A service without Chief brains answers the
     /// brain routes 404.
     nonisolated static func lookUp(_ http: ChiefCloudHTTP, selected: String?) async -> Lookup {
+        // The list once read: a later step that fails still says which chiefs there are.
+        var listed: [CloudChief]?
         do {
             let body = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
             let reply = try await http.send("POST", "/v1/read", body: body)
             let chiefs = CloudChief.parseList(try ChiefCloudHTTP.value(reply))
+            listed = chiefs
             let reachable = chiefs.filter { $0.mainConversation != nil }
             guard let chief = reachable.first(where: { $0.id == selected }) ?? CloudChief.preferred(in: chiefs) else {
                 // No chief yet: offer to make one only where Chief brains run
@@ -395,10 +413,10 @@ public final class ChiefSources {
                 : .unavailable(String(localized: "Cloud Chief is turned off."), .turnOn(chief), chiefs: chiefs, brains: true)
         } catch let error as ChiefCloudError {
             // No Home routes at all on this service.
-            if error.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: nil, brains: false) }
-            return .unavailable(String(localized: "Cloud Chief couldn't load: \(error.message)"), nil, chiefs: nil, brains: nil)
+            if error.status == 404 { return .unavailable(notOnThisServer, nil, chiefs: listed, brains: false) }
+            return .unavailable(String(localized: "Cloud Chief couldn't load: \(error.message)"), nil, chiefs: listed, brains: nil)
         } catch {
-            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), nil, chiefs: nil, brains: nil)
+            return .unavailable(String(localized: "Couldn't reach Cloud Chief. Check your connection."), nil, chiefs: listed, brains: nil)
         }
     }
 

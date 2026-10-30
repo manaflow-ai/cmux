@@ -139,6 +139,16 @@ enum HomeConversationStrings {
     static var sourceTeam: String { String(localized: "home.compose.source.team", defaultValue: "Team", bundle: .module) }
     static var sourceConnection: String { String(localized: "home.compose.source.connection", defaultValue: "Contact", bundle: .module) }
     static var sourceAgent: String { String(localized: "home.compose.source.agent", defaultValue: "Chief", bundle: .module) }
+    /// The To: list's section of the user's Chiefs (the Home list's "Chiefs" header).
+    static var chiefsSection: String { header(.chiefs) }
+    /// The To: list's section of the user's team members.
+    static var teamSection: String { String(localized: "home.compose.section.team", defaultValue: "Team", bundle: .module) }
+    /// The To: list's line for a Chief that reads like another one: when it was last active ("Active 2 hours ago").
+    static func activeAgo(_ relative: String) -> String {
+        String(format: String(localized: "home.compose.activeAgo", defaultValue: "Active %@", bundle: .module), relative)
+    }
+    /// The To: list's line for a Chief that reads like another one and has no messages yet.
+    static var noMessagesYet: String { String(localized: "home.compose.noMessagesYet", defaultValue: "No messages yet", bundle: .module) }
     /// The label in front of the recipient tokens.
     static var toLabel: String { String(localized: "home.compose.toLabel", defaultValue: "To:", bundle: .module) }
     /// The + button at the end of the To: field (all people to pick from).
@@ -232,6 +242,9 @@ enum HomeConversationStrings {
                                   bundle: .module), text)
         case .offline:
             String(localized: "home.outcome.offline", defaultValue: "You’re offline. Nothing was sent.", bundle: .module)
+        case .cloudUnreachable:
+            String(localized: "home.outcome.cloudUnreachable",
+                   defaultValue: "cmux Cloud didn’t answer. Check your connection and try again.", bundle: .module)
         case .refused(let reason) where reason.isEmpty:
             String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         case .refused(let reason):

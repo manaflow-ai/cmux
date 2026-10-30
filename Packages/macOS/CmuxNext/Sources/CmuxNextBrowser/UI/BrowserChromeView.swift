@@ -449,10 +449,26 @@ public final class BrowserChromeView: NSView {
     /// Child-window pages draw above this view; tell them where the find
     /// bar, prompt bar, and error page cover them (floating cards are on
     /// the overlay host instead, `PageFloatingOverlays`).
+    ///
+    /// The find and prompt bars are rounded glass: a page that takes rounded
+    /// holes (`BrowserRoundedOcclusionHosting`) gets each bar's glass with its
+    /// corner radius, so the page shows around the corners instead of a square
+    /// of pane ground (Lawrence 2026-10-27, the save-password bar).
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let bars = [findBar, promptBar].filter { !$0.isHidden && $0.superview != nil }
-        let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
+        let bars: [(bar: NSView, glass: OverlaySurfaceView?)] = [(findBar, findBar.glass), (promptBar, promptBar.glass)]
+            .filter { !$0.bar.isHidden && $0.bar.superview != nil }
+        var squares = pageStatus.shown
+        if let rounded = occluded as? any BrowserRoundedOcclusionHosting {
+            let holes = bars.map { bar, glass in
+                glass.map { CEFClipShape.RoundedRect(rect: $0.convert($0.bounds, to: tab.contentView), radius: $0.cornerRadius) }
+                    ?? CEFClipShape.RoundedRect(rect: convert(bar.frame, to: tab.contentView), radius: 0)
+            }
+            if rounded.roundedOcclusions != holes { rounded.roundedOcclusions = holes }
+        } else {
+            squares = bars.map(\.bar) + squares
+        }
+        let rects = squares.map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
     }
 

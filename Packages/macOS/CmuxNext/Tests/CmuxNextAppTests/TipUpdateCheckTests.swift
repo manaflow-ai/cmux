@@ -44,12 +44,12 @@ import CmuxNextWakeupsTestSupport
         var downloads = true
     }
 
-    static let tip = UpdateBuildIdentity(bundleIdentifier: UpdateBuildIdentity.tipBundleIdentifier, shortVersion: "0.1.0", build: "100",
-                                         minimumSystemVersion: nil, infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml",
-                                         hasPublicKey: true)
-    static let nightly = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
-                                             minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-                                             hasPublicKey: true)
+    nonisolated static let tip = UpdateBuildIdentity(bundleIdentifier: UpdateBuildIdentity.tipBundleIdentifier, shortVersion: "0.1.0", build: "100",
+                                                     minimumSystemVersion: nil, infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml",
+                                                     hasPublicKey: true)
+    nonisolated static let nightly = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
+                                                         minimumSystemVersion: nil, infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
+                                                         hasPublicKey: true)
     static let stable = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "0.1.0", build: "100",
                                             minimumSystemVersion: nil, infoFeedURL: TipAppTrackTests.stableFeed, hasPublicKey: true)
 
@@ -62,8 +62,8 @@ import CmuxNextWakeupsTestSupport
     """ }
 
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
-    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, held: Bool = false,
-                     xml: String = feed) -> Harness {
+    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, downloadAutomatically: Bool = true,
+                     held: Bool = false, xml: String = feed) -> Harness {
         let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = Base.CountingFeed(xml: xml, held: held)
@@ -81,8 +81,7 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
-        updater.tipCheck.downloadsInBackground = { checks.downloads }
-        updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: true, ring: "nightly")
+        updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: downloadAutomatically, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
     }
@@ -149,8 +148,7 @@ import CmuxNextWakeupsTestSupport
         #expect(h.updater.tipCheck.asked == "500")
     }
 
-    @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .available(version: "5.0.0"),
-                      .ready(version: "5.0.0"), .installing])
+    @Test(arguments: [UpdateIndicatorPhase.checking, .downloading(.starting), .ready(version: "5.0.0"), .installing])
     func noCheckWhileAnUpdateIsFoundStagedOrInstalling(phase: UpdateIndicatorPhase) async throws {
         let h = Self.make()
         h.sparkle.staged = "500"
@@ -179,15 +177,80 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 1)
     }
 
-    @Test func deferredDownloadsStopTheTimer() async throws {
-        let h = Self.make()
-        // A metered link (or `updates.downloadAutomatically` off): Sparkle's own schedule offers the update.
-        h.checks.downloads = false
-        h.updater.applyDownloadPolicy()
-        #expect(!h.updater.tipCheck.timer.isScheduled)
-        h.clock.advance(by: .seconds(TipUpdateCheck.interval * 2))
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(h.feed.fetches == 0)
+    /// Without the automatic-install opt-in (the default on every channel since Leo 2026-10-27:
+    /// "ask before the download + install step") the fast check still reads the feed; its check
+    /// ends on the update-found step, which asks, and nothing reads again until it is answered.
+    @Test(arguments: [TipUpdateCheckTests.tip, TipUpdateCheckTests.nightly])
+    func withoutTheOptInTheFastCheckStillFindsTheUpdateAndAsks(identity: UpdateBuildIdentity) async throws {
+        let h = Self.make(identity, downloadAutomatically: false, xml: identity == Self.tip ? Self.feed : Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        #expect(h.updater.tipCheck.timer.isScheduled, "the fast check waited for the opt-in")
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.interval(for: identity) ?? 0)
+        #expect(h.checks.count == 1, "build 500 is out but no check started")
+        // The check found it: the update-found step asks; the fast check keeps reading for a newer one.
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        #expect(h.updater.availableButton == UpdateAvailableButton(version: "5.0.0"), "the found update did not ask")
+        #expect(h.updater.readyCard == nil, "the found update staged without an answer")
+        #expect(h.updater.tipCheck.timer.isScheduled, "a found update waiting on its ask stopped the fast check")
+    }
+
+    /// A found update waiting on its ask (shown, or hidden by its Hide) never stops the app from
+    /// finding a newer one: a newer build ends the waiting prompt and is checked for; the same
+    /// build is left alone.
+    @Test func aNewerBuildReplacesAFoundUpdateWaitingOnItsAsk() async throws {
+        let h = Self.make(Self.nightly, downloadAutomatically: false, xml: Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        var waiting: String? = "500"
+        var dismissed = 0
+        h.updater.availableBuild = { waiting }
+        h.updater.dismissAvailable = { dismissed += 1 }
+        h.updater.debugIndicatorPhase = .available(version: "5.0.0")
+        h.updater.closeUpdateCard(.hideVersion)
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
+        #expect(dismissed == 0 && h.checks.count == 0, "the build already offered was checked for again")
+        waiting = "300"
+        try await tick(h, fetches: 2, interval: TipUpdateCheck.nightlyInterval)
+        #expect(dismissed == 1, "the stale found update's prompt stayed open")
+        #expect(h.checks.count == 1, "newer build 500 was never checked for behind a hidden found update")
+    }
+
+    /// The person's own check found it and they hid its card: nothing shows, so the reads go on and
+    /// a newer build replaces it. While the card shows, the fast check leaves it alone.
+    @Test func aNewerBuildReplacesAFoundUpdateThePersonHid() async throws {
+        let h = Self.make(Self.nightly, downloadAutomatically: false, xml: Self.nightlyFeed(minutesAgo: 2, deltas: false))
+        var dismissed = 0
+        h.updater.availableBuild = { "300" }
+        h.updater.dismissAvailable = { dismissed += 1 }
+        h.updater.send(.checkRequested)
+        h.updater.debugIndicatorPhase = .checking
+        h.updater.debugIndicatorPhase = .available(version: "3.0.0")
+        #expect(h.updater.card == .available(version: "3.0.0"))
+        #expect(!h.updater.tipCheck.timer.isScheduled, "the fast check ran under the person's own found card")
+        h.updater.closeUpdateCard(.hideVersion)
+        #expect(h.updater.tipCheck.timer.isScheduled, "a found update the person hid stopped the fast check")
+        try await tick(h, fetches: 1, interval: TipUpdateCheck.nightlyInterval)
+        #expect(dismissed == 1 && h.checks.count == 1, "newer build 500 was never checked for behind the hidden card")
+    }
+
+    /// Nothing reads the feed before the settings load: `updates.checkAutomatically` may be off.
+    @Test func noFastCheckBeforeTheSettingsLoad() {
+        let updater = UpdaterService(identity: Self.nightly, policy: ManagedUpdatePolicy { false },
+                                     defaults: UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
+                                     enableSparkle: false, recordsUpdates: false, clock: ManualClock())
+        updater.announcementsFetch = false
+        updater.start()
+        #expect(!updater.tipCheck.timer.isScheduled, "the fast check armed before the settings loaded")
+        #expect(!updater.releasePushMayRun, "the release push may run before the settings loaded")
+        updater.configure(checkAutomatically: false, checkInterval: 3600, downloadAutomatically: false)
+        #expect(!updater.tipCheck.timer.isScheduled && !updater.releasePushMayRun, "automatic checks off armed a read")
+        updater.stopReleasePush()
+    }
+
+    /// Off the organization's channel (`UpdateChannel`), nothing of this app's own feed is checked for fast.
+    @Test func offTheManagedChannelTheFastCheckStops() async throws {
+        let h = Self.make(Self.nightly)
+        h.updater.applyManagedPolicy(channel: "stable", minimumVersion: nil)
+        #expect(!h.updater.tipCheck.timer.isScheduled, "a NIGHTLY under a stable UpdateChannel kept its fast check")
+        h.updater.applyManagedPolicy(channel: nil, minimumVersion: nil)
+        #expect(h.updater.tipCheck.timer.isScheduled)
     }
 
     @Test func turningAutomaticChecksOffStopsTheTimer() async throws {

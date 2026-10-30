@@ -1,0 +1,20 @@
+.chevron-column-gallery {
+  --chevron-gallery-space: 20px;
+  --chevron-gallery-row-height: 34px;
+  min-height: 100%;
+  padding: var(--chevron-gallery-space);
+  color: var(--cv-text);
+  background: var(--cv-page);
+}
+.chevron-column-gallery__row {
+  position: relative !important;
+  left: auto;
+  right: auto;
+  min-height: var(--chevron-gallery-row-height);
+  margin: 0 0 8px;
+  padding-bottom: 8px;
+  contain: layout paint;
+}
+.chevron-column-gallery__row .cv-tools {
+  margin: 0;
+}

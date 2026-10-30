@@ -17,9 +17,13 @@ public enum ComposerReturnAction: Equatable, Sendable {
 ///   Shift-Return or Option-Return on a hardware keyboard, or New Line in the
 ///   field's edit menu, starts a new line; a multi-line draft goes to the
 ///   program as one paste (`ComposerSubmit`).
+/// - `message` (the terminal composer, as in classic cmux iOS and Messages):
+///   Return starts a new line from either keyboard; only the send button
+///   sends. The key row's ⏎ sends a bare Return to the program.
 public enum ComposerReturnStyle: Equatable, Sendable {
     case chat
     case terminal
+    case message
 }
 
 /// The one place the composers decide what Return does (portable, unit tested).
@@ -43,6 +47,7 @@ public struct ComposerReturnPolicy: Equatable, Sendable {
         switch style {
         case .chat: return hardware ? .send : .newline
         case .terminal: return .send
+        case .message: return .newline
         }
     }
 
