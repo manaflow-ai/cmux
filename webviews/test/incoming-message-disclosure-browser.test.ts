@@ -464,16 +464,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       // Hovered, the actions show in the line's own plate, and the chevron stays put.
       await rows.nth(1).locator(":scope > .cv-disclosure__line").hover();
       // The actions fade in after a beat (conversation.css): read them once shown.
-      await rows
-        .nth(1)
-        .locator(".cv-received__hover")
-        .evaluate(
-          (node) =>
-            new Promise<void>((done) => {
-              const shown = () => (getComputedStyle(node).opacity === "1" ? done() : requestAnimationFrame(shown));
-              shown();
-            }),
-        );
+      await page.waitForFunction(
+        (node) => node !== null && getComputedStyle(node).opacity === "1",
+        await rows.nth(1).locator(".cv-received__hover").elementHandle(),
+      );
       const hovered = await rows.nth(1).evaluate((row) => {
         const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
         return {
