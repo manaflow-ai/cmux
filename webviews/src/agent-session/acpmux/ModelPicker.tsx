@@ -456,7 +456,6 @@ export function ModelPicker(props: ModelPickerProps) {
     catalogRefresh,
     signedOut,
     onLogIn,
-    access,
     usage,
     quick,
     detail,
@@ -928,8 +927,6 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
-        // No Add API Key… here: a key saved in Accounts never reaches a local harness (accessOffer.ts).
-        ...(signedOutHere && access ? { addCredits: access.addCredits } : {}),
       });
     }
     const rail = canonicalHarnesses(
@@ -966,7 +963,6 @@ export function ModelPicker(props: ModelPickerProps) {
     props.model,
     t,
     onLogIn,
-    access,
     props.profiles,
     signedOut,
   ]);
@@ -1575,18 +1571,6 @@ export function ModelPicker(props: ModelPickerProps) {
                         }}
                       >
                         <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
-                      </button>
-                    )}
-                    {access && (
-                      <button
-                        type="button"
-                        className={`acpmux-mp-row acpmux-mp-access ${modelRow} ${rowFill(false)}`}
-                        onClick={() => {
-                          access.addCredits();
-                          close();
-                        }}
-                      >
-                        <span className="acpmux-menu-label flex-1 truncate">{t("access.addCredits")}</span>
                       </button>
                     )}
                   </>

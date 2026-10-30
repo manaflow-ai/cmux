@@ -139,9 +139,6 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
-  /// A signed-out harness's other way in, after Log In (accessOffer.ts): cmux credits. Its API key
-  /// goes in through its own Log In.
-  addCredits?(): void;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// A started chat's other harness: offer Fork to it in place of models.
@@ -717,11 +714,6 @@ export function QuickModelMenu({
       {!query && shown?.note && shown.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
           <span className="acpmux-menu-label">{t("harness.logIn")}</span>
-        </MenuItem>
-      )}
-      {!query && shown?.note && shown.addCredits && (
-        <MenuItem className="acpmux-quick-item acpmux-quick-access" onSelect={() => shown.addCredits?.()}>
-          <span className="acpmux-menu-label">{t("access.addCredits")}</span>
         </MenuItem>
       )}
     </>

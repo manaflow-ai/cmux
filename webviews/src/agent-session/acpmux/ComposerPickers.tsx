@@ -951,13 +951,7 @@ export function ComposerPickers({
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
           harnessFixed={locked}
-          {...(signIn
-            ? {
-                signedOut: pickableSignedOut(signIn.signedOut, summary),
-                onLogIn: signIn.logIn,
-                ...(signIn.access ? { access: signIn.access } : {}),
-              }
-            : {})}
+          {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={

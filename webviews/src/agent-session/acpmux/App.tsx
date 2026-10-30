@@ -5210,7 +5210,6 @@ function AcpmuxPane() {
   const signIn = useMemo<SignIn>(
     () => ({
       signedOut,
-      access,
       sessionAuth,
       recheckSession,
       readSessionAuth: readAuth,
@@ -5235,7 +5234,6 @@ function AcpmuxPane() {
     }),
     [
       signedOut,
-      access,
       sessionAuth,
       recheckSession,
       readAuth,
