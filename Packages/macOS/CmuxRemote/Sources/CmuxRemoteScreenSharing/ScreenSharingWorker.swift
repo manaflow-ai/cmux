@@ -23,7 +23,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
     /// The app's subscriptions, by channel; `perform` asks go to the newest.
     private var subscribers: [ObjectIdentifier: LineChannel] = [:]
     private var subscriberOrder: [ObjectIdentifier] = []
-    private var performs: [Int: CheckedContinuation<[String: Any]?, Never>] = [:]
+    private var performs: [Int: CheckedContinuation<AppAnswer?, Never>] = [:]
     private var nextPerform = 1
 
     public init(layout: RemoteHostLayout, stateDirectory: String, keychainScope: String, headless: Bool) {
@@ -180,7 +180,7 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
             return RemoteWire.answer(id: id, result: agent.status)
         case "perform.done":
             if let ask = params["id"] as? Int, let waiting = performs.removeValue(forKey: ask) {
-                waiting.resume(returning: params)
+                waiting.resume(returning: AppAnswer(ok: params["ok"] as? Bool == true, message: params["message"] as? String))
             }
             return nil
         case "status":
@@ -210,10 +210,17 @@ public final class ScreenSharingWorker: NSObject, NSApplicationDelegate {
 
     /// Asks the newest subscribed app to run `action` (it holds the full session); nil when none is subscribed.
     private func perform(_ action: String, _ params: [String: Any]) async -> [String: Any]? {
+        guard let answer = await ask(action, params) else { return nil }
+        var fields: [String: Any] = ["ok": answer.ok]
+        if let message = answer.message { fields["message"] = message }
+        return fields
+    }
+
+    private func ask(_ action: String, _ params: [String: Any]) async -> AppAnswer? {
         guard let key = subscriberOrder.last, let channel = subscribers[key] else { return nil }
         let ask = nextPerform
         nextPerform += 1
-        return await withCheckedContinuation { continuation in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<AppAnswer?, Never>) in
             performs[ask] = continuation
             if !channel.write(RemoteWire.event("perform", ["id": ask, "action": action, "params": params as Any])) {
                 performs.removeValue(forKey: ask)?.resume(returning: nil)
@@ -233,4 +240,10 @@ struct WorkerRequest: @unchecked Sendable { // crash-allow: built by the reader 
         method = object["method"] as? String ?? ""
         params = object["params"] as? [String: Any] ?? [:]
     }
+}
+
+/// A subscribed app's answer to a `perform` ask.
+struct AppAnswer: Sendable {
+    var ok: Bool
+    var message: String?
 }
