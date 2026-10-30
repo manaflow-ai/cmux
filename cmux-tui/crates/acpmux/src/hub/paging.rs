@@ -277,7 +277,9 @@ impl Hub {
             })?;
             return Ok(page);
         }
-        let mut found = Vec::new();
+        // Newest first; a slot a later (older) record made moot is empty.
+        let mut found: Vec<Option<(EventRecord, usize)>> = Vec::new();
+        let mut held = 0usize;
         // A Codex command's updates each carry its whole output so far: without this, a few of
         // them fill the page (`store/superseded.rs`). Its prompts are read whatever the kinds: a
         // call id names a call within one prompt.
@@ -289,26 +291,36 @@ impl Hub {
         self.store.scan_back(id, after, before, &skip, &mut |rec| {
             let matches = filter.matches(&rec);
             let mut rec = rec;
-            if let Some(superseded) = superseded.as_mut()
-                && (matches || crate::store::starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()))
-                && !superseded.keep(&mut rec)
-            {
-                return true;
-            }
+            let moot = match superseded.as_mut() {
+                Some(superseded)
+                    if matches
+                        || crate::store::starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()) =>
+                {
+                    superseded.read(&mut rec, found.len())
+                }
+                _ => None,
+            };
             if !matches {
                 return true;
             }
             self.display_logged(session.as_deref(), &mut rec);
             let (rec, rec_bytes) = fit(rec, bounded);
-            if full(rec_bytes, found.len()) {
+            let moot_bytes = moot.and_then(|slot| found[slot].as_ref()).map_or(0, |(_, b)| *b);
+            let kept = held + 1 - usize::from(moot.is_some());
+            let size = bytes + rec_bytes - moot_bytes;
+            // Full by count, or by size once it holds another record.
+            if kept > limit || (kept > 1 && max_bytes.is_some_and(|max| size > max)) {
                 page.has_more = true;
                 return false;
             }
-            found.push(rec);
+            if let Some(slot) = moot {
+                found[slot] = None;
+            }
+            (held, bytes) = (kept, size);
+            found.push(Some((rec, rec_bytes)));
             true
         })?;
-        found.reverse();
-        page.events = found;
+        page.events = found.into_iter().rev().flatten().map(|(rec, _)| rec).collect();
         Ok(page)
     }
 }

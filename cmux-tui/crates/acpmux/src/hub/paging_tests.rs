@@ -73,8 +73,9 @@ fn codex_chat(turns: usize, steps: usize, step_bytes: usize, running: bool) -> V
     out
 }
 
-/// What a reader that folds a page in order shows of each call: ACP content replaces, every other
-/// field the update names is set.
+/// What a reader that folds a page in order shows of each call (`mergeToolItem`): content
+/// replaces, input and `_meta` keys merge (Codex's increments aside), every other field the record
+/// names is set, the start is the first record's time and the end the first ending one's.
 fn fold(
     records: &[EventRecord],
 ) -> std::collections::BTreeMap<String, serde_json::Map<String, Value>> {
@@ -85,8 +86,24 @@ fn fold(
         };
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { continue };
         let call = calls.entry(id.to_owned()).or_default();
-        for (key, value) in update.iter().filter(|(k, _)| *k != "_meta") {
-            call.insert(key.clone(), value.clone());
+        call.entry("startedAt").or_insert(json!(rec.at));
+        if matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed")) {
+            call.entry("endedAt").or_insert(json!(rec.at));
+        }
+        for (key, value) in update {
+            match (key.as_str(), value.as_object()) {
+                ("rawInput" | "_meta", Some(parts)) => {
+                    for (k, v) in parts
+                        .iter()
+                        .filter(|(k, _)| *k != "terminal_output_delta" && *k != "acpmux")
+                    {
+                        call.entry(key.clone()).or_insert_with(|| json!({}))[k] = v.clone();
+                    }
+                }
+                _ => {
+                    call.insert(key.clone(), value.clone());
+                }
+            }
         }
     }
     calls
@@ -133,6 +150,15 @@ fn a_codex_chats_open_page_holds_its_turns_not_snapshots_of_one_command() {
     let forward =
         hub.events_page("c", 0, None, 100_000, Some(OPEN_BYTES), false, &transcript(true)).unwrap();
     assert!(forward.events.iter().zip(&log).all(|(a, b)| a == b));
+    // A page that starts inside the running command (after its start) shows it from the same
+    // time, with the same output.
+    let start = log.iter().rev().find(|r| r.kind == "tool_call").unwrap().seq;
+    let inside = hub
+        .events_page("c", start, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(true))
+        .unwrap();
+    let after: Vec<EventRecord> = log.iter().filter(|r| r.seq > start).cloned().collect();
+    assert_eq!(fold(&inside.events), fold(&after));
+    assert!(inside.events.len() < 4, "{} records", inside.events.len());
 }
 
 /// A page of some kinds only still reads the prompts between them: a call id a later prompt reuses
@@ -227,13 +253,17 @@ fn open_page_perf() {
                 more = page.has_more;
             }
             let total_ms = started.elapsed().as_secs_f64() * 1000.0;
-            runs.push((total_ms, open_ms));
+            runs.push((open_ms, total_ms));
             summary = format!(
                 "open page {open_records} records, {open_prompts} prompts, {open_bytes} bytes; {pages} pages and {bytes} bytes to show {shown} prompts"
             );
         }
-        runs.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let (total, open) = runs[runs.len() / 2];
+        let median = |pick: fn(&(f64, f64)) -> f64| {
+            let mut times: Vec<f64> = runs.iter().map(pick).collect();
+            times.sort_by(f64::total_cmp);
+            times[times.len() / 2]
+        };
+        let (open, total) = (median(|r| r.0), median(|r| r.1));
         println!("{label}: {summary}; median open {open:.1} ms, to 10 prompts {total:.1} ms");
     };
     measure("before", false);

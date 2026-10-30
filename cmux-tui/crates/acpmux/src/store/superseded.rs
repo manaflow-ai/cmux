@@ -10,11 +10,16 @@
 //! page held a few records of one running command.
 //!
 //! A page read newest first for a client that bounds it by bytes (`hub/paging.rs`) passes each
-//! record through [`Superseded::keep`]:
-//! - An update whose every field a newer update of its call in the same read carries again is left
-//!   out, unless it ends the call (its time is the call's end).
-//! - Other updates drop `content` a newer one replaces, noted as `_meta.acpmux.supersededContent`
-//!   (bytes).
+//! record through [`Superseded::read`]. Only an update that carries nothing but output is touched
+//! (its `status`, and `content` of text alone, beside the increments no reader folds): never one
+//! with a title, kind, input, raw output, locations, a diff, an image or any other `_meta` (a Codex
+//! subagent's, say), so every other part of the fold (`mergeToolItem`, `showsNothing`, the
+//! subagent folds) reads the same records.
+//! - Such an update whose every field a newer update of its call in the same read carries again,
+//!   and that does not end the call, is left out, unless it is the oldest the read holds of its
+//!   call: the reader takes the call's start time from the first record of it that it sees.
+//! - Such an update a newer one replaces the content of loses its `content`, noted as
+//!   `_meta.acpmux.supersededContent` (bytes).
 //!
 //! A call id names a call within one prompt only (an adapter that numbers calls per process reuses
 //! one in a later prompt; the web client clears its calls at each prompt, cx-jzhka). So a
@@ -31,7 +36,7 @@ const NOTE: &str = "supersededContent";
 const UNREAD_META: &[&str] = &["terminal_output_delta"];
 
 /// Whether a record with this `dir` and `kind` starts a prompt: no call id carries across it. A
-/// read that leaves out superseded updates passes these to [`Superseded::keep`] whatever kinds its
+/// read that leaves out superseded updates passes these to [`Superseded::read`] whatever kinds its
 /// page holds.
 pub fn starts_prompt(dir: &[u8], kind: &[u8]) -> bool {
     dir == b"mux" && matches!(kind, b"user_message" | b"turn_started")
@@ -78,6 +83,20 @@ fn fields(update: &Map<String, Value>) -> BTreeSet<String> {
     out
 }
 
+/// Whether the update carries nothing but its call's output: no field but `status` and `content`
+/// (beside the `_meta` no reader folds), and only text in the content.
+fn only_output(update: &Map<String, Value>, fields: &BTreeSet<String>) -> bool {
+    let text = |part: &Value| match part.get("type").and_then(Value::as_str) {
+        Some("text") => true,
+        Some("content") => part.pointer("/content/type").and_then(Value::as_str) == Some("text"),
+        _ => false,
+    };
+    fields.iter().all(|f| f == "status" || f == "content")
+        && update
+            .get("content")
+            .is_none_or(|c| c.is_null() || c.as_array().is_some_and(|parts| parts.iter().all(text)))
+}
+
 /// Takes the update's content out and notes how many bytes it held.
 fn leave_out_content(update: &mut Map<String, Value>) {
     let Some(content) = update.remove("content") else { return };
@@ -94,38 +113,51 @@ fn leave_out_content(update: &mut Map<String, Value>) {
 /// A newest-first read of a log's records: what each tool call's newer updates already carry.
 #[derive(Default)]
 pub struct Superseded {
-    calls: HashMap<String, BTreeSet<String>>,
+    calls: HashMap<String, Call>,
+}
+
+#[derive(Default)]
+struct Call {
+    /// The fields the call's updates newer than the read's place carry.
+    fields: BTreeSet<String>,
+    /// Where the read keeps the oldest update of the call it holds, when a newer one covers it.
+    held: Option<usize>,
 }
 
 impl Superseded {
-    /// Whether `rec`, the next older record of the read, stays; its content goes when a newer
-    /// update of its call carries content. An update whose every field a newer one of its call
-    /// carries goes whole, unless it ends the call. Every other record stays as it is.
-    pub fn keep(&mut self, rec: &mut EventRecord) -> bool {
+    /// Reads `rec`, the next older record of the read, which stays at `slot` of the read; its
+    /// content goes when a newer update of its call replaces it. Returns the slot of a newer
+    /// record that `rec` makes moot: an update of the same call newer ones cover, kept only while
+    /// it was the oldest of its call.
+    pub fn read(&mut self, rec: &mut EventRecord, slot: usize) -> Option<usize> {
         // Older than a prompt: no newer update of this read is of the same call.
         if starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()) {
             self.calls.clear();
-            return true;
+            return None;
         }
-        let Some(update) = update_of(rec) else { return true };
-        let Some(id) = update.get("toolCallId").and_then(Value::as_str).map(str::to_owned) else {
-            return true;
-        };
+        if rec.kind == "tool_call" {
+            // The call's start: older than every update of it.
+            let id = rec.msg.pointer("/params/update/toolCallId").and_then(Value::as_str)?;
+            return self.calls.remove(id).and_then(|call| call.held);
+        }
+        let update = update_of(rec)?;
+        let id = update.get("toolCallId").and_then(Value::as_str)?.to_owned();
         let fields = fields(update);
-        let Some(newer) = self.calls.get_mut(&id) else {
-            self.calls.insert(id, fields);
-            return true;
+        let Some(call) = self.calls.get_mut(&id) else {
+            self.calls.insert(id, Call { fields, held: None });
+            return None;
         };
-        let ends =
-            matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
-        if !ends && fields.is_subset(newer) {
-            return false;
-        }
-        if newer.contains("content") {
+        let output = only_output(update, &fields);
+        if output && call.fields.contains("content") {
             leave_out_content(update);
         }
-        newer.extend(fields);
-        true
+        let ends =
+            matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed"));
+        if output && !ends && fields.is_subset(&call.fields) {
+            return call.held.replace(slot);
+        }
+        call.fields.extend(fields);
+        call.held.take()
     }
 }
 

@@ -50,9 +50,10 @@ fn codex_chat(calls: usize, steps: usize, step_bytes: usize) -> Vec<EventRecord>
     out
 }
 
-/// Each call as a reader that folds every update in order ends it: content replaces, any other
-/// field the update names is set.
-fn fold(records: &[EventRecord]) -> BTreeMap<String, Map<String, Value>> {
+/// Each call as a reader that folds every record of it in order ends it (`mergeToolItem`): content
+/// replaces, input keys merge, `_meta` keys merge (Codex's increments aside), any other field the
+/// record names is set, the start is the first record's time, the end the first ending one's.
+pub(super) fn fold(records: &[EventRecord]) -> BTreeMap<String, Map<String, Value>> {
     let mut calls: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
     for rec in records {
         let Some(update) = rec.msg.pointer("/params/update").and_then(Value::as_object) else {
@@ -60,30 +61,59 @@ fn fold(records: &[EventRecord]) -> BTreeMap<String, Map<String, Value>> {
         };
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { continue };
         let call = calls.entry(id.to_owned()).or_default();
+        call.entry("startedAt").or_insert(json!(rec.at));
+        if matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed")) {
+            call.entry("endedAt").or_insert(json!(rec.at));
+        }
         for (key, value) in update {
-            if key != "_meta" {
-                call.insert(key.clone(), value.clone());
+            match (key.as_str(), value.as_object()) {
+                ("rawInput" | "_meta", Some(parts)) => {
+                    for (k, v) in parts
+                        .iter()
+                        .filter(|(k, _)| *k != "terminal_output_delta" && *k != "acpmux")
+                    {
+                        call.entry(key.clone()).or_insert_with(|| json!({}))[k] = v.clone();
+                    }
+                }
+                _ => {
+                    call.insert(key.clone(), value.clone());
+                }
             }
         }
     }
     calls
 }
 
+/// A page's read of `log`, newest first: what stays, oldest first.
+pub(super) fn read_back(log: &[EventRecord]) -> Vec<EventRecord> {
+    let mut superseded = Superseded::default();
+    let mut slots: Vec<Option<EventRecord>> = Vec::new();
+    for rec in log.iter().rev() {
+        let mut rec = rec.clone();
+        if let Some(slot) = superseded.read(&mut rec, slots.len()) {
+            slots[slot] = None;
+        }
+        slots.push(Some(rec));
+    }
+    slots.into_iter().rev().flatten().collect()
+}
+
 fn content_of(rec: &EventRecord) -> Option<&Value> {
     rec.msg.pointer("/params/update/content").filter(|c| !c.is_null())
+}
+
+fn output(seq: u64, id: &str, text: &str) -> EventRecord {
+    update(
+        seq,
+        "tool_call_update",
+        json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "content": [{"type": "content", "content": {"type": "text", "text": text}}], "_meta": {"terminal_output_delta": {"data": "x"}}}),
+    )
 }
 
 #[test]
 fn a_newest_first_read_keeps_each_call_as_it_ends_without_superseded_updates() {
     let log = codex_chat(3, 40, 64);
-    let mut superseded = Superseded::default();
-    let mut kept: Vec<EventRecord> = log
-        .iter()
-        .rev()
-        .cloned()
-        .filter_map(|mut rec| superseded.keep(&mut rec).then_some(rec))
-        .collect();
-    kept.reverse();
+    let kept = read_back(&log);
     assert_eq!(fold(&kept), fold(&log), "every call ends as logged");
     // The prompts, starts, ends and answers stay; of the updates only each call's end.
     assert_eq!(kept.len(), 3 * 4, "{:#?}", kept.iter().map(|r| r.seq).collect::<Vec<_>>());
@@ -91,45 +121,51 @@ fn a_newest_first_read_keeps_each_call_as_it_ends_without_superseded_updates() {
         || r.msg.pointer("/params/update/status") == Some(&json!("completed"))));
 }
 
+/// A read that starts after a call's start keeps the oldest update of it that it reads: the
+/// reader takes the call's start time from there. Its content goes, as a newer update replaces it.
 #[test]
-fn an_update_with_a_field_no_newer_one_carries_stays_without_its_content() {
-    let id = "toolu_1";
-    let older = update(
-        1,
-        "tool_call_update",
-        json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "title": "Read a.rs", "rawInput": {"file_path": "a.rs"}, "content": [{"type": "text", "text": "partial"}]}),
+fn a_read_without_the_calls_start_keeps_its_oldest_update_without_its_content() {
+    let mut log: Vec<EventRecord> =
+        (1..=6).map(|seq| output(seq, "c", &"o".repeat(seq as usize))).collect();
+    log.push(update(7, "tool_call_update", json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "done"}}]})));
+    let kept = read_back(&log);
+    assert_eq!(kept.iter().map(|r| r.seq).collect::<Vec<_>>(), [1, 7]);
+    assert_eq!(fold(&kept), fold(&log), "it starts and ends as logged");
+    assert_eq!(content_of(&kept[0]), None);
+    assert_eq!(
+        kept[0].msg.pointer("/params/update/_meta/acpmux/supersededContent"),
+        Some(&json!(57))
     );
-    let newer = update(
-        2,
-        "tool_call_update",
-        json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed", "content": [{"type": "text", "text": "whole"}]}),
-    );
-    let mut superseded = Superseded::default();
-    let mut newest = newer.clone();
-    assert!(superseded.keep(&mut newest));
-    assert_eq!(newest, newer, "the newest update is untouched");
-    let mut rec = older.clone();
-    assert!(superseded.keep(&mut rec), "its title and input are its own");
-    assert_eq!(content_of(&rec), None);
-    assert_eq!(rec.msg.pointer("/params/update/title"), Some(&json!("Read a.rs")));
-    assert_eq!(rec.msg.pointer("/params/update/_meta/acpmux/supersededContent"), Some(&json!(34)));
-    // A call's end stays even when a newer update names everything it does.
-    let mut superseded = Superseded::default();
-    let mut end = newer.clone();
-    end.seq = 3;
-    assert!(superseded.keep(&mut end));
-    let mut rec = newer.clone();
-    assert!(superseded.keep(&mut rec));
-    assert_eq!(content_of(&rec), None);
-    // Other records, and other calls' updates, are never touched.
-    let mut other = update(
-        0,
-        "tool_call_update",
-        json!({"sessionUpdate": "tool_call_update", "toolCallId": "toolu_2", "content": []}),
-    );
-    let before = other.clone();
-    assert!(superseded.keep(&mut other));
-    assert_eq!(other, before);
+    assert_eq!(kept[1], log[6], "the newest update is untouched");
+}
+
+/// An update that carries anything but output (a title, an input, a diff, a subagent's `_meta`)
+/// reads as logged: the reader's fold keeps parts of it no newer update names again.
+#[test]
+fn an_update_that_carries_more_than_output_stays_as_logged() {
+    let newer = output(9, "c", "newer");
+    for older in [
+        json!({"title": "Read a.rs", "content": [{"type": "text", "text": "partial"}]}),
+        json!({"rawInput": {"command": "echo hi"}, "content": [{"type": "text", "text": "hi"}]}),
+        json!({"content": [{"type": "diff", "path": "a.rs", "oldText": "a", "newText": "b"}]}),
+        json!({"content": [{"type": "content", "content": {"type": "text", "text": "t"}}], "_meta": {"codex": {"subagent": {"path": "/root/auditor", "model": "m"}}}}),
+    ] {
+        let mut u = json!({"sessionUpdate": "tool_call_update", "toolCallId": "c"});
+        u.as_object_mut().unwrap().extend(older.as_object().unwrap().clone());
+        let log = vec![
+            update(1, "tool_call_update", u.clone()),
+            update(2, "tool_call_update", u),
+            newer.clone(),
+        ];
+        assert_eq!(read_back(&log), log, "{older}");
+    }
+    // Other calls' updates, and other records, are never touched.
+    let log = vec![
+        output(1, "a", "a"),
+        output(2, "b", "b"),
+        update(3, "agent_message_chunk", json!({"sessionUpdate": "agent_message_chunk"})),
+    ];
+    assert_eq!(read_back(&log), log);
 }
 
 /// A call id names a call within its prompt only: an adapter that numbers calls per process reuses
@@ -144,26 +180,15 @@ fn a_call_id_a_later_prompt_reuses_supersedes_nothing_before_that_prompt() {
         msg: json!({"text": "again"}),
         host_seq: None,
     };
-    let call = |seq, text: &str| {
-        update(
-            seq,
-            "tool_call_update",
-            json!({"sessionUpdate": "tool_call_update", "toolCallId": "0", "status": "completed", "content": [{"type": "text", "text": text}]}),
-        )
-    };
     let log = vec![
         prompt(1),
-        call(2, "first prompt's output"),
-        prompt(3),
-        call(4, "second prompt's output"),
+        output(2, "0", "first prompt's"),
+        output(3, "0", "first prompt's output"),
+        prompt(4),
+        output(5, "0", "second prompt's output"),
     ];
-    // Read newest first, as a page.
-    let mut superseded = Superseded::default();
-    let kept: Vec<EventRecord> = log
-        .iter()
-        .rev()
-        .cloned()
-        .filter_map(|mut rec| superseded.keep(&mut rec).then_some(rec))
-        .collect();
-    assert_eq!(kept.into_iter().rev().collect::<Vec<_>>(), log, "both calls keep their output");
+    let kept = read_back(&log);
+    assert_eq!(kept.iter().map(|r| r.seq).collect::<Vec<_>>(), [1, 2, 3, 4, 5]);
+    assert_eq!(kept[2], log[2], "the first prompt's newest output is its own");
+    assert_eq!(content_of(&kept[1]), None);
 }
