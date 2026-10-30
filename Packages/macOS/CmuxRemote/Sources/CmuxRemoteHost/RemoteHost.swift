@@ -244,7 +244,12 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             let id = request["id"]
             let method = request["method"] as? String ?? ""
             let params = request["params"] as? [String: Any] ?? [:]
-            Task { channel.write(await self.handleSupervisor(id: id, method: method, params: params)) }
+            // The JSON values are made on this thread and read only by the one task.
+            nonisolated(unsafe) let request = (id, params)
+            Task {
+                let (id, params) = request
+                channel.write(await self.handleSupervisor(id: id, method: method, params: params))
+            }
         }
         let alone = lock.withLock { () -> Bool in
             supervisors.removeAll { $0 === channel }
