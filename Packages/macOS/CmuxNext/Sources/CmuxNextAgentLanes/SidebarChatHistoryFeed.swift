@@ -7,38 +7,93 @@ public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
 import Foundation
-public import Observation
 
 /// Feeds the session tree's chat history (`sidebar.sessionTree`, hq#2569 #6) from acpmux's chat
-/// index (the app's Chats feed mirror, metadata only): the pinned chats, and Earlier, the newest
-/// chats that no open workspace of this Mac shows, one page at a time. A workspace shows a chat
-/// when one of its agent tabs runs an acpmux session that continues it (the lane's `chat`).
-/// Off, it leaves `SidebarChatHistory.state` nil.
-@MainActor @Observable
+/// index: the pinned chats, and Earlier, the newest chats that no open workspace of this Mac shows,
+/// one page at a time. A workspace shows a chat when one of its agent tabs runs an acpmux session
+/// that continues it (the lane's `chat`). Off, it leaves `SidebarChatHistory.state` nil.
+///
+/// acpmux owns the list (P-RUST, layer-ownership.md rules 1-3): Earlier and Pinned are two windows
+/// over its index (``AcpmuxChatWindows``), sorted, filtered and paged in Rust. The main thread holds
+/// only their visible rows and applies one row diff per change; it never holds, copies or compares
+/// the whole index (v2.2.9: 730 ms in the old whole-index setter's `==`).
+@MainActor
 public final class SidebarChatHistoryFeed {
     public static let shared = SidebarChatHistoryFeed()
 
-    /// The chat index mirror. The app sets it on each index change (a copy-on-write value).
-    public var chats = AcpmuxChatsStore()
-    @ObservationIgnored private var task: Task<Void, Never>?
+    /// Earlier's window: the newest top-level chats that no open workspace shows and no pin holds.
+    public nonisolated static let earlierWindow = "sidebar.history.earlier"
+    /// Pinned's window: the pinned chats, in pin order.
+    public nonisolated static let pinnedWindow = "sidebar.history.pinned"
 
-    /// Follows the setting, the index, the lanes, every machine's `workspaces` and the user's pins
-    /// from now on; a row opens its chat with `open` (the app's Open Chat path).
+    private var specsTask: Task<Void, Never>?
+    private var stateTask: Task<Void, Never>?
+
+    /// Follows the setting, acpmux's windows, the lanes, every machine's `workspaces` and the
+    /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
-                      open: @escaping @MainActor (String) -> Void, lanes: AgentLaneStore = .shared,
-                      history: SidebarChatHistory = .shared) {
-        guard task == nil else { return }
+                      open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
+                      lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
+        guard specsTask == nil else { return }
         history.onOpen = open
-        // task-owner: the app (one feed for the app's life); event-driven (Observation)
-        task = Task { [self] in
-            for await state in ObservationStream({ [self] () -> SidebarChatHistoryState? in
-                guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                let live = Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost)
-                return Self.state(chats, live: live, pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
+        let earlier = windows.window(Self.earlierWindow)
+        let pinned = windows.window(Self.pinnedWindow)
+        let inputs: @MainActor @Sendable () -> Inputs? = {
+            guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
+            return Inputs(live: Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost), pinned: history.pinned,
+                          limit: history.limit, folded: history.earlierFolded)
+        }
+        // task-owner: the app (one feed for the app's life); event-driven (Observation). What the
+        // history shows changed: acpmux gets the windows' new specs.
+        specsTask = Task {
+            for await current in ObservationStream(inputs) {
+                guard let current else {
+                    windows.close(Self.earlierWindow)
+                    windows.close(Self.pinnedWindow)
+                    continue
+                }
+                windows.open(current.earlierSpec)
+                windows.open(current.pinnedSpec)
+            }
+        }
+        // task-owner: the app; event-driven (Observation). A window's rows or the inputs changed:
+        // the history's state, O(visible rows).
+        stateTask = Task {
+            for await state in ObservationStream({ () -> SidebarChatHistoryState? in
+                guard let current = inputs() else { return nil }
+                return Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: current)
             }) where history.state != state {
                 history.state = state
             }
         }
+    }
+
+    /// What the history shows, besides the index: the chats open workspaces show, the pins, the page.
+    nonisolated struct Inputs: Equatable, Sendable {
+        var live: Set<String>
+        var pinned: [String]
+        var limit: Int
+        var folded: Bool
+
+        /// Earlier's window: one more row than the page, so the history knows Show More; one row
+        /// while folded, so its header knows whether Earlier has a chat.
+        var earlierSpec: AcpmuxChatWindows.Spec {
+            AcpmuxChatWindows.Spec(window: SidebarChatHistoryFeed.earlierWindow, limit: folded ? 1 : max(0, limit) + 1,
+                                   topLevel: true, exclude: live.union(pinned).sorted())
+        }
+
+        var pinnedSpec: AcpmuxChatWindows.Spec {
+            AcpmuxChatWindows.Spec(window: SidebarChatHistoryFeed.pinnedWindow, limit: max(1, pinned.count), topLevel: false,
+                                   keys: pinned)
+        }
+    }
+
+    /// The history of the two windows' rows. The local skip (`live`, `pinned`) holds only until
+    /// acpmux answers a new spec, so a chat just pinned never lists twice.
+    static func state(earlier: [AcpmuxChat], pinned: [AcpmuxChat], inputs: Inputs) -> SidebarChatHistoryState {
+        let pinnedByID = Dictionary(pinned.map { ($0.id, historyChat($0)) }, uniquingKeysWith: { first, _ in first })
+        return SidebarChatHistoryState.make(newest: earlier.lazy.map(historyChat), chat: { pinnedByID[$0] }, live: inputs.live,
+                                            pinned: inputs.pinned, limit: inputs.limit, folded: inputs.folded)
     }
 
     /// The chats an open workspace shows: those its agent tabs' acpmux sessions on this Mac continue.
@@ -69,12 +124,6 @@ public final class SidebarChatHistoryFeed {
             registry?.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: key),
                                       entries: [.action(togglePinAction)])
         }
-    }
-
-    /// The history of `index`: reads the index lazily, newest first, only as far as the page needs.
-    static func state(_ index: AcpmuxChatsStore, live: Set<String>, pinned: [String], limit: Int, folded: Bool) -> SidebarChatHistoryState {
-        SidebarChatHistoryState.make(newest: index.newestFirst.lazy.map(historyChat), chat: { index.chat(id: $0).map(historyChat) },
-                                     live: live, pinned: pinned, limit: limit, folded: folded)
     }
 
     /// A chat as the history lists it: its title, else its folder's name, else its harness.

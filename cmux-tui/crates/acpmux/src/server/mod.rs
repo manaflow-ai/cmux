@@ -110,6 +110,8 @@ pub struct Conn {
     pub(super) remote_media: media_forward::RemoteMedia,
     /// Requests this daemon sent the client, waiting on its answer (`client_request.rs`).
     client_requests: client_request::ClientRequests,
+    /// Its windows over the chat index (`chat_windows.rs`).
+    chat_windows: chat_windows::ConnWindows,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1335,6 +1337,7 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
+        chat_windows: Default::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1691,6 +1694,7 @@ mod client_request;
 mod clock_text;
 pub(crate) use clock_text::iso;
 mod change_kind;
+mod chat_windows;
 mod chats;
 pub mod conn_auth;
 mod ephemeral;

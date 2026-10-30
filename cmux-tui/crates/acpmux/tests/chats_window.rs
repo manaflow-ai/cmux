@@ -213,3 +213,62 @@ async fn a_window_over_three_thousand_chats_is_sorted_filtered_and_one_change_is
     // Closing the window stops its diffs.
     c.ok("_acpmux/chats_window_close", json!({"window": "earlier"})).await;
 }
+
+/// acpmux groups its own index into each harness's project folders (`_acpmux/chat_projects`), so
+/// the app relays a few rows to the cmux daemon instead of walking every chat.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_projects_are_each_folder_with_its_newest_chat() {
+    const N: usize = 120;
+    let base = PathBuf::from("/tmp").join(format!("acpmux-projects-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    let day_ago = std::time::SystemTime::now() - Duration::from_secs(86_400);
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record(i, i, &format!("chat {i}")))).unwrap();
+        let at = day_ago + Duration::from_secs(i as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+
+    let page = c.ok("_acpmux/chats", json!({"limit": N})).await;
+    let newest_ms = |folder: usize| {
+        page["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|chat| chat["cwd"] == format!("/work/p{folder}"))
+            .map(|chat| chat["updatedMs"].as_i64().unwrap())
+            .max()
+            .unwrap()
+    };
+    let result = c.ok("_acpmux/chat_projects", json!({})).await;
+    assert_eq!(result["ready"], true, "{result}");
+    assert_eq!(result["enabled"], true, "{result}");
+    let rows = result["projects"].as_array().unwrap();
+    assert_eq!(rows.len(), FOLDERS, "one row per folder: {result}");
+    let mut paths: Vec<String> = (0..FOLDERS).map(|f| format!("/work/p{f}")).collect();
+    paths.sort_unstable();
+    let listed: Vec<&str> = rows.iter().map(|row| row["path"].as_str().unwrap()).collect();
+    assert_eq!(listed, paths, "by harness, then path");
+    for row in rows {
+        assert_eq!(row["harness"], "claude-code", "{row}");
+        let folder: usize = row["path"].as_str().unwrap()["/work/p".len()..].parse().unwrap();
+        assert_eq!(row["lastUsedMs"].as_i64().unwrap(), newest_ms(folder), "{row}");
+    }
+}

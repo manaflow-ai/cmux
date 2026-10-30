@@ -3,18 +3,26 @@ import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
 
-/// The device-wide acpmux chat index for sidebar and palette clients.
+/// The app's connection to acpmux's device-wide chat index: the windows native lists show
+/// (``AcpmuxChatWindows``: acpmux sorts, filters and pages; the main thread holds only visible rows
+/// and applies row diffs), and, until the palette, Open Chat and the New Tab cards ask acpmux
+/// themselves (P-RUST step 2), the index mirror they read.
 @MainActor
 final class ChatsFeed {
-    /// The mirror (a copy-on-write value: taking it is O(1), so readers that
-    /// need every chat take it off the main actor).
-    private(set) var store = AcpmuxChatsStore()
+    /// The windows over the index that native lists show (the sidebar's chat history).
+    let windows = AcpmuxChatWindows()
+    /// The mirror. Only this feed holds it: a change applies in place (O(log n)), never a copy of
+    /// every chat (v2.2.9: 1,148 ms in `apply` while the sidebar history held the same storage).
+    /// No reader may keep it; whole-index work runs in acpmux (`_acpmux/chat_projects`).
+    private var store = AcpmuxChatsStore()
     /// Every chat, newest first. O(n) per read: per-change readers use
     /// `chat(id:)` and `newest(_:)`; a publish no longer builds this list.
     var chats: [AcpmuxChat] { store.chats }
     private(set) var isEnabled = true
     private(set) var isReady = false
     private let socket: String
+    /// The acpmux socket this feed reads (ProjectsImport asks it for the grouped projects).
+    var socketPath: String { socket }
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -79,6 +87,11 @@ final class ChatsFeed {
         connection.start(send: Self.watchRequest(limit: 5000), decode: Message.init(line:)) { [weak self, weak connection] drain in
             if let connection { self?.apply(drain, from: connection) }
         }
+        // The windows' specs go after the watch request, on the same ordered connection.
+        windows.connected { [weak self, weak connection] method, params in
+            guard let self, let connection, subscription === connection else { return }
+            send(method, params, on: connection)
+        }
     }
 
     /// One decoded line of the watch.
@@ -87,12 +100,17 @@ final class ChatsFeed {
         case page(store: AcpmuxChatsStore, ready: Bool, enabled: Bool, seq: UInt64?)
         /// One index change and its seq (nil for activity, which is not an index change).
         case change(AcpmuxChatsStore.Change, seq: UInt64?)
+        /// A window's rows or row diff (`_acpmux/chats_window_changed`).
+        case window(AcpmuxChatWindows.Update)
+        /// The daemon dropped a notification or the watch lagged: list and ask every window again.
         case lagged
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
                let result = message["result"] as? [String: Any] {
+                // A window request's answer: its rows come as `_acpmux/chats_window_changed`.
+                guard result["window"] == nil else { return nil }
                 var store = AcpmuxChatsStore()
                 store.reset(result)
                 self = .page(store: store, ready: result["ready"] as? Bool ?? false, enabled: result["enabled"] as? Bool ?? true,
@@ -104,7 +122,10 @@ final class ChatsFeed {
                 let params = message["params"] as? [String: Any]
                 guard let change = params.flatMap(AcpmuxChatsStore.change(from:)) else { return nil }
                 self = .change(change, seq: (params?["seq"] as? NSNumber)?.uint64Value)
-            case "_acpmux/chats_lagged":
+            case "_acpmux/chats_window_changed":
+                guard let update = (message["params"] as? [String: Any]).flatMap(AcpmuxChatWindows.Update.init(params:)) else { return nil }
+                self = .window(update)
+            case "_acpmux/chats_lagged", "_acpmux/lagged":
                 self = .lagged
             default:
                 return nil
@@ -156,12 +177,16 @@ final class ChatsFeed {
                 }
                 if !applyChange(change, seq: changeSeq) { lagged = true }
                 changed = true
+            case .window(let update):
+                windows.apply(update)
             case .lagged:
                 lagged = true
+                windows.resync()
             }
         }
         // Dropped lines (a full batch) leave the mirror incomplete, like a lag: fetch a fresh page.
         if lagged || drain.overflowed, !drain.closed { requestList() }
+        if drain.overflowed, !drain.closed { windows.resync() }
         if changed { publish() }
         if drain.closed { lost(connection) }
     }
@@ -191,13 +216,17 @@ final class ChatsFeed {
             return
         }
         pageInFlight = true
+        send("_acpmux/chats", ["limit": 5000], on: subscription)
+    }
+
+    /// One request on the watch's connection.
+    private func send(_ method: String, _ params: [String: any Sendable], on connection: AgentActivityLineConnection) {
         requestID += 1
-        let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "method": "_acpmux/chats",
-                                       "params": ["limit": 5000]]
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID, "method": method, "params": params as [String: Any]]
         guard let data = try? JSONSerialization.data(withJSONObject: request) else { return }
         var line = data
         line.append(0x0A)
-        subscription.send(line)
+        connection.send(line)
     }
 
     private func publish() {
@@ -208,6 +237,7 @@ final class ChatsFeed {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
+        windows.disconnected()
         reconnect?.cancel()
         reconnect = Task { [weak self] in
             guard var backoff = self?.backoff else { return }
