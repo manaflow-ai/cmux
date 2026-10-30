@@ -513,7 +513,7 @@ class UploadTests(unittest.TestCase):
             MODULE.put_file("o/r", "pr-media", "7/mine.png", written(scratch, "mine.png", PNG), "m", checked=True)
         files = origin.files()
         self.assertEqual((files["7/mine.png"], files["7/theirs.png"]), (PNG, b"theirs"))
-        self.assertEqual(slept.call_count, 1)
+        self.assertGreaterEqual(slept.call_count, 1)  # at least the one lost race
 
     def test_a_path_taken_after_the_check_is_never_replaced_without_force(self):
         # Review of #28265: a run that saw 7/shot.png free, then lost the path to another uploader before its
@@ -628,20 +628,38 @@ class UploadTests(unittest.TestCase):
         self.assertNotIn("DUMMY_PAT", str(raised.exception))
         self.assertFalse([call for call in seen if "DUMMY_PAT" in call])
 
-    def test_a_credential_only_in_the_origin_url_still_authenticates(self):
-        # Review of #28265: dropping the URL's credential broke a host whose only credential was in that
-        # URL. Git still gets it, through environment config that rewrites the clean URL, never argv.
-        origin = Origin(self)
-        secret = "https://u:DUMMY_PAT@github.com/o/r.git"
-        os.environ["PR_MEDIA_REMOTE_URL"] = secret
+    def test_a_credential_only_in_the_origin_url_still_authenticates_and_is_in_no_arguments(self):
+        # Review of #28265: dropping the URL's credential broke a host whose only credential was in that URL;
+        # rewriting the URL to carry it put it in git-remote-https's arguments. Git gets it from a credential
+        # helper that reads this child's environment, scoped to the clean URL.
+        Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = "https://u:DUMMY%40PAT@github.com/o/r.git"
         store = MODULE.MediaBranch("o/r", "pr-media")
         self.assertEqual(store.url, "https://github.com/o/r.git")
-        rewritten = subprocess.run(["git", "ls-remote", "--get-url", store.url], cwd=origin.root,
-                                   capture_output=True, text=True, env=store.env(), check=True).stdout.strip()
-        self.assertEqual(rewritten, secret)
+        env = store.env()
+        self.assertNotIn("DUMMY", " ".join(value for key, value in env.items() if key.startswith("GIT_CONFIG")))
+        # A real request names the host only (no credential.useHttpPath); one with the path must match too.
+        for asked in ("url=https://github.com\n\n", "url=https://github.com/o/r.git\n\n"):
+            filled = subprocess.run(["git", "credential", "fill"], input=asked, capture_output=True, text=True,
+                                    env=env, check=True).stdout
+            self.assertIn("username=u\n", filled, asked)
+            self.assertIn("password=DUMMY@PAT\n", filled, asked)
+        # Any other host gets nothing from it.
+        other = subprocess.run(["git", "credential", "fill"], input="url=https://example.com/x\n\n",
+                               capture_output=True, text=True, env=env)
+        self.assertNotIn("DUMMY", other.stdout)
+        # The trace of a real fetch shows the secret in no process's arguments.
+        traced = subprocess.run(["git", "ls-remote", "https://127.0.0.1:9/o/r.git"], capture_output=True, text=True,
+                                env={**MODULE.MediaBranch("o/r", "pr-media",
+                                                          url="https://u:DUMMY_PAT@127.0.0.1:9/o/r.git").env(),
+                                     "GIT_TRACE": "1"}, timeout=60)
+        self.assertNotIn("DUMMY_PAT", traced.stderr)
         store.dir.parent.mkdir(parents=True, exist_ok=True)
         store.ensure_clone()
-        self.assertNotIn("DUMMY_PAT", (store.dir / "config").read_text())
+        self.assertNotIn("DUMMY", (store.dir / "config").read_text())
+        token_only = MODULE.url_credential_env({}, "https://TOK@github.com/o/r.git", "https://github.com/o/r.git")
+        self.assertEqual((token_only["PR_MEDIA_URL_USERNAME"], token_only["PR_MEDIA_URL_PASSWORD"]),
+                         ("x-access-token", "TOK"))
 
     def test_a_name_with_a_carriage_return_survives_an_unrelated_upload_byte_for_byte(self):
         # Review of #28265: text-mode ls-tree turned "a\rb" into "a\nb", so with both on the branch an

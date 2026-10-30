@@ -425,7 +425,7 @@ def redact(text: str) -> str:
 def remote_url(repo: str) -> str:
     """Where the media branch lives. The origin URL of a local clone of REPO when there is one (this host
     already authenticates that way, often over ssh), else https. It may carry an http(s) credential, which
-    MediaBranch keeps out of arguments, config files and messages (secret_url_config)."""
+    MediaBranch keeps out of arguments, config files and messages (url_credential_env)."""
     explicit = os.environ.get(REMOTE_ENV)
     if explicit:
         return explicit
@@ -451,19 +451,40 @@ def git_env(secret_url: str | None = None, url: str | None = None) -> dict[str, 
            # than download it.
            "GIT_NO_LAZY_FETCH": "1"}
     if secret_url and url and secret_url != url:
-        env.update(secret_url_config(env, secret_url, url))
+        env.update(url_credential_env(env, secret_url, url))
     return env
 
 
-def secret_url_config(env: dict[str, str], secret_url: str, url: str) -> dict[str, str]:
-    """`url.SECRET_URL.insteadOf URL` as environment config (GIT_CONFIG_COUNT, git 2.31+): git rewrites the
-    clean URL to the credential-bearing one internally, so a host whose only credential is in its origin URL
-    authenticates exactly as it would with that URL, while the credential stays out of every argument list,
-    the cache clone's config and the messages pr-media prints. Appended after any config already given
-    this way."""
+# Answers git's credential request from two environment variables, so no secret is in its text.
+URL_CREDENTIAL_HELPER = ('!f() { test "$1" = get || exit 0; echo "username=$PR_MEDIA_URL_USERNAME"; '
+                         'echo "password=$PR_MEDIA_URL_PASSWORD"; }; f')
+
+
+def url_credential_env(env: dict[str, str], secret_url: str, url: str) -> dict[str, str]:
+    """The credential in SECRET_URL's userinfo, handed to git for URL alone by a credential helper that reads
+    it from this child's environment (PR_MEDIA_URL_USERNAME, PR_MEDIA_URL_PASSWORD): a host whose only
+    credential is in its origin URL authenticates as before, and the secret is in no process's arguments
+    (git passes a rewritten URL to git-remote-https as one), no config file and no message. The helper is
+    set through GIT_CONFIG_COUNT, after any config already given that way. A token alone (`TOKEN@`) is
+    GitHub's x-access-token form."""
+    userinfo = re.match(r"(?i)https?://([^/@\s]+)@", secret_url)
+    if not userinfo:
+        return {}
+    user, colon, password = userinfo.group(1).partition(":")
+    user, password = urllib.parse.unquote(user), urllib.parse.unquote(password)
+    if not colon:
+        user, password = "x-access-token", user
+    # Scoped to the remote's scheme and host: git asks for a host's credential without the path unless
+    # credential.useHttpPath is set, and this child process talks to no other repository there. The empty
+    # value first drops any helper the host's own config names for it.
+    parts = urllib.parse.urlsplit(url)
+    scope = f"{parts.scheme}://{parts.netloc}"
     count = int(env.get("GIT_CONFIG_COUNT") or 0)
-    return {"GIT_CONFIG_COUNT": str(count + 1), f"GIT_CONFIG_KEY_{count}": f"url.{secret_url}.insteadOf",
-            f"GIT_CONFIG_VALUE_{count}": url}
+    return {"PR_MEDIA_URL_USERNAME": user, "PR_MEDIA_URL_PASSWORD": password,
+            "GIT_CONFIG_COUNT": str(count + 2),
+            f"GIT_CONFIG_KEY_{count}": f"credential.{scope}.helper", f"GIT_CONFIG_VALUE_{count}": "",
+            f"GIT_CONFIG_KEY_{count + 1}": f"credential.{scope}.helper",
+            f"GIT_CONFIG_VALUE_{count + 1}": URL_CREDENTIAL_HELPER}
 
 
 def credential_args() -> list[str]:
@@ -495,7 +516,7 @@ class MediaBranch:
     def __init__(self, repo: str, branch: str, url: str | None = None, root: Path | None = None):
         self.repo, self.branch = repo, safe_branch(branch)
         given = url or remote_url(repo)
-        # The URL git is given; any credential in GIVEN reaches git only through git_env (secret_url_config).
+        # The URL git is given; any credential in GIVEN reaches git only through git_env (url_credential_env).
         self.url = without_userinfo(given)
         self.secret_url = given if given != self.url else None
         root = root or cache_root()
