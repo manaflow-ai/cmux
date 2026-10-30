@@ -174,6 +174,10 @@ jobs:
   # this bench runs nowhere else, so attempt 3 skips the build and the bench.
   # The Blacksmith label below is only the fleet-wide literal fallback the
   # runner guards require; the `if` keeps it from ever being used.
+  # Fling-only runs use the generated session lane: each runner has its own
+  # foreground Aqua login and virtual-display namespace, so its VDisplay cannot
+  # overlap a pixel suite on the console GUI. Mixed and pixel suites retain the
+  # side lane plus take-gui token.
   build:
     needs: [resolve-ref, gate]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
@@ -182,13 +186,13 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.suites == 'fling' && vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SESSION_LANE_RUNNER || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
       backend_mode: local
 
   bench:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.suites == 'fling' && vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SESSION_LANE_RUNNER || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
     # The gui token wait (15 min) and the bench step (15 min) both fit, so a
     # busy console skips the bench instead of timing the job out.
     timeout-minutes: 45
