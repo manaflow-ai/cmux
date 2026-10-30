@@ -1,0 +1,48 @@
+import CoreGraphics
+
+// A group of one workspace titled as the group (Leo 2026-10-29: "why is there all this weird stuff at the bottom of the
+// sidebar"): `acpmux new --group X` makes a group X holding one workspace X, so the list said the name twice, a header
+// and an indented member under it. Such a group draws one row: the member's, in the header's place and at its indent
+// (a member row's level is its header's, `SidebarRow.indentLevel`). The row stays the group's member (`group`, its
+// color and line) and stands for the group (`standsForGroup`): its menu carries the group's actions.
+nonisolated extension SidebarLayout {
+    /// The workspace `group` draws as its one row, or nil when the group keeps its header: two or more members, an
+    /// item member, a member named otherwise (names compared trimmed), or subgroups under it.
+    static func soleMember(_ group: SidebarGroup, _ members: [SidebarGroupMember], hasSubgroups: Bool) -> SidebarWorkspace? {
+        guard members.count == 1, !hasSubgroups, case let .workspace(ws) = members[0] else { return nil }
+        let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !name.isEmpty && ws.title.trimmingCharacters(in: .whitespacesAndNewlines) == name ? ws : nil
+    }
+
+    /// Appends `ws`'s row (and its inline tabs) at `y` as `group`'s one row and returns the y after it.
+    static func appendSoleMember(_ ws: SidebarWorkspace, of group: SidebarGroup, section: SectionID, parent: Int, machine: String?,
+                                 options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics,
+                                 to rows: inout [SidebarRow], y: CGFloat) -> CGFloat {
+        var y = y
+        let content = o.rowContent(ws, machine: machine)
+        let h = m.height(for: content)
+        var row = SidebarRow(
+            key: .workspace(ws.id), y: y, height: h, section: section,
+            group: group.id, siblingIndex: 0, parentIndex: parent, isLastInGroup: true,
+            isCollapsed: false, childCount: 0, groupColor: group.color,
+            tabDisclosure: o.disclosure(ws), content: content
+        )
+        row.depth = group.depth + 1
+        row.standsForGroup = true
+        rows.append(row)
+        y += h + m.rowSpacing
+        guard o.listsTabs(ws) else { return y }
+        for tab in ws.tabs {
+            var tabRow = SidebarRow(
+                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section,
+                group: group.id, workspace: ws.id, siblingIndex: 0, parentIndex: parent,
+                isLastInGroup: false, isCollapsed: false, childCount: 0,
+                groupColor: group.color, tabKind: tab.kind
+            )
+            tabRow.depth = group.depth + 1
+            rows.append(tabRow)
+            y += m.tabRowHeight + m.rowSpacing
+        }
+        return y
+    }
+}

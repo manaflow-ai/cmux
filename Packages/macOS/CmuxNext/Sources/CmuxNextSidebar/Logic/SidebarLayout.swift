@@ -353,6 +353,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                     }
                     let groupCollapsed = group.isCollapsed && !filtering
+                    // One member named as its group (`acpmux new --group X` names both X): the member's row alone, in
+                    // the header's place, folded or not (`SidebarLayout+SoleMember`).
+                    if let sole = Self.soleMember(group, members, hasSubgroups: subgroupParents.contains(group.id)) {
+                        // A drop gap in the group opens above or below the row; the header never returns mid-drag.
+                        openGapIfNeeded(section: section.id, group: group.id, index: 0)
+                        y = Self.appendSoleMember(sole, of: group, section: section.id, parent: index, machine: machineLabel, options: o, metrics: m, to: &rows, y: y)
+                        openGapIfNeeded(section: section.id, group: group.id, index: 1)
+                        return
+                    }
                     var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
