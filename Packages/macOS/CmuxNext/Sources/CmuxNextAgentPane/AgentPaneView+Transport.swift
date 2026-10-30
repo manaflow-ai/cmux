@@ -24,7 +24,11 @@ extension AgentPaneView {
         model.transport.gestures.recordQuestionReturn(false)
         page.bindQuestionKeyTargets([]) { _ in }
         let bound = page.bindQuestionKeyTargets(targets) { [weak self, weak page] snapshot in
-            guard let self, let page, self.model.sessionId == snapshot.target.sessionID,
+            guard let self, let page else { return }
+            let requestID = "question-key-" + UUID().uuidString
+            guard self.model.transport.beginQuestionKeyReply(connection: connection, requestID: requestID,
+                                                              target: snapshot.target) else { return }
+            guard self.model.sessionId == snapshot.target.sessionID,
                   self.model.transport.connection == connection,
                   let boundContext = binding.contexts[snapshot.target.permissionID],
                   let context = self.model.transport.decisions.context(session: snapshot.target.sessionID,
@@ -33,37 +37,45 @@ extension AgentPaneView {
                   context.isQuestion, let witness = self.model.transport.gestures.questionReturnWitness,
                   let reply = try? JSONSerialization.jsonObject(with: Data(snapshot.replyJSON.utf8)) as? [String: Any],
                   let option = reply["optionId"] as? String,
-                  let answers = reply["answers"] as? [String: Any] else { return }
+                  let answers = reply["answers"] as? [String: Any] else {
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID, target: snapshot.target)
+                return
+            }
             let annotations = reply["annotations"] as? [String: Any]
             var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
                                           "optionId": option, "answers": answers]
             if let annotations { params["annotations"] = annotations }
             let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
                 "params": params]])
-            guard let intent else { return }
+            guard let intent else {
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
+                                                             target: snapshot.target, error: .intentInvalid)
+                return
+            }
             self.model.transport.offerQuestionKeyCredit(target: snapshot.target, intent: intent, context: context,
                                                         connection: connection, witness: witness) {
                 await page.redeemQuestionKeySnapshot(snapshot)
             }
-            let requestID = "question-key-" + UUID().uuidString
             guard let ticket = self.model.transport.reserveGesture(intent) else {
                 // Chromium has already prevented Return and the card is waiting on
                 // the host's correlated promise. Revoke this witness, release the
                 // isolated snapshot, and reject that promise so the card can retry.
                 self.model.transport.gestures.recordQuestionReturn(false)
-                Task { @MainActor [weak self, weak page] in
-                    guard let self, let page else { return }
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID, target: snapshot.target)
+                Task { @MainActor [weak page] in
+                    guard let page else { return }
                     _ = await page.redeemQuestionKeySnapshot(snapshot)
-                    self.model.transport.rejectQuestionKeyReply(connection: connection,
-                                                                 requestID: requestID,
-                                                                 target: snapshot.target)
                 }
                 return
             }
             params["_meta"] = [AcpmuxPaneMethods.gestureTicketKey: ticket]
             let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID,
                                             "method": "_acpmux/permission_respond", "params": params]
-            guard let text = AcpmuxRequestIds.encode(request) else { return }
+            guard let text = AcpmuxRequestIds.encode(request) else {
+                self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
+                                                             target: snapshot.target, error: .invalidFrame)
+                return
+            }
             self.model.transport.submitQuestionKeyReply(connection: connection, requestID: requestID,
                                                        target: snapshot.target, frame: text)
         }
@@ -100,7 +112,9 @@ extension AgentPaneView {
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
-                pageEvents.transportDidOpen(event.connection)
+                if event.connection == self.model.transport.current {
+                    pageEvents.transportDidOpen(event.connection)
+                }
                 // The page host's events carry no completion: the next push may follow next turn.
                 if !pageEvents.publish(.transport(event)) {
                     self.model.transport.close(connection: event.connection)

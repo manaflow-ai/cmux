@@ -52,12 +52,32 @@ struct AgentPaneQuestionKeyAdmissionTests {
         transport.submitQuestionKeyReply(connection: connection, requestID: Self.requestID,
                                          target: Self.target, frame: Self.frame)
         if overflow {
-            // Overflow drops the socket's inbox, including the queued announcement.
+            // Overflow drops the socket's inbox; the native capture must survive that loss.
             transport.socket?.close(code: 1009, reason: "overflow", error: .inboundOverflow)
             transport.flush()
         } else {
             transport.close(connection: connection)
         }
         try Self.checkRefusal(events, connection: connection)
+    }
+
+    @Test func anAnsweredCaptureIsNotRefusedAgainWhenTheConnectionCloses() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let transport = AgentPaneTransport(pacer: HeldPacer())
+        var events: [AgentPaneTransportEvent] = []
+        transport.deliver = { event, done in events.append(event); done() }
+        let connection = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        transport.submitQuestionKeyReply(connection: connection, requestID: Self.requestID,
+                                         target: Self.target, frame: Self.frame)
+        transport.socket?.inject(#"{"jsonrpc":"2.0","id":"question-key-close-race","result":{}}"#)
+        transport.flush()
+        transport.close(connection: connection)
+        let frames = try events.flatMap(\.frames).map {
+            try #require(try JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any])
+        }
+        #expect(frames.contains { $0["id"] as? String == Self.requestID && $0["result"] != nil })
+        #expect(!frames.contains { $0["id"] as? String == Self.requestID && $0["error"] != nil })
     }
 }

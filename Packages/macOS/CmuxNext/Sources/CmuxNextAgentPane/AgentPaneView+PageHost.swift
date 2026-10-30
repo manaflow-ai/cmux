@@ -30,7 +30,8 @@ extension AgentPaneView {
             // missing targets and reinstalls it. Defer that refresh so the
             // invalidation is observable synchronously and a Return that
             // follows it still gets a fresh binding.
-            DispatchQueue.main.async { [weak self] in self?.refreshQuestionKeyBinding() }
+            // task-owner: one deferred refresh for this invalidation; a released view is ignored.
+            Task { @MainActor [weak self] in self?.refreshQuestionKeyBinding() }
         }
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }

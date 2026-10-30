@@ -87,6 +87,8 @@ import CmuxNextCompat
     }
     var questionKeyCredit: QuestionKeyCredit?
     private var questionKeyTickets: [String: QuestionKeyCredit] = [:]
+    /// Captured Return requests not yet answered to the page, including admission races.
+    var capturedQuestionKeyReplies: [String: CapturedQuestionKeyReply] = [:]
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
     /// The canonical host key of the current remote chat, when its tab record supplied one.
@@ -329,46 +331,6 @@ import CmuxNextCompat
         Task { [weak self] in await self?.drain() }
     }
 
-    /// Return is captured before the card can create its usual reply promise. Let the client
-    /// adopt this request first, so its normal RPC error, disconnect and timeout paths reach the
-    /// card. The card keeps the original Other field intact until DOM redemption finishes.
-    func submitQuestionKeyReply(connection: Int, requestID: String, target: PageQuestionKeyTarget, frame: String) {
-        guard connection == current, let socket, !socket.isClosed else { return }
-        let announcement: [String: Any] = ["jsonrpc": "2.0", "method": "_cmux/question_key_request", "params": [
-            "id": requestID, "sessionId": target.sessionID, "permissionId": target.permissionID,
-        ]]
-        guard let text = AcpmuxRequestIds.encode(announcement) else { return }
-        // Use the same pacer queue as replies: even an immediate daemon response follows the
-        // announcement, and both stay scoped to this connection when it closes or reconnects.
-        socket.inject(text)
-        submit(connection: connection, frames: [frame]) { error in
-            guard let error,
-                  let rawID = AcpmuxPaneMethods.rawID(requestID) else { return }
-            // Most refusals also arrive through socket.inject. A stopped send (stale connection,
-            // closed socket, overflow) may have no injected reply. The client's pending map
-            // accepts only the first answer, so this fallback cannot reject a request twice.
-            let refusal = AcpmuxPaneMethods.refusal(requestID: rawID, error: error, method: "_acpmux/permission_respond")
-            socket.inject(refusal)
-        }
-    }
-
-    /// Answers a Return capture when native admission failed after Chromium
-    /// already consumed the key. The page has adopted the request by the time
-    /// this is called, so a correlated JSON-RPC refusal restores the card's
-    /// retry state instead of leaving its promise pending forever.
-    func rejectQuestionKeyReply(connection: Int, requestID: String, target: PageQuestionKeyTarget,
-                                error: AgentPaneTransportError = .gestureRequired) {
-        guard connection == current, let socket, !socket.isClosed,
-              let rawID = AcpmuxPaneMethods.rawID(requestID) else { return }
-        let announcement: [String: Any] = ["jsonrpc": "2.0", "method": "_cmux/question_key_request", "params": [
-            "id": requestID, "sessionId": target.sessionID, "permissionId": target.permissionID,
-        ]]
-        guard let text = AcpmuxRequestIds.encode(announcement) else { return }
-        socket.inject(text)
-        socket.inject(AcpmuxPaneMethods.refusal(requestID: rawID, error: error,
-                                                 method: "_acpmux/permission_respond"))
-    }
-
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
 
     /// One page send in line: its frames still to go, its first error, and where its result goes.
@@ -421,6 +383,7 @@ import CmuxNextCompat
     public func close(connection id: Int) {
         guard id == current else { return }
         failHostRequests(connection: id)
+        failQuestionKeyReplies(connection: id, error: .closed)
         trustDaemon = nil // A new native pick after close belongs to the next local connection.
         guard let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
@@ -478,7 +441,12 @@ import CmuxNextCompat
         }
         guard !batch.frames.isEmpty || batch.closed != nil else { return AgentPaneFlush(delivered: false, more: batch.more) }
         flushes += 1
-        let event = AgentPaneTransportEvent(connection: current, frames: batch.frames, closed: batch.closed)
+        finishQuestionKeyReplies(frames: batch.frames)
+        var frames = batch.frames
+        if let closed = batch.closed {
+            frames += takeQuestionKeyRefusals(connection: current, error: closed.error ?? .closed)
+        }
+        let event = AgentPaneTransportEvent(connection: current, frames: frames, closed: batch.closed)
         if batch.closed != nil {
             failHostRequests(connection: current)
             self.socket = nil

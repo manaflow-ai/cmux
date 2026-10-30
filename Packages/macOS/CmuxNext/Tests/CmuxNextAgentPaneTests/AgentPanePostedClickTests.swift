@@ -92,16 +92,27 @@ struct AgentPanePostedClickTests {
         let gestures = view.model.transport.gestures
         view.judge(keyDown, eventWindow: childWindow)
         #expect(gestures.consume(), "the person's Return after an attachment was rejected while Chromium was not key")
+        // Consuming the ordinary grant is a separate use of this physical key. It revokes the
+        // question proof, so the same event cannot authorize both paths.
+        #expect(gestures.questionReturnWitness == nil)
+
+        // A second physical Return exercises the isolated question proof independently.
+        let questionEvent = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        questionEvent.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let questionKeyDown = try #require(NSEvent(cgEvent: questionEvent))
+        view.judge(questionKeyDown, eventWindow: childWindow)
         let witness = try #require(gestures.questionReturnWitness)
+        #expect(gestures.isAvailable, "the question Return also has its ordinary grant credit")
         // A held Return can repeat while the isolated DOM proof is still crossing the bridge.
         // It must neither revoke that original witness nor mint another one.
-        event.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
-        let repeated = try #require(NSEvent(cgEvent: event))
+        questionEvent.setIntegerValueField(.keyboardEventAutorepeat, value: 1)
+        let repeated = try #require(NSEvent(cgEvent: questionEvent))
         try #require(repeated.isARepeat)
         view.judge(repeated, eventWindow: childWindow)
         #expect(gestures.questionReturnWitness == witness)
-        #expect(!gestures.consume(), "a repeat minted another generic input gesture")
+        #expect(gestures.isAvailable, "a held Return repeat neither mints nor consumes generic credit")
         #expect(gestures.consumeQuestionReturn(witness))
+        #expect(!gestures.consume(), "consuming the question proof must revoke its generic grant")
         #expect(!gestures.consumeQuestionReturn(witness))
 
         event.setIntegerValueField(.keyboardEventAutorepeat, value: 0)
