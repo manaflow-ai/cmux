@@ -479,23 +479,42 @@ impl Hub {
             return;
         }
         let fam = family.to_owned();
-        let Ok(turns) =
-            tokio::task::spawn_blocking(move || crate::adopt_replay::read(&fam, &file)).await
-        else {
-            return;
-        };
+        // A Claude Code transcript is read from its end, one page (`adopt_replay_page.rs`): it can
+        // be hundreds of megabytes, and the chat shows its newest turns first.
+        let read = tokio::task::spawn_blocking(move || {
+            if fam == "claude" {
+                let page =
+                    crate::adopt_replay::claude_page(&file, None, crate::adopt_replay::PAGE_TURNS);
+                (page.turns, page.start)
+            } else {
+                (crate::adopt_replay::read(&fam, &file), 0)
+            }
+        })
+        .await;
+        let Ok((turns, before)) = read else { return };
         if turns.is_empty() {
             return;
+        }
+        // Older turns stay in the transcript: `before` is where the next older page ends.
+        if before > 0 {
+            self.append(
+                session,
+                "mux",
+                "native_history",
+                json!({"family": family, "before": before, "turns": turns.len()}),
+            );
         }
         // The chat's title and counts come from its past, as live turns set them (turns.rs).
         {
             let mut m = session.meta.lock().unwrap();
             if m.title.is_none()
-                && let Some(first) = turns[0].prompt.lines().find(|l| !l.trim().is_empty())
+                && let Some(first) = turns
+                    .iter()
+                    .find_map(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
             {
                 m.title = Some(short_text(first.trim(), 80));
             }
-            if let Some(last) = turns.last() {
+            if let Some(last) = turns.iter().rev().find(|t| !t.prompt.is_empty()) {
                 let line = super::prompt_line::prompt_line(&last.prompt, "adopt", None);
                 m.last_prompt = Some(short_text(&line, 200));
             }
@@ -524,14 +543,17 @@ impl Hub {
                 )
                 .0
                 .seq;
-            self.append_at(
-                session,
-                "mux",
-                "user_message",
-                json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
-                None,
-                started,
-            );
+            // A page that begins inside a turn has that turn's prompt in the older page.
+            if !turn.prompt.is_empty() {
+                self.append_at(
+                    session,
+                    "mux",
+                    "user_message",
+                    json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
+                    None,
+                    started,
+                );
+            }
             // The turn's tool calls, before its answer, as a live turn sends them: each starts
             // running and its update settles it, so the pane folds them under "Worked for".
             for tool in &turn.tools {
@@ -583,6 +605,10 @@ impl Hub {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "adoption_page_tests.rs"]
+mod page_tests;
 
 // The tests name Unix paths of another machine.
 #[cfg(all(test, unix))]
