@@ -66,6 +66,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type ProjectRowLook } from "./EnvironmentSection";
 import { InspectorGroup } from "./InspectorGroup";
@@ -1087,7 +1088,8 @@ export function ChatInspector({
   const sources = made?.sources ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
+  const reconnect = connectorSummary.kind === "reconnect" ? connectorSummary.count : 0;
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has had subagents or sub-sessions, or whose running limit
   // someone set (its own, an ancestor's, the workspace's or the settings'): a chat that never used
@@ -1163,11 +1165,14 @@ export function ChatInspector({
       icon={rowIcon("extension")}
       open={state.connectors}
       onOpenChange={fold("connectors")}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
-        reconnect > 0
-          ? t("chatInspector.connectors.reconnect", { count: reconnect })
-          : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
+        connectorSummary.kind === "reconnect"
+          ? t("chatInspector.connectors.reconnect", { count: connectorSummary.count })
+          : connectorSummary.kind === "connecting"
+            ? t("chatInspector.connectors.connecting", { count: connectorSummary.count })
+            : t("chatInspector.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
