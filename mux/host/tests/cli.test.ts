@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_MUX, messageText, USER_LOCAL } from "../src/conversation-types.ts";
 import { FakeDaemon } from "./fakes/fake-daemon.ts";
@@ -135,4 +135,41 @@ test("mux hook removes its temporary cursor when the write fails", () => {
   expect(run.exitCode, run.stderr.toString()).not.toBe(0);
   expect(run.stderr.toString()).toContain("EFBIG");
   expect(readdirSync(sessions)).toEqual([]);
+});
+
+test("mux hook sweeps temporary cursors a killed hook left behind", () => {
+  const dir = mkdtempSync("/tmp/muxh-stale-");
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const home = join(dir, "home");
+  const sessions = join(home, "state", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  // A hook killed between its write and its rename leaves its temporary cursor behind.
+  // No live process has this PID (Linux caps PIDs at 2^22, macOS lower still).
+  const dead = 2147483646;
+  const stale = join(sessions, `killed.json.${dead}.1.ab.tmp`);
+  const fresh = join(sessions, `killed.json.${dead}.2.cd.tmp`);
+  // A hook paused between its write and its rename still owns its temporary, however old.
+  const paused = join(sessions, `killed.json.${process.pid}.3.ef.tmp`);
+  const other = join(sessions, `other.json.${dead}.4.ab.tmp`);
+  // Session "killed.json" is another session whose temporaries share the prefix.
+  const lookalike = join(sessions, `killed.json.json.${dead}.5.cd.tmp`);
+  for (const file of [stale, fresh, paused, other, lookalike]) writeFileSync(file, '{"seen":1}\n');
+  const old = new Date(Date.now() - 10 * 60_000);
+  for (const file of [stale, paused, other, lookalike]) utimesSync(file, old, old);
+  const run = Bun.spawnSync([process.execPath, main, "hook", "session-start"], {
+    env: { PATH: "/usr/bin:/bin", HOME: dir, MUX_HOME: home },
+    stdin: new Blob([JSON.stringify({ session_id: "killed" })]),
+  });
+  expect(run.exitCode, run.stderr.toString()).toBe(0);
+  // Only its own stale temporary of a dead hook goes; a fresh one may belong to a hook
+  // still writing, and other sessions' temporaries are those sessions' to sweep.
+  expect(readdirSync(sessions).sort()).toEqual(
+    [
+      "killed.json",
+      `killed.json.${dead}.2.cd.tmp`,
+      `killed.json.${process.pid}.3.ef.tmp`,
+      `killed.json.json.${dead}.5.cd.tmp`,
+      `other.json.${dead}.4.ab.tmp`,
+    ].sort(),
+  );
 });

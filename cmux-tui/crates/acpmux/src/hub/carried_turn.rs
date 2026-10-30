@@ -331,6 +331,8 @@ impl Hub {
         slot: Option<RunSlot>,
     ) {
         let guard = session.turn_lock.lock().await;
+        // Closes before this point were before these turns (`respawn_stopped_agent`).
+        let stops = session.stops.load(Ordering::SeqCst);
         loop {
             Self::hold_stalled_count(&session);
             self.set_status(&session, SessionStatus::Running);
@@ -393,6 +395,9 @@ impl Hub {
                 _ => None,
             };
             self.schedule_auto_resume(&session, turn_id, cut);
+            // A Stop that ended the agent of this turn starts it again now, as a prompt's turn
+            // does (`cancel.rs`), with the turn lock still held.
+            self.respawn_stopped_agent(&session, turn_id, stops).await;
             let Some(next) = next else { break };
             let NextTurn { carried, next: next_turn, continues: next_continues } = *next;
             let gate = next_continues.trust_gate;
