@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Workspaces marked Done (Mark as Done, `SidebarTaskStatus.done`) fold into one "Done (N)" row at the end of their
 /// group or list, in their manual order; the row opens them again below it (Leo's sidebar organization, slice S4).
-@MainActor @Suite(.serialized) struct SidebarDoneFoldTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDoneFoldTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
     static func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
@@ -125,6 +126,7 @@ import Testing
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         let list = sidebar.list
