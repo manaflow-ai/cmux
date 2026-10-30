@@ -41203,55 +41203,6 @@
         {
           "children" : [
             {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneLink",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneID",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "pane.screenshot",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "copy",
-          "kind" : "folder",
-          "order" : 5,
-          "title" : "Copy",
-          "title_key" : "menu.folder.copy",
-          "title_table" : "Localizable"
-        },
-        {
-          "children" : [
-            {
               "children" : [
                 {
                   "enabled_when" : "can_perform",
@@ -41959,9 +41910,52 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "pane.closeOthers",
+              "id" : "palette.copyPaneID",
               "kind" : "action",
               "order" : 23,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.copyPaneLink",
+              "kind" : "action",
+              "order" : 24,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "pane.screenshot",
+              "kind" : "action",
+              "order" : 25,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 26
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "pane.closeOthers",
+              "kind" : "action",
+              "order" : 27,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -41973,20 +41967,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 6,
+          "order" : 5,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closePane",
           "kind" : "action",
-          "order" : 8,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44860,107 +44854,6 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copySurfaceLink",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copySurfaceID",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneLink",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneID",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyIdentifiers",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "agentChat.copyIdentifier",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tab.screenshot",
-              "kind" : "action",
-              "order" : 6,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "copy",
-          "kind" : "folder",
-          "order" : 9,
-          "title" : "Copy",
-          "title_key" : "menu.folder.copy",
-          "title_table" : "Localizable"
-        },
-        {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
               "id" : "home.messageAbout",
               "kind" : "action",
               "order" : 0,
@@ -45809,7 +45702,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "closeTabsToLeft",
+              "id" : "palette.copySurfaceID",
               "kind" : "action",
               "order" : 22,
               "visible_when" : {
@@ -45821,12 +45714,21 @@
               }
             },
             {
-              "kind" : "separator",
-              "order" : 23
+              "enabled_when" : "can_perform",
+              "id" : "palette.copySurfaceLink",
+              "kind" : "action",
+              "order" : 23,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tab.stash",
+              "id" : "palette.copyIdentifiers",
               "kind" : "action",
               "order" : 24,
               "visible_when" : {
@@ -45839,7 +45741,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tab.stashToRight",
+              "id" : "palette.copyPaneID",
               "kind" : "action",
               "order" : 25,
               "visible_when" : {
@@ -45852,9 +45754,95 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tab.stashOthers",
+              "id" : "palette.copyPaneLink",
               "kind" : "action",
               "order" : 26,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentChat.copyIdentifier",
+              "kind" : "action",
+              "order" : 27,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.screenshot",
+              "kind" : "action",
+              "order" : 28,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 29
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "closeTabsToLeft",
+              "kind" : "action",
+              "order" : 30,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 31
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stash",
+              "kind" : "action",
+              "order" : 32,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stashToRight",
+              "kind" : "action",
+              "order" : 33,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stashOthers",
+              "kind" : "action",
+              "order" : 34,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45866,20 +45854,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 10,
+          "order" : 9,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 10
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeTab",
           "kind" : "action",
-          "order" : 12,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45892,7 +45880,7 @@
           "enabled_when" : "can_perform",
           "id" : "closeOtherTabsInPane",
           "kind" : "action",
-          "order" : 13,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -45905,7 +45893,7 @@
           "enabled_when" : "can_perform",
           "id" : "closeTabsToRight",
           "kind" : "action",
-          "order" : 14,
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -47990,42 +47978,6 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceLink",
-              "kind" : "action",
-              "order" : 0,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceID",
-              "kind" : "action",
-              "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            }
-          ],
-          "folder" : "copy",
-          "kind" : "folder",
-          "order" : 12,
-          "title" : "Copy",
-          "title_key" : "menu.folder.copy",
-          "title_table" : "Localizable"
-        },
-        {
-          "children" : [
-            {
-              "enabled_when" : "can_perform",
               "id" : "workspace.newLikeThis",
               "kind" : "action",
               "order" : 0,
@@ -48642,7 +48594,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeOtherWorkspaces",
+              "id" : "palette.copyWorkspaceLink",
               "kind" : "action",
               "order" : 21,
               "visible_when" : {
@@ -48655,7 +48607,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.closeOthersInGroup",
+              "id" : "palette.copyWorkspaceID",
               "kind" : "action",
               "order" : 22,
               "visible_when" : {
@@ -48667,21 +48619,12 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesBelow",
-              "kind" : "action",
-              "order" : 23,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
+              "kind" : "separator",
+              "order" : 23
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesAbove",
+              "id" : "palette.closeOtherWorkspaces",
               "kind" : "action",
               "order" : 24,
               "visible_when" : {
@@ -48694,7 +48637,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.closeAll",
+              "id" : "workspace.closeOthersInGroup",
               "kind" : "action",
               "order" : 25,
               "visible_when" : {
@@ -48707,7 +48650,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
+              "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
               "order" : 26,
               "visible_when" : {
@@ -48720,7 +48663,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.stash",
+              "id" : "palette.closeWorkspacesAbove",
               "kind" : "action",
               "order" : 27,
               "visible_when" : {
@@ -48733,9 +48676,48 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "window.stash",
+              "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 28,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "reopenClosedWorkspace",
+              "kind" : "action",
+              "order" : 29,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.stash",
+              "kind" : "action",
+              "order" : 30,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "window.stash",
+              "kind" : "action",
+              "order" : 31,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -48747,20 +48729,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 13,
+          "order" : 12,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 14
+          "order" : 13
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeWorkspace",
           "kind" : "action",
-          "order" : 15,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
