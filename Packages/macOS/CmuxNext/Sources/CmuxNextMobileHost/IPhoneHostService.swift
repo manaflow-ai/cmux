@@ -118,8 +118,6 @@ public final class IPhoneHostService {
     internal(set) var paired: MobileHostPairedDevices?
     public let pairedStore = MobileHostPairedStore()
     @ObservationIgnored var phoneAdmission: PhoneAdmission?
-    /// The read of ``paired`` in flight, and the phones forgotten while it runs (``loadPaired(signedOut:)``).
-    @ObservationIgnored var pairedLoad = MobileHostPairedLoad()
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -223,12 +221,9 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
-        if id.hasPrefix("iroh:"), let user = pairedStore.current?.userID {
-            let endpoint = String(id.dropFirst(5))
-            do {
-                try await pairedStore.change(for: user) { $0.remove(endpoint, transport: .iroh) }
-                phonesError = nil
-            } catch { phonesError = IPhoneHostStrings.removeFailed }
+        if id.hasPrefix("iroh:") {
+            pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
+            phonesError = nil
             return
         }
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }

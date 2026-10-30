@@ -34,7 +34,6 @@ extension IPhoneHostService {
         guard let directory = dependencies?.stateDirectory else { return }
         Task { [pairedStore] in
             await pairedStore.attach(directory: directory)
-            await pairedStore.reload()
         }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
