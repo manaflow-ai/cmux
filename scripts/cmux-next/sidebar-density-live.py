@@ -17,7 +17,7 @@ the action path (`action.run sidebar.density.<name>`, the palette and Options en
 the setting): comfortable, expanded, and compact again. For each it writes `debug.sidebar_rows`
 (rows-<label>.json) and a window snapshot ($NX_CAPTURE; window-<label>.png), and it checks:
 
-  default    the default is Compact (the compact action is hidden, cmux.json has no density)
+  default    cmux.json has no density; Options keeps every density choice visible
   rows       Comfortable rows, tab rows and group headers are one line and taller than Compact's
              by the same step; Expanded rows are at least as tall as Compact's; Compact again
              matches the default
@@ -298,8 +298,8 @@ try:
     if options is None:
         check(False, f"default: the sidebar background menu has an Options folder (submenus {list(hidden)})")
     else:
-        check("Sidebar Density: Compact" not in options and "Sidebar Density: Comfortable" in options,
-              f"default: Options offers Comfortable and hides Compact (the current density) ({options})")
+        check(all(title in options for title in ("Compact Rows", "Comfortable Rows", "Expanded Rows")),
+              f"default: Options keeps every density choice visible ({options})")
 
     base = default["workspace"].get("done")
     set_density("comfortable", base)

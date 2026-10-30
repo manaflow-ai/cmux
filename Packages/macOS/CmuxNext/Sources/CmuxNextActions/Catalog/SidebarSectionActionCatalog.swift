@@ -341,7 +341,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 id: "sidebar.compactList.toggle", title: t("action.sidebar.compactList.toggle", "Compact Workspace List"),
                 keywords: ["sidebar", "workspace", "compact", "one line", "tabs"], category: .sidebar, symbol: "list.dash",
                 surfaces: [.palette, .keyboard, .contextMenu], isDebugOnly: true,
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 121, folder: .options)])
+                surfacePlan: plan(cli: .exempt(.devOnly), menus: [p(.sidebarBackground, .view, 121, folder: .options)])
             ),
             // Leo (2026-10-09): the sidebar's menu checks Show Tabs Under
             // Workspaces (`sidebar.showWorkspaceTabs`; scripts set that), in
