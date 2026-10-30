@@ -443,6 +443,13 @@ button.cv-subagent > :last-child {
   line-height: 18px;
   letter-spacing: var(--text-control--letter-spacing);
 }
+/* Keep a readable title and the trailing controls inside compact agent panes. The duration track
+   stays wide enough for `12h 59m 59s`; the status copy gives up space first at narrow widths. */
+@media (max-width: 360px) {
+  .acpmux-running-tray {
+    --acpmux-tray-status-width: 56px;
+  }
+}
 /* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
    the top"): the header and View all are pinned, and only the list between them scrolls. In a
    short pane the list gives up its height first, down to nothing; the header never does. */

@@ -32,7 +32,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   });
 
   for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
-    test(`expanded tray keeps fixed trailing columns with empty slots (${theme})`, async () => {
+    test(`expanded tray keeps trailing columns with real durations (${theme})`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;
       const page = await browser.newPage({
         viewport: { width: 760, height: 560 },
@@ -96,25 +96,108 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.rows.some((row) => row.hasStop)).toBe(true);
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 
-        const durations = await page.evaluate(() => {
-          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-          const times = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")];
-          const rendered = times.map((time) => {
-            time.textContent = "12h 59m 59s";
-            const style = getComputedStyle(time);
-            const box = time.getBoundingClientRect();
-            return { width: box.width, height: box.height, whiteSpace: style.whiteSpace, overflow: style.overflow };
+        const measure = () =>
+          page.evaluate(() => {
+            const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+            const trayBox = tray.getBoundingClientRect();
+            const rect = (selector: string, root: ParentNode) => {
+              const node = root.querySelector<HTMLElement>(selector);
+              if (!node) throw new Error(`missing ${selector}`);
+              const box = node.getBoundingClientRect();
+              return { left: box.left, right: box.right, width: box.width, height: box.height };
+            };
+            const textRect = (node: HTMLElement) => {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const boxes = [...range.getClientRects()];
+              const box = node.getBoundingClientRect();
+              const style = getComputedStyle(node);
+              return {
+                text: node.textContent?.trim() ?? "",
+                lineCount: boxes.length,
+                textRight: boxes.length === 1 ? boxes[0]!.right : Number.POSITIVE_INFINITY,
+                boxRight: box.right,
+                height: box.height,
+                scrollWidth: node.scrollWidth,
+                clientWidth: node.clientWidth,
+                whiteSpace: style.whiteSpace,
+                fontVariantNumeric: style.fontVariantNumeric,
+              };
+            };
+            const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
+            const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head");
+            if (!head) throw new Error("missing tray head");
+            return {
+              tray: { left: trayBox.left, right: trayBox.right, width: trayBox.width },
+              rows: rows.map((row) => {
+                const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time");
+                if (!time) throw new Error("missing row time");
+                return {
+                  name: rect(".acpmux-summary-agent__name", row),
+                  time: { ...rect(".acpmux-agent-line__time", row), ...textRect(time) },
+                  status: rect(".acpmux-agent-line__status", row),
+                  chevron: row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")
+                    ? rect(".acpmux-agent-line__chevron", row)
+                    : null,
+                  stop: rect(".acpmux-agent-line__stop-slot", row),
+                  hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
+                };
+              }),
+              head: (() => {
+                const time = head.querySelector<HTMLElement>(".acpmux-running-tray__time");
+                if (!time) throw new Error("missing header time");
+                return {
+                  time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
+                  status: rect(".acpmux-running-tray__status", head),
+                  stop: rect(".acpmux-running-tray__stop-slot", head),
+                };
+              })(),
+            };
           });
-          return rendered;
-        });
-        expect(durations.length).toBeGreaterThanOrEqual(3);
-        expect(durations.every((duration) => duration.width >= 80)).toBe(true);
-        expect(durations.every((duration) => duration.height <= 18)).toBe(true);
-        expect(durations.every((duration) => duration.whiteSpace === "nowrap")).toBe(true);
-        expect(durations.every((duration) => duration.overflow === "hidden")).toBe(true);
+        const initial = await measure();
+        expect(initial.rows.length).toBeGreaterThanOrEqual(3);
+        const [initialFirst, ...initialRest] = initial.rows;
+        expect(initialRest.every((row) => row.status.left === initialFirst!.status.left)).toBe(true);
+        expect(initialRest.every((row) => row.time.right === initialFirst!.time.right)).toBe(true);
+        expect(initialRest.every((row) => row.stop.left === initialFirst!.stop.left)).toBe(true);
+        expect(initial.head.time.right).toBe(initialFirst!.time.right);
+        expect(initial.head.status.left).toBe(initialFirst!.status.left);
+        expect(initial.head.status.right).toBe(initialFirst!.status.right);
+        expect(initial.head.stop.left).toBe(initialFirst!.stop.left);
+        expect(initial.rows.some((row) => row.hasStop)).toBe(true);
+        expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
+        expect(initial.rows.every((row) => row.name.width >= 60)).toBe(true);
+        expect(initial.rows.every((row) => row.time.lineCount === 1)).toBe(true);
+        expect(initial.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
+        expect(initial.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
+        expect(initial.rows.every((row) => row.time.height <= 18)).toBe(true);
+        expect(initial.rows.every((row) => row.time.whiteSpace === "nowrap")).toBe(true);
+        expect(initial.rows.every((row) => row.time.fontVariantNumeric.includes("tabular-nums"))).toBe(true);
+        expect(initial.rows.every((row) => row.stop.right <= initial.tray.right + 0.5)).toBe(true);
         const headerDuration = page.locator(".acpmux-running-tray__head .acpmux-running-tray__time");
         expect(await headerDuration.count()).toBe(1);
-        expect((await headerDuration.textContent())?.trim()).toMatch(/^12h 59m 5[89]s$/);
+        expect(initial.head.time.text).toMatch(/^(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)$/);
+
+        // The live clock ticks every second. A tick must update text without moving any shared
+        // trailing track or changing row height.
+        await page.waitForTimeout(1_100);
+        const afterTick = await measure();
+        expect(afterTick.rows.every((row) => row.time.lineCount === 1)).toBe(true);
+        expect(afterTick.rows.every((row) => row.name.width >= 60)).toBe(true);
+        expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
+        expect(afterTick.rows.map((row) => row.status.left)).toEqual(initial.rows.map((row) => row.status.left));
+        expect(afterTick.rows.map((row) => row.stop.left)).toEqual(initial.rows.map((row) => row.stop.left));
+        expect(afterTick.rows.map((row) => row.time.height)).toEqual(initial.rows.map((row) => row.time.height));
+
+        // The tray also has to remain usable in the narrow pane used by the compact layout:
+        // titles keep room, and every trailing control stays inside the tray.
+        await page.setViewportSize({ width: 300, height: 560 });
+        const narrow = await measure();
+        expect(narrow.rows.every((row) => row.name.width >= 60)).toBe(true);
+        expect(narrow.rows.every((row) => row.time.lineCount === 1)).toBe(true);
+        expect(narrow.rows.every((row) => row.time.textRight <= row.time.boxRight + 0.5)).toBe(true);
+        expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
+        expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
 
         const clickTargets = await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
