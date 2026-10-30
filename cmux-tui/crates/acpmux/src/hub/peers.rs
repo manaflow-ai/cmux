@@ -941,9 +941,20 @@ impl Hub {
         if map.get(key).is_some() {
             return 1;
         }
-        match map.iter().filter(|(id, r)| names_remote(id, r, key)).count() {
-            0 => map.values().filter(|r| remote_segment(r, key)).count(),
-            n => n,
+        // One pass: whole names and prefixes, else short names (closed ones only when no live
+        // one has it, as `resolve_remote` matches them).
+        let (mut strict, mut live, mut closed) = (0, 0, 0);
+        for (id, r) in map.iter() {
+            if names_remote(id, r, key) {
+                strict += 1;
+            } else if strict == 0 && remote_segment(r, key) {
+                if remote_closed(r) { closed += 1 } else { live += 1 }
+            }
+        }
+        match (strict, live) {
+            (0, 0) => closed,
+            (0, live) => live,
+            (strict, _) => strict,
         }
     }
 
@@ -983,19 +994,25 @@ impl Hub {
         let (hit, by_short_name) = if let Some(r) = map.get(key) {
             (Some(row(r)), false)
         } else {
-            let mut matches: Vec<_> = map
-                .iter()
-                .filter(|(id, r)| names_remote(id, r, key))
-                .map(|(_, r)| row(r))
-                .collect();
+            // One pass over the rows, as before short names: whole names and prefixes, and the
+            // short-name candidates beside them (kept only while no whole name or prefix matched).
+            let (mut matches, mut shorts) = (Vec::new(), Vec::new());
+            for (id, r) in map.iter() {
+                if names_remote(id, r, key) {
+                    matches.push(row(r));
+                } else if matches.is_empty() && remote_segment(r, key) {
+                    shorts.push((row(r), remote_closed(r)));
+                }
+            }
             let short = matches.is_empty();
             if short {
                 // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
-                let found: Vec<&RemoteSession> =
-                    map.values().filter(|r| remote_segment(r, key)).collect();
-                let live = found.iter().any(|r| !remote_closed(r));
-                matches =
-                    found.into_iter().filter(|r| !live || !remote_closed(r)).map(row).collect();
+                let live = shorts.iter().any(|(_, closed)| !closed);
+                matches = shorts
+                    .into_iter()
+                    .filter(|(_, closed)| !live || !closed)
+                    .map(|(row, _)| row)
+                    .collect();
             }
             (if matches.len() == 1 { matches.pop() } else { None }, short)
         };
