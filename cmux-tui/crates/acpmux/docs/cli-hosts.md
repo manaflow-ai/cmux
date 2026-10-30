@@ -54,9 +54,9 @@
 | --- | --- |
 | From a Mac, let its cmux app allow a peer's prompts | `acpmux host approvals enroll mini-2` |
 | The Macs that may allow prompts here | `acpmux host approvals` |
-| Ask the app for screen or control consent | `acpmux host consent grant --screen` |
+| Turn off a paired machine's Full access | `acpmux host ticket full-access mini-2 off` |
 
-Consent takes exactly one of `--screen` or `--control`, and only the person, in the cmux app, can
-grant it.
+Screen and control consent, an allow, and turning Full access on are the person's: the daemon takes
+them only from the cmux app, never from a shell or an agent.
 
 See also [sessions](cli-sessions.md), [harnesses](cli-harnesses.md) and [the daemon](cli-daemon.md).

@@ -59,7 +59,7 @@ boundary); `--no-steer` queues it instead.
 | Rename it | `acpmux session rename review review-27310` |
 | Change its model or effort | `acpmux session set coord effort=low` |
 | Fork it to try another approach | `acpmux session fork coord -n coord-alt` |
-| Answer a pending agent question | `acpmux session answer coord` |
+| Print a pending agent question | `acpmux session answer coord` |
 | Reject a pending permission request | `acpmux session deny coord` |
 | The prompts waiting on it | `acpmux session queue list coord` |
 | Take other agents' messages out of its queue | `acpmux session queue clear coord --from-agents` |
@@ -68,6 +68,7 @@ boundary); `--no-steer` queues it instead.
 | Cap how many sub-sessions it runs at once | `acpmux session limits coord --max 4` |
 | Export it as a bundle; import the folder it prints elsewhere | `acpmux session export coord --dest ~/bundles` |
 
-An allow is accepted only from the cmux app; from the CLI, `session allow` takes a deny option.
+An allow, and an answer to an agent's question, are accepted only from the cmux app; from the CLI,
+`session allow` takes a deny option and `session answer` prints the questions.
 See also [hosts](cli-hosts.md), [harnesses](cli-harnesses.md), [the daemon](cli-daemon.md) and
 [tasks and other work](cli-work.md).

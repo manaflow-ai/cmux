@@ -38,9 +38,9 @@ A cleanup archives work that exists only in a worktree before removing it.
 | --- | --- |
 | Every chat on this device, from every harness | `acpmux chats list` |
 | Open one again | `acpmux chats open claude-code:5f0c2a9e` |
-| Leave a person a report without waking any session | `acpmux deliver --target reports:sam "PR 27310 landed"` |
+| From an agent session, leave a person a report without waking anyone | `acpmux deliver --target reports:sam "PR 27310 landed"` |
 | Team messages the hub holds (Labs) | `acpmux inbox` |
-| Post a rule every session reads | `acpmux forum announce --key builds "No local builds"` |
+| Post a rule every session reads at its next prompt | `acpmux forum announce --key builds "No local builds"` |
 | The current rules | `acpmux forum rules` |
 
 ## This machine as a Cloud Chief's hand
