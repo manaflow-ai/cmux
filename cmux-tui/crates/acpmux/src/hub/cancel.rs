@@ -94,19 +94,20 @@ impl Hub {
     /// `held`, and is logged so (`queue_paused` with `reason: "stop"`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
         static HOLDS: AtomicU64 = AtomicU64::new(0);
-        session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
-        let held: Vec<String> = session
-            .queue
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter_mut()
-            .filter(|q| !q.held && q.run.agent.is_some())
-            .map(|q| {
-                // One sent now waits too: the Stop came after it.
-                (q.held, q.sent_now) = (true, false);
-                q.prompt_id.clone()
-            })
-            .collect();
+        let held: Vec<String> = {
+            // Begun under the queue lock, where a release checks and ends it (`digest.rs`).
+            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            session.stop_hold.store(HOLDS.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+            queue
+                .iter_mut()
+                .filter(|q| !q.held && q.run.agent.is_some())
+                .map(|q| {
+                    // One sent now waits too: the Stop came after it.
+                    (q.held, q.sent_now) = (true, false);
+                    q.prompt_id.clone()
+                })
+                .collect()
+        };
         if !held.is_empty() {
             self.append(
                 session,

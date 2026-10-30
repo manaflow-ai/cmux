@@ -196,7 +196,8 @@ impl Hub {
                 let stop_held =
                     p.agent.is_some() && (session.stop_hold.load(Ordering::SeqCst) != 0);
                 if p.agent.is_some() && !stop_held {
-                    self.release_held_agent_messages(session);
+                    // A Stop since the read above keeps them: the release checks under the lock.
+                    self.release_held_agent_messages(session, 0);
                 }
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
@@ -604,13 +605,14 @@ impl Hub {
 
     /// Runs the prompts a failed turn held (`_acpmux/queue_edit` `resume`). False when none was.
     pub(super) fn resume_queue(&self, session: &Arc<Session>) -> bool {
-        // A person's Stop's hold ends with it (`cancel.rs`).
-        session.stop_hold.store(0, Ordering::SeqCst);
         let mut resumed = false;
-        for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
-        {
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A person's Stop's hold ends with it (`cancel.rs`), under the lock that begins it.
+        session.stop_hold.store(0, Ordering::SeqCst);
+        for q in queue.iter_mut() {
             resumed |= std::mem::take(&mut q.held);
         }
+        drop(queue);
         if resumed {
             session.queue_moved.notify_waiters();
             self.append(session, "mux", "queue_resumed", json!({"queued": session.queued()}));
@@ -621,15 +623,17 @@ impl Hub {
     /// Runs only the held prompts named in `ids` (the ones one failed turn held, `auto_resume.rs`).
     /// False when none of them was held.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
-        // Held agent messages going in end a person's Stop's hold (`cancel.rs`).
-        session.stop_hold.store(0, Ordering::SeqCst);
         let mut resumed = false;
-        for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
-        {
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Held agent messages going in end a person's Stop's hold (`cancel.rs`), under the lock
+        // that begins it.
+        session.stop_hold.store(0, Ordering::SeqCst);
+        for q in queue.iter_mut() {
             if ids.contains(&q.prompt_id) {
                 resumed |= std::mem::take(&mut q.held);
             }
         }
+        drop(queue);
         if resumed {
             session.queue_moved.notify_waiters();
             self.append(

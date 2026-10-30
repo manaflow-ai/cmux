@@ -1058,7 +1058,7 @@ impl Hub {
                 if status == "completed"
                     && (hold == 0 || hold == session.turn_hold.load(Ordering::SeqCst))
                 {
-                    self.release_held_agent_messages(session);
+                    self.release_held_agent_messages(session, hold);
                 }
             }
             Err(e) => {
