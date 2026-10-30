@@ -134,7 +134,13 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
                     fresh = pr_status.list_comments(status_api, repo, number)
                     latest = publication_text(fresh, line, text)
                     pending = pr_status.plan(repo, number, fresh, SECTION, latest, legacy=MARKER)
-                    if latest != text or any(m != "DELETE" for m, _, _ in pending):
+                    # Consolidating duplicate status comments plans a PATCH
+                    # even when the merged body is already present. Only a
+                    # changed body must be persisted before deleting a copy.
+                    bodies = {str(c["id"]): c.get("body", "") for c in fresh}
+                    changed = any(m != "DELETE" and (b or {}).get("body") != bodies.get(p.rsplit("/", 1)[-1])
+                                  for m, p, b in pending)
+                    if latest != text or changed:
                         text = latest
                         break
                     if not any(m == "DELETE" and p == path for m, p, _ in pending):
