@@ -91,7 +91,14 @@ def visual_judgment(body: str) -> bool:
     value = verdict.group("verdict").strip()
     normalized_value = re.sub(r"\s+", " ", value).casefold()
     normalized_placeholder = re.sub(r"\s+", " ", VERDICT_PLACEHOLDER).casefold()
-    if normalized_placeholder in normalized_value:
+    # Treat whitespace before template punctuation and an extra trailing period as the
+    # same unchanged prompt.  Otherwise a body can bypass the required visual judgment
+    # by changing only the spacing before `>` or appending sentence punctuation.
+    def normalize_template(text: str) -> str:
+        text = re.sub(r"\s+([?!.>,])", r"\1", text)
+        return re.sub(r"[.!?]+$", "", text).rstrip()
+
+    if normalize_template(normalized_placeholder) in normalize_template(normalized_value):
         return False
     for boundary in SENTENCE_BOUNDARY.finditer(value):
         marks = boundary.group("marks")
