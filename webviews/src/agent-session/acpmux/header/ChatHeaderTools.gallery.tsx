@@ -429,7 +429,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, inbox },
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      note: "Native row tools opt-in: Summary, quick-action icons, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
       props: {
         ...base,
         inbox,
@@ -442,7 +442,8 @@ export default componentEntry<HeaderToolsProps>({
       play: async (ctx) => {
         await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
         ctx.find({ selector: ".acpmux-needs-you-button" });
-        ctx.find({ role: "button", name: "Chat actions" });
+        if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
+          throw new Error("native chat overflow must not leave a duplicate DOM trigger");
       },
     },
     "unified-compact": {

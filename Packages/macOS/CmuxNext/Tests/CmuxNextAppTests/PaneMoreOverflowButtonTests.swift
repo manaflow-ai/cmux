@@ -42,6 +42,59 @@ import Testing
         #expect(invoked == ["review"])
     }
 
+    @Test func nativeChatMenuUsesCurrentRowsAndPaletteChildren() throws {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let tool = PaneTabRowTool(id: "chat-menu", symbol: "action.more.vertical", label: "Chat menu", menu: [
+            PaneTabRowMenuItem(id: "rename", label: "Rename"),
+            PaneTabRowMenuItem(id: "continue", label: "Continue In", children: [
+                PaneTabRowMenuItem(id: "codex", label: "Codex"),
+            ]),
+        ])
+        view.show(more: true, lit: false, nativeItems: [tool])
+        var invoked: (String, String?)?
+        view.onNativeTool = { id, menuItemID in invoked = (id, menuItemID) }
+        var shown: NSMenu?
+        view.moreButton.presentMenu = { menu, _ in shown = menu }
+        #expect(view.moreButton.accessibilityPerformPress())
+        #expect(shown?.items.map(\.title) == ["Rename", "Continue In"])
+
+        let row = try #require(shown?.items.first)
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(invoked?.0 == "chat-menu")
+        #expect(invoked?.1 == "rename")
+
+        shown = nil
+        view.presentNativeMenu(toolID: "chat-menu", menuItemID: "continue")
+        #expect(shown?.items.map(\.title) == ["Codex"])
+    }
+
+    @Test func nativeToolContextMenuUsesItsCustomizeRows() throws {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let tool = PaneTabRowTool(id: "terminal", symbol: "terminal", label: "Terminal",
+                                  contextMenu: [PaneTabRowMenuItem(id: "move", label: "Move right")])
+        view.show(more: false, lit: false, nativeItems: [tool])
+        var invoked: (String, String?)?
+        view.onNativeTool = { id, menuItemID in invoked = (id, menuItemID) }
+        let button = try #require(view.nativeButtons.first)
+        let menu = try #require(button.menuProvider?())
+        let row = try #require(menu.items.first)
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(invoked?.0 == "terminal")
+        #expect(invoked?.1 == "move")
+    }
+
+    @Test func nativeContextMenuHoldsToolbarRevealOpen() throws {
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        let tool = PaneTabRowTool(id: "terminal", symbol: "terminal", label: "Terminal",
+                                  contextMenu: [PaneTabRowMenuItem(id: "move", label: "Move right")])
+        view.show(more: false, lit: false, nativeItems: [tool])
+        let button = try #require(view.nativeButtons.first)
+        #expect(button.onMenuOpenChange != nil, "context-only tools use the same held-menu path")
+        button.onMenuOpenChange?(true)
+        #expect(view.reveal.state.holds == 1)
+        button.onMenuOpenChange?(false)
+        #expect(view.reveal.state.holds == 0)
+    }
 
     @Test func overflowValidationPreservesDisabledToolsAndAncestors() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))

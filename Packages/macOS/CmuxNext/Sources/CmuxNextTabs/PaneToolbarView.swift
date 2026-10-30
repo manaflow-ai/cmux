@@ -49,6 +49,7 @@ public final class PaneToolbarView: NSView {
     public private(set) var buttons: [TitlebarBandButton] = []
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
+    private var nativeMoreTool: PaneTabRowTool?
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -97,11 +98,14 @@ public final class PaneToolbarView: NSView {
     ///   pane shows, so the strip's width (and every tab's) does not follow the selected tab.
     public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0,
                      nativeItems: [PaneTabRowTool] = []) {
-        guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount || nativeItems != self.nativeItems else { return }
+        let filteredNativeItems = nativeItems.filter { $0.id != "chat-menu" }
+        let nextNativeMoreTool = nativeItems.first { $0.id == "chat-menu" }
+        guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount ||
+            filteredNativeItems != self.nativeItems || nextNativeMoreTool != nativeMoreTool else { return }
         reservedCount = reserving
         if items != self.items { setButtons(items) }
-        if nativeItems != self.nativeItems { setNativeButtons(nativeItems) }
-        self.nativeItems = nativeItems
+        if filteredNativeItems != self.nativeItems || nextNativeMoreTool != nativeMoreTool { setNativeButtons(nativeItems) }
+        self.nativeItems = filteredNativeItems
         hasMore = more
         self.lit = lit
         moreButton.isHidden = !more
@@ -136,7 +140,14 @@ public final class PaneToolbarView: NSView {
 
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
-        nativeButtons = items.enumerated().map { index, item in
+        nativeMoreTool = items.first(where: { $0.id == "chat-menu" })
+        moreButton.pressMenu = { [weak self] in
+            guard let tool = self?.nativeMoreTool else { return self?.moreMenu?() }
+            return self?.menu(for: tool)
+        }
+        let buttonItems = items.filter { $0.id != "chat-menu" }
+        nativeItems = buttonItems
+        nativeButtons = buttonItems.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol)
             button.tag = index
             button.setAccessibilityLabel(item.label)
@@ -152,11 +163,20 @@ public final class PaneToolbarView: NSView {
                 button.target = self
                 button.action = #selector(pressNative(_:))
                 button.pressMenu = { [weak self] in self?.menu(for: item) }
-                let present = button.presentMenu
-                button.presentMenu = { [weak self] menu, source in
-                    let hold = self?.reveal.hold()
-                    present(menu, source)
-                    hold?.release()
+            }
+            if !item.contextMenu.isEmpty {
+                button.menuProvider = { [weak self] in self?.contextMenu(for: item) }
+            }
+            if !item.menu.isEmpty || !item.contextMenu.isEmpty {
+                var menuHold: HoverReveal.Hold?
+                button.onMenuOpenChange = { [weak self] open in
+                    guard let self else { return }
+                    if open {
+                        menuHold = self.reveal.hold()
+                    } else {
+                        menuHold?.release()
+                        menuHold = nil
+                    }
                 }
             }
             addSubview(button)
@@ -166,10 +186,53 @@ public final class PaneToolbarView: NSView {
     }
 
     private func menu(for tool: PaneTabRowTool) -> NSMenu? {
+        menu(for: tool, only: nil)
+    }
+
+    private func menu(for tool: PaneTabRowTool, only menuItemID: String?) -> NSMenu? {
         let menu = NSMenu(title: tool.label)
         let invoke = onNativeTool
         menu.autoenablesItems = false
-        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+        let rows: [PaneTabRowMenuItem]
+        if let menuItemID {
+            guard let item = findMenuItem(menuItemID, in: tool.menu) else { return nil }
+            rows = item.children
+        } else {
+            rows = tool.menu
+        }
+        for item in rows {
+            if item.separatorBefore { menu.addItem(.separator()) }
+            menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke))
+        }
+        return menu
+    }
+
+    private func findMenuItem(_ id: String, in rows: [PaneTabRowMenuItem]) -> PaneTabRowMenuItem? {
+        for row in rows {
+            if row.id == id { return row }
+            if let found = findMenuItem(id, in: row.children) { return found }
+        }
+        return nil
+    }
+
+    private func isNativeToolActive(_ tool: PaneTabRowTool) -> Bool {
+        nativeItems.contains(tool) || nativeMoreTool == tool
+    }
+
+    /// Opens a page-supplied native menu, optionally focused on a row's children for palette expansion.
+    public func presentNativeMenu(toolID: String, menuItemID: String? = nil) {
+        guard let tool = nativeMoreTool, tool.id == toolID, let menu = menu(for: tool, only: menuItemID), !menu.items.isEmpty else { return }
+        moreButton.presentMenu(menu, moreButton)
+    }
+
+    private func contextMenu(for tool: PaneTabRowTool) -> NSMenu? {
+        guard !tool.contextMenu.isEmpty else { return nil }
+        let menu = NSMenu(title: tool.label)
+        menu.autoenablesItems = false
+        for item in tool.contextMenu {
+            if item.separatorBefore { menu.addItem(.separator()) }
+            menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: onNativeTool))
+        }
         return menu
     }
 
@@ -195,7 +258,10 @@ public final class PaneToolbarView: NSView {
             if !tool.menu.isEmpty {
                 let submenu = NSMenu(title: tool.label)
                 submenu.autoenablesItems = false
-                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+                for item in tool.menu {
+                    if item.separatorBefore { submenu.addItem(.separator()) }
+                    submenu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke))
+                }
                 row.submenu = submenu
             }
             return row
@@ -209,7 +275,7 @@ public final class PaneToolbarView: NSView {
         row.isEnabled = enabled
         if let checked = item.checked { row.state = checked ? .on : .off }
         let invoker = NativeMenuInvoker(enabled: { [weak self] in
-            enabled && self?.nativeItems.contains(tool) == true
+            enabled && self?.isNativeToolActive(tool) == true
         }) {
             guard item.children.isEmpty else { return }
             invoke?(tool.id, item.id)
@@ -219,7 +285,10 @@ public final class PaneToolbarView: NSView {
         if !item.children.isEmpty {
             let submenu = NSMenu(title: item.label)
             submenu.autoenablesItems = false
-            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke)) }
+            for child in item.children {
+                if child.separatorBefore { submenu.addItem(.separator()) }
+                submenu.addItem(self.menuItem(child, tool: tool, ancestorsEnabled: enabled, invoke: invoke))
+            }
             row.submenu = submenu
         }
         return row

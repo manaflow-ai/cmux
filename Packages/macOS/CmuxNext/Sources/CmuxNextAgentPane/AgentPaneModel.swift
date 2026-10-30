@@ -108,6 +108,7 @@ public final class AgentPaneModel {
     /// Declarative native controls published by the page for the shared tab row.
     public private(set) var tabRowTools: [PaneTabRowTool] = []
     @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
+    @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
@@ -305,7 +306,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
              .sandboxState: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -492,7 +493,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
