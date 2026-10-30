@@ -145,6 +145,12 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(pr_status.parse(body)["bead"], "Bead: `cx-abc1`")
         self.assertIn("cut to fit", pr_status.parse(body)["tour"])
 
+    def test_overflow_terminates_after_other_section_cut(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(2600))
+        body = pr_status.render({"published": published, "checks": "x" * 64800})
+        self.assertLessEqual(len(body), pr_status.LIMIT)
+        self.assertIn("published", pr_status.parse(body))
+
     def test_oversized_other_section_does_not_cut_published_history(self):
         published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(1800))
         body = pr_status.render({"published": published, "tour": "x" * 50000})

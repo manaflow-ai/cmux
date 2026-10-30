@@ -88,7 +88,12 @@ def render(sections: Mapping[str, str]) -> str:
         # Publication history is retained after migration; trim another section
         # first when one exists. If it is the only section, the normal cap still
         # applies because no comment can exceed GitHub's limit.
-        candidates = [key for key in known + extra if key != "published"] or known + extra
+        candidates = [key for key in known + extra
+                      if key != "published" and "(cut to fit GitHub's comment limit" not in sections[key]]
+        # Once every other section has its cut marker, trim published as the
+        # only terminating option; callers can detect omitted publication lines
+        # and retain their lossless legacy comment.
+        candidates = candidates or known + extra
         longest = max(candidates, key=lambda k: len(sections[k]))
         cut = dict(sections)
         over = len(body) - LIMIT + 200
