@@ -26,8 +26,10 @@ extension AgentPaneView {
         let bound = page.bindQuestionKeyTargets(targets) { [weak self, weak page] snapshot in
             guard let self, let page, self.model.sessionId == snapshot.target.sessionID,
                   self.model.transport.connection == connection,
+                  let boundContext = binding.contexts[snapshot.target.permissionID],
                   let context = self.model.transport.decisions.context(session: snapshot.target.sessionID,
                                                                                 permission: snapshot.target.permissionID),
+                  context == boundContext,
                   context.isQuestion, let witness = self.model.transport.gestures.questionReturnWitness,
                   let reply = try? JSONSerialization.jsonObject(with: Data(snapshot.replyJSON.utf8)) as? [String: Any],
                   let option = reply["optionId"] as? String,

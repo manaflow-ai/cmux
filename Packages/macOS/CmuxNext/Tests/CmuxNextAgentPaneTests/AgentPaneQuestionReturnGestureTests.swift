@@ -216,4 +216,12 @@ struct AgentPaneQuestionReturnGestureTests {
         gestures.record()
         #expect(!gestures.consumeQuestionReturn(second))
     }
+
+    @Test func aSameIDQuestionReissueDoesNotMatchTheOldBindingContext() {
+        let old = AcpmuxDecisionContexts.Context(nonce: String(repeating: "a", count: 64),
+                                                 instance: String(repeating: "b", count: 32))
+        let reissued = AcpmuxDecisionContexts.Context(nonce: String(repeating: "c", count: 64),
+                                                      instance: String(repeating: "d", count: 32))
+        #expect(old != reissued, "same permission IDs must still carry a distinct decision context")
+    }
 }
