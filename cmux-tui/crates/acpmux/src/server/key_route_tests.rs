@@ -9,15 +9,22 @@ use tokio::sync::mpsc;
 
 /// A hub with a local `review`, and peer hb listing a live `review` of its own.
 fn setup() -> Arc<Hub> {
+    setup_with(&[("local-review-1", "review")])
+}
+
+/// A hub with these local sessions (id, name), and peer hb listing a live `review`.
+fn setup_with(local: &[(&str, &str)]) -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({})).unwrap();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-    let meta = serde_json::from_value(json!({
-        "schema": crate::store::META_SCHEMA, "id": "local-review-1", "name": "review",
-        "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
-    }))
-    .unwrap();
-    store.save(&meta).unwrap();
+    for (id, name) in local {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name,
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
     let hub = Hub::new(config, store);
     let row = crate::hub::RemoteSession {
         peer: "hb".into(),
@@ -77,4 +84,30 @@ async fn a_send_to_a_shared_name_is_refused_not_queued_for_the_one_here() {
     let request = json!({"sessionId": "review", "prompt": [{"type": "text", "text": "hi"}]});
     let reply = call(&hub, method::MUX_SEND_QUEUE, json!({"request": request})).await;
     assert_eq!(reply["error"]["data"]["reason"], "session_ambiguous", "{reply}");
+}
+
+/// Review of #28000: a sub-session named `parent/child` here and on a peer is refused too.
+#[tokio::test]
+async fn a_sub_sessions_whole_name_here_and_on_a_peer_is_refused() {
+    let hub = setup_with(&[("local-review-1", "review"), ("local-child-1", "review/child")]);
+    let row = crate::hub::RemoteSession {
+        peer: "hb".into(),
+        summary: json!({"sessionId": "peer-child-1", "name": "hb/review/child", "status": "idle"}),
+        receipt: SessionReceipt {
+            host_id: "hb".into(),
+            mux_session_id: "peer-child-1".into(),
+            agent_session_id: None,
+            generation: 1,
+        },
+    };
+    hub.remote_sessions.lock().unwrap().insert("hb/peer-child-1".into(), row);
+    let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "review/child"})).await;
+    assert_eq!(reply["error"]["data"]["reason"], "session_ambiguous", "{reply}");
+    let uses: Vec<&str> = reply["error"]["data"]["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["route"].as_str())
+        .collect();
+    assert!(uses.contains(&"local-child-1") && uses.contains(&"hb/peer-child-1"), "{reply}");
 }
