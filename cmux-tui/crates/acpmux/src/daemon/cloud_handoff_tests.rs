@@ -261,8 +261,7 @@ async fn a_late_retry_decision_keeps_a_finished_turns_end() {
     r.step(S, began(9)).await;
     r.step(S, done(9, "Done.")).await;
     r.step(S, skipped()).await;
-    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() })
-        .await;
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() }).await;
     assert!(!r.holds(S, Some(9)));
     assert_eq!(
         fake.take(),
@@ -540,7 +539,7 @@ async fn the_followed_sessions_are_bounded() {
     for i in 0..MAX_TRACKS {
         r.tracks.insert(
             format!("acp_{i}"),
-            Track { now: Now::Reporting { turn: 1, last: None }, refused: None },
+            Track { now: Now::Reporting { turn: 1, last: None }, ..Track::default() },
         );
     }
     r.step(S, began(1)).await;

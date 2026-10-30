@@ -335,6 +335,9 @@ struct Track {
     now: Now,
     /// The last turn the store refused (or had no hand-off for): its end is not sent.
     refused: Option<u64>,
+    /// The last turn whose end was reported here (sent, or waiting in `later`): a late retry
+    /// decision for it never replaces that end.
+    ended: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -446,7 +449,9 @@ impl<I: Io> Reporter<I> {
                 self.begin(session, named).await;
             }
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
-            (Step::NoRetryFor { turn, why }, Now::Quiet) => {
+            // A retry decision for a turn that ended here comes late (the automatic retry a
+            // manual one overtook): the turn's end stands.
+            (Step::NoRetryFor { turn, why }, Now::Quiet) if !self.ended_here(session, turn) => {
                 self.finish(session, turn, "failed", Some(why)).await;
             }
             (Step::NoRetryFor { turn, .. }, Now::Retrying { turn: current, .. })
@@ -458,7 +463,7 @@ impl<I: Io> Reporter<I> {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
-            (Step::RetryRestored { turn, why }, Now::Quiet) => {
+            (Step::RetryRestored { turn, why }, Now::Quiet) if !self.ended_here(session, turn) => {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }
@@ -523,6 +528,9 @@ impl<I: Io> Reporter<I> {
     ) {
         // A newer end of the session replaces one still waiting (the store keeps one turn).
         self.later.remove(session);
+        if let Some(track) = self.tracks.get_mut(session) {
+            track.ended = Some(turn);
+        }
         if self.report(session, turn, status, note.clone()).await == Outcome::Unsent {
             self.send_later(
                 session,
@@ -542,6 +550,12 @@ impl<I: Io> Reporter<I> {
         }
         later.at = tokio::time::Instant::now() + *wait;
         self.later.insert(session.to_owned(), later);
+    }
+
+    /// Whether `turn`'s end was reported here, or waits to be sent again.
+    fn ended_here(&self, session: &str, turn: u64) -> bool {
+        self.tracks.get(session).is_some_and(|t| t.ended == Some(turn))
+            || self.later.get(session).is_some_and(|l| l.turn == turn)
     }
 
     /// A failed turn acpmux was to continue gets no continuation: reported failed now.
@@ -660,6 +674,10 @@ impl<I: Io> Reporter<I> {
             None => None,
         };
         let Some(track) = self.tracks.get_mut(session) else { return };
+        // A new attempt of an ended turn: its end is to come again.
+        if turn.is_some() && track.ended == turn {
+            track.ended = None;
+        }
         track.now = match answer {
             Some((turn, Outcome::Accepted)) => Now::Reporting { turn, last: Some("running") },
             // The store did not answer: the turn's later reports still go to its turn.
