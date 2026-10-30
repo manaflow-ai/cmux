@@ -6621,8 +6621,6 @@ function AcpmuxPane() {
   // A new adoption has a different generation and never inherits this pending/error view.
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
   const newTabRetainsDraft = useRef(false);
-  const newTabVisit = useRef(newTabGeneration);
-  newTabVisit.current = newTabGeneration;
   useNewTabPlaces(setNewTab);
   useNewTabWeather(setNewTab);
   // Whether the page knows it is a New Tab page or a chat: the host's context came with the
@@ -7707,7 +7705,6 @@ function AcpmuxPane() {
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
   const folderPick = useRef(0);
-  const folderPickCancel = useRef<(() => void) | undefined>(undefined);
   const shownSession = useRef(snapshot.sessionId);
   shownSession.current = snapshot.sessionId;
 
@@ -10528,17 +10525,6 @@ function AcpmuxPane() {
       onCancel={cancelPendingFolder}
     />
   ) : null;
-  const trustQuestion =
-    trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") ? (
-      <TrustAsk
-        ask={trustAsk.ask}
-        agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-        onTrust={trustAsk.trust}
-        onTrustRepo={trustAsk.trustRepo}
-        onDistrust={trustAsk.distrust}
-        onUndo={trustAsk.undo}
-      />
-    ) : undefined;
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
 
