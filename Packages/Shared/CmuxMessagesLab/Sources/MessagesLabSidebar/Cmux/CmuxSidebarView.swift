@@ -121,9 +121,12 @@ public final class CmuxSidebarView: NSView {
     /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
     /// Extra search sections under the conversations for a query, in order (empty: none), asked
-    /// once per keystroke. The answer may take its time (a message search on the owner): a later
-    /// keystroke cancels its task, and an answer for an older query is dropped.
-    public var searchSections: @MainActor (String) async -> [CmuxSidebarSearchSection] = { _ in [] }
+    /// once per keystroke and shown at once.
+    public var searchSections: @MainActor (String) -> [CmuxSidebarSearchSection] = { _ in [] }
+    /// Slower sections after `searchSections` (a message search on the owner), added when they
+    /// arrive. A later keystroke or an emptied field cancels the task, and an answer for an older
+    /// query is dropped.
+    public var laterSearchSections: @MainActor (String) async -> [CmuxSidebarSearchSection] = { _ in [] }
     /// A row of an extra section was chosen (its id).
     public var onSelectSearchResult: (String) -> Void = { _ in }
     /// The unread dot (nil: the system blue) and the key-window selection (nil: the system's).
@@ -377,21 +380,26 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
     func sidebar(_ sidebar: SidebarController, search request: SidebarSearchRequest) {
-        searchTask?.cancel()
-        guard !request.isCancelled, let sections = owner?.searchSections else { request.complete([]); return }
-        // task-owner: one query's sections; the next keystroke cancels it (and the request drops its answer)
-        searchTask = Task { @MainActor in
-            let found = await sections(request.query)
-            guard !Task.isCancelled, !request.isCancelled else { return }
-            request.complete(found.map { section in
-                SidebarSearchSection(title: section.title, results: section.results.map {
-                    SidebarSearchResult(id: $0.id, title: $0.title, subtitle: $0.subtitle, avatar: $0.spec, date: $0.date)
-                })
+        guard !request.isCancelled, let owner else { request.complete([]); return }
+        let now = owner.searchSections(request.query)
+        request.complete(Self.sections(now))
+        let later = owner.laterSearchSections
+        // task-owner: one query's slower sections; the request's cancel (the next keystroke, an emptied field) cancels it
+        let task = Task { @MainActor in
+            let found = await later(request.query)
+            guard !Task.isCancelled, !request.isCancelled, !found.isEmpty else { return }
+            request.complete(Self.sections(now + found))
+        }
+        request.onCancel { task.cancel() }
+    }
+
+    private static func sections(_ sections: [CmuxSidebarSearchSection]) -> [SidebarSearchSection] {
+        sections.map { section in
+            SidebarSearchSection(title: section.title, results: section.results.map {
+                SidebarSearchResult(id: $0.id, title: $0.title, subtitle: $0.subtitle, avatar: $0.spec, date: $0.date)
             })
         }
     }
-    /// The newest query's section task.
-    private var searchTask: Task<Void, Never>?
     func sidebar(_ sidebar: SidebarController, didSelectSearchResult id: String) { owner?.onSelectSearchResult(id) }
 }
 

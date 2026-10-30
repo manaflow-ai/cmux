@@ -47,8 +47,10 @@ struct SearchSectionsTests {
         }
     }
 
-    private static let sections = [
+    private static let teammates = [
         CmuxSidebarSearchSection(title: "Teammates", results: [CmuxSidebarSearchResult(id: "t1", title: "Lena Park", initials: "LP")]),
+    ]
+    private static let messages = [
         CmuxSidebarSearchSection(title: "Messages", results: [
             CmuxSidebarSearchResult(id: "message:m1", title: "Chief", subtitle: "lunch at noon on Friday", initials: "C",
                                     avatar: .emoji("🦊"), date: Date(timeIntervalSince1970: 1_799_990_000)),
@@ -59,12 +61,19 @@ struct SearchSectionsTests {
 
     @Test func everySectionShowsUnderItsOwnTitleAfterTheConversations() async throws {
         let f = Fixture()
-        f.view.searchSections = { _ in
-            await Task.yield() // answered later, as the owner's message search is
-            return Self.sections
+        // Teammates at once; the messages only when the owner answers, after Teammates showed.
+        let (owner, answer) = AsyncStream<Void>.makeStream()
+        f.view.searchSections = { _ in Self.teammates }
+        f.view.laterSearchSections = { _ in
+            for await _ in owner { break }
+            return Self.messages
         }
-        // "Lunch crew" matches by name; then one teammate and two messages.
-        await f.search("lunch", until: 4)
+        // "Lunch crew" matches by name, then one teammate: shown before the message search answers.
+        await f.search("lunch", until: 2)
+        #expect(f.controller.sections.marks.map(\.title) == ["Teammates"])
+        answer.yield()
+        // Then the two messages join under their own title.
+        for await (q, n) in f.applied where q == "lunch" && n == 4 { break }
         let c = f.controller
         #expect(c.sections.marks.map(\.title) == ["Teammates", "Messages"])
         #expect(c.sections.marks.map(\.start) == [1, 2])
@@ -81,7 +90,7 @@ struct SearchSectionsTests {
         for r in c.rowItems.indices {
             let row = c.rowRect(r)
             #expect(!titles.contains { $0.intersects(row) }, "row \(r) \(row) clear of the titles \(titles)")
-            // A click in the row's middle hits that row; a click on a title hits nothing.
+            // A point in the row's middle hits that row; a point on a title hits nothing.
             guard case .row(let hit)? = c.hit(CGPoint(x: row.midX, y: row.midY)) else {
                 Issue.record("row \(r) takes no click")
                 continue
@@ -90,7 +99,7 @@ struct SearchSectionsTests {
         }
         for title in titles { #expect(c.hit(CGPoint(x: title.midX, y: title.midY)) == nil) }
 
-        // A message row shows its time; choosing it reports its host id.
+        // A message row shows its text and time; choosing the row under the point reports its host id.
         let message = try #require(c.snapshot.items[checked: c.rowItems[2]])
         #expect(message.lastAt == Date(timeIntervalSince1970: 1_799_990_000))
         #expect(message.preview == "lunch at noon on Friday")
@@ -102,22 +111,27 @@ struct SearchSectionsTests {
 
     @Test func anOlderQuerysLateAnswerIsNeverShown() async {
         let f = Fixture()
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        f.view.searchSections = { query in
-            // "lun" answers only after "lunch" has been typed and answered.
-            if query == "lun" { for await _ in gate { break } }
-            return query == "lun" ? [CmuxSidebarSearchSection(title: "Stale", results: [
-                CmuxSidebarSearchResult(id: "stale", title: "Old", initials: "O"),
-            ])] : Self.sections
+        // The "lun" answer is held past its cancellation (a continuation ignores it) and released
+        // only after "lunch" has shown its own sections.
+        var held: CheckedContinuation<Void, Never>?
+        let (returned, returnedSink) = AsyncStream<Void>.makeStream()
+        let (started, startedSink) = AsyncStream<Void>.makeStream()
+        f.view.laterSearchSections = { query in
+            guard query == "lun" else { return Self.messages }
+            await withCheckedContinuation { held = $0; startedSink.yield() }
+            // Yielded in the same main-actor job that then hands the answer to the list, so the
+            // test resumes only after the list had its chance to take it.
+            defer { returnedSink.yield() }
+            return [CmuxSidebarSearchSection(title: "Stale", results: [CmuxSidebarSearchResult(id: "stale", title: "Old", initials: "O")])]
         }
-        f.view.searchField.stringValue = "lun"
-        f.controller.setQuery("lun")
-        await f.search("lunch", until: 4)
-        open.yield()
-        open.finish()
-        // Let the released "lun" answer run to its end: it must not replace the "lunch" sections.
-        for _ in 0..<10 { await Task.yield() }
-        #expect(f.controller.sections.marks.map(\.title) == ["Teammates", "Messages"])
+        f.view.search("lun")
+        await f.search("lunch", until: 3)
+        for await _ in started { break }
+        held?.resume()
+        for await _ in returned { break }
+        // Any answer the list accepted is applied through the main queue: one hop drains it.
+        await withCheckedContinuation { c in DispatchQueue.main.async { c.resume() } }
+        #expect(f.controller.sections.marks.map(\.title) == ["Messages"])
         #expect(!f.controller.rowItems.contains { f.controller.snapshot.items[checked: $0]?.title == "Old" })
     }
 }

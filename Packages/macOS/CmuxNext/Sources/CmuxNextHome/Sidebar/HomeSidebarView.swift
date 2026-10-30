@@ -133,7 +133,8 @@ public final class HomeSidebarView: NSView {
             guard let self, teammate(for: id) == nil else { return [] }
             return menuItems(ConversationID(id))
         }
-        list.searchSections = { [weak self] query in await self?.searchSections(query) ?? [] }
+        list.searchSections = { [weak self] query in self?.teammateSection(query) ?? [] }
+        list.laterSearchSections = { [weak self] query in await self?.messageSection(query) ?? [] }
         list.onSelectSearchResult = { [weak self] id in
             guard let self else { return }
             if let hit = messageHits[id] { onOpenMessage(hit); return }
@@ -253,18 +254,29 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarMenuItem(title: title, handler: handler)
     }
 
-    /// The search sections under the matching conversations: teammates with no DM yet (at once),
-    /// then the messages whose text matches (from the conversation owner).
-    private func searchSections(_ query: String) async -> [CmuxSidebarSearchSection] {
-        var sections: [CmuxSidebarSearchSection] = []
+    /// The first search section under the matching conversations, at once: teammates with no DM yet.
+    private func teammateSection(_ query: String) -> [CmuxSidebarSearchSection] {
         let people = teammates(query)
-        if !people.isEmpty {
-            sections.append(CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
-                CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
-            }))
+        guard !people.isEmpty else { return [] }
+        return [CmuxSidebarSearchSection(title: HomeConversationStrings.teammatesSection, results: people.map {
+            CmuxSidebarSearchResult(id: $0.id.rawValue, title: $0.name, initials: Self.initials($0.name))
+        })]
+    }
+
+    /// The section after Teammates once the conversation owner answers: the messages whose text matches.
+    private func messageSection(_ query: String) async -> [CmuxSidebarSearchSection] {
+        let hits: [HomeSearchHit]
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let fixture = debugMessageHits {
+            let words = query.lowercased().split(separator: " ")
+            hits = fixture.filter { hit in words.allSatisfy { hit.message.plainText.lowercased().contains($0) } }
+        } else {
+            hits = await searchMessages(query)
         }
-        let hits = await searchMessages(query)
-        guard !Task.isCancelled else { return sections }
+        #else
+        hits = await searchMessages(query)
+        #endif
+        guard !Task.isCancelled else { return [] }
         let items = Dictionary((model.pinned + model.rows).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var shown: [String: HomeSearchHit] = [:]
         var results: [CmuxSidebarSearchResult] = []
@@ -275,8 +287,7 @@ public final class HomeSidebarView: NSView {
             results.append(Self.messageResult(hit, in: item, id: id))
         }
         messageHits = shown
-        if !results.isEmpty { sections.append(CmuxSidebarSearchSection(title: HomeConversationStrings.messagesSection, results: results)) }
-        return sections
+        return results.isEmpty ? [] : [CmuxSidebarSearchSection(title: HomeConversationStrings.messagesSection, results: results)]
     }
 
     /// A matching message as a search row: its conversation's name and avatar, the matched text
@@ -449,6 +460,10 @@ public final class HomeSidebarView: NSView {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// Screenshots (`debug.home.sidebar_fixture` `messages`): the message search answers from these
+    /// (a message holding every typed word matches) instead of the owner; nil asks the owner.
+    public var debugMessageHits: [HomeSearchHit]?
+
     /// Screenshots: true gives the search field the keyboard (it opens over an avatar-only list), false
     /// ends the search and takes the keyboard back.
     public func debugSearch(_ open: Bool, query: String? = nil) {

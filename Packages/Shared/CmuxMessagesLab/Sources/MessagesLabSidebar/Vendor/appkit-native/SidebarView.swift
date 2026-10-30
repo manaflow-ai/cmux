@@ -1361,10 +1361,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     }
 
     /// The provider answered: its sections join the current query's results (built and
-    /// rendered on the search queue like any result).
+    /// rendered on the search queue like any result). The request stays until the next query
+    /// cancels it: a fuller answer may follow (cmux).
     private func extraResults(_ sections: [SidebarSearchSection], for q: String) {
         guard q == query else { return }
-        extraRequest = nil
         let s = sections.filter { !$0.results.isEmpty }
         guard s != (extraSections?.sections ?? []) else { return }
         extraSections = s.isEmpty ? nil : (q, s)
@@ -1694,7 +1694,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
             e.setAccessibilityRole(.row)
             var parts = [c.title]
             if c.typing { parts.append(SidebarStrings.typing) } else { parts.append(SidebarStrings.preview(c)) }
-            if !Self.isExtra(c.id) { parts.append(timeFormatter.string(c.lastAt, now: now())) }
+            // An extra row has a time only when the host gave one (a matching message's).
+            if !Self.isExtra(c.id) || c.lastAt != .distantPast { parts.append(timeFormatter.string(c.lastAt, now: now())) }
             if c.unread { parts.append(String(format: SidebarStrings.unreadFormat, c.unreadCount)) }
             if c.failed { parts.append(SidebarStrings.notDelivered) }
             if c.muted { parts.append(SidebarStrings.muted) }

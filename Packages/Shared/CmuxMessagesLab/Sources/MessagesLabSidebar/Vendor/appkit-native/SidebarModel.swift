@@ -84,7 +84,7 @@ struct SidebarSearchSection: Equatable {
 }
 
 /// v1.1: one query to a `SidebarSearchProvider` (cmux: answered with any number of sections, in
-/// order). Answer once, from any thread, with
+/// order, and more than once: a fuller answer replaces the last). Answer from any thread with
 /// `complete(_:)`. The next keystroke cancels it (`isCancelled` turns true and a later answer
 /// is dropped), so a long search should check `isCancelled` and stop.
 final class SidebarSearchRequest: @unchecked Sendable {
@@ -92,12 +92,25 @@ final class SidebarSearchRequest: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
     private var handler: (([SidebarSearchSection]) -> Void)?
+    private var cancelHandlers: [() -> Void] = []
     init(query: String, handler: @escaping ([SidebarSearchSection]) -> Void) { self.query = query; self.handler = handler }
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
-    func cancel() { lock.lock(); cancelled = true; handler = nil; lock.unlock() }
-    /// The sections for this query, in order (an empty one shows no title). Any thread; once.
+    func cancel() {
+        lock.lock(); cancelled = true; handler = nil; let run = cancelHandlers; cancelHandlers = []; lock.unlock()
+        for h in run { h() }
+    }
+    /// cmux: runs `body` when the request is cancelled (a newer keystroke, an emptied field); at
+    /// once when it already is. The provider stops its work there.
+    func onCancel(_ body: @escaping () -> Void) {
+        lock.lock()
+        guard !cancelled else { lock.unlock(); body(); return }
+        cancelHandlers.append(body)
+        lock.unlock()
+    }
+    /// The sections for this query, in order (an empty one shows no title). Any thread; a later
+    /// answer replaces an earlier one (cmux: the quick sections first, then the slow ones).
     func complete(_ sections: [SidebarSearchSection]) {
-        lock.lock(); let h = cancelled ? nil : handler; handler = nil; lock.unlock()
+        lock.lock(); let h = cancelled ? nil : handler; lock.unlock()
         h?(sections)
     }
 }

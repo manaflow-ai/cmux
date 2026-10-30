@@ -43,7 +43,7 @@ enum DebugHomeSidebarFixture {
             }
             page.list.update(page.sidebar.model())
         }
-        if let messages = params["messages"]?.arrayValue { fixtureMessages(messages, page: page, services: services) }
+        if let messages = params["messages"]?.arrayValue { fixtureMessages(messages, page: page) }
         if params["count"] != nil || params["chiefs"] != nil
             || !["width", "select", "search", "unread", "team", "messages", "query"].contains(where: { params[$0] != nil }) {
             let count = min(names.count, max(0, params["count"]?.intValue ?? 5)), pinned = min(count, max(0, params["pinned"]?.intValue ?? 3))
@@ -67,12 +67,8 @@ enum DebugHomeSidebarFixture {
 
     /// The list's message search answers from `messages` ({row, text}: a message in the fixture row
     /// at `row`, an hour apart, newest first); none gives the search back to the owner.
-    static func fixtureMessages(_ messages: [JSONValue], page: TopHomePageView, services: AppServices) {
-        guard !messages.isEmpty else {
-            let home = services.home
-            page.list.searchMessages = { query in (try? await home.homeStore.search(query, limit: 20)) ?? [] }
-            return
-        }
+    static func fixtureMessages(_ messages: [JSONValue], page: TopHomePageView) {
+        guard !messages.isEmpty else { page.list.debugMessageHits = nil; return }
         let rows = page.sidebar.debugRows
         let now = Date()
         let hits = messages.enumerated().compactMap { i, entry -> HomeSearchHit? in
@@ -83,10 +79,7 @@ enum DebugHomeSidebarFixture {
                                   parts: [.text(text)], createdAt: now.addingTimeInterval(Double(-(i + 1) * 3600)))
             return HomeSearchHit(conversation: conversation, message: message, highlights: [])
         }
-        page.list.searchMessages = { query in
-            let words = query.lowercased().split(separator: " ")
-            return hits.filter { hit in words.allSatisfy { hit.message.plainText.lowercased().contains($0) } }
-        }
+        page.list.debugMessageHits = hits
     }
 
     /// One DM with each Chief, a minute apart, through the same mirror path real inbox rows take.
