@@ -8,10 +8,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
-import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
-import { subagentSummary } from "../src/agent-session/acpmux/inspector/subagentScope";
+import { ChatInspector, useChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
+import { resetInspectorState, setInspectorOpen } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import type { SubagentScope } from "../src/agent-session/acpmux/inspector/subagentScope";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -59,6 +60,8 @@ function installDom(): HTMLElement {
   };
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
+  setHeaderState({ inspector: true });
+  setInspectorOpen(true);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -91,6 +94,25 @@ const treeRows: AcpmuxRow[] = [
   ),
 ];
 
+function SubagentPane({
+  snapshot,
+  subagent,
+  onOpenOutput,
+}: {
+  snapshot: AcpmuxSnapshot;
+  subagent: SubagentScope;
+  onOpenOutput: (path: string) => void;
+}) {
+  const inspector = useChatInspector({
+    snapshot,
+    repository: "acme/atlas-web",
+    subagent,
+    onOpenOutput,
+    onOpenSourceFile: onOpenOutput,
+  });
+  return <>{inspector.panel}</>;
+}
+
 test("the subagent's panel lists its worktree, its tokens and its own edits; the chat's lists its own", async () => {
   const container = installDom();
   root = createRoot(container);
@@ -106,17 +128,29 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
     ),
   ];
   const opened: string[] = [];
+  const snapshot: AcpmuxSnapshot = {
+    type: "snapshot",
+    protocolVersion: 1,
+    connection: "connected",
+    isWorking: false,
+    queue: [],
+    catalog: [],
+    canLoadOlder: false,
+    rows: [],
+    sessions: [],
+    summary: CHAT,
+  };
+  const scope: SubagentScope = {
+    agent: sub,
+    rows: [
+      ...treeRows,
+      activity([tool("Read src/config.ts", "read", "completed", { locations: [{ path: "src/config.ts" }] })], 9),
+    ],
+    agents: [],
+    parent: CHAT.sessionId,
+  };
   await act(async () =>
-    root!.render(
-      <ChatInspector
-        summary={subagentSummary(CHAT, sub, treeRows)}
-        rows={treeRows}
-        made={sessionSummary(treeRows, "acme/atlas-web")}
-        transcriptTasks={sessionSummary(treeRows).backgroundTasks}
-        agent={sub}
-        onOpenOutput={(path) => opened.push(path)}
-      />,
-    ),
+    root!.render(<SubagentPane snapshot={snapshot} subagent={scope} onOpenOutput={(path) => opened.push(path)} />),
   );
   const text = () => container.textContent ?? "";
   expect(text()).toContain("agent-a3f9c2");
@@ -127,10 +161,23 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
   expect(text()).not.toContain("README.md");
   expect(text()).toContain("bun test --watch");
   expect(text()).not.toContain("github");
+  await act(async () => container.querySelector<HTMLButtonElement>('ul[data-section="sources"] button')!.click());
+  expect(opened).toEqual([`${TREE}/src/config.ts`]);
+  const remote = { ...scope, agent: { ...scope.agent, host: "build.example" } };
+  await act(async () =>
+    root!.render(<SubagentPane snapshot={snapshot} subagent={remote} onOpenOutput={(path) => opened.push(path)} />),
+  );
+  expect(container.querySelector('ul[data-section="sources"] button')).toBeNull();
+  expect(container.querySelector('ul[data-section="sources"]')?.textContent).toContain("src/config.ts");
 
   await act(async () =>
     root!.render(
-      <ChatInspector summary={CHAT} rows={chatRows} made={sessionSummary(chatRows, "acme/atlas-web")} agents={[sub]} />,
+      <ChatInspector
+        summary={CHAT}
+        rows={chatRows}
+        made={sessionSummary(chatRows, "acme/atlas-web", CHAT.cwd)}
+        agents={[sub]}
+      />,
     ),
   );
   expect(text()).toContain("feat/retries");

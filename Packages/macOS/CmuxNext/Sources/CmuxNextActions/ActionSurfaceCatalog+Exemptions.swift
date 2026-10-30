@@ -59,7 +59,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.duplicateToSpace", "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
         "workspace.setRemoteLocalhost",
-        "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
+        "splitRight", "newColumn", "newColumnLeft", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
         "pane.toggleTabBar",
         "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.page", "newTab.submit", "newSurface", "openBrowser", "macScreen.open", "openBrowser.webkit",
@@ -105,7 +105,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.previewSound", "notifications.importSound",
         "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
-        "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
+        "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversation", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
         "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
@@ -168,7 +168,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
-            "agentHistory.show", "music.open", "music.stop",
+            "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",

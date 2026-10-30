@@ -94,6 +94,8 @@ extension TabDragSession {
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         case .moveWorkspaceToNewWindow, .moveWorkspace:
             // The tabs stay in their workspace; the workspace itself moves.
+            // Its winning sidebar still owns a gap, even when the workspace stays in its current slot.
+            winner?.provider.dropEnded(committed: winner?.proposal)
             drag.lifecycle.cancel()
             moveSourceWorkspace(outcome, drag: drag)
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)

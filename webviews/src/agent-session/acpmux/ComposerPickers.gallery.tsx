@@ -72,7 +72,7 @@ const claudeSnapshot: AcpmuxSnapshot = {
       availableModes: [
         { id: "default", name: "Default" },
         { id: "acceptEdits", name: "Accept edits" },
-        { id: "bypassPermissions", name: "Full access" },
+        { id: "bypassPermissions", name: "Bypass permissions" },
       ],
       currentModeId: "default",
     },
@@ -316,20 +316,22 @@ const modelPressDragRelease: Play = async (ctx) => {
   );
 };
 
-/// Opens the model menu's Effort submenu; resolves with its popup.
+// The current model's effort is a side dropdown beside its row (#27948): its effort item opens the
+// model's levels in a submenu of their own.
+const RUNNING_EFFORT = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+/// The checked level in that dropdown.
+const CHECKED_EFFORT = '.acpmux-quick-effort-menu .acpmux-quick-effort-segment[aria-checked="true"]';
+
+/// Opens the model menu, then the running model's effort dropdown; resolves with the dropdown.
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
   await ctx.click(MODEL);
-  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
-  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
-  await ctx.focus({ role: "menuitem", name: /^Effort/ });
-  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_EFFORT) !== null);
+  // A submenu trigger opens on hover or from the keyboard: focus it and press ArrowRight.
+  await ctx.focus({ selector: RUNNING_EFFORT });
+  await ctx.press("ArrowRight");
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
-    // The submenu is the quick menu with no submenu rows of its own.
-    levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
-      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[role="menuitemradio"]') !== null,
-    );
+    levels = ctx.document.querySelector<HTMLElement>(".acpmux-quick-effort-menu") ?? undefined;
     return levels;
   });
   return levels!;
@@ -343,17 +345,28 @@ const openEffort: Play = async (ctx) => {
 const effortFocus: Play = async (ctx) => {
   const trigger = ctx.find(MODEL);
   const levels = await openEffortMenu(ctx);
-  await ctx.waitFor(() => levels.contains(ctx.document.activeElement));
+  const checked = levels.querySelector<HTMLElement>('[aria-checked="true"]')!;
+  await ctx.focus({ selector: CHECKED_EFFORT });
+  await ctx.waitFor(() => ctx.document.activeElement === checked);
   await ctx.press("ArrowDown");
-  await ctx.waitFor(() => levels.querySelector('[role="menuitemradio"][data-highlighted]') !== null);
+  await ctx.waitFor(() => {
+    const highlighted = ctx.document.querySelector(".acpmux-quick-menu [data-highlighted]");
+    return highlighted !== null && highlighted !== checked;
+  });
+  // The first Escape closes the effort dropdown back to its row; the next closes the menu.
   await ctx.press("Escape");
-  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-effort-menu"));
+  if (ctx.document.querySelector('[role="menu"]')) await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
 const effortPick: Play = async (ctx) => {
-  await openEffortMenu(ctx);
-  await ctx.click({ role: "menuitemradio", name: /^High/ });
+  const levels = await openEffortMenu(ctx);
+  const high = [...levels.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment")].find(
+    (segment) => (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.trim() === "High",
+  );
+  if (!high) throw new Error("the current model's effort control offers no High");
+  await ctx.click({ selector: `.acpmux-quick-menu [aria-label="${high.getAttribute("aria-label")}"]` });
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
   await ctx.waitFor(
     () =>
@@ -386,7 +399,8 @@ const openMode: Play = async (ctx) => {
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
-  const expected = ["Default", "Full access", "Plan"];
+  // Plan is the separate composer toggle; this menu contains permission modes only.
+  const expected = ["Default", "Full access"];
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
@@ -493,18 +507,18 @@ export default componentEntry<Props>({
       play: modelPressDragRelease,
     },
     "effort-menu": {
-      note: "The model menu's Effort row opens the levels beside it, the current one checked; there is no separate effort chip.",
+      note: "The current model's row carries its effort levels inline, the current one checked; there is no Effort submenu or separate effort chip.",
       props: {},
       play: openEffort,
     },
     "effort-focus": {
-      note: "Arrow navigation moves the highlighted effort; Escape twice closes both menus and restores focus to Model.",
+      note: "From the current effort, arrow navigation moves the highlight; Escape closes the menu and restores focus to Model.",
       props: {},
       play: effortFocus,
     },
     // The id predates the one button; its point stays: a pick of High lands and the button names it.
     "effort-press-drag-release": {
-      note: "Picking High in the Effort submenu closes the menu, and the model button then reads High after the model.",
+      note: "Picking High in the current model's inline effort closes the menu, and the model button then reads High after the model.",
       props: {},
       play: effortPick,
     },
@@ -520,7 +534,7 @@ export default componentEntry<Props>({
       play: openAccounts,
     },
     "claude-effort-up": {
-      note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",
+      note: "Opened from the composer at the window's foot, the menu grows up with the current model's inline effort, Medium checked (Leo 2026-10-21: the Effort submenu opened downward; #26521 folds it into the row).",
       props: { claude: true },
       play: openEffort,
     },

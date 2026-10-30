@@ -71,6 +71,13 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     (await count(page, ".acpmux-composer")) > 0 && (await count(page, "[data-harness-notice]")) === 0;
 
   const CASES: Case[] = [
+    // The plays assert every recommended/expanded row against a scrambled source catalog.
+    ...[
+      "family-recommendations-claude",
+      "family-recommendations-codex",
+      "family-recommendations-claude-fallback",
+      "family-recommendations-codex-fallback",
+    ].map((variant): Case => ({ entry: "model-picker", variant, play: "error" })),
     { entry: "start-folder", variant: "home-question", play: "steps" },
     { entry: "start-folder", variant: "root-refused", play: "steps" },
     { entry: "permission-panel", variant: "allowance", play: "error" },
