@@ -66,9 +66,9 @@ fn actions(rule: &str, name: &str) -> Vec<Value> {
 
 /// One step as the tooltip says it: `Compact it (acpmux send lane-1 /compact)`.
 fn said(step: &Value) -> String {
-    let command = at(&step, "command").as_str().unwrap_or_default();
-    let soon = at(&step, "pending").as_str().map(|p| format!(", {p}")).unwrap_or_default();
-    format!("{} ({command}{soon})", at(&step, "label").as_str().unwrap_or_default())
+    let command = at(step, "command").as_str().unwrap_or_default();
+    let soon = at(step, "pending").as_str().map(|p| format!(", {p}")).unwrap_or_default();
+    format!("{} ({command}{soon})", at(step, "label").as_str().unwrap_or_default())
 }
 
 /// `warning` with its steps for session `name`, and the steps at the end of its text (`… or …`).
@@ -90,7 +90,7 @@ fn with_action(mut warning: Value, name: &str) -> Value {
 
 /// The warnings a session summary earns under `limits`, in the order above, each with its action.
 pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
-    let name = at(&summary, "name").as_str().unwrap_or_default().to_owned();
+    let name = at(summary, "name").as_str().unwrap_or_default().to_owned();
     rules_broken(summary, limits).into_iter().map(|w| with_action(w, &name)).collect()
 }
 
@@ -98,7 +98,7 @@ pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
 /// daemon that lists a peer's sessions renamed it `<peer>/<name>` (`peers.rs`), so a command
 /// copied from that row reaches the peer's session, not one of the same name here.
 pub fn for_name(summary: &mut Value) {
-    let name = at(&summary, "name").as_str().unwrap_or_default().to_owned();
+    let name = at(summary, "name").as_str().unwrap_or_default().to_owned();
     let Some(warnings) = summary.get_mut("usageWarnings").and_then(Value::as_array_mut) else {
         return;
     };
@@ -108,8 +108,8 @@ pub fn for_name(summary: &mut Value) {
 }
 
 fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
-    let stats = at(&summary, "usageStats");
-    if at(&summary, "status") == "closed" || !stats.is_object() {
+    let stats = at(summary, "usageStats");
+    if at(summary, "status") == "closed" || !stats.is_object() {
         return Vec::new();
     }
     let context = at(stats, "contextTokens").as_u64();
@@ -118,7 +118,7 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
     // cap known to be absent (`autocompact` "none") warns: "unknown" (an adopted or revived chat
     // whose launch acpmux never saw, an unreadable setting) never does.
     let no_cap = at(stats, "autocompact") == "none";
-    if limits.autocompact_cap && at(&summary, "family") == "claude" && no_cap {
+    if limits.autocompact_cap && at(summary, "family") == "claude" && no_cap {
         let text = match context {
             Some(n) => format!(
                 "No autocompact cap: context is {} and only compacts at the model's limit",
@@ -149,8 +149,8 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
 /// One short cell per warning for `acpmux ls`: `no-cap`, `ctx 955k`, `90 sub/h`; `?` for a number
 /// it does not have, never a made-up zero.
 pub fn short(warning: &Value) -> String {
-    let value = || at(&warning, "value").as_u64().map_or_else(|| "?".to_owned(), tokens);
-    match at(&warning, "rule").as_str() {
+    let value = || at(warning, "value").as_u64().map_or_else(|| "?".to_owned(), tokens);
+    match at(warning, "rule").as_str() {
         Some(NO_AUTOCOMPACT_CAP) => "no-cap".to_owned(),
         Some(CONTEXT_TOKENS) => format!("ctx {}", value()),
         Some(SUBAGENTS_PER_HOUR) => format!("{} sub/h", value()),
@@ -162,13 +162,13 @@ pub fn short(warning: &Value) -> String {
 /// `short` with the commands that answer it, for `acpmux ls --wide`:
 /// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1 (leo-workspace#1617)`.
 pub fn with_command(warning: &Value) -> String {
-    let commands = at(&warning, "actions")
+    let commands = at(warning, "actions")
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|step| {
-            let command = at(&step, "command").as_str()?;
-            Some(match at(&step, "pending").as_str() {
+            let command = at(step, "command").as_str()?;
+            Some(match at(step, "pending").as_str() {
                 Some(pending) => format!("{command} ({pending})"),
                 None => command.to_owned(),
             })
