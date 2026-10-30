@@ -299,6 +299,27 @@ class Excusing(unittest.TestCase):
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
         self.assertIn("release-notary", "\n".join(lines))
 
+    def test_a_failed_guard_check_must_still_have_a_failed_aggregate_job(self):
+        # The check-run metadata can remain failed after its Actions job is
+        # replaced or retried.  Do not rescan the run and excuse its children
+        # when the exact aggregate job endpoint is now green.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.jobs[3]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "aggregate job"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh,
+                         checks=["nightly-guards / Guard status"])
+
+    def test_guard_route_job_must_match_the_reported_route_input(self):
+        # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and
+        # linux_guard_source -> workflow-guard-source-lints.  A mismatched
+        # suffix must not let a base-red child hide a routing failure.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.logs[3] = log(name, "Check routed guard jobs",
+                              "workflow-guard-tests: failure (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
     def test_guard_invalid_route_with_base_red_child_is_not_excused(self):
         self.test_a_guard_status_is_judged_by_its_routed_child()
         self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
