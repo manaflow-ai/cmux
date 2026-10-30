@@ -12,7 +12,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitOfPendingSplitTests {
     @Test func aSecondSplitOnAPendingSplitsPaneMakesASecondPane() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await PinnedPageTests.withApp { services, connection in
             let content = try #require(services.windows.active?.workspaceContent)
             var terminal = ActionInvocation(origin: .user)
             terminal.opensTerminal = true
@@ -41,6 +41,26 @@ struct SplitOfPendingSplitTests {
             try await PinnedPageTests.until({ content.focusedPane === second }, report: {
                 "focused \(String(describing: content.focusedPane?.paneKey)), wanted the second split's pane \(second.paneKey)"
             })
+
+            // It takes keys: a line typed through the app's key path (the key router, then the window, as
+            // `CmuxApplication.sendEvent` does) runs in the second pane's own shell, as the daemon's screen shows.
+            let window = try #require(content.layoutView.window)
+            try await PinnedPageTests.until({ (window.firstResponder as? NSView)?.isDescendant(of: second.view) == true }, report: {
+                "the window's first responder is \(String(describing: window.firstResponder)), not in the second split's pane"
+            })
+            let surface = try #require(second.pane.tabs.first { $0.kind == .pty }?.surface)
+            let nonce = String(UInt32.random(in: 100_000...999_999))
+            for character in "echo p0x\(nonce)x$((6*7))\r" {
+                let text = String(character)
+                let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                          context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                          isARepeat: false, keyCode: text == "\r" ? 36 : 0))
+                if !services.keyRouter.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+            }
+            let screen = try await connection.request(WaitForTextRequest(surface: surface, pattern: "p0x\(nonce)x42", timeoutMs: 20_000),
+                                                      timeout: .seconds(25))
+            #expect(screen.matched == true, "the line typed after the second Cmd-D did not run in its pane: \(screen.text.suffix(300))")
         }
     }
 }
