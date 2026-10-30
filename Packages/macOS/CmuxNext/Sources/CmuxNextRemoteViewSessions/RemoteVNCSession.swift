@@ -22,6 +22,8 @@ public final class RemoteVNCSession {
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
+    /// Stop (a hidden tab) until the next connect: a queued loss reconnects nothing meanwhile.
+    private var stopped = false
 
     /// `demoHost`: the reserved host name served by the loopback demo desktop.
     public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
@@ -52,7 +54,7 @@ public final class RemoteVNCSession {
     private var retry: Task<Void, Never>?
 
     private func reconnectAfterLoss() {
-        guard makeTransport != nil, !closed, retry == nil else { return }
+        guard makeTransport != nil, !closed, !stopped, retry == nil else { return }
         // The loss is queued onto the main actor. A manual reconnect that ran first started a new
         // session (its status is no longer this loss), so the queued loss schedules nothing.
         guard case .ended(.connectionLost) = source.status.state else { return }
@@ -101,6 +103,7 @@ public final class RemoteVNCSession {
     /// Connects with the saved sign-in (or none; the host may not need one).
     public func connect() {
         guard !closed else { return }
+        stopped = false
         if let makeTransport {
             source.connect(to: endpoint, credentials: VNCCredentials(), transport: makeTransport()) { [weak self] in
                 Task { @MainActor in self?.lostTries = 0 }
@@ -132,6 +135,7 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
+        stopped = true
         cancelRetry()
         source.stop()
     }
