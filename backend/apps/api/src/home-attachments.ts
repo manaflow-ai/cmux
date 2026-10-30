@@ -64,7 +64,9 @@ interface ConversationAttachments {
   derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
-  setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
+  setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
+  queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void>
+  dropUploadSlot(entity: string, id: string): Promise<void>
   claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
   releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
   renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
@@ -316,9 +318,34 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   if (mode === "multipart" || mode === "direct") {
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
     // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
-    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } })
-    if (!(await conversationOf(env, conversation).setMultipartUpload(conversation, slot.id, upload.uploadId))) {
-      await upload.abort()
+    const owner = conversationOf(env, conversation)
+    // An intent that failed while no upload of it lives gives its slot and reservation back at once (best effort: the
+    // slot's expiry does both anyway). A live upload keeps them: the slot is its record until expiry aborts it.
+    // The refund comes first: the slot goes only once it succeeded, so a failed refund leaves the slot for its expiry to refund.
+    const release = async () => {
+      if (await users.refundAttachmentQuota(caller.user, slotId).then(() => true, () => false)) await owner.dropUploadSlot(conversation, slot.id).catch(() => undefined)
+    }
+    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } }).catch(async (e: unknown) => {
+      await release()
+      throw e
+    })
+    // The owner keeps the upload on the slot, or, when the slot can no longer take it, queues it for an abort.
+    // A failed or lost owner call aborts it here; when that abort fails too, the owner is asked once more to queue it.
+    const recorded = await owner.setMultipartUpload(conversation, slot.id, upload.uploadId, slot.object_key).catch(async (e: unknown) => {
+      const aborted = await upload.abort().then(
+        () => true,
+        async (abortError: unknown) => {
+          console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(abortError).slice(0, 200) }))
+          await owner.queueMultipartAbort(conversation, slot.object_key, upload.uploadId).catch(() => undefined)
+          return false
+        }
+      )
+      if (aborted) await release()
+      throw e
+    })
+    if (!recorded) {
+      // Queued by the owner already: this abort only ends it sooner.
+      await upload.abort().catch(() => undefined)
       return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
     }
     const plan = homeConversation.multipartPlan(meta.byte_count)
@@ -405,6 +432,11 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   if (!partNumberIn(part, plan.parts)) return partInvalid(plan.parts)
   const sha = new ResumableSha256(slot.multipart_hash)
   const next = sha.bytes / plan.partBytes + 1
+  if (part < next) {
+    // A part already recorded (its answer was lost): the stored result again, so the client goes on to the next part.
+    const etag = (await conv.multipartEtags(conversation, id))[part - 1]
+    if (etag !== undefined) return success({ part_number: part, byte_count: Math.min(plan.partBytes, slot.byte_count - (part - 1) * plan.partBytes), etag })
+  }
   if (part !== next) return failure({ status: 409, code: "attachment.part_order", message: Number.isInteger(next) ? `send part ${next} next` : "every part is stored; complete the upload" })
   const length = Math.min(plan.partBytes, slot.byte_count - sha.bytes)
   // The part is this request's before any byte reaches R2: a concurrent PUT of it is refused here,
@@ -426,12 +458,25 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
     }
   }
   try {
-    const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+    let upload: R2MultipartUpload
+    try {
+      upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+    } catch (e) {
+      // A self-hosted bucket throws at once for an upload already closed (a completion or expiry raced this PUT).
+      if (completionFailure(e) === "closed") return invalid
+      return failure({ status: 503, code: "attachment.part_unavailable", message: `part ${part} could not be stored right now; send it again`, extra: { retryable: true } })
+    }
     const uploaded = await streamPartInto(upload, part, request, length, sha, renew)
-    if (!uploaded && lost) return failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it` })
+    if (uploaded === "unavailable" && !lost) return failure({ status: 503, code: "attachment.part_unavailable", message: `part ${part} could not be stored right now; send it again`, extra: { retryable: true } })
+    // The client sends the part again: a later request may have stored it (then the retry answers the stored part) or not.
+    const claimLost = () => failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it`, extra: { retryable: true } })
+    if (uploaded === "unavailable" || (!uploaded && lost)) return claimLost()
     if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
+    if (lost) return claimLost()
     const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
     if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
+      // Only the claim's holder may end the slot: a stale request whose claim another one took changes nothing.
+      if (!(await renew.run())) return claimLost()
       // The parts so far are hashed: no retry can fix the file, so the slot ends here.
       const used = await conv.uploadSlot(conversation, id, "multipart", true)
       await upload.abort().catch(() => undefined)
@@ -440,7 +485,8 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
     }
     // The claim ended (the slot expired or ended): nothing was recorded.
     recorded = await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after, claimed.claim)
-    if (!recorded) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
+    // Retryable: a part another request stored answers its stored result on the retry; an ended slot answers 403 there.
+    if (!recorded) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended", extra: { retryable: true } })
     return success({ part_number: part, byte_count: length, etag: uploaded.etag })
   } finally {
     // A part that was not recorded frees its claim at once, so the client sends it again.
@@ -481,16 +527,18 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const slot = resumed ?? (await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor))
   if (!slot?.multipart_upload_id) return invalid
   const bucket = env.HOME_ATTACHMENTS!
-  const upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+  // Resumed inside the try: a self-hosted bucket throws NoSuchUpload at once for an upload a completion already closed.
+  let upload: R2MultipartUpload | undefined
   // Only bytes that cannot form the declared file end the slot; no retry can fix them.
   const refuse = async () => {
-    await upload.abort().catch(() => undefined)
+    await upload?.abort().catch(() => undefined)
     await bucket.delete(slotKeys(slot))
     await conv.settleSlot(conversation, slot.id)
     return failure({ status: 400, code: "attachment.size_mismatch", message: "the stored parts do not form the declared file" })
   }
   let etag: string
   try {
+    upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
     const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
     if (object.size !== slot.byte_count) return refuse()
     etag = object.etag

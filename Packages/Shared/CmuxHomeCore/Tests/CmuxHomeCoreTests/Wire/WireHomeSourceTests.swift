@@ -343,6 +343,20 @@ import Testing
         await source.shutdown()
     }
 
+    @Test func aMultipartPartIsReadWholeAcrossShortReads() throws {
+        // A read may return fewer bytes than asked without being at the end: the part is filled before it is sent.
+        // Each read returns at most 2 bytes and never more than asked, as a pipe or network volume may.
+        var rest = Data("abcdefgh".utf8)
+        let read: (Int) throws -> Data? = { limit in
+            let next = rest.prefix(min(limit, 2))
+            rest.removeFirst(next.count)
+            return Data(next)
+        }
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data("abcd".utf8))
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data("efgh".utf8))
+        #expect(try WireHomeSource.readPart(size: 4, read) == Data())
+    }
+
     @Test func directPartsGoToTheirPresignedURLsAndTheCompletionRepeatsWhileVerifying() async throws {
         let source = makeSource()
         let log = try await connect(source)

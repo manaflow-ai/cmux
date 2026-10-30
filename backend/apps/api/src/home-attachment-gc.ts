@@ -18,7 +18,7 @@ export interface AttachmentGcDeps {
 /** The earliest attachment work: the unreferenced sweep, an upload slot's expiry, or a prefix purge. */
 export const attachmentWakeAt = (sql: Pick<SqlStore, "exec">): number | null => {
   // A queued drop is due at its own next attempt (a real time, so a commit never sets the alarm to 0).
-  const times = [store.nextDropAt(sql), store.nextSweepAt(sql), store.nextSlotDue(sql), store.purgeAt(sql)].filter((t): t is number => t !== null)
+  const times = [store.nextDropAt(sql), store.nextSweepAt(sql), store.nextSlotDue(sql), store.purgeAt(sql), store.nextAbortAt(sql)].filter((t): t is number => t !== null)
   return times.length ? Math.min(...times) : null
 }
 
@@ -34,6 +34,7 @@ export const runAttachmentWake = async (deps: AttachmentGcDeps, entity: string |
     }
   }
   await step(() => expireSlots(deps, now))
+  await step(() => drainAborts(deps, now))
   await step(() => drainDrops(deps, now))
   // A reference released earlier in this wake marks the sweep dirty at Date.now(), which may be later than the wake's `now`.
   const at = Math.max(now, Date.now())
@@ -56,24 +57,67 @@ export const EXPIRE_PER_WAKE = 100
  * Slots whose time is up, oldest first: their object keys are deleted (a PUT that never committed,
  * or a re-PUT to a presigned URL after the slot ended), a multipart slot's R2 upload is aborted, a
  * slot that never committed is refunded, then the row goes, so the next wake reads the next page.
- * An abort that fails (an upload R2 already ended or no longer knows) is logged and skipped: R2's
- * own lifecycle ends incomplete uploads, and one bad upload never holds back the slots after it.
- * Each step is idempotent, so a failed wake retries safely.
+ * An upload R2 already ended or no longer knows (NoSuchUpload) is done. Any other abort failure
+ * queues the upload id (store.queueAbort) in the step that forgets the slot, so a later wake aborts
+ * it (drainAborts) and one bad upload never holds back the slots after it. Each step is idempotent,
+ * so a failed wake retries safely.
  */
 const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
   const due = store.dueSlots(deps.sql, now, EXPIRE_PER_WAKE)
   if (due.length === 0) return
   const bucket = deps.env.HOME_ATTACHMENTS
+  const retry = new Set<string>()
   if (bucket) {
     await bucket.delete(due.flatMap(store.slotKeys))
     for (const slot of due) {
+      // A multipart slot whose upload was never recorded (the owner was unreachable when the intent made it): the slot
+      // is the record. A bucket that can list its open uploads (self-hosted) aborts every one under the slot's own key;
+      // R2's binding cannot list them, and its lifecycle rule ends them.
+      if (slot.mode === "multipart" && !slot.multipart_upload_id && abortsByPrefix(bucket)) {
+        await bucket.abortMultipartUploads(slot.object_key).catch((e: unknown) => {
+          console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(e).slice(0, 200) }))
+          retry.add(slot.id)
+        })
+        continue
+      }
       if (!slot.multipart_upload_id) continue
-      await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort().catch((e: unknown) => console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(e).slice(0, 200) })))
+      try {
+        await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort()
+      } catch (e) {
+        if (completionFailure(e) === "closed") continue
+        console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(e).slice(0, 200) }))
+        retry.add(slot.id)
+      }
     }
   }
   for (const slot of due) {
     if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+    // Queued in the same synchronous step that forgets the slot: the upload id (or, for an unrecorded one, its key prefix) is never lost.
+    if (retry.has(slot.id)) store.queueAbort(deps.sql, { upload_id: slot.multipart_upload_id ?? `${PREFIX_ABORT}${slot.object_key}`, object_key: slot.object_key }, now)
     store.removeSlot(deps.sql, slot.id)
+  }
+}
+
+/** A queued abort of every open upload under a slot's key (an upload the owner never recorded): no upload id is known. */
+const PREFIX_ABORT = "prefix:"
+
+/** Retries the queued aborts that are due; an upload R2 no longer knows is done, any other failure backs off. */
+const drainAborts = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
+  const bucket = deps.env.HOME_ATTACHMENTS
+  if (!bucket) return
+  for (const upload of store.dueAborts(deps.sql, now)) {
+    try {
+      if (upload.upload_id.startsWith(PREFIX_ABORT)) {
+        if (abortsByPrefix(bucket)) await bucket.abortMultipartUploads(upload.object_key)
+      } else await bucket.resumeMultipartUpload(upload.object_key, upload.upload_id).abort()
+    } catch (e) {
+      if (completionFailure(e) !== "closed") {
+        if (store.failAbort(deps.sql, upload.upload_id, now)) console.error(JSON.stringify({ event: "attachment.abort.dead_letter", object_key: upload.object_key }))
+        else console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: upload.object_key, error: String(e).slice(0, 200) }))
+        continue
+      }
+    }
+    store.clearAbort(deps.sql, upload.upload_id)
   }
 }
 

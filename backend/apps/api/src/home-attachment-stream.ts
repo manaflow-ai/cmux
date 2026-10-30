@@ -93,37 +93,65 @@ export interface PartRenewal {
 
 /**
  * Streams one multipart part (exactly `length` bytes) into R2 part `part`, hashing it onto `sha`.
- * Null when the body has another length, R2 refused it, or `renew` reports the claim gone (the
- * stream fails before the next bytes, so R2 keeps none of this upload); R2 keeps nothing until the completion.
+ * Null when the body has another length or `renew` reports the claim gone (the stream fails before
+ * the next bytes, so R2 keeps none of this upload). "unavailable" when R2 or the network failed a
+ * body that was fine so far: the client sends the same part again (the hash state is the slot's,
+ * untouched by this request). R2 keeps nothing until the completion.
  */
-export const streamPartInto = async (upload: R2MultipartUpload, part: number, request: Request, length: number, sha: ResumableSha256, renew?: PartRenewal): Promise<R2UploadedPart | null> => {
+export const streamPartInto = async (upload: R2MultipartUpload, part: number, request: Request, length: number, sha: ResumableSha256, renew?: PartRenewal): Promise<R2UploadedPart | null | "unavailable"> => {
   if (!request.body || request.headers.get("content-length") !== String(length)) return null
   let count = 0
   let renewedAt = Date.now()
+  // The body's own fault (too long, too short, or a claim that lapsed): no retry of the same request fixes it here.
+  let refused = false
   const meter = new TransformStream<Uint8Array, Uint8Array>({
     async transform(chunk, ctl) {
       count += chunk.byteLength
-      if (count > length) return ctl.error(new Error("body longer than declared"))
+      if (count > length) {
+        refused = true
+        return ctl.error(new Error("body longer than declared"))
+      }
       if (renew && Date.now() - renewedAt >= renew.everyMs) {
         renewedAt = Date.now()
         // A claim that cannot be confirmed may have lapsed: stop rather than risk replacing another request's part.
-        if (!(await renew.run().catch(() => false))) return ctl.error(new Error("the part's claim was not renewed"))
+        if (!(await renew.run().catch(() => false))) {
+          refused = true
+          return ctl.error(new Error("the part's claim was not renewed"))
+        }
       }
       sha.update(chunk)
       ctl.enqueue(chunk)
+    },
+    flush() {
+      if (count !== length) refused = true
     }
   })
   const fixed = new FixedLengthStream(length)
   const piped = request.body.pipeThrough(meter).pipeTo(fixed.writable).catch(() => undefined)
+  // Between chunks, and after the last one while R2 writes the part, the claim keeps renewing: a slow R2
+  // answer never lets another request take the part this one may still write. Stops when uploadPart settles.
+  const heartbeat = renew
+    ? setInterval(() => {
+        if (Date.now() - renewedAt < renew.everyMs) return
+        renewedAt = Date.now()
+        void renew.run().catch(() => false)
+      }, HEARTBEAT_TICK_MS)
+    : undefined
   try {
     const uploaded = await upload.uploadPart(part, fixed.readable)
     await piped
     return count === length ? uploaded : null
   } catch {
     await fixed.readable.cancel().catch(() => undefined)
-    return null
+    await piped
+    return refused ? null : "unavailable"
+  } finally {
+    if (heartbeat !== undefined) clearInterval(heartbeat)
   }
 }
+
+/** How often a part's heartbeat looks at its claim's age (it renews only once PART_RENEW_MS passed). */
+const HEARTBEAT_TICK_MS = 1_000
 
 /**
  * One verified PUT through the Worker into R2 (home-attachments.ts: a stream slot's file and a

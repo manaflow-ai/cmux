@@ -83,10 +83,14 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
         const calls: Array<string> = []
         const res = await putPart(piece, part, counted(calls))
         expect(res.status).toBe(200)
-        parts.push({ part_number: part, byte_count: piece.byteLength, etag: ((await res.json()) as any).value.etag })
+        const stored = { part_number: part, byte_count: piece.byteLength, etag: ((await res.json()) as any).value.etag as string }
+        parts.push(stored)
         puts.push(calls.join())
-        // A repeated PUT of a stored part is refused before it reaches R2, so the stored part stays.
-        expect((await putPart(piece, part)).status).toBe(409)
+        // A repeated PUT of a stored part never reaches R2, so the stored part stays; it answers the stored part (a lost answer's retry).
+        const replayCalls: Array<string> = []
+        const replay = await putPart(piece, part, counted(replayCalls))
+        expect([replay.status, ((await replay.json()) as any).value]).toEqual([200, stored])
+        expect(replayCalls).toEqual([])
       }
       const complete = (list: Array<unknown>, env: object = testEnv) =>
         handleAttachmentMultipartComplete(
