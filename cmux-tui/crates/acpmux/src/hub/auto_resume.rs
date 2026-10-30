@@ -211,6 +211,10 @@ enum Mark {
 #[derive(Default)]
 pub(crate) struct Pending {
     mark: Mutex<Option<Mark>>,
+    #[cfg(test)]
+    stop_locked: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    #[cfg(test)]
+    take_entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 
 impl Pending {
@@ -337,7 +341,15 @@ impl Hub {
         turn_id: &str,
         next: Option<super::TurnInfo>,
     ) -> Option<super::TurnInfo> {
+        #[cfg(test)]
+        if let Some(entered) = session.auto_resume.take_entered.lock().unwrap().take() {
+            let _ = entered.send(());
+        }
         let mut pending = session.auto_resume.lock();
+        // Stop and retry journal writes take auto_resume before append_lock. Keep that
+        // order here too: taking append_lock in finish_turn before this retry lock
+        // deadlocks against Stop. Attestation still shares the turn-clear boundary.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let turn = {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             let turn = running.take();
@@ -497,6 +509,10 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = session.auto_resume.lock();
+        #[cfg(test)]
+        if let Some(locked) = session.auto_resume.stop_locked.lock().unwrap().take() {
+            let _ = locked.send(());
+        }
         // A lazy startup may not have installed the saved retry's mark yet. Journal the
         // cancellation boundary under the same lock as recovery: only schedules before
         // this record are stopped, never a later turn after an earlier idle Stop.
@@ -1005,3 +1021,7 @@ mod tests {
         assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
     }
 }
+
+#[cfg(test)]
+#[path = "auto_resume/turn_completion_tests.rs"]
+mod turn_completion_tests;

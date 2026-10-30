@@ -1060,13 +1060,9 @@ impl Hub {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        // Attestation reads the live turn under this same ordering lock, so a request
-        // racing finish observes a single side of the clear.
-        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let in_place = next.map(|n| n.next.clone());
         let detached =
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
-        drop(_order);
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
         let carried_next = next.filter(|_| !detached);
         // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
