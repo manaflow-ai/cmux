@@ -228,29 +228,40 @@ async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
     assert!(session.inbox.lock().unwrap().in_flight.is_some(), "it goes in once nothing waits");
 }
 
-/// A turn that ends with no continuation lets the inbox go in at once: its end reviews the inbox
-/// while the turn is still marked ending (`take_turn`), and the settle that clears that mark
-/// (`schedule_auto_resume`) looks again, so nothing waits out the continuation's timer.
+/// The inbox goes in as soon as a continuation can no longer fire, however it went: a turn's end
+/// reviews the inbox while the turn is still marked ending (`take_turn`), which puts the wake
+/// off; the settle that finds no continuation (`schedule_auto_resume`), or a Stop, lets the mark
+/// go, and the timer looks again then instead of `REFUSED_RETRY_MS` on.
 #[tokio::test]
 async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
-    let mut cfg = crate::config::Config::default();
-    cfg.store.mode = crate::config::StoreMode::Memory;
-    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-    let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-ended",
-        "name": "inbox-ended", "harness": "claude", "cwd": "/tmp", "status": "idle",
-        "createdAt": 1, "updatedAt": 2});
-    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
-    let hub = Hub::new(cfg, store);
-    hub.begin_startup(false);
-    let session = hub.resolve("inbox-ended").unwrap();
-    let due = now_ms().saturating_sub(FLUSH_MS + 1);
-    let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
-    session.inbox.lock().unwrap().items.push(blocked);
-    // The turn's end, as `finish_turn` runs it: marked ending, then the inbox reviewed.
-    hub.set_ending_for_test(&session, Some("t1"));
-    hub.inbox_review(&session);
-    assert!(session.inbox.lock().unwrap().in_flight.is_none(), "not while it may continue");
-    // It ended well: no continuation.
-    hub.schedule_auto_resume(&session, "t1", None);
-    assert!(session.inbox.lock().unwrap().in_flight.is_some(), "it goes in as the turn settles");
+    for stop in [false, true] {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-ended",
+            "name": "inbox-ended", "harness": "claude", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.begin_startup(false);
+        let session = hub.resolve("inbox-ended").unwrap();
+        let due = now_ms().saturating_sub(FLUSH_MS + 1);
+        let blocked = item("p1", "t", "other", PromptClass::Block, due, "blocked on review");
+        session.inbox.lock().unwrap().items.push(blocked);
+        // The turn's end, as `finish_turn` runs it: marked ending, then the inbox reviewed.
+        hub.set_ending_for_test(&session, Some("t1"));
+        hub.inbox_review(&session);
+        assert!(session.inbox.lock().unwrap().in_flight.is_none(), "not while it may continue");
+        if stop {
+            hub.stop_auto_resume(&session);
+        } else {
+            // It ended well: no continuation.
+            hub.schedule_auto_resume(&session, "t1", None);
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while session.inbox.lock().unwrap().in_flight.is_none() {
+            assert!(tokio::time::Instant::now() < deadline, "held past the settle (stop: {stop})");
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
 }
