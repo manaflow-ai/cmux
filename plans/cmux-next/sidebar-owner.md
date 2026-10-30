@@ -570,7 +570,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 ## One list's "Connecting…" waits out the startup deadline (2026-10-30)
 
-- Leo, verbatim: "STOP SHOWING FUCKING BULLSHIT ON LOAD". In one list (machines not grouped), another machine's workspace rows named "Connecting…" from the first frame of every launch. `SidebarPlaceholderGrace.holdingConnectingLabels` (the bridge's own instance, waiting `DaemonStartup.defaultDeadline`, 10 s) marks a machine connecting for less than that `SidebarMachine.holdsStatusLabel`, and `SidebarModel.listOptions` names no label for it; a connect that lasts still says "Connecting…". Header dot, tone and every other status unchanged. Test: `DaemonStartupFailureStateTests.theConnectingLabelWaitsOutTheGrace`.
+- Leo, verbatim: "STOP SHOWING FUCKING BULLSHIT ON LOAD". In one list (machines not grouped), another machine's workspace rows named "Connecting…" from the first frame of every launch. `SidebarPlaceholderGrace.holdingConnectingLabels` (the seed's `connecting` grace, waiting `connectingDelay`: the daemon startup deadline, 10 s) marks a machine connecting for less than that `SidebarMachine.holdsStatusLabel`, and `SidebarModel.listOptions` names no label for it; a connect that lasts still says "Connecting…". Header dot, tone and every other status unchanged. Test: `DaemonStartupFailureStateTests.theConnectingLabelWaitsOutTheGrace`.
 
 ## First group fold reads a prepared lookup (2026-10-29)
 
