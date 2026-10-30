@@ -563,51 +563,41 @@
 }
 
 /* Model names and effort segments are sibling menu items: each has its own hit target and
-   keyboard focus, and an effort selection lands the model and level together. One row per model
-   (Leo 2026-10-29, on every model carrying a full row of levels: "BRO WHAT KIND OF FUCKING DESIGN
-   IS THIS????"): the levels sit on the model's own line at its trailing edge, and only the running
-   row and the hovered or keyboard-highlighted row show them. */
+   keyboard focus, and an effort selection lands the model and level together. */
 .acpmux-quick-model-effort {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1);
+  flex-wrap: wrap;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  padding-block: var(--ds-space-1);
 }
 .acpmux-quick-model-effort > .acpmux-quick-item {
-  flex: 1 1 0;
+  flex: 1 1 120px;
   min-width: 0;
 }
 .acpmux-quick-efforts {
-  display: none;
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 100%;
   min-inline-size: 0;
   margin: 0;
   padding: 0;
-  border: 0;
-}
-.acpmux-quick-model-effort[data-running] > .acpmux-quick-efforts,
-.acpmux-quick-model-effort:has([data-highlighted]) > .acpmux-quick-efforts {
-  display: block;
-}
-/* The running row's check would sit between the name and its levels: the selected level marks it. */
-.acpmux-quick-model-effort > .acpmux-quick-item .ui-menu-check {
-  display: none;
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border-radius: var(--ds-radius-control);
 }
 .acpmux-quick-efforts > [role="group"] {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 .ui-menu-item.acpmux-quick-effort-segment,
 .acpmux-quick-width-probe-segment {
   display: flex;
-  flex: none;
+  flex: 1 0 auto;
   justify-content: center;
-  align-items: center;
-  min-height: calc(var(--ui-row-height) - 6px);
-  padding: 0 var(--ds-space-1);
+  min-height: var(--ui-row-height);
+  padding: var(--ds-space-1) var(--ds-space-2);
   border-radius: var(--ui-row-radius);
   color: var(--agent-muted);
-  font-size: var(--text-caption);
-  white-space: nowrap;
+  font-size: var(--text-content);
 }
 .acpmux-quick-effort-segment .ui-menu-check {
   display: none;
