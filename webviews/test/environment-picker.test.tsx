@@ -271,11 +271,39 @@ for (const environments of [false, true]) {
     await openPicker();
     expect(menu()).not.toBeNull();
   });
-  test(`trust question prevents destination picker overlap on first render (previews ${environments})`, async () => {
-    await mount(environments, { closeOnTrustAsk: true });
-    await openPicker();
-    expect(menu()).toBeNull();
-  });
+  for (const via of ["trigger", "opener"] as const) {
+    test(`trust question prevents destination picker mounting via ${via} (previews ${environments})`, async () => {
+      await mount(environments, { closeOnTrustAsk: true });
+      const { flushSync } = await import("react-dom");
+      const { openPicker: openRegisteredPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+      const selector = environments ? ".acpmux-env-popover" : ".acpmux-location-menu";
+      // Record even a node inserted and removed in the same commit/effect flush. Checking only
+      // the final open state misses the popup stealing focus and refreshing before it closes.
+      const observer = new dom.window.MutationObserver(() => {});
+      observer.observe(doc().body, { childList: true, subtree: true });
+      try {
+        await act(async () => {
+          flushSync(() => {
+            if (via === "trigger") computerButton()!.click();
+            else expect(openRegisteredPicker("Computer")).toBe(true);
+          });
+          // Assert before the outer act flush; mutation records also catch anything flushSync flushed.
+          expect(Boolean(doc().querySelector(selector))).toBe(false);
+          expect(refreshes).toBe(0);
+          const insertedPopup = observer.takeRecords().some((record) =>
+            [...record.addedNodes].some(
+              (node) => node instanceof dom.window.Element && (node.matches(selector) || node.querySelector(selector)),
+            ),
+          );
+          expect(insertedPopup).toBe(false);
+        });
+        expect(Boolean(doc().querySelector(selector))).toBe(false);
+        expect(refreshes).toBe(0);
+      } finally {
+        observer.disconnect();
+      }
+    });
+  }
 }
 
 // A fresh home must offer setup without enabling the environments preview. The same

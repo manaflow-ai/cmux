@@ -146,7 +146,11 @@ export function EnvironmentPicker({
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const reset = () => {
     setQuery("");
   };

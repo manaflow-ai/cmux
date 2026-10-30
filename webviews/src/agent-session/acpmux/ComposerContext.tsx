@@ -825,7 +825,11 @@ function LocationPicker({
   closeOnTrustAsk?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
