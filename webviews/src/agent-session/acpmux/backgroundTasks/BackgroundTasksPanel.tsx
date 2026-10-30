@@ -115,6 +115,9 @@ export function BackgroundTasksPanel({
   // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
   // steps out one at a time, to the list last.
   const [stack, setStack] = useState<Drill[]>(() => (initialDrill ? [initialDrill] : []));
+  // Workflows turned off (Labs) while a workflow agent's transcript shows: there is nothing to read
+  // it with, so the panel steps back out of it rather than show a blank pane.
+  if (!workflow && stack.some((entry) => entry.workflow)) setStack(stack.filter((entry) => !entry.workflow));
   const drill = stack.at(-1);
   const list = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);

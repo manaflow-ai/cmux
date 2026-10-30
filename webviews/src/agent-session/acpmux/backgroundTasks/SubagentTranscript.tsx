@@ -77,9 +77,11 @@ export function SubagentTranscript({
     if (rows.length < count) setRange(windowRange(rows));
   }
   const atBottom = useRef(anchor === undefined);
-  // The scroll height and mounted row count before rows were added above: once the count moves, the
-  // offset is moved by the added height (a render in between, a loading flag, changes nothing).
-  const grown = useRef<{ height: number; count: number } | undefined>(undefined);
+  // Rows being added above: how far the reader is from the bottom, which nothing added above changes.
+  // Each render puts the scroll back that far from the bottom (a no-op while nothing grew), so rows
+  // added, or older text merged into the first row (a workflow page's chunks), never move what the
+  // reader sees. `settled` once the rows are in: the next render applies it and lets go.
+  const grown = useRef<{ fromBottom: number; settled: boolean } | undefined>(undefined);
   const placed = useRef(false);
   const first = Math.min(range.start, Math.max(0, rows.length - 1));
   const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
@@ -100,9 +102,8 @@ export function SubagentTranscript({
     }
     // Older rows mounted above: hold what the reader sees where it was.
     if (grown.current !== undefined) {
-      if (shown.length === grown.current.count) return;
-      view.scrollTop += view.scrollHeight - grown.current.height;
-      grown.current = undefined;
+      view.scrollTop = view.scrollHeight - grown.current.fromBottom;
+      if (grown.current.settled) grown.current = undefined;
       return;
     }
     if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
@@ -137,15 +138,20 @@ export function SubagentTranscript({
     };
     if (first > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
-        grown.current = { height: view.scrollHeight, count: last === undefined ? rows.length - first : last - first };
+        grown.current = { fromBottom: view.scrollHeight - view.scrollTop, settled: true };
         setRange((now) => ({ ...now, start: Math.max(0, first - WINDOW) }));
       });
     else if (loadOlder && rows.length > 0)
       watch(top.current, "200px 0px 0px 0px", () => {
-        grown.current = { height: view.scrollHeight, count: last === undefined ? rows.length : last };
-        void loadOlder().catch(() => {
-          grown.current = undefined;
-        });
+        const hold = { fromBottom: view.scrollHeight - view.scrollTop, settled: false };
+        grown.current = hold;
+        // The older page's rows are set before the read settles, so the render that draws them comes
+        // after this: it holds the scroll once more, then lets go.
+        void loadOlder()
+          .catch(() => undefined)
+          .finally(() => {
+            hold.settled = true;
+          });
       });
     if (last !== undefined)
       watch(bottom.current, "0px 0px 200px 0px", () =>
@@ -208,7 +214,7 @@ const TranscriptRow = memo(
               key={agent.id}
               id={agent.id}
               name={agent.task?.trim() || agent.name}
-              running={agent.state === "running"}
+              running={agent.state === "running" && !(agent.kind === "workflow" && agent.paused)}
               // A workflow has no transcript of its own (its agents' are listed in the panel).
               opens={agent.kind !== "workflow"}
             />
