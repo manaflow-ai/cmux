@@ -261,7 +261,7 @@ const ccAttempt = async (b: ChiefBrainDO, id: string, blocks: ReadonlyArray<stri
       const prepP = Promise.all([notesToken(env, agent, conversation, id), githubOf(env, agent).ccGithubTurn(agent), toolsOf(env, agent).ccToolFiles()])
       keyP.catch(() => undefined)
       prepP.catch(() => undefined)
-      vm = await createVm(env, name, { agent, conversation, run: id })
+      vm = await createVm(env, name, { agent, owner: cfg.owner, conversation, run: id })
       writeConfig(b.sql, { [`cc_vm:${id}`]: vm })
       mark("vm")
       const providerP = vmNetwork(env, vm)
@@ -423,7 +423,7 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   if (body.vm !== undefined) {
     const agent = b.config().agent!
     const legacy = legacyOf(b)
-    const out = await sandboxesOf(b.doEnv, agent).ccSandboxCall(agent, body.vm, legacy)
+    const out = await sandboxesOf(b.doEnv, agent).ccSandboxCall(agent, body.vm, legacy, b.config().owner)
     if (legacy.length) b.sql.exec(`DELETE FROM cb_config WHERE name = 'cc_sandboxes'`)
     return out
   }

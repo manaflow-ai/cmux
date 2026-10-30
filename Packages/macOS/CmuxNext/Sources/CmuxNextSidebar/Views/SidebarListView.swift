@@ -43,6 +43,13 @@ final class SidebarListView: NSView {
             for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
         }
     }
+    /// The multi-selection, drawn on the blocks' pinned workspace tiles (`SidebarRegionView.selectedWorkspaces`).
+    var selectedWorkspaces: Set<WorkspaceID> = [] {
+        didSet {
+            guard oldValue != selectedWorkspaces else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.selectedWorkspaces = selectedWorkspaces }
+        }
+    }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
@@ -61,6 +68,8 @@ final class SidebarListView: NSView {
     var fadingRows: [ObjectIdentifier: SidebarRowView] = [:]
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
     var configureBlockRegion: ((SidebarRegionView) -> Void)?
+    /// The workspaces pinned above the list (the band), in drawn order: a Shift range starts there (`selectionOrder`).
+    var leadingSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Listed document items (link, tab, app rows) by item id.
     var listItems: [String: SidebarListItem] = [:]
     /// The drag gap CALayer, under the rows.
@@ -88,7 +97,10 @@ final class SidebarListView: NSView {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
-    var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    var openingRows: [SidebarRowKey: SidebarRowOpening] = [:] // Rows still opening their slot (`SidebarRowOpening`).
+    /// The model's sections at the last `apply`, so an apply can tell a workspace new to the model from one listed again
+    /// (`opensOnlyNewWorkspaces`).
+    var appliedSections: [SidebarSection] = []
     /// Whether the pointer is over the list's visible rows now (`showModelChange` holds a change then).
     /// Tests inject an answer; the default asks the window where its pointer is.
     var pointerIsOverList: @MainActor (SidebarListView) -> Bool = { $0.pointerIsOverVisibleRows }
@@ -129,6 +141,9 @@ final class SidebarListView: NSView {
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
+    /// Whether a dragged document item is removed when dropped beside the sidebar, and its removal (`holdsDragOut`).
+    var removesOnDragOut: ((String) -> Bool)?
+    var onDragOutRemove: ((String) -> Void)?
     let tabRowDrag = SidebarTabRowDrag()
     /// Hover time before an external tab drag over a row selects it.
     var springLoadDelay: Duration = .milliseconds(500)
@@ -167,6 +182,7 @@ final class SidebarListView: NSView {
         model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
+        model.drawnSelectionOrder = { [weak self] in self?.selectionOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
@@ -333,4 +349,15 @@ final class SidebarListView: NSView {
         view.fadesNextFill = false
         view.fadesNextHover = false
     }
+}
+
+/// A row still opening its slot (`SidebarListView.openingRows`): until when, and how. A row an insert opened outside
+/// the realized rows opens the same way when a scroll brings it in before `until` (`RowMotion.place`).
+struct SidebarRowOpening {
+    /// The media time the open settles, on the spring it runs on.
+    var until: CFTimeInterval
+    /// The new row motion that opened it (`sidebar.insertMotion`); nil opens from zero height on `.move`.
+    var motion: SidebarInsertMotion?
+    /// How far its edges travel (`SidebarInsertMotion.travel`); nil is the whole distance.
+    var travel: CGFloat?
 }

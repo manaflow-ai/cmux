@@ -4,6 +4,7 @@
 //! `workspace_registry::mutation_ledger_retention`.
 
 use super::*;
+use crate::workspace_registry::history_check::scan_background_checked_tables;
 use crate::workspace_registry::mutation_ledger_retention::scan_mutation_ledgers;
 
 /// Retention batches per tick, each under its own registry lock, so a 1 GB
@@ -77,6 +78,29 @@ impl Mux {
             );
             self.report_internal_diagnostic(format!(
                 "mutation ledger {table} was corrupt; it was set aside and recreated empty"
+            ));
+        }
+        self.check_background_checked_tables(&database)
+    }
+
+    /// The full check of the tables the open only touches the tail of
+    /// (`workspace_registry::history_check`). A damaged one makes the next
+    /// open check every state table in full, as every open did before.
+    fn check_background_checked_tables(&self, database: &Path) -> anyhow::Result<()> {
+        if self.journal_maintenance_paused() {
+            return Ok(());
+        }
+        for (table, report) in scan_background_checked_tables(database)? {
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .require_full_open_check(table, &report)?;
+            eprintln!(
+                "cmux-tui: {table} failed its integrity check ({report}); the next start \
+                 checks the whole registry"
+            );
+            self.report_internal_diagnostic(format!(
+                "{table} failed its integrity check; the next start checks the whole registry"
             ));
         }
         Ok(())
