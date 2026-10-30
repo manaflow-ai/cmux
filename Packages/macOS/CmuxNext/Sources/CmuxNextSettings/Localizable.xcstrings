@@ -147647,6 +147647,270 @@
         }
       }
     },
+    "settings.agentPane.display.rail.side": {
+      "comment": "Settings > Appearance > Agent Chat: which edge of the chat the prompt rail (one tick per prompt) sits on, Left or Right",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جانب شريط الطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strana trake upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Side for promptlinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seite der Prompt-Leiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Rail Side"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lado de la barra de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Côté de la barre des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lato della barra dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトレールの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែកនៃរបារសំណើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 레일 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Side for ledetekstlinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona paska promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lado da barra de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторона панели запросов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ด้านของแถบพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem çubuğunun tarafı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бік панелі запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh của thanh lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示轨道位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示軌道位置"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.rail.side.help": {
+      "comment": "Settings > Appearance > Agent Chat > Prompt Rail Side: help for the Left / Right choice",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حافة المحادثة التي يظهر عليها شريط الطلبات، بعلامة لكل طلب. انقر بزر الماوس الأيمن على الشريط لنقله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ivica razgovora na kojoj je traka upita, jedna crtica po upitu. Kliknite desnim klikom na traku da je premjestite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den kant af chatten, promptlinjen sidder ved, med ét mærke pr. prompt. Højreklik på linjen for at flytte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Rand des Chats, an dem die Prompt-Leiste mit einem Strich pro Prompt sitzt. Zum Verschieben mit der rechten Maustaste auf die Leiste klicken."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El borde del chat en el que está la barra de prompts, una marca por prompt. Haz clic derecho en la barra para moverla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le bord du chat où se trouve la barre des prompts, un trait par prompt. Faites un clic droit sur la barre pour la déplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il bordo della chat su cui si trova la barra dei prompt, un segno per prompt. Fai clic destro sulla barra per spostarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトごとに1本の目盛りを表示するプロンプトレールを、チャットのどちらの端に置くか。レールを右クリックして移動できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គែមនៃការជជែកដែលរបារសំណើស្ថិតនៅ ដោយមានសញ្ញាមួយសម្រាប់សំណើនីមួយៗ។ ចុចស្ដាំលើរបារដើម្បីផ្លាស់ទីវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트마다 눈금 하나를 표시하는 프롬프트 레일이 놓일 채팅 가장자리입니다. 레일을 오른쪽 클릭해 옮길 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanten av chatten ledetekstlinjen sitter på, med ett merke per ledetekst. Høyreklikk på linjen for å flytte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krawędź czatu, przy której jest pasek promptów, jedna kreska na prompt. Kliknij pasek prawym przyciskiem, aby go przenieść."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A borda do chat em que fica a barra de prompts, um traço por prompt. Clique com o botão direito na barra para movê-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край чата, у которого находится панель запросов, по одной отметке на запрос. Чтобы переместить её, щёлкните по ней правой кнопкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอบของแชทที่แถบพรอมต์อยู่ หนึ่งขีดต่อหนึ่งพรอมต์ คลิกขวาที่แถบเพื่อย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem çubuğunun durduğu sohbet kenarı; her istem için bir çizgi. Taşımak için çubuğa sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край чату, біля якого розташована панель запитів, по одній позначці на запит. Щоб перемістити її, клацніть по ній правою кнопкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh của cuộc trò chuyện nơi đặt thanh lời nhắc, mỗi lời nhắc một vạch. Nhấp chuột phải vào thanh để di chuyển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示轨道（每条提示一个刻度）位于聊天的哪一侧。右键点按轨道即可移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示軌道（每則提示一個刻度）位於聊天的哪一側。按右鍵點按軌道即可移動。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.width": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
