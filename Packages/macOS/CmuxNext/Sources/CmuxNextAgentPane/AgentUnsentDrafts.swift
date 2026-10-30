@@ -59,9 +59,16 @@ public final class AgentUnsentDrafts {
     /// (`local` false) one on another machine. A seed given out is the page's from then on: its
     /// empty text clears it.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
-        guard local, session == nil, let text = drafts[key] else { return nil }
-        undelivered.remove(key)
+        guard local, session == nil, let text = handOut(key) else { return nil }
         return AgentPaneSeedSource(AgentPaneSeed(draft: text))
+    }
+
+    /// Tab `key`'s kept text for a page that builds its own seed (Start Agent's panel), given out as
+    /// ``seed(for:session:local:)`` gives it: from then on the page's empty text clears it.
+    public func handOut(_ key: String) -> String? {
+        guard let text = drafts[key] else { return nil }
+        undelivered.remove(key)
+        return text
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
