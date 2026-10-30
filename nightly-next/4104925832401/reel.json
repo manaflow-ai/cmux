@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4104925832401",
+  "notes": "notes/4104925832401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27976,
+      "title": "cmux mcp serve: start other MCP servers (cmux-cua) on first call, not to list them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28301,
+      "title": "fix(acpmux): send's examples go in help_examples, not its own after-help (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27956,
+      "title": "New Tab: project and machine head the composer, menus open away from the chat, and Cloud picks wait for the machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28269,
+      "title": "ci(cmux-tui): the attestation waits out a rate limit until GitHub answers again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28255,
+      "title": "chat-open bench: a timed-out or errored open never counts as a time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28235,
+      "title": "cmux-next: a subagent pane draws its chat from the kept tail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26520,
+      "title": "feat(next): scroll the session rail independently",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28016,
+      "title": "acpmux: new and ensure keep a predecessor's harness, or say why not",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28172,
+      "title": "acpmux: briefs asks the peers at once and names each one left out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28152,
+      "title": "acpmux: a peer link hears no change of a row mirrored from another peer",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
