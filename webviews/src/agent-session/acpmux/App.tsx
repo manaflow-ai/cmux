@@ -11603,7 +11603,10 @@ function AcpmuxPane() {
           onDismiss={() => {
             setDeleteConfirmOpen(false);
             setDeleteConfirmSession(undefined);
-            deleteInFlight.current = afterDeleteDismiss(deleteInFlight.current, directClient.current?.purgeInFlight === true);
+            deleteInFlight.current = afterDeleteDismiss(
+              deleteInFlight.current,
+              directClient.current?.purgeInFlight === true,
+            );
           }}
           onConfirm={() => ignoreFailure(deleteChat())}
           title={t("permission.verb.delete")}
