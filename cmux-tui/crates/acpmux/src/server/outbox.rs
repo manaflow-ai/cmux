@@ -649,10 +649,13 @@ fn next(e: &RpcError) -> Next {
 /// The relay addresses a session as `HOST/NAME`: a down peer's session named by its cached
 /// row's name is sent by that name, and one no row names as written, unless it is ambiguous.
 /// None: the target cannot be named to the relay; it stays in the outbox. A session named by its
-/// id is one of them: while the link is down its name can pass to another session, which the
-/// relay would deliver to.
+/// id, or by a prefix of it, is one of them, even when its name reads the same: while the link is
+/// down its name can pass to another session, which the relay would deliver to.
 fn relay_name(hub: &Hub, target: &str) -> Option<String> {
     let (peer, key) = target.split_once('/')?;
+    if hub.remote_names_by_id(target) {
+        return None;
+    }
     match hub.resolve_remote(target) {
         Some((_, _, summary)) => {
             let name = summary.get("name").and_then(Value::as_str)?;

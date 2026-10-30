@@ -139,7 +139,8 @@ async fn a_text_send_to_a_down_peer_goes_through_the_relay_only_by_the_sessions_
 /// name `m`. Relayed by name, it could reach another session the name passes to.
 #[tokio::test]
 async fn a_target_that_names_a_session_by_its_id_prefix_is_never_relayed_by_name() {
-    let row = json!({"sessionId": "m123", "name": "m", "status": "idle", "turnCount": 1, "updatedAt": 5});
+    let row =
+        json!({"sessionId": "m123", "name": "m", "status": "idle", "turnCount": 1, "updatedAt": 5});
     let (hub, fake) = setup_rows(&[Answer::Take], vec![row]);
     let reply = send_queue(&hub, text("box/m", "prompt-0001")).await;
     assert!(!delivery(&reply).starts_with("mesh:"), "{reply}");

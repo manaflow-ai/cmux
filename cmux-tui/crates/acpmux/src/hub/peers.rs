@@ -942,6 +942,16 @@ impl Hub {
         map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
     }
 
+    /// Whether `key` names a peer session by its id: its exact key, or a prefix of a key or of
+    /// its id, as [`Hub::resolve_remote`] matches them.
+    pub fn remote_names_by_id(&self, key: &str) -> bool {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(key).is_some()
+            || map
+                .iter()
+                .any(|(id, r)| id.starts_with(key) || r.receipt.mux_session_id.starts_with(key))
+    }
+
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
         let hit = if let Some(r) = map.get(key) {
