@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Output, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use wait_timeout::ChildExt;
 
 struct Daemon {
     child: Option<Child>,
@@ -86,6 +87,30 @@ fn cli(d: &Daemon, args: &[&str]) -> Output {
     out
 }
 
+fn cli_bounded(d: &Daemon, args: &[&str], limit: Duration) -> Output {
+    let mut child = daemon_env::acpmux(&d.home)
+        .args(args)
+        .env("ACPMUX_HOME", &d.home)
+        .env("ACPMUX_SOCKET", d.home.join("s.sock"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    if child.wait_timeout(limit).unwrap().is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("acpmux {args:?} exceeded {limit:?}");
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "acpmux {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out
+}
+
 fn saved_url(d: &Daemon, name: &str) -> Option<String> {
     let config: Value =
         serde_json::from_str(&std::fs::read_to_string(d.home.join("config.json")).ok()?).ok()?;
@@ -97,7 +122,7 @@ fn host_add_with_no_url_adds_the_canonical_endpoint() {
     let d = start("add");
     let out = cli(&d, &["host", "add", "box.invalid"]);
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("was saved and will keep reconnecting"),
+        String::from_utf8_lossy(&out.stderr).contains("was saved and is probing in the background"),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
@@ -111,10 +136,23 @@ fn offline_host_add_exits_zero_with_a_warning() {
     let out = cli(&d, &["--json", "host", "add", "box.invalid"]);
     let value: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(out.stderr.is_empty(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(value["warning"]["reason"], "peer_unreachable");
+    assert_eq!(value["warning"]["reason"], "peer_probing");
     assert_eq!(value["warning"]["try"], "ssh -o BatchMode=yes box.invalid true");
-    assert_eq!(value["warning"]["detail"], "the peer was saved and will keep reconnecting");
+    assert_eq!(value["warning"]["detail"], "the peer was saved and is probing in the background");
     assert_eq!(saved_url(&d, "box.invalid").as_deref(), Some("ssh://box.invalid"));
+}
+
+#[test]
+fn blackholed_host_add_returns_without_waiting_for_ssh() {
+    let d = start("blackhole");
+    let started = Instant::now();
+    let out =
+        cli_bounded(&d, &["host", "add", "blackhole", "ssh://192.0.2.10"], Duration::from_secs(1));
+    let elapsed = started.elapsed();
+    eprintln!("blackholed host add elapsed: {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(1), "host add took {elapsed:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("probing in the background"));
+    assert_eq!(saved_url(&d, "blackhole").as_deref(), Some("ssh://192.0.2.10"));
 }
 
 #[test]

@@ -266,6 +266,22 @@ test("the received card says when it is read and keeps the queue row's actions i
   expect(calls.at(-1)).toBe("move a1 2");
 });
 
+test("queued message actions stay revealed for either open-menu marker without moving the heading", async () => {
+  await card(agent(1), []);
+  const actions = host.querySelector<HTMLElement>(".cv-received-actions")!;
+  const trigger = actions.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+  const heading = host.querySelector<HTMLElement>(".cv-received__queued-head")!;
+  expect(actions.contains(heading)).toBe(false);
+  expect(getComputedStyle(actions).opacity).toBe("0");
+  for (const marker of ["aria-expanded", "data-popup-open"]) {
+    trigger.setAttribute(marker, "true");
+    expect(getComputedStyle(actions).opacity).toBe("1");
+    expect(getComputedStyle(heading).opacity).not.toBe("0");
+    trigger.removeAttribute(marker);
+    expect(getComputedStyle(actions).opacity).toBe("0");
+  }
+});
+
 test("several queued messages say Read after this turn once, over the first", async () => {
   const rows = queuedMessageRows([agent(4), agent(5), agent(6)] as never);
   expect(rows.map((row) => Boolean(row.queuedMessage?.lead))).toEqual([true, false, false]);
