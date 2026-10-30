@@ -180,6 +180,12 @@ impl Hub {
     /// it running. Run by a prompt's turn (`turns.rs`) and by a carried turn
     /// (`carried_turn.rs`). A close (`kill`) since the turn's request came (`stops`) starts
     /// nothing (`child_for_since`), nor does another Stop since the restart was marked.
+    ///
+    /// This start decides nothing about what runs next: every queued turn starts its agent
+    /// itself (`run_prompt`'s `child_for_since`), and after the person's Stop the hold
+    /// (`hold_agent_messages`), not the agent, keeps the other agents' messages from running.
+    /// The Stop count read here only saves a start nobody may need; a Stop that lands while the
+    /// agent starts finds no turn to stop and leaves it idle, as a Stop of an idle chat does.
     pub(super) async fn respawn_stopped_agent(
         self: &Arc<Self>,
         session: &Arc<Session>,
