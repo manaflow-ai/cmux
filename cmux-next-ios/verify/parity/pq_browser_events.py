@@ -46,24 +46,37 @@ PAGE = f"""<!doctype html><title>Events</title><meta name=viewport content="widt
 NEXT = """<!doctype html><title>Next</title><meta name=viewport content="width=device-width">
 <body style='font:28px -apple-system;padding:12px'><h1>NEXTPAGE</h1><p id=q></p>
 <script>document.getElementById('q').textContent='FROM '+location.search.slice(1)</script></body>"""
+# The page starts a navigation to another site that answers slowly (SLOW_PORT holds the
+# response SLOW_SECONDS), then shows an alert: the alert is up when the navigation commits,
+# and Chromium closes the page's dialogs on commit (the host sends rb.dialog.cancel).
+SLOW_PORT = PORT + 1
+SLOW_SECONDS = int(os.environ.get("BE_SLOW_SECONDS", "40"))
 GONE = f"""<!doctype html><title>Gone</title><meta name=viewport content="width=device-width">
 <body style='font:24px -apple-system;padding:12px'><p>GONEHOST waiting</p>
-<iframe src="http://localhost:{PORT}/frame.html" style='width:90%;height:80px'></iframe>
-<p id=gone></p>
-<script>setTimeout(()=>{{document.querySelector('iframe').remove();
-document.getElementById('gone').textContent='FRAMEGONE'}},5000);
-setTimeout(()=>{{location.href='/next.html?navigated'}},8000)</script></body>"""
+<script>setTimeout(()=>{{location.href='http://localhost:{SLOW_PORT}/next.html?navigated';
+alert('NAVALERT closes by itself')}},1500)</script></body>"""
+SLOW = f"""import http.server, time
+NEXT = {NEXT!r}.encode()
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        time.sleep({SLOW_SECONDS})
+        self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers()
+        self.wfile.write(NEXT)
+    def log_message(self, *a): pass
+http.server.ThreadingHTTPServer(("127.0.0.1", {SLOW_PORT}), H).serve_forever()
+"""
 FRAME = "<!doctype html><body>frame<script>setTimeout(()=>alert('FRAMEALERT closes by itself'),300)</script></body>"
 
 
 def serve():
     """The test site on the mini (idempotent): an http server on PORT in SITE."""
-    files = {"index.html": PAGE, "next.html": NEXT, "gone.html": GONE, "frame.html": FRAME}
+    files = {"index.html": PAGE, "next.html": NEXT, "gone.html": GONE, "frame.html": FRAME, "slow.py": SLOW}
     cmd = f"mkdir -p {SITE} && cd {SITE}"
     for name, body in files.items():
         cmd += f" && printf %s {shlex.quote(body)} > {name}"
     cmd += (f" && (curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html || "
-            f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 &))")
+            f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 &))"
+            f" && (pkill -f 'slow.py' || true) && (nohup python3 slow.py </dev/null >/dev/null 2>&1 &)")
     r = pq.rsh(cmd)
     check(r.returncode == 0, f"site: {r.stderr.strip()[:200]}")
     t0 = time.time()
@@ -96,9 +109,16 @@ def at(j, needle, timeout=20):
 
 
 def app_front(j):
-    """cmux in front: a booted simulator, or one that went to Safari, has it in the back."""
+    """cmux in front with nothing over it: the page-menu flow leaves Safari in front, a fresh
+    boot shows the keyboard intro, and an earlier flow can leave its page's alert open. The
+    app is not restarted: a restart that reconnects to a live page crashes the base app's
+    video decoder (BrowserVideoDecoder.decode, outside this change)."""
     j.sim.launch(pq.BUNDLE, terminate=False)
-    time.sleep(2)
+    time.sleep(3)
+    stale = j.sim.find(label="OK", kind="Button")
+    if stale:
+        j.sim.tap_el(stale[0])
+        time.sleep(1)
     j.sim.dismiss_keyboard_intro()
 
 
@@ -112,9 +132,10 @@ def open_page(j, path="index.html"):
     t.open_ws(j, a["name"])
     took = ocr_wait(j, "EVTPAGE" if path == "index.html" else "GONEHOST", timeout=60)
     if took is None:
-        # A page that opened hidden waits for the phone to show it again: the grid and back.
-        t.open_tab(j, "Events")
-        took = ocr_wait(j, "EVTPAGE", timeout=30)
+        # A page that opened hidden waits for the phone to show it again: the grid and back
+        # (its card is titled with the page's host).
+        t.open_tab(j, "127.0.0.1")
+        took = ocr_wait(j, "EVTPAGE" if path == "index.html" else "GONEHOST", timeout=60)
     check(took is not None, f"{path} never showed on the phone")
     return a
 
@@ -155,7 +176,7 @@ def open_tab(j):
                       f"target=_blank: a new tab on the Mac ({before} -> {count}), shown on the phone in {shown or 0:.1f} s",
                       f"target=_blank: Mac tabs {before} -> {count}; phone shows the new page: {shown is not None}"))
     # Back to the page, then window.open.
-    t.open_tab(j, "Events")
+    t.open_tab(j, "127.0.0.1")
     check(ocr_wait(j, "EVTPAGE", timeout=45) is not None, "the events page did not come back")
     before = tab_count(name)
     j.sim.tap(*at(j, "WOPEN"))
@@ -235,31 +256,34 @@ def dialogs(j):
 
 @t.flow("dialog-dismissed")
 def dialog_dismissed(j):
-    """A dialog whose frame goes away while it is open: the phone's alert closes, unanswered.
+    """A dialog the page closes itself: the phone's alert closes, unanswered.
 
-    The alert comes from a cross-site iframe (its own renderer, blocked in `alert()`); the
-    page's main frame, in another renderer, removes that iframe 5 s later and then navigates.
-    The host tells the viewer the dialog is gone (`rb.dialog.cancel`) when Chromium drops it."""
+    The page starts a navigation to a slow site, then shows an alert. When the navigation
+    commits, Chromium drops the page's dialogs and the host tells the viewer
+    (`rb.dialog.cancel`); the Mac's viewer closes its sheet the same way."""
     open_page(j)
     j.sim.tap(*at(j, "GONEPAGE"))
-    alert = j.sim.wait(label="OK", kind="Button", timeout=40)
+    alert = j.sim.wait(label="OK", kind="Button", timeout=SLOW_SECONDS)
+    shown = time.time()
     j.sim.shot(f"dialog-dismissed-shown-{'before' if BEFORE else 'after'}")
     if BEFORE:
-        return f"iframe alert: shown on the phone: {bool(alert)}"
-    check(alert, "the iframe's alert never showed")
+        return f"page alert while it navigates away: shown on the phone: {bool(alert)}"
+    check(alert and j.sim.ocr_find("NAVALERT"), "the page's alert never showed")
     gone = None
-    t0 = time.time()
-    while time.time() - t0 < 60:
+    while time.time() - shown < SLOW_SECONDS + 90:
         if not j.sim.find(label="OK", kind="Button"):
-            gone = time.time() - t0
+            gone = time.time() - shown
             break
         time.sleep(0.5)
     j.sim.shot("dialog-dismissed-gone")
-    check(gone is not None, "the alert stayed after its frame went away")
-    landed = ocr_wait(j, "FROM navigated", timeout=45) is not None or ocr_wait(j, "FRAMEGONE", timeout=5) is not None
-    j.sim.shot("dialog-dismissed-after")
-    return (f"the iframe that showed the alert was removed by the page: the phone's alert closed by itself "
-            f"{gone:.1f} s later, unanswered; page moved on: {landed}")
+    # Chromium defers a page's own navigation while its dialog is open, so the alert stays
+    # until it is answered, on the Mac's viewer as on the phone (no rb.dialog.cancel comes).
+    check(gone is not None, "the alert stayed: the page's navigation waits for its answer, and no rb.dialog.cancel came")
+    landed = ocr_wait(j, "FROM navigated", timeout=60)
+    j.sim.shot("dialog-dismissed-navigated")
+    check(landed is not None, "the phone did not show the page it navigated to")
+    return (f"the page navigated away while its alert was open: the phone's alert closed by itself "
+            f"{gone:.1f} s after it showed, unanswered (OK never tapped), and the new page showed")
 
 
 @t.flow("select")
@@ -358,7 +382,7 @@ def run_all(names=None):
 
 
 def stop_site():
-    pq.rsh(f"pkill -f 'http.server {PORT}' || true")
+    pq.rsh(f"pkill -f 'http.server {PORT}' || true; pkill -f 'slow.py' || true")
 
 
 if __name__ == "__main__":
