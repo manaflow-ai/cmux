@@ -962,6 +962,20 @@ fn terminal_waits_are_bounded() {
 }
 
 #[test]
+fn a_new_workspace_holds_a_terminal_unless_asked_otherwise() {
+    let create = v2_tools::find("workspace_create").expect("workspace_create");
+    let schema = create.input_schema();
+    assert!(!schema["required"].as_array().is_some_and(|r| r.contains(&json!("initial_content"))));
+    assert_eq!(schema["properties"]["initial_content"]["default"], "terminal");
+    let call = create.plan(&object(json!({"name": "eval-proj"}))).expect("plan");
+    assert_eq!(call.plan.params["initial_content"], "terminal");
+    let call = create
+        .plan(&object(json!({"name": "eval-proj", "initial_content": "empty"})))
+        .expect("plan");
+    assert_eq!(call.plan.params["initial_content"], "empty");
+}
+
+#[test]
 fn an_owner_that_says_the_run_never_started_decides_the_state() {
     let failure = CallFailure {
         kind: FailureKind::Rejected,

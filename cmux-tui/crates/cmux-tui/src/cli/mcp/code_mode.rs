@@ -152,9 +152,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              text: \"cmd\\n\"}} runs it there and the tab stays open with its output. Use this \
              for 'open a terminal', 'run X on my right', 'next to my logs'. With shell (or \
              argv) the tab runs only that command and closes when it exits.\n\
-             - pane_split {{pane, direction}}: only when the person says \"split\". \"Next to \
-             my logs\", \"beside X\" or \"on the right\" means a new tab in that pane: \
-             tab_create_terminal {{pane}}, or no pane for the column right of this chat.\n\
+             - pane_split {{pane, direction}}: only when the person says \"split\" or wants \
+             two terminals \"side by side\" (split the workspace's pane, then use the new \
+             value.pane_id). \"Next to my logs\", \"beside X\" or \"on the right\" means a \
+             new tab in that pane: tab_create_terminal {{pane}}, or no pane for the column \
+             right of this chat.\n\
              - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
              pattern, timeout_ms}} waits for a regex on the screen (never sleep or poll). The \
              typed command is on the screen too, so match the output line: pattern \

@@ -451,8 +451,14 @@ impl V2Tool {
             }
         }
         for (name, field) in self.fields().as_object().into_iter().flatten() {
-            properties.insert(name.clone(), generator.field(field));
-            if field["required"] == Value::Bool(true) {
+            let mut property = generator.field(field);
+            if let (Some(default), Some(property)) =
+                (self.default_of(name), property.as_object_mut())
+            {
+                property.insert("default".into(), default);
+            }
+            properties.insert(name.clone(), property);
+            if field["required"] == Value::Bool(true) && self.default_of(name).is_none() {
                 required.push(Value::String(name.clone()));
             }
         }
@@ -604,6 +610,13 @@ impl V2Tool {
                 )));
             }
         }
+        for name in self.fields().as_object().into_iter().flatten().map(|(name, _)| name) {
+            if let Some(default) = self.default_of(name)
+                && !params.contains_key(name)
+            {
+                params.insert(name.clone(), default);
+            }
+        }
         if self.waits() {
             let timeout = match params.get("timeout_ms") {
                 None => DEFAULT_WAIT_MS,
@@ -634,6 +647,13 @@ impl V2Tool {
             page,
             prefixes,
         })
+    }
+
+    /// A required wire field an MCP call may leave out, and the value it then takes: a new
+    /// workspace holds a terminal, as `cmux workspace create` makes it (tests/tool-evals
+    /// m1: `workspace_create({name})` failed with "required parameter is missing").
+    fn default_of(&self, field: &str) -> Option<Value> {
+        (self.wire == "workspace.create" && field == "initial_content").then(|| json!("terminal"))
     }
 
     /// Machine selection is a metadata lookup only on machine.get; other tools keep their owner scope.
