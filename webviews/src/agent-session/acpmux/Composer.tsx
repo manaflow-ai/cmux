@@ -61,6 +61,7 @@ import {
   hasPendingDraftWrite,
   hydratedDraft,
   lastQueuedDraftText,
+  markDraftRead,
   mergedDraft,
   readDurableDraftState,
   readPersistedDraft,
@@ -696,15 +697,29 @@ export function Composer({
         const session = persistedSession.current;
         // Typed while the chat loaded, and acpmux's draft never read: read it now, so the quit
         // keeps both instead of writing the typed text over it (mergedDraft). No answer: as before.
-        if (session && hydratedSession.current !== session && editedBeforeHydration.current && !draftWasRead(session)) {
+        let readAnswered = !session || draftWasRead(session);
+        if (session && hydratedSession.current !== session && editedBeforeHydration.current && !readAnswered) {
           const saved = await readDurableDraftState(session);
-          if (saved) typed = mergedDraft(typed, saved.draft);
+          if (!saved) {
+            // A failed read is not an empty draft. Keep the latest text in the remount cache and
+            // wait for a successful read before sending anything to acpmux, so reconnect cannot
+            // replace a durable draft with the text typed during the outage.
+            cachePersistedDraft(session, field.current?.value() ?? textRef.current);
+            const unsent = unsentDraft.current;
+            if (unsent) unsent.push(field.current?.value() ?? textRef.current);
+            await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
+            return;
+          }
+          markDraftRead(session);
+          readAnswered = true;
+          // Re-read after the async call: the person may have typed while acpmux was answering.
+          typed = mergedDraft(field.current?.value() ?? textRef.current, saved.draft);
         }
         // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
         // shows what it had before, so writing it would clear the draft being restored.
         // Before the durable read answers, only what the person typed goes (the read keeps a typed
         // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
-        const ready = hydratedSession.current === session || editedBeforeHydration.current;
+        const ready = hydratedSession.current === session || (editedBeforeHydration.current && readAnswered);
         const known =
           lastQueuedDraftText(session ?? "") ??
           (hydratedSession.current === session ? hydratedText.current : undefined);
@@ -824,6 +839,7 @@ export function Composer({
       // merged it (the action map's next version runs this again). Before, an unanswered read
       // counted as "no draft", and the typed text then replaced the draft acpmux kept.
       if (sessionId && !state) return;
+      markDraftRead(sessionId);
       const currentText = field.current?.value() ?? textRef.current;
       const edited = editedBeforeHydration.current;
       editedBeforeHydration.current = false;

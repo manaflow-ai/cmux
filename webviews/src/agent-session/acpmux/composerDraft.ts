@@ -303,6 +303,11 @@ export function draftWasRead(sessionId: string | undefined): boolean {
   return Boolean(sessionId && readDrafts.has(sessionId));
 }
 
+/** Records a successful read only after the caller has confirmed that its result is current. */
+export function markDraftRead(sessionId: string | undefined): void {
+  if (sessionId?.trim()) readDrafts.add(sessionId);
+}
+
 /// Reads the daemon draft: `{ draft }` once acpmux answered (`draft` undefined when it holds none),
 /// or undefined when nothing could be read (no session, no page action yet, a failed or dropped
 /// connection). "Unread" is never "no draft": a composer that took it for one would let what the
@@ -315,7 +320,6 @@ export async function readDurableDraftState(
     const action = pageDraftAction("chat.readDraft");
     if (!action) return undefined;
     const draft = daemonDraft(await action({ sessionId }));
-    readDrafts.add(sessionId);
     return { draft };
   } catch {
     return undefined;
