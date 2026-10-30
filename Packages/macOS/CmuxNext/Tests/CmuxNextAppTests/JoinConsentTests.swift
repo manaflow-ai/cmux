@@ -697,7 +697,10 @@ import Testing
         await settle()
         #expect(fake.writes.isEmpty && model.ask != nil)
         try click(allow, allow, true) {
-            guard let up = current else { return Issue.record("no mouse-up current") }
+            guard let up = current else {
+                Issue.record("no mouse-up current")
+                return
+            }
             #expect(panel.takePersonClick(on: allow, up: up))
             #expect(!panel.takePersonClick(on: allow, up: up), "the same click twice")
         }

@@ -18,7 +18,7 @@ public final class JoinConsentAskPanel: NSPanel {
     /// came, held until the click ends: AppKit may hand a button the mouse-up in its tracking loop, inside
     /// the mouse-down's dispatch, or (the displayed, non-activating sheet) dispatch the mouse-up as an event
     /// of its own (HQ#5121). A click begun while Allow was disabled holds none.
-    private var personDown: (event: NSEvent, allow: NSView)?
+    private var personDown: (event: NSEvent, allow: NSControl)?
     /// The last mouse-up that answered Allow: each click answers once.
     private var spentUp: (number: Int, time: TimeInterval)?
 
@@ -55,7 +55,7 @@ public final class JoinConsentAskPanel: NSPanel {
         switch event.type {
         case .leftMouseDown:
             personDown = nil
-            if let allow = content.allow, allow.isEnabled, isPersonEvent(event) { personDown = (event, allow) }
+            if let allow = content.allow, allow.isEnabled, isPersonEvent(event) { personDown = (event: event, allow: allow) }
             body()
             if let up = eventInHand(), up.type == .leftMouseUp { endClick(up) }
         case .leftMouseDragged, .pressure:
