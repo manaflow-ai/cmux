@@ -18,6 +18,7 @@
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, parse_globals, wire};
+use cmux_json::JsonSet as _;
 
 mod browser_import;
 mod cloud_machine;
@@ -378,8 +379,8 @@ fn enrich_status(mut check: Value) -> Value {
         [one] => one.clone(),
         many => Value::Array(many.to_vec()),
     };
-    check["check_status"] = json!(status);
-    check["recovery"] = recovery;
+    check.set("check_status", json!(status));
+    check.set("recovery", recovery);
     check
 }
 

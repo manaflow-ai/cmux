@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Map, Value, json};
 
 use super::computer_use_gate::{self, Gate};
+use cmux_json::JsonSet as _;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -216,8 +217,8 @@ impl Upstream {
                     .filter(|r| !r.trim().is_empty())
                     .map(|r| format!("{RULES_BREAK}{server}{RULES_LABEL}{r}"))
                     .unwrap_or_default();
-                tool["description"] = json!(format!("[{server}] {description}{rules}"));
-                tool["name"] = json!(name);
+                tool.set("description", json!(format!("[{server}] {description}{rules}")));
+                tool.set("name", json!(name));
                 Some(tool)
             })
             .collect()

@@ -657,7 +657,7 @@ export function QuickModelMenu({
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
-            : (shown?.note ?? t("picker.noMatches"))}
+            : (shown?.note ?? t("picker.noModels"))}
         </MenuItem>
       )}
       {!query && shown?.note && shown.logIn && (

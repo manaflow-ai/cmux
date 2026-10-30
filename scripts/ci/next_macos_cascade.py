@@ -277,6 +277,9 @@ class Seen:
     # Each owned label's oldest queued wait by now (minutes), for the labels the snapshot saw a queue on:
     # how long the side route's queue has gone without starting its oldest job (dead_end()).
     owned: Mapping[str, float] = dataclasses.field(default_factory=dict)
+    # Queue counts are a separate unit from oldest waits. GUI/session placement weighs them against
+    # online runners; the side-route dead-end check above keeps reading wait durations.
+    owned_queued: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -326,7 +329,10 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
     owned = {str(label): float(_field(pools, str(label), "oldest_queued_minutes")) + age
              for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
-    return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned)
+    owned_queued = {str(label): _field(pools, str(label), "queued")
+                    for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
+    return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
+                owned_queued=owned_queued)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],

@@ -95,6 +95,9 @@ struct BrowserProfileNewTabMenuTests {
             let previous = services.registry.refusalObserver
             services.registry.refusalObserver = { reason, quiet in refusals.append(reason); previous?(reason, quiet) }
             defer { services.registry.refusalObserver = previous }
+            // The palette only orders its panel out when it hides: close it once the test is done.
+            var palettePanel: NSWindow?
+            defer { palettePanel?.close() }
             let panes = try #require(window.workspaceContent?.panes.values.map { $0 }).sorted { $0.paneKey < $1.paneKey }
             for pane in panes {
                 refusals.removeAll()

@@ -348,6 +348,8 @@ const busyAgents: Subagent[] = Array.from({ length: 107 }, (_, index) => ({
   startedAt: started - (index + 1) * 60_000,
   ...(index < 12 ? { action: index % 2 ? "Running bun test" : "Reading SubagentsSection.tsx" } : {}),
   ...(index >= 12 ? { endedAt: started - index * 50_000 } : {}),
+  // Every fourth runs on Codex (a `codex exec` the chat started), so its line draws Codex's mark.
+  ...(index % 4 === 3 ? { harness: "codex" } : {}),
 }));
 const LANES = ["summary-panel", "priority-view", "lane-host", "machine-hygiene", "paired-approvals"];
 const busySessions: StartedSession[] = LANES.map((title, index) => ({
@@ -355,8 +357,12 @@ const busySessions: StartedSession[] = LANES.map((title, index) => ({
   title,
   state: index === 1 ? "waiting" : "running",
   createdAt: started - (index + 1) * 300_000,
+  // The chats it started run on Claude or Codex, and one on a harness with no mark of its own: its
+  // icon keeps its own color (Leo, 2026-10-29: "one of these is Codex, one of these is Claude").
+  ...(index === 4 ? {} : { harness: index % 2 ? "codex" : "claude" }),
 }));
-const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
+/// The chat runs on Claude: its own subagents draw Claude's mark.
+const busy: Props = { ...full, summary: { ...summary, harness: "claude" }, agents: busyAgents, sessions: busySessions };
 
 /// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
 /// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
