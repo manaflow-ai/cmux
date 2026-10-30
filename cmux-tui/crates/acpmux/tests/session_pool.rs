@@ -468,6 +468,22 @@ fn lowers_from_normal() -> bool {
         "this test process runs best-effort and cannot start the daemon at nice 0: \
          a lowering would read the same as the inherited priority (run at nice 0, or as root)"
     );
+    // A probe started as the daemon is reads normal: also a policy another
+    // process set on this runner (macOS: a child cannot take that one off)
+    // fails here, with this reason.
+    let mut probe = std::process::Command::new("/bin/sleep");
+    probe.arg("30").stdin(Stdio::null());
+    start_at_normal_priority(&mut probe);
+    let mut probe = probe.spawn().expect("start the priority probe");
+    let probe_best_effort = cmux_tui_platform::process_priority::is_background(probe.id());
+    let _ = probe.kill();
+    let _ = probe.wait();
+    assert_eq!(
+        probe_best_effort,
+        Ok(false),
+        "a process started as the daemon is not at the normal priority: a lowering would read \
+         the same as the inherited priority"
+    );
     cmux_tui_platform::process_priority::reversible()
 }
 
