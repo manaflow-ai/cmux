@@ -8,7 +8,7 @@ import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
-import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { platformCall, type PlatformCall, type PlatformReply } from "./cloud-platform.ts"
 import { statusApplied } from "./cloud-do-core.ts"
@@ -334,7 +334,6 @@ export class CloudDO extends CloudIdle {
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
       ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
       snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
-      platformSnapshot: (u, id) => rows()?.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).some((l) => l.row.op === "snapshot" && l.row.snapshot === id && l.row.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${u}|`)) ?? false,
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
       exec: async (row, command, stdin, timeoutMs) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)

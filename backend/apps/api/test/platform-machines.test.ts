@@ -137,7 +137,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(saved).toMatchObject({ ok: true, value: { id: expect.stringMatching(/^snap_[a-z0-9]{20}$/) } })
     const id = saved.value.id as string
     expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
-    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
     expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
 
     const other = caller()
@@ -154,6 +154,9 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const saved = await rpc.snapshot(c, machine, name)
     expect(saved).toMatchObject({ ok: true })
     const id = saved.value.id as string
+    const owner = { identity: `user:${c.user}`, kind: "session" as const, user: c.user, team: c.team }
+    const listed = await stub.readOp(c.team, owner, "cloud.snapshot.list", {})
+    expect(listed.value.snapshots[0].platform).toBeUndefined()
     expect(await rpc.destroy(c, machine)).toMatchObject({ ok: true })
     await inDO(stub, async (instance) => {
       const rows = instance.boundEngine.rows

@@ -45,8 +45,6 @@ export interface PlatformHost {
   machine(id: string): MachineRow | undefined
   ledger(key: string): LedgerRow | undefined
   snapshot(id: string): SnapshotRow | undefined
-  /** True only when this user created the snapshot through the platform snapshot operation. */
-  platformSnapshot(user: string, id: string): boolean
   tombstoned(machine: string): boolean
   /** One command on the machine's VM as root; null when the provider did not answer. */
   exec(row: MachineRow, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult | null>
@@ -144,16 +142,17 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       return r?.t === "reject" ? refused(r.code, r.message, true) : fromReject(r)
     }
     case "deleteSnapshot": {
-      const k = key("deleteSnapshot", call.snapshot)
-      const prior = host.ledger(ledgerKey(p.identity, k))
-      // A completed delete has removed the snapshot row; replay its own ledger key as success.
-      if (prior?.op === "snapshot_delete" && prior.snapshot === call.snapshot && prior.state === "done") return ok({ deleted: true })
-      // The source snapshot ledger is the durable platform marker. A public/user snapshot, a
-      // snapshot from another platform user, and a snapshot in another team are all not found.
-      if (!host.platformSnapshot(user, call.snapshot)) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
-      const r = await submit("cloud.snapshot.delete", { snapshot: call.snapshot }, k)
-      if (r?.t === "result") return ok({ deleted: true })
-      return fromReject(r)
+      const snap = host.snapshot(call.snapshot)
+      // Absence also covers a successful prior delete, even after its ledger is pruned.
+      // cmux-platform treats cloud.snapshot.not_found as successful cleanup.
+      if (!snap || snap.platform !== true || snap.creator !== user) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+      const deleting = refused("mutation.indeterminate", "the snapshot is still being deleted; retry", true)
+      if (snap.status === "deleting") return deleting
+      // Like destroy, a terminal failure restores the row at a new revision. The next request
+      // starts a new intent, while concurrent requests for this revision share the same one.
+      const r = await submit("cloud.snapshot.delete", { snapshot: snap.id }, key("deleteSnapshot", `${snap.id}:${snap.revision}`))
+      if (!host.snapshot(snap.id)) return ok({ deleted: true })
+      return r?.t === "result" ? deleting : fromReject(r)
     }
   }
 }
