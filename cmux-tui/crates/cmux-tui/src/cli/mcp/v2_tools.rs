@@ -630,6 +630,12 @@ impl V2Tool {
             || !matches!(selector, "machine" | "session")
     }
 
+    /// Whether the operation needs a `terminal` selector (`terminal_list` only filters by
+    /// one, through its optional `tab`).
+    pub(super) fn needs_terminal(&self) -> bool {
+        self.descriptor["params"]["selectors"]["terminal"] == "required"
+    }
+
     fn waits(&self) -> bool {
         matches!(
             self.operation,

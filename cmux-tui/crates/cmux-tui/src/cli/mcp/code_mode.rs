@@ -595,11 +595,23 @@ fn function_body(script: &str) -> std::borrow::Cow<'_, str> {
         head.strip_prefix("function").is_some_and(|rest| rest.trim_start().starts_with('('))
             || head.starts_with('(')
                 && head.split_once("=>").is_some_and(|(params, _)| !params.contains('{'));
-    if anonymous && trimmed.ends_with('}') {
-        std::borrow::Cow::Owned(format!("return await ({trimmed})();"))
+    if anonymous && trimmed.ends_with('}') && !compiles_as_body(script) {
+        std::borrow::Cow::Owned(format!("return await ({trimmed})(cmux);"))
     } else {
         std::borrow::Cow::Borrowed(script)
     }
+}
+
+/// Whether `script` parses as an async function body as written: a body that only
+/// starts like a function (`(await cmux.x()).forEach(t => …); if (y) {…}`) runs as is.
+fn compiles_as_body(script: &str) -> bool {
+    let Ok(runtime) = Runtime::new() else { return true };
+    let Ok(context) = Context::full(&runtime) else { return true };
+    // Evaluating the function expression only makes the function: nothing in it runs.
+    context.with(|ctx| {
+        let probe = format!("(async () => {{\n{script}\n}})");
+        ctx.eval::<rquickjs::Value, _>(probe).is_ok()
+    })
 }
 
 /// Runs one script on this (the engine) thread.

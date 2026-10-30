@@ -879,14 +879,17 @@ impl<B: Backend> Server<B> {
         tool: &v2_tools::V2Tool,
         arguments: &'a Map<String, Value>,
     ) -> Result<std::borrow::Cow<'a, Map<String, Value>>, Value> {
-        let named_by_tab = tool.name.starts_with("terminal_")
-            && !arguments.contains_key("terminal")
-            && arguments.get("tab").and_then(Value::as_str).is_some();
-        if !named_by_tab {
+        // Only a tool that needs a terminal: `terminal_list` takes `tab` as a filter.
+        let needs_terminal = tool.needs_terminal();
+        let tab = arguments.get("tab").and_then(Value::as_str);
+        let Some(tab) = tab.filter(|_| needs_terminal && !arguments.contains_key("terminal"))
+        else {
             return Ok(std::borrow::Cow::Borrowed(arguments));
-        }
+        };
+        // A `<session>:tab_…` names another session: the terminal gets the same prefix.
+        let session = tab.rsplit_once(':').map(|(session, _)| session.to_owned());
         let mut lookup = Map::new();
-        for key in ["tab", "session"] {
+        for key in ["tab", "session", "workspace", "screen", "pane"] {
             if let Some(value) = arguments.get(key) {
                 lookup.insert(key.into(), value.clone());
             }
@@ -911,9 +914,15 @@ impl<B: Backend> Server<B> {
                 None,
             )));
         };
+        let terminal = match session {
+            Some(session) => format!("{session}:{terminal}"),
+            None => terminal.to_owned(),
+        };
         let mut with_terminal = arguments.clone();
-        with_terminal.remove("tab");
-        with_terminal.insert("terminal".into(), Value::String(terminal.to_owned()));
+        for key in ["tab", "pane", "screen", "workspace"] {
+            with_terminal.remove(key);
+        }
+        with_terminal.insert("terminal".into(), Value::String(terminal));
         Ok(std::borrow::Cow::Owned(with_terminal))
     }
 

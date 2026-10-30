@@ -1716,6 +1716,11 @@ fn code_mode_takes_the_shapes_models_write() {
     let message = missing["structuredContent"]["result"].as_str().unwrap_or_default();
     assert!(message.contains("needs workspace") && message.contains("current"), "{missing}");
 
+    // A body that only starts like a function runs as written.
+    let body = "const n = (await cmux.workspace_list({})).items.length;\nif (n >= 0) { return {ran: true}; }";
+    let ran = call(&mut server, "cmux_exec", json!({"script": body}));
+    assert_eq!(ran["structuredContent"]["result"]["ran"], true, "{ran}");
+
     let timer = call(
         &mut server,
         "cmux_exec",
@@ -1724,4 +1729,36 @@ fn code_mode_takes_the_shapes_models_write() {
     );
     let message = timer["structuredContent"]["result"].as_str().unwrap_or_default();
     assert!(message.contains("terminal_wait"), "{timer}");
+}
+
+/// A terminal tool named by a tab gets that tab's terminal, in the tab's session; a tool
+/// that only filters by tab (`terminal_list`) keeps the tab (review of `terminal_of_tab`).
+#[test]
+fn a_tab_names_its_terminal_only_where_a_terminal_is_needed() {
+    let shown = json!({"id": "tab_1", "content_id": "term_00000000000000000000000000000abc"});
+    let fake = Fake { resource_result: Some(shown), ..Fake::default() };
+    let mut server = Server::new(fake, None);
+
+    server
+        .call(&json!({"name": "terminal_screen_read", "arguments": {"tab": "build:tab_1"}}))
+        .expect("a tool result");
+    server
+        .call(&json!({"name": "terminal_list", "arguments": {"tab": "tab_1"}}))
+        .expect("a tool result");
+
+    let sent = server.backend.sent.borrow();
+    let requests: Vec<&Value> = sent.iter().filter(|s| s["kind"] == "resource").collect();
+    let read = requests.iter().find(|s| s["request"]["operation"] == "terminal.screen.read");
+    let read = read.unwrap_or_else(|| panic!("{requests:?}"));
+    assert_eq!(read["session"], "build", "the read goes to the tab's session: {read}");
+    assert_eq!(
+        read["request"]["params"]["terminal"], "term_00000000000000000000000000000abc",
+        "{read}"
+    );
+    let list = requests.iter().find(|s| s["request"]["operation"] == "terminal.list");
+    let list = list.unwrap_or_else(|| panic!("{requests:?}"));
+    assert_eq!(
+        list["request"]["params"]["tab"], "tab_1",
+        "terminal_list keeps its tab filter: {list}"
+    );
 }
