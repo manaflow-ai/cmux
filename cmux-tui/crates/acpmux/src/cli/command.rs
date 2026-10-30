@@ -115,6 +115,9 @@ pub enum Command {
         /// Label the session when it is created (repeatable `key=value`).
         #[arg(long = "tag", value_name = "K=V")]
         tags: Vec<String>,
+        /// Create it on exactly the harness SESSION ran (profile, preset, model, effort).
+        #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
+        harness_from: Option<String>,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -179,8 +182,14 @@ pub enum Command {
     /// List pending permission requests across sessions, and how to answer them.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
-    #[command(alias = "prompt", alias = "send-keys")]
+    #[command(
+        alias = "prompt",
+        alias = "send-keys",
+        after_help = "Examples:\n  acpmux send review \"ship it\"         the one live `review`, here or on a peer\n  acpmux send hb/review \"ship it\"      `review` on peer hb\n  acpmux send 0199aaaa \"ship it\"       by id prefix\nA name several live sessions share is refused with the exact command for each."
+    )]
     Send {
+        /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
+        /// the one live session that has it on this host or its peers; several are refused.
         #[arg(required_unless_present = "status")]
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
@@ -260,31 +269,10 @@ pub enum Command {
         #[arg(long, default_value = "leo")]
         audience: String,
     },
-    /// List sessions on every host.
-    #[command(alias = "list", alias = "list-sessions")]
-    Ls {
-        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
-        #[arg(long)]
-        with_tools: bool,
-        /// Only sessions in this state: running, ready, idle, closed, waiting.
-        #[arg(long)]
-        status: Option<String>,
-        /// Only sessions with a pending permission request.
-        #[arg(long)]
-        pending: bool,
-        /// Only sessions carrying this tag (key or key=value).
-        #[arg(long)]
-        tag: Option<String>,
-        /// Return at most N sessions, newest first.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
-        limit: Option<u64>,
-        /// Select comma-separated fields from each session record.
-        #[arg(long, value_name = "FIELD[,FIELD…]")]
-        fields: Option<String>,
-        /// Only sessions updated within this duration (for example `24h` or `30m`).
-        #[arg(long, value_name = "DURATION")]
-        since: Option<String>,
-    },
+    /// List sessions on every host: by default only live, named lanes, one short line each;
+    /// `--json` with no filter is every session's full record.
+    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
+    Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
     Attach {
@@ -1199,6 +1187,12 @@ pub struct NewArgs {
     /// Thinking effort: default, low, medium, high, xhigh, max (Codex adds ultra).
     #[arg(long, short)]
     pub effort: Option<String>,
+    /// Start on exactly the harness SESSION ran (profile, preset, model, effort), for a session
+    /// that takes over SESSION's work. A successor named by a `succeeds=` or `area=` tag, its
+    /// name (`NAME-2`) or --report-to is warned about when its harness differs, and refused
+    /// when it would start on the bare default where SESSION ran a named profile.
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
+    pub harness_from: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
     /// Label the new session (repeatable `key=value`).
@@ -1392,6 +1386,11 @@ mod help_contract_tests {
         ),
         ("acpmux README", include_str!("../../README.md")),
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+        ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
+        ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
+        ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
+        ("docs/cli-daemon.md", include_str!("../../docs/cli-daemon.md")),
+        ("docs/cli-work.md", include_str!("../../docs/cli-work.md")),
     ];
 
     fn shell_words(text: &str) -> Vec<String> {

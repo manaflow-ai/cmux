@@ -91,6 +91,13 @@
           "mcpTool": "app_agent_check_harness"
         },
         {
+          "command": "cmux agent continue-after-error",
+          "title": "Continue After Error",
+          "id": "agentPane.continueAfterError",
+          "mcp": true,
+          "mcpTool": "app_agent_continue_after_error"
+        },
+        {
           "command": "cmux agent edit-instructions",
           "title": "Edit Project Instructions…",
           "id": "agentPane.editInstructions",
@@ -4570,18 +4577,6 @@
           "id": "tasks.show",
           "mcp": true,
           "mcpTool": "app_task_open"
-        }
-      ]
-    },
-    {
-      "noun": "team",
-      "verbs": [
-        {
-          "command": "cmux team invite",
-          "title": "Invite to Team…",
-          "id": "team.invite",
-          "mcp": true,
-          "mcpTool": "app_team_invite"
         }
       ]
     },
