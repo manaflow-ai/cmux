@@ -456,3 +456,49 @@ async fn two_steers_read_in_the_turn_then_one_end_turn_end_it_and_the_queue_drai
 async fn a_sub_sessions_next_step_result_read_in_the_turn_does_not_hold_it_open() {
     two_joined_steers_then_one_end_turn(true).await;
 }
+
+/// Each carried turn is a turn of its own with its own turn cap (`hub/turn_cap.rs`): the cap's
+/// timer is armed for a carried turn that follows a carried turn too, so an agent's message queued
+/// behind it gets the notice at the cap.
+#[tokio::test]
+async fn a_carried_turn_after_a_carried_turn_has_its_own_cap() {
+    let (hub, mut c, id) = claude_hub().await;
+    let cap = 3_000;
+    c.request(method::MUX_SET_TURN_CAP, json!({"sessionId": id, "turnCapMs": cap})).await.unwrap();
+    let gates = Gates::new();
+    let turn = c.send(method::SESSION_PROMPT, prompt(&id, "p-turn", &gates.text(), false)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "gated turn 1").await;
+    let (_a, _one) = steer_in(&hub, &id, "p-1", "ONE").await;
+    gates.open(1, "end");
+    c.response(turn).await.0.unwrap();
+    started(&hub, &id, 2).await;
+    // The second carry: its turn follows the carried turn before it (`run_carried`).
+    let (_b, _two) = steer_in(&hub, &id, "p-2", "TWO").await;
+    gates.open(2, "end");
+    let turns = started(&hub, &id, 3).await;
+    let third = turns[2]["turnId"].clone();
+    // An agent's message, queued under the cap: the timer sends the notice at the cap.
+    let mut q = connect(&hub).await;
+    let mut queued = prompt(&id, "p-lane", "report from lane a", false);
+    queued["_meta"]["acpmux"]["fromAgent"] = json!("lane-a");
+    let _held = q.send(method::SESSION_PROMPT, queued).await;
+    let accepted = q.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-lane").await;
+    assert_eq!(accepted["queued"], true, "{accepted}");
+    let notices = || {
+        let events = hub.events(&id, 0, 10_000).unwrap();
+        events
+            .iter()
+            .filter(|e| e.kind == "user_message")
+            .filter(|e| e.msg["_meta"]["provenance"]["kind"] == "turn_cap")
+            .map(|e| e.msg["_meta"]["provenance"]["turnId"].clone())
+            .collect::<Vec<_>>()
+    };
+    for _ in 0..400 {
+        if !notices().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(notices(), [third], "the third turn's cap sent its notice");
+    gates.open(3, "read");
+}
