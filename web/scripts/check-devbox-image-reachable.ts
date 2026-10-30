@@ -18,10 +18,13 @@
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/check-devbox-image-reachable.ts [--image <id>]
  *                          [--kind base|desktop] [--size sm] [--keep]
+ *                          [--expect-stamp "<exact /etc/cmux/image-stamp line>"]
  *   bun scripts/check-devbox-image-reachable.ts --print-key   # no VM, no key
  *
  * `--print-key` prints the identity of what would be tested (image ids plus
  * the live cmux-tui pin) so CI can skip a run that would test nothing new.
+ * `--expect-stamp` also requires the booted guest's /etc/cmux/image-stamp to be
+ * exactly that line (the rebake workflow's known-good marker for a new bake).
  */
 import { Freestyle, type FirewallSpec } from "freestyle";
 import { createHash } from "node:crypto";
@@ -97,6 +100,15 @@ async function main(): Promise<void> {
     const up = await sh(devboxWaitForDaemonCommand(120), 150_000);
     if (up.code !== 0) throw new Error(`the baked daemon never became ready: ${up.out.slice(-300)}`);
     console.log(`${elapsed()} baked daemon is ready on this machine`);
+
+    const expectedStamp = argValue("--expect-stamp");
+    if (expectedStamp !== undefined) {
+      const stamp = await sh("cat /etc/cmux/image-stamp", 30_000);
+      if (stamp.code !== 0 || stamp.out !== expectedStamp) {
+        throw new Error(`image-stamp is ${JSON.stringify(stamp.out)}, expected ${JSON.stringify(expectedStamp)}`);
+      }
+      console.log(`${elapsed()} image-stamp ok: ${stamp.out}`);
+    }
 
     const baked = await sh("cut -d' ' -f1 /etc/cmux/cmux-tui-pin", 30_000);
     const bakedSha = baked.out.trim();

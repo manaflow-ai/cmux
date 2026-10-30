@@ -7,6 +7,7 @@ import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
+import { graphemePrefix } from "../../../ui/initials";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -19,7 +20,7 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
     return <img className="host-avatar-image" alt="" src={`icon/${encodeURIComponent(icon)}`} />;
   }
   if (icon && !/^[a-z0-9.]+$/.test(icon)) return <>{icon}</>;
-  return <>{name.slice(0, 1).toUpperCase() || "?"}</>;
+  return <>{graphemePrefix(name, 1).toUpperCase() || "?"}</>;
 }
 
 function ListRows({
@@ -234,9 +235,10 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
 }
 
 /**
- * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on, its agents run without the
- * sandbox and chats started from this Mac don't ask first; the machine is the boundary. On by default
- * on a machine cmux made; the host sends it only for those. Turning it on takes the person's click.
+ * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on (the default), the machine
+ * takes the VM boundary when this app's own link asks for it, so chats from this Mac run without the
+ * sandbox there; off, they keep it. The host sends it only while the Cloud API says the signed-in
+ * caller owns the machine. Turning it on takes the person's click.
  */
 function MachineVmHost({ row }: { row: HostListRow }) {
   const store = useStore();

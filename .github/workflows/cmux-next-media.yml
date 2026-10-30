@@ -260,7 +260,11 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
-          fetch-depth: 0
+          # Not 0: fetch-depth 0 fetches every branch's whole history into this
+          # runner's reused checkout, 22k remote branches and 7.8 GiB of packs
+          # on every mini (2026-10-27), against 0.6 GiB for its siblings. The
+          # merge-base step below asks GitHub for the base and fetches only it.
+          fetch-depth: 2
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -273,9 +277,18 @@ jobs:
       # map use the merge base, so neither carries base changes the pull
       # request never touched. A dispatch run has BASE_SHA == HEAD_SHA.
       - name: Find the merge base
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          # GitHub computes it on the full history. A shallow checkout cannot:
+          # where a boundary hides the real base, git merge-base can return an
+          # older common ancestor without failing.
+          merge_base="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE_SHA...$HEAD_SHA" --jq .merge_base_commit.sha)"
+          [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no merge base from GitHub: $merge_base" >&2; exit 1; }
+          # The base app builds from it, and pin-cmux-tui.sh
+          # resolve-newest-published searches its newest 50 commits.
+          git fetch --no-tags --quiet --depth=60 origin "$merge_base"
           echo "MERGE_BASE=$merge_base" >> "$GITHUB_ENV"
           echo "merge base of $BASE_SHA and $HEAD_SHA: $merge_base"
 

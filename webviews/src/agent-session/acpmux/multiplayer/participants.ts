@@ -84,10 +84,4 @@ export function chatPresence(value: unknown, me = "owner"): ChatPresence {
 }
 
 /// Up to two initials of a name, by grapheme, so an accent or an emoji stays whole.
-export function initials(name: string, count = 2): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const first = (word: string) => Array.from(new Intl.Segmenter().segment(word), (part) => part.segment);
-  const letters = words.length > 1 ? [first(words[0]!)[0], first(words[1]!)[0]] : first(words[0] ?? "?").slice(0, 2);
-  // Whole graphemes only: a UTF-16 slice of the joined string would split a surrogate pair.
-  return letters.slice(0, count).join("").toUpperCase();
-}
+export { initials } from "../../../ui/initials";

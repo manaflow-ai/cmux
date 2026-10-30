@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Inspector's toggle closes it (inspector/ChatInspector.tsx, inspector.css). Over the chat (the
 // overlay placement, the default) the panel used to run the pane's full height, over the chat
 // header too: the toggle at the header's end sat under the panel, so a click on it hit a
@@ -149,6 +150,45 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         }
       });
 
+  for (const name of browsers.keys())
+    for (const { name: row, tabRow } of rows)
+      test(`${name}, ${row}: Push always keeps every header tool in the native reserved strip`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: 900, height: 640 });
+        try {
+          const { panel, toggle } = await openInspector(page, tabRow);
+          await toggle.click();
+          await panel.waitFor({ state: "detached" });
+          await inspectorPushAlways(page);
+          const positions = () =>
+            page.locator(".acpmux-header-tools button").evaluateAll((buttons) =>
+              buttons.map((button) => {
+                const box = button.getBoundingClientRect();
+                return { label: button.getAttribute("aria-label"), x: box.x, y: box.y, width: box.width };
+              }),
+            );
+          const closed = await positions();
+          await toggle.click();
+          await page.locator('aside.acpmux-chat-inspector[data-placement="push"][data-presence="shown"]').waitFor();
+          expect(await positions()).toEqual(closed);
+          // Native tabs cover everything left of this reserved strip. A real click at the old
+          // position must still reach the toggle after opening, including after a pane resize.
+          await page.setViewportSize({ width: 1050, height: 640 });
+          await page.waitForFunction(
+            (x) =>
+              Math.abs(document.querySelector(".acpmux-chat-inspector-toggle")!.getBoundingClientRect().x - x) < 0.5,
+            closed[0]!.x + 150,
+          );
+          const opened = await positions();
+          await page.mouse.click(opened[0]!.x + 12, opened[0]!.y + 12);
+          await panel.waitFor({ state: "detached" });
+          expect(await positions()).toEqual(opened);
+          expect(await toggle.getAttribute("aria-pressed")).toBe("false");
+        } finally {
+          await page.close();
+        }
+      });
+
   // Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD SPACE". Over the chat the
   // Inspector ran from under the header to the pane's foot (#22643), and as glass (#23477) its
   // empty foot was a slab of glass taller than its sections. It is a card as tall as its sections:
@@ -166,21 +206,28 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           const box = panel.getBoundingClientRect();
           return {
             empty: Math.round(box.bottom - last.bottom),
+            top: box.top,
+            height: box.height,
             bottom: box.bottom,
             pane: window.innerHeight,
             scrolls: body.scrollHeight > body.clientHeight + 1,
           };
         });
       const tall = await pane!.open({ width: 1600, height: 1400 });
+      // The card's own height and top in the tall pane: its sections at rest, unclipped.
+      let natural = { top: 0, height: 0 };
       try {
         await openInspector(tall, 0);
-        const { empty, bottom, pane: height } = await measure(tall);
+        const { empty, bottom, pane: height, top, height: card } = await measure(tall);
+        natural = { top, height: card };
         expect({ deadSpace: empty <= 16, short: bottom < height - 200 }).toEqual({ deadSpace: true, short: true });
       } finally {
         await tall.close();
       }
-      // The harness's sections are about 160px tall: a 160px pane leaves them about 110.
-      const short = await pane!.open({ width: 1600, height: 160 });
+      // A pane 40px too short for the card (with its 8px inset at the foot), so its sections must
+      // scroll. Derived from the harness's sections, not a fixed height: Environment became one
+      // project row (#26199) and the sections shrank from about 160px to about 100.
+      const short = await pane!.open({ width: 1600, height: Math.floor(natural.top + natural.height + 8 - 40) });
       try {
         await openInspector(short, 0);
         const { bottom, pane: height, scrolls } = await measure(short);

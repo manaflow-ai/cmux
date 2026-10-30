@@ -147,15 +147,15 @@ struct ChatDockLinkSplitMotionTests {
             let kind = DividerHandleView.Kind.columnEdge(ChatDockLinkSplitMotionTests.dockColumn)
             let start = CGPoint(x: edge.maxX + root.context.style.stripGap / 2, y: edge.midY)
             func window(_ x: CGFloat) -> NSPoint { view.convert(CGPoint(x: x, y: start.y), to: nil) }
-            view.handleDrag(kind: kind, event: .began(window(start.x)))
+            view.handleDrag(kind: kind, event: .began(window(start.x), []))
             for move in 1...moves {
-                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves))))
+                view.handleDrag(kind: kind, event: .moved(window(start.x + dx * CGFloat(move) / CGFloat(moves)), []))
                 root.syncWithModel()
                 step()
                 root.layoutSubtreeIfNeeded()
                 check("drag \(move)")
             }
-            view.handleDrag(kind: kind, event: .ended(window(start.x + dx)))
+            view.handleDrag(kind: kind, event: .ended(window(start.x + dx), []))
             root.syncWithModel()
             root.layoutSubtreeIfNeeded()
             check("release 0")

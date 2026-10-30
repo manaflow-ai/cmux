@@ -1,9 +1,11 @@
+import * as Effect from "effect/Effect";
 import { defaultProviderId, getProvider } from "../vms/drivers";
 import { resolveVmImage } from "../vms/images/resolver";
 import { vmModelPlaneGatewayFor, vmModelPlaneRevoker } from "../vms/modelPlaneGateway";
 import { isVmNotFoundError } from "../vms/errors";
 import { isProviderDeletionConfirmed } from "../vms/providerErrors";
 import { createVm, destroyVm, runVmWorkflow } from "../vms/workflows";
+import { runAfterResponse } from "../vms/routeHelpers";
 import type { VmEntitlements } from "../vms/entitlements";
 import type { AuthedUser } from "../vms/auth";
 import { CloudVmRunAdapter, type CloudVmAgent } from "../vms/cloudVmRunAdapter";
@@ -82,6 +84,8 @@ export async function launchCloudVmAttempt(input: {
       idempotencyKey: `run:${input.runId}:attempt:${input.attemptId}`,
       modelPlane: vmModelPlaneGatewayFor({ teamId: input.entitlements.billingTeamId, stackUserId: input.user.id }),
       origin: "create",
+      // The guest vm-kind write runs after the request's answer, kept alive by the platform.
+      deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
     }));
     const createdVmId = vm.providerVmId;
     vmId = createdVmId;
@@ -421,6 +425,7 @@ export async function launchSandboxRun(input: {
         providerMetadata: { [SANDBOX_VM_MARKER_KEY]: sandboxVmIdempotencyKey(input.runId, input.attemptId) },
         modelPlane: vmModelPlaneGatewayFor({ teamId, stackUserId: input.user.id }),
         origin: "create",
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }));
       if (runtimeId) await updateRuntime({ ownerTeamId: teamId, runtimeId, lifecycleState: "running" }).catch(() => undefined);
       return { providerVmId: vm.providerVmId };

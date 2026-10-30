@@ -62,7 +62,11 @@ extension UpdateController {
     /// app is still running ``installWatchdogTimeout`` after the click, or nothing can install,
     /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {
-        if driver.installStaged() {
+        if driver.quitInstallCommitted, driver.quitInstall != nil {
+            log.append("background install: click while the app quits for the install; it reopens updated")
+            return
+        }
+        if driver.installStaged() || driver.installQuitInstallNow() {
             armStagedInstallWatchdog()
             return
         }
@@ -83,6 +87,18 @@ extension UpdateController {
             return
         }
         setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
+    }
+
+    /// Whether the app still means to quit for an automatic install: false once a click, a cancel
+    /// or the session's end took it over (``dropQuitInstall()``).
+    public var waitsToQuitForInstall: Bool {
+        driver.quitInstall != nil
+    }
+
+    /// The host's wait for the moment ended and its helper quits the app now: a click no longer
+    /// installs through Sparkle (``UpdateActionDelegate/updaterQuitsForAutomaticInstall(build:)``).
+    public func commitQuitInstall() {
+        driver.commitQuitInstall()
     }
 
     /// The automatic install the app meant to quit for was taken over (a click, a cancel, the
