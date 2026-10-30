@@ -279,8 +279,8 @@ jobs:
         timeout-minutes: 10
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/golden.sh "$RUNNER_TEMP/frame-pacing"
 
-      # Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D through the real key path: key to visible frame and to
-      # the daemon's confirm, idle and with every core busy (instant-new-surfaces). The guard: each
+      # Cmd-N, Cmd-T, Cmd-D, Cmd-Shift-D through the real key path: key to visible frame, to the
+      # daemon's confirm and to content (a split's prompt), idle and with every core busy (instant-new-surfaces). The guard: each
       # command shows in the first display frame after its key (p95) and its key handler stays
       # under 20 ms of main thread. Warning only, like the rest of this lane.
       - name: Instant create bench

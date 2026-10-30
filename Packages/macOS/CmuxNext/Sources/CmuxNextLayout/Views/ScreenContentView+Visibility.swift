@@ -99,6 +99,12 @@ extension ScreenContentView {
         paneFrames[pane].map { displayedRect($0.rect.pixelEdges(scale), pane: pane) }
     }
 
+    /// Where `pane` comes to rest in the current layout (its spring's end, pixel-aligned), while
+    /// its host may still be growing in from a split's edge.
+    func restingFrame(of pane: PaneID) -> CGRect? {
+        baseGeometry.panes[pane]?.pixelEdges(scale)
+    }
+
     // MARK: Motion trace
 
     /// The points every pane and divider still has to travel (all four
