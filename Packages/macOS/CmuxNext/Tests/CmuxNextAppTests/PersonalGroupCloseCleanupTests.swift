@@ -1,5 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import Foundation
+import Observation
 import Testing
 
 @Suite struct PersonalGroupCloseCleanupTests {
@@ -29,5 +31,59 @@ import Testing
         #expect(!PersonalGroupLifecycle.shouldDeleteAfterClose(
             .init(id: Self.group, pinned: false), rows: rows,
             isLive: { $0.key == "live" }))
+    }
+}
+
+/// The bounded wait of a close's group cleanup (`PersonalGroupLife.deleteWhenEmpty`): it always
+/// returns, by the close landing or by its deadline, and deletes only a group that emptied.
+@MainActor @Suite struct PersonalGroupCloseSettleTests {
+    /// The home store as the cleanup reads it: whether the group's last member is still live,
+    /// whether the group still exists, and the deletes the cleanup sent.
+    @MainActor @Observable final class Home {
+        var memberLive = true
+        var groupExists = true
+        var deletes = 0
+    }
+
+    private static func settle(_ home: Home, limit: Duration) async -> PersonalGroupLife.CloseCleanup {
+        await PersonalGroupLife.settle(
+            limit: limit,
+            settled: { !home.groupExists || !home.memberLive },
+            deletable: { home.groupExists && !home.memberLive },
+            delete: { home.deletes += 1 })
+    }
+
+    /// A close the daemon refuses leaves its member live: the wait ends at its deadline, not
+    /// never, and the group stays.
+    @Test func aRefusedCloseReturnsWithoutDeleting() async {
+        let home = Home()
+        let start = ContinuousClock.now
+        let outcome = await Self.settle(home, limit: .milliseconds(200))
+        #expect(outcome == .kept)
+        #expect(home.deletes == 0, "a refused close deleted its group")
+        #expect(ContinuousClock.now - start < .seconds(5), "the wait outlived its deadline")
+    }
+
+    /// The close event reaches the store after the wait began: the wait ends on it (not on the
+    /// deadline) and the emptied group is deleted once.
+    @Test func aCloseThatLandsDeletesTheEmptiedGroup() async {
+        let home = Home()
+        let start = ContinuousClock.now
+        // task-owner: this test; one store change
+        Task { @MainActor in home.memberLive = false }
+        let outcome = await Self.settle(home, limit: .seconds(30))
+        #expect(outcome == .deleted)
+        #expect(home.deletes == 1)
+        #expect(ContinuousClock.now - start < .seconds(10), "the wait ran to its deadline instead of ending on the close")
+    }
+
+    /// Close Workspaces in Group already deleted the unpinned group (`PersonalGroupPin`): the
+    /// cleanup ends at once and sends no second delete.
+    @Test func aGroupAlreadyGoneIsNotDeletedAgain() async {
+        let home = Home()
+        home.groupExists = false
+        let outcome = await Self.settle(home, limit: .seconds(30))
+        #expect(outcome == .kept)
+        #expect(home.deletes == 0)
     }
 }

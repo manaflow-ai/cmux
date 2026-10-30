@@ -38,11 +38,12 @@ enum WorkspaceGroupClose {
         sidebar.handle(.closeGroup(sidebar.model.groupID(personal: group.id.rawValue)))
         // Group close fans out to each workspace daemon. Once their close
         // events reach the home store, remove an unpinned group that has no
-        // live rows; a short observation deadline keeps this bounded while
-        // allowing the close events to settle.
+        // live rows. The wait ends by `PersonalGroupLife.closeSettleLimit`: a
+        // refused close leaves its members live, so the group stays.
         if services.machines.local.store.personal.isLoaded {
             let life = PersonalGroupLife(machines: services.machines), id = group.id
-            life.deleteWhenEmpty(id, failed: { sidebar.resync() })
+            // task-owner: one cleanup, bounded by `PersonalGroupLife.closeSettleLimit`
+            Task { @MainActor in await life.deleteWhenEmpty(id, failed: { sidebar.resync() }) }
         }
         guard invocation.origin == .user, !names.isEmpty,
               let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }

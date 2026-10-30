@@ -4,7 +4,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
-import CmuxNextWakeups
 
 /// The workspace closes that take several at once: Close Other Workspaces,
 /// Close Workspaces Above and Below, Close Others in Group, Close All Workspaces (one window) and
@@ -125,15 +124,11 @@ enum WorkspaceBulkClose {
         } else {
             WorkspaceClose.close(members)
         }
-        if !groupsToPrune.isEmpty {
-            let life = PersonalGroupLife(machines: services.machines)
-            Task { @MainActor in
-                let empty: @MainActor @Sendable () -> Bool = {
-                    groupsToPrune.allSatisfy { life.isEmptyUnpinned($0) }
-                }
-                if !empty() { await ObservationDeadline(owner: "workspace-bulk-close-prune").until(empty, limit: .seconds(5)) }
-                for group in groupsToPrune { life.deleteIfEmpty(group, failed: {}) }
-            }
+        // The unpinned groups these closes empty go once the closes land (cx-rcby); a refused close keeps its group.
+        let life = PersonalGroupLife(machines: services.machines)
+        for group in groupsToPrune {
+            // task-owner: one cleanup per group, bounded by `PersonalGroupLife.closeSettleLimit`
+            Task { @MainActor in await life.deleteWhenEmpty(group, failed: {}) }
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
