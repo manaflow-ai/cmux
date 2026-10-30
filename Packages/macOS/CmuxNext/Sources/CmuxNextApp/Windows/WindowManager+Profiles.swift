@@ -73,7 +73,7 @@ extension WindowManager {
         }
         guard let state = states[windowID], state.profileID == profile else { return }
         if let failure {
-            switchProfile(previous, in: state)
+            fallBack(preferring: previous, in: state)
             return services.registry.refuse(failure)
         }
         let adoptable = adoptableWorkspaces(in: profile, for: windowID)
@@ -83,6 +83,21 @@ extension WindowManager {
         }
         transition { $0.move(adoptable, to: windowID) }
         select(adoptable.first, in: state)
+    }
+
+    /// Leaves a Cloud space whose machine could not load, never through another wait: to `previous` when the window
+    /// shows something there now, else to `default` when it does, else to `default` with a new workspace on this
+    /// Mac. A wait into `previous` (another Cloud space that has not loaded) could fail back here and loop.
+    func fallBack(preferring previous: ProfileID, in state: WindowState) {
+        let members = registry.members(of: state.id), machines = services.machines
+        for target in [previous, .defaultProfile] where target != state.profileID
+            && !WindowProfiles.visible(members, profile: target, machines: machines).isEmpty {
+            return switchProfile(target, in: state)
+        }
+        state.enterProfile(.defaultProfile)
+        recordSaver.stateDidChange(state)
+        let windowID = state.id
+        Task { [services] in _ = await createWorkspace(on: services.daemon, into: windowID) }
     }
 
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at

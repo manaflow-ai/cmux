@@ -96,6 +96,17 @@ struct CloudSpaceTests {
         #expect(state.profileID == .defaultProfile, "the window entered a space it can show nothing in")
     }
 
+    /// A Cloud space whose machine failed to load falls back without another wait: its previous space here is
+    /// another Cloud space with nothing shown, so the window goes to `default`, never back and forth between them.
+    @Test func aFailedCloudSpaceFallsBackToDefaultNotIntoAnotherWait() {
+        let services = Self.services()
+        _ = Self.cloudMachine(services, id: "vm-space")
+        let state = services.windows.state(for: "w-cloud-fallback")
+        state.enterProfile(Self.goneSpace)
+        services.windows.fallBack(preferring: Self.cloudSpace, in: state)
+        #expect(state.profileID == .defaultProfile, "the window went into another Cloud space's wait: \(state.profileID)")
+    }
+
     @Test func aBrowserProfileCreateStaysOnTheMac() {
         let services = Self.services()
         _ = Self.cloudMachine(services, id: "vm-space")
