@@ -17,6 +17,8 @@ use std::sync::Mutex;
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
+mod deferred;
+pub use deferred::{Deferral, Keep};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 
