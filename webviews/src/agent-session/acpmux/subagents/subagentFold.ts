@@ -222,13 +222,7 @@ export class SubagentFold {
       this.changed.add(group);
     }
     if (phantomGroup) this.changed.add(phantomGroup);
-    for (const [parent, entries] of this.own) {
-      const kept = entries.filter((entry) => entry.spawned !== id);
-      if (kept.length !== entries.length) {
-        this.own.set(parent, kept);
-        this.bump(parent);
-      }
-    }
+    for (const parent of this.own.keys()) this.removeSpawn(parent, id);
   }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
@@ -627,6 +621,9 @@ export class SubagentFold {
     const kept = entries.filter((entry) => entry.spawned !== child);
     if (kept.length === entries.length) return;
     this.own.set(parent, kept);
+    // ChildRowView consumes an append-only log; removing an entry resets its cursor and groups.
+    this.drawn.delete(parent);
+    this.bumpViewRevision(parent);
     this.bump(parent);
   }
 
