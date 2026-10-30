@@ -433,26 +433,40 @@ fn tail_only_grant_store(dir: &std::path::Path) {
     store.flush().unwrap();
 }
 
+/// A daemon start over [`tail_only_grant_store`] in `dir`, its logs not read yet; HOSTED is in
+/// the start's index of agent hosts still running (`load_from_store` reads it from the host
+/// records) when `indexed`.
+fn loaded_tail_only_grant(dir: &std::path::Path, indexed: bool) -> (Arc<Hub>, Arc<super::Session>) {
+    tail_only_grant_store(dir);
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir).unwrap();
+    let hub = Hub::new_loading(cfg, store, super::Mailbox::memory(), crate::supervised::embedded());
+    if indexed {
+        hub.load_plan.lock().unwrap().hosted.insert(HOSTED.into());
+    }
+    hub.load_from_store(true);
+    let s = hub.resolve(HOSTED).unwrap();
+    (hub, s)
+}
+
+/// The kinds of HOSTED's log records past the store's seed (`tail_only_grant_store`).
+fn logged_kinds(hub: &Arc<Hub>) -> Vec<String> {
+    hub.store.flush().unwrap();
+    hub.store.events(HOSTED, 2, usize::MAX).unwrap().into_iter().map(|e| e.kind).collect()
+}
+
 /// A grant only the log replay clears ends the chat's surviving agent host too, as one the load
 /// clears does (`settle_legacy_grants`): the host ran under it, maybe in a mode that never asks.
 /// The replay makes it `clearedHost` when the start's index lists the host; and adoption, which
 /// can reach a host before the background pass reads that chat's log, checks after the replay
 /// (`ends_before_adoption`): the host is ended, never adopted, and nothing answers approve-all.
+/// Adoption first, then the replay first, so each order is proven on its own.
 #[tokio::test]
 async fn a_grant_only_the_replay_clears_ends_its_surviving_host_before_adoption() {
-    for replay_first in [true, false] {
+    for replay_first in [false, true] {
         let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-        tail_only_grant_store(dir.path());
-        let mut cfg = crate::config::Config::default();
-        cfg.store.mode = crate::config::StoreMode::Local;
-        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
-        let hub =
-            Hub::new_loading(cfg, store, super::Mailbox::memory(), crate::supervised::embedded());
-        // The start's index of agent hosts still running (`load_from_store` reads it from the
-        // host records): HOSTED's host outlived the older daemon.
-        hub.load_plan.lock().unwrap().hosted.insert(HOSTED.into());
-        hub.load_from_store(true);
-        let s = hub.resolve(HOSTED).unwrap();
+        let (hub, s) = loaded_tail_only_grant(dir.path(), true);
         if replay_first {
             // As a daemon does: the hosted chats' logs, then adoption (`load_live_logs`).
             hub.load_live_logs();
@@ -467,4 +481,115 @@ async fn a_grant_only_the_replay_clears_ends_its_surviving_host_before_adoption(
         let source = s.meta().policy_source;
         assert!(matches!(source.as_deref(), Some(CLEARED | CLEARED_HOST)), "{source:?}");
     }
+}
+
+/// The other side of the host rule: a chat the start's index does not list, whose host records
+/// prove no host of it runs, has no host to end. Its replayed grant is `cleared` (ask), and
+/// neither adoption nor a start ends anything, marks it unadoptable or refuses it.
+#[tokio::test]
+async fn a_grant_only_the_replay_clears_with_no_host_is_cleared_and_ends_nothing() {
+    for replay_first in [false, true] {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+        let (hub, s) = loaded_tail_only_grant(dir.path(), false);
+        assert!(Hub::host_record_gone(HOSTED), "the host records must prove no host runs");
+        if replay_first {
+            // As the background pass does (`load_session_logs`).
+            hub.catch_up(&s);
+            assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED), "replayed first");
+        }
+        assert!(
+            !hub.ends_before_adoption(&s, false).await,
+            "replay first {replay_first}: a chat with no host had a host to end"
+        );
+        assert!(hub.refuse_cleared_host(&s).await.is_ok(), "replay first {replay_first}: refused");
+        assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED), "replay first {replay_first}");
+        assert_eq!(answers(&hub, HOSTED), PermissionPolicy::Ask, "replay first {replay_first}");
+        let kinds = logged_kinds(&hub);
+        assert!(
+            !kinds.iter().any(|k| k == "host_unadoptable" || k == "grant_cleared"),
+            "replay first {replay_first}: {kinds:?}"
+        );
+    }
+}
+
+/// A memory store whose `tail_after` (the catch-up's one read of the log tail) fails, as a disk
+/// that fails while the segments are listed or read.
+struct TailUnreadable(crate::store::MemoryStore);
+
+impl crate::store::Store for TailUnreadable {
+    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn tail_after(
+        &self,
+        _id: &str,
+        _after: u64,
+        _kinds: &[&str],
+        _visit: &mut dyn FnMut(EventRecord),
+    ) -> anyhow::Result<(u64, u64)> {
+        anyhow::bail!("the log segments could not be read")
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+}
+
+/// HOSTED as [`tail_only_grant_store`] leaves it, its host in the start's index, on a store whose
+/// log tail cannot be read, and not caught up (its log not read yet).
+fn tail_unreadable_hub() -> (Arc<Hub>, Arc<super::Session>) {
+    let store = TailUnreadable(crate::store::MemoryStore::default());
+    store.append(HOSTED, &record(1, "created", json!({"harness": "claude"}))).unwrap();
+    store.append(HOSTED, &record(2, "policy", json!({"policy": "approve-all"}))).unwrap();
+    let mut meta = legacy(HOSTED, true, None);
+    meta.last_seq = 1;
+    meta.event_count = 1;
+    store.save(&meta).unwrap();
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(store));
+    hub.load_plan.lock().unwrap().hosted.insert(HOSTED.into());
+    let s = hub.make_session(meta);
+    s.caught_up.store(false, std::sync::atomic::Ordering::SeqCst);
+    hub.sessions.lock().unwrap().insert(HOSTED.into(), s.clone());
+    (hub, s)
+}
+
+/// A tail replay that fails with an I/O error (not a panic) fails closed too: the tail may hold
+/// a grant its replay would clear, so the host that ran under it is never adopted, and the start
+/// that would reach it is refused. Once no host of it runs (proven here: there is none), the
+/// chat's next start runs a new agent in its policy's mode.
+#[tokio::test]
+async fn a_tail_replay_that_fails_never_adopts_or_reaches_the_host() {
+    let (hub, s) = tail_unreadable_hub();
+    assert!(
+        hub.ends_before_adoption(&s, false).await,
+        "adoption reached a host whose log tail could not be replayed"
+    );
+    assert_eq!(answers(&hub, HOSTED), PermissionPolicy::Ask);
+    let events = hub.store.events(HOSTED, 0, usize::MAX).unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.kind == "host_unadoptable" && e.msg["reason"] == "grant_replay_failed"),
+        "not marked unadoptable: {events:?}"
+    );
+    let (hub, s) = tail_unreadable_hub();
+    assert!(
+        hub.refuse_cleared_host(&s).await.is_err(),
+        "a start went on to reach a host whose log tail could not be replayed"
+    );
+    assert!(Hub::host_record_gone(HOSTED), "the host records must prove no host runs");
+    assert!(hub.refuse_cleared_host(&s).await.is_ok(), "the next start is refused for good");
 }
