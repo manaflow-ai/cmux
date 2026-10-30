@@ -623,6 +623,10 @@ path = "tests/test_cmux_next_tour.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_visual_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_media_tag_lock.py"
 lane = "linux-guard"
 
