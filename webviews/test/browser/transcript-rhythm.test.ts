@@ -65,7 +65,7 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               const copy = rect('[data-row-id="grid-message"] .cv-reply-actions .cv-iconbtn svg');
               const composerBox = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
               // Every tool row's trailing chevron: its 16 glyph centred on trail = col-right - 8.
-              const chevronCenters = [...document.querySelectorAll(".acpmux-row .cv-tool__chevron")].map((el) => {
+              const chevronCenters = [...document.querySelectorAll(".acpmux-row :is(.cv-tool__chevron, .cv-disclosure__toggle > .cv-rotor)")].map((el) => {
                 const r = el.getBoundingClientRect();
                 return composerBox.right - (r.left + r.right) / 2;
               });

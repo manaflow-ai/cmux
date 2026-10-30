@@ -73,6 +73,10 @@
 .cv-disclosure[data-state="failed"] .cv-disclosure__status {
   color: var(--agent-status-failure);
 }
+/* The line's trailing controls lay out as the line's own items (one flex gap each). */
+.cv-disclosure__trail {
+  display: contents;
+}
 .cv-disclosure__open {
   all: unset;
   flex: none;

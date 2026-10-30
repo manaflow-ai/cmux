@@ -2517,6 +2517,22 @@ pre.cv-math-source {
   white-space: nowrap;
   user-select: none;
 }
+/* Its trailing chevron ends on col-right as every tool row's does (grid.md 5.5 trail): the hover
+   controls (Reply, Open, time, copy) take no width in the line; they lie over the preview's tail,
+   one gap left of the chevron, and show only on hover or focus. */
+.cv-received > .cv-disclosure__line {
+  position: relative;
+}
+.cv-received > .cv-disclosure__line > .cv-disclosure__trail {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--grid-icon-box) + var(--grid-gap));
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  background: var(--agent-page-bg, var(--cv-bg, transparent));
+}
 .cv-received .cv-disclosure__toggle {
   height: var(--grid-row);
   box-sizing: border-box;

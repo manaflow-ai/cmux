@@ -97,12 +97,16 @@ export function DisclosureRow({
           {status && <span className="cv-disclosure__status">{status}</span>}
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />
         </button>
-        {onOpen && (
-          <button type="button" className="cv-disclosure__open" title={openTitle} onClick={onOpen}>
-            {openLabel}
-          </button>
+        {(onOpen || actions) && (
+          <span className="cv-disclosure__trail">
+            {onOpen && (
+              <button type="button" className="cv-disclosure__open" title={openTitle} onClick={onOpen}>
+                {openLabel}
+              </button>
+            )}
+            {actions}
+          </span>
         )}
-        {actions}
       </div>
       {collapse.present && (
         <div id={bodyId} {...collapse.bodyProps}>
