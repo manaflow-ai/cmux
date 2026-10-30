@@ -28,6 +28,10 @@ public final class OverlaySurfaceView: NSView {
     /// fill and rim over its glass or blur. Overlays without text (the drop
     /// target, dock backdrop) are not cards and stay see-through.
     public let isCard: Bool
+    /// In-window drag lifts reuse the window's backdrop instead of sampling it again.
+    public let usesWindowBackdrop: Bool
+    /// Reapply owner colors after an accessibility-driven material change.
+    public var materialDidChange: (() -> Void)?
     private var materialView: NSView?
     private var tintView: NSView?
     /// How the glass is tinted: the theme's tint, or the shared neutral glass
@@ -61,7 +65,9 @@ public final class OverlaySurfaceView: NSView {
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
                 card: Bool = false,
-                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme) {
+                reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme,
+                usesWindowBackdrop: Bool = false) {
+        self.usesWindowBackdrop = usesWindowBackdrop
         self.tone = tone
         materialOverride = material
         isInteractive = interactive
@@ -100,6 +106,7 @@ public final class OverlaySurfaceView: NSView {
         guard next != material else { return }
         material = next
         rebuild()
+        materialDidChange?()
     }
 
     /// This Mac's material; `Glass.isLiquidGlassAvailable` also carries the
@@ -116,53 +123,60 @@ public final class OverlaySurfaceView: NSView {
         contentView.removeFromSuperview()
         tintView = nil
         let view: NSView
-        switch material {
-        case .liquidGlass:
-            // A card's fill sits on the glass, under the content; the glass shows at its rim.
-            let glass: GlassPanelView
-            if isCard {
-                let fill = NSView()
-                fill.wantsLayer = true
-                contentView.translatesAutoresizingMaskIntoConstraints = false
-                fill.addSubview(contentView)
-                NSLayoutConstraint.activate([
-                    contentView.leadingAnchor.constraint(equalTo: fill.leadingAnchor),
-                    contentView.trailingAnchor.constraint(equalTo: fill.trailingAnchor),
-                    contentView.topAnchor.constraint(equalTo: fill.topAnchor),
-                    contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
-                ])
-                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius)
-                tintView = fill
-            } else {
-                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
-            }
-            glass.translatesAutoresizingMaskIntoConstraints = true
-            view = glass
-        case .vibrancy:
-            let effect = NSVisualEffectView()
-            effect.material = .popover
-            effect.blendingMode = blending
-            effect.state = .active
-            effect.wantsLayer = true
-            // The Ghostty-derived tint sits on the blur, under the content.
-            let tint = NSView(frame: effect.bounds)
-            tint.wantsLayer = true
-            tint.autoresizingMask = [.width, .height]
-            tint.addSubview(contentView)
-            effect.addSubview(tint)
-            tintView = tint
-            view = effect
-        case .opaque:
+        if usesWindowBackdrop {
             let plain = NSView()
             plain.wantsLayer = true
             plain.addSubview(contentView)
             view = plain
+        } else {
+            switch material {
+            case .liquidGlass:
+                // A card's fill sits on the glass, under the content; the glass shows at its rim.
+                let glass: GlassPanelView
+                if isCard {
+                    let fill = NSView()
+                    fill.wantsLayer = true
+                    contentView.translatesAutoresizingMaskIntoConstraints = false
+                    fill.addSubview(contentView)
+                    NSLayoutConstraint.activate([
+                        contentView.leadingAnchor.constraint(equalTo: fill.leadingAnchor),
+                        contentView.trailingAnchor.constraint(equalTo: fill.trailingAnchor),
+                        contentView.topAnchor.constraint(equalTo: fill.topAnchor),
+                        contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
+                    ])
+                    glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius)
+                    tintView = fill
+                } else {
+                    glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
+                }
+                glass.translatesAutoresizingMaskIntoConstraints = true
+                view = glass
+            case .vibrancy:
+                let effect = NSVisualEffectView()
+                effect.material = .popover
+                effect.blendingMode = blending
+                effect.state = .active
+                effect.wantsLayer = true
+                // The Ghostty-derived tint sits on the blur, under the content.
+                let tint = NSView(frame: effect.bounds)
+                tint.wantsLayer = true
+                tint.autoresizingMask = [.width, .height]
+                tint.addSubview(contentView)
+                effect.addSubview(tint)
+                tintView = tint
+                view = effect
+            case .opaque:
+                let plain = NSView()
+                plain.wantsLayer = true
+                plain.addSubview(contentView)
+                view = plain
+            }
         }
         view.frame = bounds
         view.autoresizingMask = [.width, .height]
         // The glass panel lays its contentView out with constraints; out
         // of the glass it must size by its frame again.
-        if material != .liquidGlass {
+        if usesWindowBackdrop || material != .liquidGlass {
             contentView.translatesAutoresizingMaskIntoConstraints = true
             contentView.autoresizingMask = [.width, .height]
             tintView?.frame = view.bounds
@@ -183,7 +197,7 @@ public final class OverlaySurfaceView: NSView {
 
     /// The neutral tone's rim, above the material and the content; none on the opaque material.
     private func installRim() {
-        guard let style = tone.style, material != .opaque else {
+        guard !usesWindowBackdrop, let style = tone.style, material != .opaque else {
             rimView?.removeFromSuperview()
             rimView = nil
             return
@@ -233,6 +247,12 @@ public final class OverlaySurfaceView: NSView {
         let look = tone.style?.look(isDark: themeTokens.isDark)
         rimView?.look = look ?? rimView?.look ?? FloatingGlassStyle.dialog.look(isDark: true)
         performWithTheme {
+            if usesWindowBackdrop {
+                let opaque = material == .opaque || WindowBackdrop.dragPreview(themeScope, reduceTransparency: reduceTransparency.isEnabled).isOpaque
+                materialView?.layer?.backgroundColor = opaque ? Palette.popupSurface.cgColor : nil
+                materialView?.layer?.borderColor = nil
+                return
+            }
             let card = isCard ? cardMaterial : nil
             switch material {
             case .liquidGlass:

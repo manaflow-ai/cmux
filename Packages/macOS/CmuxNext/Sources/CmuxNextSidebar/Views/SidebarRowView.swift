@@ -7,6 +7,20 @@ import QuartzCore
 /// their own buttons.
 class SidebarRowView: NSView {
     var key: SidebarRowKey
+    /// The row is rendered inside the lifted drag card. Its state fill stays
+    /// no denser than at rest so the window backdrop can show through.
+    var isLifted = false {
+        didSet { if isLifted != oldValue { needsDisplay = true } }
+    }
+    /// Keep an alpha state fill as transparent as it was at rest. The tab drag's
+    /// thicker fill would turn a faint child-row highlight into an almost solid sheet.
+    func liftedFill(_ color: NSColor) -> NSColor {
+        guard isLifted else { return color }
+        let backdrop = WindowBackdrop.dragPreview(themeScope, reduceTransparency: ReduceTransparency.shared.isEnabled)
+        guard backdrop.dragsOnGlass else { return color }
+        return color.withAlphaComponent(min(color.alphaComponent, backdrop.dragLiftAlpha))
+    }
+
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
     /// The row is the sidebar's selected item and paints the selection fill.
     /// A selection change paints at once, never fades or travels
@@ -77,6 +91,7 @@ class SidebarRowView: NSView {
         if !(key == self.key && Self.keepsContentOnReturn) { configuredContent = nil }
         self.key = key
         isHovered = false
+        isLifted = false
         isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false

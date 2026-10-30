@@ -79,6 +79,7 @@ import AppKit
         content.targetSize = list.frame(for: row).size
         list.configure(content, row: row, animated: false)
         content.isHovered = false
+        content.isLifted = true
         // A selected row keeps its selection fill on the card, so it reads the same lifted as in the list
         // before and after the drag (Leo 2026-10-18). The card shows no row to VoiceOver (DragLiftView).
         // The lifted header shows no hover-only buttons and no focus ring.

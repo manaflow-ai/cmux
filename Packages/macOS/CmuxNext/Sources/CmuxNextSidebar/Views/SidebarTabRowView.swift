@@ -127,7 +127,11 @@ final class SidebarTabRowView: SidebarRowView {
             title.setColor(keepsContrast ? Palette.textPrimary : Palette.textSecondary)
             detail.setColor(Palette.textTertiary)
             icon.contentTintColor = iconIsMark ? Palette.textSecondary : nil
-            paintFill(isHovered ? Palette.hoverFill : isFocusedTab ? Self.focusFill : nil)
+            let fill = isHovered ? Palette.hoverFill : isFocusedTab ? Self.focusFill : nil
+            let liftedFill = isLifted ? fill.map {
+                self.liftedFill($0)
+            } : fill
+            paintFill(liftedFill)
         }
     }
 

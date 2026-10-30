@@ -75,7 +75,9 @@ extension WorkspaceRowView {
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.
-    static func badgeBackdrop(_ fill: NSColor?) -> CGColor {
+    static func badgeBackdrop(_ fill: NSColor?, onGlass: Bool = false) -> CGColor {
+        // A lifted ring must not composite against an opaque approximation of the sidebar.
+        if onGlass { return (fill ?? .clear).cgColor }
         let base = Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.sidebarBackground
         guard let fill = fill?.usingColorSpace(.sRGB) else { return base.cgColor }
         let blended = base.blended(withFraction: fill.alphaComponent, of: fill.withAlphaComponent(1)) ?? base

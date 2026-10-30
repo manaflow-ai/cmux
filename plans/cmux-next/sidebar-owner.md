@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30 (ask-116775fd17): lifted workspace and group rows keep the
+  checker backdrop/glass visible while tracked. The lift reuses the window’s existing backdrop with no second material;
+  live child rows keep alpha fills no denser than at rest, including tab and listed-item rows. Badge cutout rings
+  use the same lifted state fill; group editor controls retain #27912’s held-menu highlight. Leo: "when you're
+  tracking a workspace, or you're tracking a group, the workspaces on the sidebar, they become solid.
+  I feel like they don't need to be solid when you pick them up, right?"
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown

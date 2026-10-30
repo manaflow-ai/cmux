@@ -2,17 +2,16 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The row or group being dragged: a live row view on the one overlay glass
-/// (`OverlaySurfaceView`: Liquid Glass on macOS 26+, the frosted material
-/// before, opaque under Reduce Transparency) with a shadow. It keeps its
+/// The row or group being dragged: live rows over the window’s existing glass,
+/// with a shadow. Opaque windows and Reduce Transparency keep a solid card. It keeps its
 /// size and place: no lift scale (Lawrence 2026-10-20, u5506).
 /// Multi-item drags show stacked cards behind it and a count badge.
 final class DragLiftView: NSView {
     private let card = NSView()
-    /// The card's background: the shared overlay material, never taking the pointer.
+    /// The card backing follows accessibility and the window backdrop, never taking the pointer.
     let background: OverlaySurfaceView
-    /// The card is glass (any overlay material but the opaque one).
-    var isGlass: Bool { background.material != .opaque }
+    /// The drag ghost must supply the glass omitted from a translucent row snapshot.
+    var isGlass: Bool { background.material != .opaque && WindowBackdrop.dragPreview(themeScope, reduceTransparency: ReduceTransparency.shared.isEnabled).dragsOnGlass }
     private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = ChromeLabel(labelWithString: "")
@@ -26,8 +25,10 @@ final class DragLiftView: NSView {
     /// `material` pins one overlay material (tests, galleries); nil follows this Mac.
     init(content: NSView, count: Int, material: OverlayMaterial? = nil) {
         self.content = content
-        background = OverlaySurfaceView(material: material, interactive: false, cornerRadius: SidebarStyle.rowCornerRadius)
+        background = OverlaySurfaceView(material: material, interactive: false, cornerRadius: SidebarStyle.rowCornerRadius,
+                                        usesWindowBackdrop: true)
         super.init(frame: .zero)
+        background.materialDidChange = { [weak self] in self?.updateColors() }
         card.wantsLayer = true
         card.layer?.cornerRadius = SidebarStyle.rowCornerRadius
         card.layer?.cornerCurve = .continuous
@@ -112,9 +113,10 @@ final class DragLiftView: NSView {
 
     private func updateColors() {
         performWithTheme {
+            background.applyTheme()
             layer?.shadowColor = Palette.shadow.cgColor
             for back in stack {
-                back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.85).cgColor
+                back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(isGlass ? Palette.hoverFill.alphaComponent : 0.85).cgColor
                 back.layer?.borderColor = Palette.separator.cgColor
             }
             badgeBackground.layer?.backgroundColor = Palette.textPrimary.cgColor

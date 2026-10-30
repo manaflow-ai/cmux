@@ -287,7 +287,8 @@ final class GroupHeaderRowView: SidebarRowView {
             addButton.tintOverride = ink
             // The bar carries the group's color: no dot over it (cx-rcby).
             dot.isHidden = true
-            ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+            let liftedFill = isLifted ? self.liftedFill(fill.nsColor) : fill.nsColor
+            ChromeHover.paint(pill, liftedFill, animated: fadesNextFill)
             pill.borderWidth = 0
             paintFill(nil)
             CATransaction.begin()
@@ -329,13 +330,15 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.commit()
         guard look.style == .wash else {
             pill.backgroundColor = nil
-            return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
+            let fill = isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil
+            return paintFill(isLifted ? fill.map { self.liftedFill($0) } : fill)
         }
         // The wash covers the row, so its states step over the wash, as the band's do.
         var fill = tint.headerWash(themed: look.themed)
         if isHovered { fill = tokens.hoverFill.composited(over: fill) }
         if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
-        ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
+        let liftedFill = isLifted ? self.liftedFill(fill.nsColor) : fill.nsColor
+        ChromeHover.paint(pill, liftedFill, animated: fadesNextFill)
         paintFill(nil)
     }
 
