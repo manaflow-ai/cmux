@@ -146,8 +146,9 @@ jobs:
       contents: read
     outputs:
       # pass or fail; `fail` only when the feed's DMG fails its length,
-      # Gatekeeper, ticket or build-number check. A runner or download error
-      # is none, so the next scheduled tick checks the build again.
+      # Gatekeeper, ticket or build-number check. A runner, download or tooling
+      # error (Apple unreachable, a failed attach) is none, so the next
+      # scheduled tick checks the build again.
       verdict: ${{ steps.run.outputs.verdict }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -170,45 +171,69 @@ jobs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/canary.dmg" "$DMG_URL"
           shasum -a 256 "$RUNNER_TEMP/canary.dmg"
 
+      # Only a definite rejection of the artifact is class=invalid (a durable
+      # `fail`). Missing Apple tooling, a failed attach, a stapler or spctl that
+      # could not reach Apple, or a failure with no definite rejection is
+      # cannot-run: no verdict, so the next scheduled tick checks it again. A
+      # missed fail is retried; a false durable fail would stick.
       - name: Check Gatekeeper and the notary tickets
         id: app
         run: |
-          set -euo pipefail
-          actual="$(stat -f %z "$RUNNER_TEMP/canary.dmg")"
-          [ "$actual" = "$DMG_LENGTH" ] || { echo "downloaded $actual bytes, the feed says $DMG_LENGTH" >&2; exit 1; }
-          xcrun stapler validate "$RUNNER_TEMP/canary.dmg"
+          set -uo pipefail
+          invalid() { echo "class=invalid" >> "$GITHUB_OUTPUT"; echo "::error title=nightly-next canary::build $BUILD rejected: $*"; exit 1; }
+          cannot() { echo "::warning title=nightly-next canary::build $BUILD could not be checked: $*"; exit 1; }
+          unreachable='NSURLErrorDomain|CKErrorDomain|CloudKit|network|offline|timed out|could not connect|Internet connection|server'
+          # check WHAT REJECTION-PATTERN CMD...: CMD's failure is invalid only
+          # when its output names a rejection and no unreachable service.
+          check() {
+            local what=$1 rejected=$2 out rc
+            shift 2
+            out="$("$@" 2>&1)"; rc=$?
+            printf '%s\n' "$out"
+            (( rc == 0 )) && return 0
+            grep -Eiq "$unreachable" <<<"$out" && cannot "$what could not reach Apple (exit $rc)"
+            grep -Eq "$rejected" <<<"$out" && invalid "$what: $(grep -Em1 "$rejected" <<<"$out")"
+            cannot "$what failed without a definite rejection (exit $rc)"
+          }
+          stapled='does not have a ticket stapled|The validate action failed'
+          actual="$(stat -f %z "$RUNNER_TEMP/canary.dmg")" || cannot "could not stat the downloaded DMG"
+          [ "$actual" = "$DMG_LENGTH" ] || invalid "downloaded $actual bytes, the feed says $DMG_LENGTH"
+          check "the DMG's notary ticket" "$stapled" xcrun stapler validate "$RUNNER_TEMP/canary.dmg"
           mount="$RUNNER_TEMP/canary-mount"
           mkdir -p "$mount"
-          hdiutil attach "$RUNNER_TEMP/canary.dmg" -nobrowse -readonly -mountpoint "$mount"
+          hdiutil attach "$RUNNER_TEMP/canary.dmg" -nobrowse -readonly -mountpoint "$mount" || cannot "hdiutil attach failed"
           app="$(find "$mount" -maxdepth 1 -name '*.app' -type d -print -quit)"
-          [ -n "$app" ] || { echo "no app in the DMG" >&2; exit 1; }
-          xcrun stapler validate "$app"
-          spctl -a -vv --type execute "$app"
-          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
-          [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
+          [ -n "$app" ] || invalid "no app in the DMG"
+          check "the app's notary ticket" "$stapled" xcrun stapler validate "$app"
+          check "Gatekeeper" ': rejected' spctl -a -vv --type execute "$app"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" || cannot "could not read CFBundleVersion"
+          [ "$version" = "$BUILD" ] || invalid "the DMG holds build $version, the feed says $BUILD"
+          commit="$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$app/Contents/Info.plist")" || cannot "could not read CMUXCommit"
           echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "commit=$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$app/Contents/Info.plist")" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Detach the DMG
         if: always()
         run: hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
 
-      # Only the artifact step's own result is a verdict. When it never ran
-      # (Select Xcode or the download failed, or the job was cancelled), the
-      # build has no verdict and the next scheduled tick checks it again.
+      # Only the artifact step's own result is a verdict, and its failure is
+      # `fail` only when it classed it invalid. When it never ran (Select Xcode
+      # or the download failed, or the job was cancelled) or could not run its
+      # checks, the build has no verdict and the next scheduled tick checks it again.
       - name: Record the static artifact verdict
         id: run
         if: always()
         env:
           APP_OUTCOME: ${{ steps.app.outcome }}
+          APP_CLASS: ${{ steps.app.outputs.class }}
         run: |
           set -euo pipefail
-          case "$APP_OUTCOME" in
-            success)
+          case "$APP_OUTCOME/${APP_CLASS:-}" in
+            success/*)
               echo "verdict=pass" >> "$GITHUB_OUTPUT"
               echo "### cmux NEXT build $BUILD passed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
               ;;
-            failure)
+            failure/invalid)
               echo "verdict=fail" >> "$GITHUB_OUTPUT"
               echo "### cmux NEXT build $BUILD failed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
               ;;
