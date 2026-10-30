@@ -1,6 +1,5 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
-import CmuxNextDaemonService
 import CmuxNextWorkspaceRepair
 import Foundation
 import os
@@ -61,19 +60,15 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
-        // A workspace with a terminal is a new terminal (Cmd-N, R3): both steps wait through late replies under their
-        // keys, so only the daemon's answer or the connection's end can take the shown workspace back, never a clock.
+        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
+        // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
+        // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
         try await repair.populating(key) {
-            do {
-                return try await withTerminal(
-                    key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) },
-                    createTerminal: terminal,
-                    closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
-                )
-            } catch {
-                DaemonService.checkTerminalRollback(error: error, label: "create workspace with a terminal")
-                throw error
-            }
+            try await withTerminal(
+                key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) },
+                createTerminal: terminal,
+                closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
+            )
         }
     }
 

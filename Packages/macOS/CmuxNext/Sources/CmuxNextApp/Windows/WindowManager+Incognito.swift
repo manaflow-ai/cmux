@@ -45,7 +45,7 @@ extension WindowManager {
             }
             do {
                 _ = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: services.emptyWorkspaces) { created in
-                    let terminal = try await connection.createTerminal(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
+                    let terminal = try await connection.createTerminalWaitingForStart(in: created, cwd: daemon.defaultCwd ?? NSHomeDirectory())
                     if let pane = terminal.pane {
                         _ = try await browserTabs.open(choice, in: pane, on: daemon, url: address, incognito: true)
                         if let surface = terminal.surface { try await connection.closeTab(surface) }

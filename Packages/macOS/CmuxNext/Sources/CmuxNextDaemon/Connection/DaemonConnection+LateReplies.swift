@@ -52,7 +52,21 @@ extension DaemonConnection {
     /// (`CancellationError`), never on a client clock: a give-up after a fixed budget took back a pane the
     /// window showed while the daemon still made it (P0 2026-10-30, principled-audit R5, R-L5).
     func requestWaitingForStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
-        try await Self.waitingThroughLateReplies(R.command) { try await self.request(request) }
+        do {
+            return try await Self.waitingThroughLateReplies(R.command) { try await self.request(request) }
+        } catch {
+            // R3: a new terminal is never taken back on a client clock (DEBUG; the loop ends only on other errors).
+            Self.checkNoLateStart(error, R.command)
+            throw error
+        }
+    }
+
+    /// DEBUG: `error` ended a wait that must outlast every client deadline (``waitingThroughLateReplies(_:_:)``).
+    static func checkNoLateStart(_ error: any Error, _ what: String) {
+        #if DEBUG
+        // crash-allow: DEBUG-only invariant check (R3); waitingThroughLateReplies never ends on a late start
+        if (error as? DaemonError)?.isLateStart == true { assertionFailure("R3: \(what) gave up on a late start") }
+        #endif
     }
 
     /// A workspace's first terminal (Cmd-N's, a terminal-first new workspace's): `request` carries its
@@ -70,7 +84,12 @@ extension DaemonConnection {
     @discardableResult
     public func createWorkspaceWaitingForReply(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
         let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
-        return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+        do {
+            return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+        } catch {
+            Self.checkNoLateStart(error, CreateWorkspaceRequest.command) // R3 (DEBUG)
+            throw error
+        }
     }
 
     /// Runs `send` again while it misses its reply or start deadline: each pass waits out one whole deadline
