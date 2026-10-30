@@ -1,7 +1,7 @@
 # acpmux CLI: tasks, processes, worktrees and messages
 
 The commands for the work around sessions: tasks one agent gives another, the background processes
-and worktrees agents leave behind, and messages that are not prompts. `acpmux CMD --help` lists
+and worktrees agents leave behind, and messages that are not prompts. Each command's `--help` lists
 every flag and ends with examples.
 
 ## Tasks and briefs
@@ -22,9 +22,9 @@ every flag and ends with examples.
 | Task | Command |
 | --- | --- |
 | Background processes agents left running | `acpmux process list` |
-| Follow one's output | `acpmux process show coord/b7x2k1q --follow` |
+| Follow one's output (Claude Code sessions) | `acpmux process show coord/b7x2k1q --follow` |
 | Stop a dev server an agent left running | `acpmux process kill coord/b7x2k1q` |
-| Move a chat's running commands to the background | `acpmux process background coord` |
+| Move a Claude Code chat's running commands to the background | `acpmux process background coord` |
 | Worktrees a cleanup would touch | `acpmux worktree list` |
 | What a cleanup would do, without doing it | `acpmux worktree clean --dry-run` |
 | Bring back a cleaned-up worktree | `acpmux worktree restore lane/fix-27310` |

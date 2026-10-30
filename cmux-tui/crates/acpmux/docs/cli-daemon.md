@@ -1,7 +1,7 @@
 # acpmux CLI: the daemon
 
 One daemon per machine keeps every session alive; every other command talks to it, and starts it
-when it is not running. `acpmux daemon CMD --help` lists every flag and ends with examples.
+when it is not running. Each `daemon` command's `--help` lists every flag and ends with examples.
 
 | Task | Command |
 | --- | --- |

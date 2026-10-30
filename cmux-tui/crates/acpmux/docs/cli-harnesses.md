@@ -1,8 +1,8 @@
 # acpmux CLI: harnesses, presets and defaults
 
 A harness is the agent program a session runs: Claude Code, Codex, OpenCode, pi, Gemini, or one you
-add. `-m HARNESS[/MODEL]` picks one for a session. `acpmux harness CMD --help` lists every flag and
-ends with examples.
+add. `-m HARNESS[/MODEL]` picks one for a session. Each `harness` command's `--help` lists every
+flag and ends with examples.
 
 ## Harnesses
 

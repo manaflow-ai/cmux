@@ -1,7 +1,7 @@
 # acpmux CLI: sessions
 
-Start agents, talk to them, wait on them and read what they said. Every command takes a session
-by name, by `HOST/NAME` for one on a peer, or by id. `acpmux CMD --help` lists every flag and ends
+Start agents, talk to them, wait on them and read what they said. Every command takes a session by
+name, by `HOST/NAME` for one on a peer, or by id. Each command's `--help` lists every flag and ends
 with examples; `--json` on any command prints the raw response.
 
 ## Start one

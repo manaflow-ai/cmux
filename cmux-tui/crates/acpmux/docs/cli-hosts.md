@@ -2,7 +2,7 @@
 
 `acpmux host` connects this machine's daemon to the daemons on your other machines (peers), so
 `acpmux ls` shows every session everywhere and `HOST/NAME` reaches a session on any of them.
-`acpmux host CMD --help` lists every flag and ends with examples.
+Each `host` command's `--help` lists every flag and ends with examples.
 
 ## Add a machine
 
