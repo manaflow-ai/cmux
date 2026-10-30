@@ -2064,7 +2064,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // (TerminalPointerCoalescingTests); Design for the scroller's shared clip (TerminalScrollerTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
                            "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign", "CmuxNextTerminalFind",
-                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             // The pin's capabilities: GhosttyTraceHookTests calls the hook through libghostty's record type.
             swiftSettings: uiSwiftSettings + ghosttyNextKitCapabilities,
             linkerSettings: [.linkedLibrary("c++")]

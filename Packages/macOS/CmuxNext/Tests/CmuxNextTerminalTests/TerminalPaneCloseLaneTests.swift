@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextCompat
 @testable import CmuxNextTerminal
 @testable import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -11,7 +13,9 @@ import Testing
 /// `surfaceMessageWriter` in ghostty src/termio/stream_handler.zig) that only the main thread's
 /// `ghostty_app_tick` empties. A close that waits on the main thread for that lane never returns:
 /// the main thread waits for the lane and the lane waits for the main thread.
-@MainActor @Suite(.serialized) struct TerminalPaneCloseLaneTests {
+/// The time limit fails the test, and does not hang the run, if the free's post on `mainWork` never reaches
+/// the main thread: the test's wait for that post ends when the limit cancels the test.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TerminalPaneCloseLaneTests {
     @Test func closingAPaneReturnsWhileItsLaneWaitsForTheMainThread() async throws {
         GhosttyRuntime.startedForTests()
         let io = ScriptedTerminalIO()
@@ -50,9 +54,9 @@ import Testing
         probe.mainTicks()
         // The free is posted from the lane's last block, in `visible` on `mainWork`; this mark is posted
         // the same way after it, so the free ran when the mark runs.
-        await withCheckedContinuation { (freed: CheckedContinuation<Void, Never>) in
+        try await withOnceThrowingContinuation(cancellation: .cancellable) { (freed: OnceContinuation<Void, any Error>) in
             lane.whenDrained {
-                mainWork.postFromAnyThread(.visible, owner: "test.surface-teardown") { freed.resume() }
+                mainWork.postFromAnyThread(.visible, owner: "test.surface-teardown") { _ = freed.resume(returning: ()) }
             }
         }
         #expect(!probe.timedOut, "the lane's chunk got no main-thread tick before the test's deadline")

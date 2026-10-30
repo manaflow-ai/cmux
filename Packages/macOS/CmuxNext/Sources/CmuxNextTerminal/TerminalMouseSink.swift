@@ -13,10 +13,11 @@ protocol TerminalMouseSink: AnyObject {
 }
 
 /// A view's Ghostty surface as its ``TerminalMouseSink``; with no surface (`ghostty_surface_new` failed)
-/// every event goes nowhere. The view that owns this sink owns the surface, and frees it only in its deinit.
+/// every event goes nowhere. The view that owns this sink owns the surface until its deinit hands it to
+/// ``TerminalSurfaceTeardown``, which frees it later on main.
 final class GhosttyMouseSink: TerminalMouseSink {
-    /// SAFETY: the owning view's surface, freed only in that view's deinit, which releases this
-    /// sink with it; every event arrives on the main actor while the view lives.
+    /// SAFETY: the owning view's surface, freed only after that view's deinit (``TerminalSurfaceTeardown``),
+    /// and the deinit releases this sink first; every event arrives on the main actor while the view lives.
     @safe private let surface: ghostty_surface_t?
 
     /// `surface` is the owning view's (TerminalSurfaceView.mouse).

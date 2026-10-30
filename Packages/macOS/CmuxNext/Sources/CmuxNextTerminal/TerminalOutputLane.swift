@@ -438,7 +438,9 @@ nonisolated final class TerminalOutputLane: Sendable {
         let (waiters, wakes) = backlog.withLock { $0.release() }
         waiters.forEach { $0.resume(returning: ()) }
         wakes.forEach { $0() }
-        queue.async(execute: last) // the queue's own QoS, also for a hidden lane: it ends the surface's life
+        // Not through `enqueue`: a hidden lane's utility QoS must not delay the end of the surface's life.
+        // A lowersHidden queue has no QoS of its own, so the block takes the caller's (main's) QoS.
+        queue.async(execute: last)
     }
 
     private func parsed(_ count: Int) {

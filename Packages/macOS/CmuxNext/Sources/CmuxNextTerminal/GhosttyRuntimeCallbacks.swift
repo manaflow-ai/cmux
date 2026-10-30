@@ -31,7 +31,7 @@ import IOSurface
 
 // Every `userdata` below is what cmux registered for its callback: the runtime's
 // RuntimeCallbackContext's registry token, or a surface's SurfaceBridge, which outlives its surface
-// (TerminalSurfaceView.deinit releases it after ghostty_surface_free returns).
+// (TerminalSurfaceTeardown, which the view's deinit hands it to, releases it after ghostty_surface_free returns).
 
 nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     // SAFETY: the runtime's userdata (above).
