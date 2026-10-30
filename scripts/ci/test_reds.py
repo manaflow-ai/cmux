@@ -122,7 +122,6 @@ BUN_FILE = re.compile(r"^(?:##\[group\]|::group::)?(\S+\.(?:test|spec)\.[cm]?[jt
 # webviews_test_results.py names it.
 BUN_PACKAGE = re.compile(r"^(?:\./)*(?:\S*?/)?(?:webviews|web)/|^(?:\./)+")
 BUN_ABSOLUTE = re.compile(r"(?<![\w.])/[^\s'\"()]*?/(?:webviews|web)/")
-BUN_TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?m?s\b")
 BUN_RUN = re.compile(r"^bun test v\d")
 BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
 # A stack frame of the failure: `at <anonymous> (/abs/webviews/test/x.test.ts:12:5)`.
@@ -291,44 +290,54 @@ def signal_of(text: str) -> str | None:
 
 def bun_diagnostic(said: list, where: str = "") -> str:
     """A bun failure's error, compared across runs: its whole assertion block (the `error:` line and the Expected /
-    Received lines under it), without the checkout's path, timings or spacing, and the test file's line it failed at."""
-    said = " / ".join(" ".join(BUN_TIMING.sub("<time>", BUN_ABSOLUTE.sub("", part)).split()) for part in said)
+    Received lines under it) as printed, but for the checkout's path and spacing, and the test file's line it failed at.
+    (The runner's own `[1.23ms]` is on the result line, never here.)"""
+    said = " / ".join(" ".join(BUN_ABSOLUTE.sub("", part).split()) for part in said)
     return f"{said} at {where}" if said and where else said
 
 
 def read_bun(lines: list[str], result: Result) -> None:
     """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
-    names), or `TEST` when the recap is all that names it, with its diagnostic (bun_diagnostic, or its timeout) as its
-    message. An unhandled error between tests is a failure named by its error. A bun run is whole only once it prints
-    its ` N fail` count: a run started (`bun test v…`, a file header or a result) with no count after it was cut short.
-    (web_failures hands read() its log without result lines; a red file's log there ends with its count, and a file the
-    wrapper killed is its own red already.)"""
-    file, said, where, last, recap, unhandled, counted = "", [], "", None, False, False, True
+    names), or `TEST` when the recap is all that names it, with its diagnostics (bun_diagnostic, or its timeout; every
+    distinct one when the name fails more than once) as its message. An unhandled error between tests is a failure
+    named by its error. Each bun invocation is whole only once it prints its ` N fail` count: one that started
+    (`bun test v…`, a file header or a result) and reached the next invocation (`bun test v…`, the wrapper's retry) or
+    the log's end with no count was cut short, wherever it sits in the log."""
+    file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
     block = False  # reading the assertion block under an `error:` line, up to its stack or annotation
     run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
+    diagnostics: dict = {}  # name: its distinct diagnostics, in the order printed
 
     def fail(name: str, message: str) -> str:
         result.failed.add(name)
         result.ran = True
-        if message and not result.messages.get(name):
-            result.messages[name] = message
+        if message and message not in diagnostics.setdefault(name, []):
+            diagnostics[name].append(message)
         return name
+
+    def end_run(why: str) -> None:
+        nonlocal open_run
+        if open_run:
+            result.truncated.append(f"a bun test run printed no ` N pass` / ` N fail` summary before {why}")
+        open_run = False
 
     for text in lines:
         if BUN_RUN.match(text):
-            counted = False
+            end_run("the next bun test run started")
+            open_run = True
         elif BUN_RECAP.match(text):
             recap, last = True, None
         elif match := BUN_FILE.match(text):
-            file, said, where, last, recap, counted = BUN_PACKAGE.sub("", match.group(1)), [], "", None, False, False
+            file, said, where, last, recap, open_run = BUN_PACKAGE.sub("", match.group(1)), [], "", None, False, True
             run_file, block = file, False
         elif text == WEB_RETRY and run_file:
+            end_run("the wrapper ran its file again")
             # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
             for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
                 result.failed.discard(name)
-                result.messages.pop(name, None)
+                diagnostics.pop(name, None)
         elif match := BUN_TEST.match(text):
-            result.ran, counted, last = True, False, None
+            result.ran, open_run, last = True, True, None
             name = match.group(2)
             if match.group(1) == "fail" and not recap:
                 last = fail(f"{file} > {name}" if file else name, bun_diagnostic(said, where))
@@ -355,18 +364,22 @@ def read_bun(lines: list[str], result: Result) -> None:
         elif (match := BUN_AT.match(text)) and said and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
             where = f"{file}:{match.group(2)}"
         elif (match := BUN_TIMED_OUT.match(text)) and last:
-            result.messages[last] = f"timed out after {match.group(1)}ms"
+            fail(last, f"timed out after {match.group(1)}ms")
         elif BUN_COUNT.match(text):
             if unhandled:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")
-            file, said, where, last, recap, unhandled, counted = "", [], "", None, False, False, True
+            file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
             block = False
-    if not counted:
-        result.truncated.append("a bun test run printed no ` N pass` / ` N fail` summary after it started")
+    end_run("the log ended")
+    for name, found in diagnostics.items():
+        if found:
+            # Like web_failures: several diagnostics for one name are all compared, none dropped.
+            result.messages[name] = "\n--- repeated failure ---\n".join(sorted(found))
 
 
-def read(log: str | None) -> Result:
-    """The tests a job log ran, failed and crashed, and whether its per-test results are whole."""
+def read(log: str | None, bun: bool = True) -> Result:
+    """The tests a job log ran, failed and crashed, and whether its per-test results are whole. `bun=False` leaves
+    bun's own output to the caller (web_failures parses it itself)."""
     result = Result()
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
@@ -441,7 +454,8 @@ def read(log: str | None) -> Result:
     running = sum(1 for text in lines if CARGO_RUNNING.match(text))
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
-    read_bun(lines, result)
+    if bun:
+        read_bun(lines, result)
     if crashed:
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"
@@ -622,7 +636,7 @@ def web_failures(log: str | None) -> WebFailures:
     # Keep the common runtime and cut-short detection; Bun assertion titles can quote
     # crash words, so result lines are not runtime diagnostics.
     runtime = read("\n".join(text for text in texts if not WEB_FAIL.match(text)
-                             and not text.startswith("(pass) ")))
+                             and not text.startswith("(pass) ")), bun=False)
     found.crashed.update(runtime.crashes)
     found.truncated.extend(runtime.truncated)
 

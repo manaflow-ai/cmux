@@ -688,7 +688,7 @@ class BunTestReds(unittest.TestCase):
         found = reds.read(killed)
         self.assertEqual(found.failed, {"test/zz-capture/slow.test.ts > first"})
         self.assertEqual(found.crashes, ["the test process crashed (signal 9)"])
-        self.assertEqual(found.truncated, ["a bun test run printed no ` N pass` / ` N fail` summary after it started"])
+        self.assertEqual(found.truncated, ["a bun test run printed no ` N pass` / ` N fail` summary before the log ended"])
         self.assertTrue(reds.classify(killed, killed, "fast checks").own)
 
     def test_the_same_bun_failure_on_both_sides_is_a_base_red_and_a_new_one_is_its_own(self):
@@ -738,10 +738,31 @@ class BunTestReds(unittest.TestCase):
                        f"Expected: \"ready after {took}\"", f"Received:   \"{path}/webviews/test/a.test.ts\"", "",
                        f"      at <anonymous> ({path}/webviews/test/a.test.ts:4:9)", "(fail) a > b [1.00ms]",
                        "##[endgroup]", " 0 pass", " 1 fail")
-        self.assertFalse(reds.classify(run("120ms", "/home/runner/_work/cmux/cmux"), run("95.5 ms", "/Users/ci/cmux")).own)
+        self.assertFalse(reds.classify(run("120ms", "/home/runner/_work/cmux/cmux"), run("120ms", "/Users/ci/cmux")).own)
+        # Sol on #28330 at b669c53c: a duration inside an assertion is the assertion's value, never masked.
+        verdict = reds.classify(run("120ms", "/x"), run("95.5 ms", "/x"))
+        self.assertTrue(verdict.own)
+        self.assertIn("fail differently", verdict.reasons[0])
         self.assertEqual(reds.read(run("1s", "/x")).messages,
-                         {"test/a.test.ts > a > b": 'expect(received).toBe(expected) / Expected: "ready after <time>" / '
+                         {"test/a.test.ts > a > b": 'expect(received).toBe(expected) / Expected: "ready after 1s" / '
                                                     'Received: "test/a.test.ts" at test/a.test.ts:4'})
+
+    def test_every_diagnostic_of_a_test_failing_more_than_once_is_compared(self):
+        # Sol on #28330 at b669c53c: the first diagnostic of a repeated name hid a later TypeError.
+        def run(*errors):
+            lines = ["bun test v1.4.4 (38afee6c8)", "##[group]test/a.test.ts:"]
+            for error in errors:
+                lines += [f"error: {error}", "      at <anonymous> (/r/webviews/test/a.test.ts:4:9)", "(fail) a > b [1.00ms]"]
+            return log(*lines, "##[endgroup]", " 0 pass", f" {len(errors)} fail")
+        assertion, type_error = "expect(received).toBe(expected)", "TypeError: undefined is not a function"
+        head = run(assertion, type_error)
+        self.assertEqual(reds.read(head).messages["test/a.test.ts > a > b"],
+                         f"{assertion} at test/a.test.ts:4\n--- repeated failure ---\n{type_error} at test/a.test.ts:4")
+        verdict = reds.classify(head, run(assertion))
+        self.assertTrue(verdict.own)
+        self.assertIn("1 test(s) fail differently on the base", verdict.reasons[0])
+        self.assertIn(type_error, verdict.reasons[0])
+        self.assertFalse(reds.classify(head, run(type_error, assertion, assertion)).own)
 
     def test_the_command_line_judges_a_bun_log_instead_of_exiting_2(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -781,11 +802,22 @@ class BunTestReds(unittest.TestCase):
                     bun_run(tests) + "\n" + log("##[group]test/c.test.ts:", "(pass) c > d [1.00ms]"),
                     # ... or that ended before its first result (Sol on #28330 at a0afd92b)
                     bun_run(tests) + "\n" + log("bun test v1.4.4 (38afee6c8)"),
-                    bun_run(tests) + "\n" + log("::group::test/c.test.ts:")):
+                    bun_run(tests) + "\n" + log("::group::test/c.test.ts:"),
+                    # an earlier run cut short, then a whole one (Sol on #28330 at b669c53c)
+                    log("bun test v1.4.4 (38afee6c8)") + "\n" + bun_run(tests, recap=False, counts=False) + "\n"
+                    + log("bun test v1.4.4 (38afee6c8)") + "\n" + bun_run(tests)):
             with self.subTest(cut=cut[-80:]):
                 verdict = reds.classify(cut, cut, "fast checks")
                 self.assertTrue(verdict.own)
-                self.assertIn("printed no ` N pass` / ` N fail` summary after it started", verdict.reasons[0])
+                self.assertIn("printed no ` N pass` / ` N fail` summary before", verdict.reasons[0])
+        whole = log("bun test v1.4.4 (38afee6c8)") + "\n" + bun_run(tests)
+        self.assertFalse(reds.classify(whole + "\n" + whole, whole + "\n" + whole, "fast checks").own)
+        # The wrapper's first run, killed, then its retry alone: the first run was cut short.
+        retried = log("##[group]FAIL test/a.test.ts", "--- first run: TIMEOUT ---", "bun test v1.4.4 (38afee6c8)",
+                      "::group::test/a.test.ts:", "(pass) a > b [1.00ms]", "--- retry, alone ---",
+                      "bun test v1.4.4 (38afee6c8)", "::group::test/a.test.ts:", "(fail) a > c [1.00ms]", "::endgroup::",
+                      " 1 pass", " 1 fail", "##[endgroup]")
+        self.assertIn("before the wrapper ran its file again", reds.read(retried).truncated[0])
 
     def test_a_bun_crash_or_a_killed_runner_after_a_whole_run_is_never_a_base_red(self):
         whole = bun_run((UNAVAILABLE, [("chat > a", "boom")]))
