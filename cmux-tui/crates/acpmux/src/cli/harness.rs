@@ -69,7 +69,12 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
     match cmd {
         HarnessCmd::CodexRuntime { action } => {
             let value = match action {
-                CodexRuntimeCmd::Install => crate::managed_codex::install().await?,
+                // A running daemon read its harness profiles before the runtime existed: it
+                // reads them again, so the managed Codex is offered without a restart.
+                CodexRuntimeCmd::Install => {
+                    let installed = crate::managed_codex::install().await?;
+                    with_daemon_reloaded(installed, reload_daemon().await)
+                }
                 CodexRuntimeCmd::Status => crate::managed_codex::status(),
             };
             println!("{}", serde_json::to_string_pretty(&value)?);
@@ -417,6 +422,12 @@ async fn icon_cmd(id: &str, value: Option<String>, clear: bool, json_out: bool) 
         );
     }
     Ok(())
+}
+
+/// An install's result with whether a running daemon reloaded after it.
+fn with_daemon_reloaded(mut installed: serde_json::Value, reloaded: bool) -> serde_json::Value {
+    installed["daemonReloaded"] = json!(reloaded);
+    installed
 }
 
 /// Ask a running daemon to reload its catalog; false when none runs.

@@ -1,6 +1,6 @@
 //! Opt-in managed Codex runtime. The binary is downloaded only on explicit
 //! request and is never preferred over a Codex already found on PATH.
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -16,8 +16,9 @@ fn root() -> PathBuf {
 pub fn managed_path() -> PathBuf {
     root().join("codex")
 }
+/// The readiness marker lives inside the version directory, so it swaps in with the binary.
 pub fn ready_path() -> PathBuf {
-    crate::config::home().join("codex-runtime").join("ready.json")
+    root().join("ready.json")
 }
 
 fn target() -> (&'static str, &'static str) {
@@ -65,6 +66,7 @@ pub async fn install() -> Result<serde_json::Value> {
     }
     let base = crate::config::home().join("codex-runtime");
     std::fs::create_dir_all(&base)?;
+    recover_interrupted(&base, &root());
     let staging = base.join(format!(".staging-{}", std::process::id()));
     if staging.exists() {
         std::fs::remove_dir_all(&staging)?;
@@ -74,6 +76,7 @@ pub async fn install() -> Result<serde_json::Value> {
     std::fs::write(&archive, &bytes)?;
     let file = std::fs::File::open(&archive)?;
     tar::Archive::new(flate2::read::GzDecoder::new(file)).unpack(&staging)?;
+    std::fs::remove_file(&archive)?;
     let extracted = std::fs::read_dir(&staging)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .find(|path| {
@@ -84,21 +87,58 @@ pub async fn install() -> Result<serde_json::Value> {
                     .is_some_and(|n| n == "codex" || n.starts_with("codex-"))
         })
         .ok_or_else(|| anyhow::anyhow!("Codex archive did not contain a target codex binary"))?;
-    // Drop the marker first so an interrupted install is never reported ready.
-    match std::fs::remove_file(ready_path()) {
-        Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err.into()),
-        _ => {}
+    std::fs::rename(&extracted, staging.join("codex"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(staging.join("codex"), std::fs::Permissions::from_mode(0o755))?;
     }
-    let final_dir = root();
-    if final_dir.exists() {
-        std::fs::remove_dir_all(&final_dir)?;
-    }
-    std::fs::rename(&staging, &final_dir)?;
-    let installed = final_dir.join("codex");
-    std::fs::rename(final_dir.join(extracted.file_name().unwrap()), &installed)?;
+    // The marker is written last, inside the staged directory: the swap below makes the binary
+    // and its marker current together, and the runtime already in place stays until then.
     let ready = serde_json::json!({"version": VERSION, "sha256": expected, "path": managed_path(), "url": url});
-    crate::config::write_atomic(&ready_path(), serde_json::to_string_pretty(&ready)?.as_bytes())?;
+    std::fs::write(staging.join("ready.json"), serde_json::to_string_pretty(&ready)?)?;
+    activate(&staging, &root())?;
     Ok(ready)
+}
+
+/// Makes the staged directory the current runtime. The one in place is moved aside, not deleted,
+/// until the staged one is in: a failed swap puts it back, so a working runtime is never lost to
+/// a reinstall.
+fn activate(staging: &Path, final_dir: &Path) -> Result<()> {
+    let parent = final_dir.parent().context("runtime directory has no parent")?;
+    let aside = parent.join(format!(".old-{}", std::process::id()));
+    if aside.exists() {
+        std::fs::remove_dir_all(&aside)?;
+    }
+    let had_current = final_dir.exists();
+    if had_current {
+        std::fs::rename(final_dir, &aside)?;
+    }
+    if let Err(err) = std::fs::rename(staging, final_dir) {
+        if had_current {
+            let _ = std::fs::rename(&aside, final_dir);
+        }
+        return Err(err.into());
+    }
+    if had_current {
+        let _ = std::fs::remove_dir_all(&aside);
+    }
+    Ok(())
+}
+
+/// A process that died between the two renames of `activate` left the previous runtime aside and
+/// none in place: bring it back before installing again.
+fn recover_interrupted(base: &Path, final_dir: &Path) {
+    if final_dir.exists() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(base) else { return };
+    if let Some(aside) = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .find(|path| path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(".old-")))
+    {
+        let _ = std::fs::rename(aside, final_dir);
+    }
 }
 
 /// The Codex binary to run: the one on PATH, else the managed runtime once it is ready.
@@ -133,5 +173,51 @@ mod tests {
         std::fs::remove_file(&binary).unwrap();
         assert!(!is_ready_at(&binary, &marker, "abc"), "marker without binary");
         assert!(!is_ready_at(&binary, &marker, ""), "unsupported platform");
+    }
+
+    fn runtime(dir: &Path, body: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("codex"), body).unwrap();
+    }
+
+    #[test]
+    fn activation_swaps_in_the_staged_runtime() {
+        let base = tempfile::tempdir().unwrap();
+        let (staging, current) = (base.path().join(".staging-1"), base.path().join("0.1.0"));
+        runtime(&current, "old");
+        runtime(&staging, "new");
+        activate(&staging, &current).unwrap();
+        assert_eq!(std::fs::read_to_string(current.join("codex")).unwrap(), "new");
+        assert!(!staging.exists());
+        assert!(std::fs::read_dir(base.path()).unwrap().count() == 1, "no aside copy is left");
+    }
+
+    #[test]
+    fn a_failed_swap_keeps_the_working_runtime() {
+        let base = tempfile::tempdir().unwrap();
+        let current = base.path().join("0.1.0");
+        runtime(&current, "old");
+        // No staged directory: the second rename fails after the old runtime was moved aside.
+        assert!(activate(&base.path().join(".staging-missing"), &current).is_err());
+        assert_eq!(std::fs::read_to_string(current.join("codex")).unwrap(), "old");
+    }
+
+    #[test]
+    fn an_interrupted_swap_is_recovered() {
+        let base = tempfile::tempdir().unwrap();
+        let current = base.path().join("0.1.0");
+        runtime(&base.path().join(".old-99"), "old");
+        recover_interrupted(base.path(), &current);
+        assert_eq!(std::fs::read_to_string(current.join("codex")).unwrap(), "old");
+    }
+
+    #[test]
+    fn recovery_leaves_a_current_runtime_alone() {
+        let base = tempfile::tempdir().unwrap();
+        let current = base.path().join("0.1.0");
+        runtime(&current, "current");
+        runtime(&base.path().join(".old-99"), "stale");
+        recover_interrupted(base.path(), &current);
+        assert_eq!(std::fs::read_to_string(current.join("codex")).unwrap(), "current");
     }
 }
