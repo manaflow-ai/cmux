@@ -617,3 +617,26 @@ test("a second launch entry of a family lists its own models and starts itself",
   await settle();
   expect(switched).toEqual(["claude-sr2-alt"]);
 });
+
+// A launch entry whose probe failed (its catalog entry unavailable) keeps its one-click launch tab,
+// even when its catalog still lists a model that looks pickable: it is stale (review of #27692).
+test("a new chat still launches a named harness entry whose probe failed from its tab", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    {
+      id: "claude-work",
+      name: "Claude (work)",
+      family: "claude-work",
+      icon: "claude",
+      unavailable: "probe failed",
+      models: [{ id: "opus-stale", name: "Opus Stale" }],
+    },
+  ] as Snapshot["catalog"];
+  const { switched } = await mount(0, undefined, "claude", catalog);
+  await open();
+  const launch = railTabs().find((tab) => tab.getAttribute("aria-label") === "Claude (work)");
+  expect(launch, railTabs().map((tab) => tab.getAttribute("aria-label")).join(", ")).toBeDefined();
+  await act(async () => launch!.click());
+  await settle();
+  expect(switched).toEqual(["claude-work"]);
+});

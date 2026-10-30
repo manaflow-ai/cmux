@@ -309,9 +309,10 @@ function railByHarness(
 ): QuickFamily[] {
   const seen = new Set<string>();
   const byId = new Map(list.map((family) => [family.id, family]));
-  // Only a row that can be picked starts the entry; one whose probe failed keeps its launch tab.
+  // Only a row that can be picked starts the entry; one whose probe failed (the harness unavailable,
+  // or every row disabled) keeps its launch tab.
   const hasModels = (family: QuickFamily | undefined) =>
-    !!family && [...family.models, ...family.more].some((model) => !model.disabled);
+    !!family && !family.unavailable && [...family.models, ...family.more].some((model) => !model.disabled);
   return list.flatMap((family) => {
     if (seen.has(family.id)) return [];
     seen.add(family.id);
@@ -929,6 +930,7 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map((model) => row(entry, model)),
         more: more.map((model) => row(entry, model)),
+        ...(entry.unavailable ? { unavailable: true } : {}),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }

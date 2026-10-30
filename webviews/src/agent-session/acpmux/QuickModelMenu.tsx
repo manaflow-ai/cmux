@@ -131,6 +131,9 @@ export type QuickFamily = {
   logIn?(): void;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
+  /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
+  /// a launch entry keeps its one-click launch tab instead of listing them.
+  unavailable?: boolean;
   /// A started chat's other harness: offer Fork to it in place of models.
   fork?: boolean;
 };
