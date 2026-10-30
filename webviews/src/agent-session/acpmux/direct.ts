@@ -1,4 +1,5 @@
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
+import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
@@ -2357,12 +2358,9 @@ export class AcpmuxDirectClient {
 
   private receive(raw: string): void {
     this.wire.received(raw);
-    let message: Reply | Notification;
-    try {
-      message = JSON.parse(raw) as Reply | Notification;
-    } catch {
-      return;
-    }
+    // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
+    const message = parseJsonObjectFrame(raw) as Reply | Notification | null;
+    if (!message) return;
     if ("id" in message && typeof message.id === "number") {
       const request = this.pending.get(message.id);
       if (!request) return;

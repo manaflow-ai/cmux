@@ -8,6 +8,7 @@ import type {
 } from "./generated/protocol";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
 import { DIFF_PAGE_EVENTS, diffPageClient, diffPageOp, pagePatchURL } from "./page";
+import { parseJsonObjectFrame } from "../protocol/jsonFrame";
 
 type WithoutEnvelope<T> = T extends unknown ? Omit<T, "id" | "version"> : never;
 type DiffCommand = WithoutEnvelope<DiffRequest>;
@@ -257,7 +258,7 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
         },
         { once: true },
       );
-      socket.addEventListener("message", (message) => this.handleMessage(message));
+      socket.addEventListener("message", (message) => this.handleMessage(socket, message));
       socket.addEventListener("close", () => {
         this.socket = null;
         this.connecting = null;
@@ -275,11 +276,18 @@ export class WebSocketDiffTransport extends BaseDiffTransport {
     return this.connecting;
   }
 
-  private handleMessage(message: MessageEvent): void {
+  private handleMessage(socket: WebSocket, message: MessageEvent): void {
     if (typeof message.data !== "string") {
       return;
     }
-    const decoded = JSON.parse(message.data) as DiffResponse | DiffEvent;
+    const decoded = parseJsonObjectFrame(message.data) as DiffResponse | DiffEvent | null;
+    if (!decoded) {
+      // A frame that is not a JSON object may be the answer a request waits for, with its id lost.
+      // Fail every waiting request instead of leaving it to hang; the next request reconnects.
+      this.rejectPending(new DiffTransportError("invalidResponse", "Diff transport sent a malformed frame"));
+      socket.close();
+      return;
+    }
     if ("id" in decoded) {
       const pending = this.pending.get(decoded.id);
       if (!pending) {
