@@ -65,6 +65,33 @@ record where its id goes; and these sheet lines: "next to X" means a new tab in 
 Not run in this round: GPT 6 Astra. The subrouter paused gpt-6-astra admission
 (`admission_paused`) for the whole round.
 
+## Rounds 3 to 8 (2026-10-30): GPT 6 Astra, and a shell that meets the build under test
+
+All 34 headless cases, 2 samples each, agents under the live guard, daemons on rbx.
+
+| Model | Round 2 (858cd2f) | 3614d69 (#28414) | Round 8 (1d94fa5) |
+| --- | --- | --- | --- |
+| Opus 5.5 | 34 (68/68) | 34 (68/68) | **34 (68/68)** |
+| Sonnet 5.5 | 33 (67/68) | 34 (68/68) | **34 (68/68)** |
+| Haiku 5.5 | 34 (68/68) | 34 (68/68) | **34 (68/68)** |
+| 9 OpenRouter models, samples | — | **604/612** | not run |
+| GPT 6 Astra (`codex app-server`), samples | not run | 64/68 (r7a) | 62/68 |
+
+In the 3614d69 run, DeepSeek, Gemini, Kimi, Grok and GLM 5.3 Prime each passed 68/68.
+
+GPT 6 Astra uses its shell far more than any other model, so harness bugs in the shell hid its real score. Its runs before 2026-10-30 18:00 UTC (r3n to r5b) are not valid. Fixed in the harness:
+- **A Codex error that Codex retries itself** (`willRetry`, "Reconnecting... 2/5") ended the sample. 19 of 32 samples stopped at step 1.
+- **The shell's `cmux` was not the build under test.** In remote mode it was this Mac's `--cli` build (#28336). Then it was the build under its own file name, which picks the `cmux-tui` grammar, not the `cmux` CLI (#28414). Then it was the installed classic CLI: Codex runs commands as `zsh -lc`, and `path_helper` moved `/opt/homebrew/bin` first (#28414: a scratch `.zprofile` and `ZDOTDIR`).
+- **Each Codex sample got a copy of this Mac's ChatGPT login.** Parallel samples refreshed the same refresh token, and later samples failed with "refresh token was already used" (#28424: a placeholder API-key login). An API-key login turns off a few ChatGPT-only Codex features, so Codex numbers from before and after #28424 are not exactly comparable.
+
+cmux changes in these rounds, each from a panel failure:
+- **Terminals:** a terminal can be named by its tab name, its tab id or its pane id. A wait for text that the typed command also shows waits for an output line. A missing required field is named with its values. `workspace_create` makes a terminal by default.
+- **Tool text:** the instructions and `cmux_exec` say that the chat runs in cmux and that "this workspace" is the cmux workspace, not the folder.
+- **Errors:** the "no browser engine" error tells the agent to stop. Old CLI verbs, `cmux rpc <app method>` included, name the command that replaces them. A refused key names its form.
+- **Help:** `cmux --help` starts with COMMON TASKS, which runs commands with `send --wait none` and says that the focus stays.
+
+Astra's failures that remain are mostly model choices. It runs the command in its own shell (`ae-watch-command`), it looks at the folder before it renames the workspace, and it passes `--focus` itself. Also, `tab move` moves the person's focus. That is a product decision, because the app's drag and drop uses the same operation.
+
 ## What changed, and the failure each change answered
 
 | Change | Failure it fixed (case, source) |
@@ -79,9 +106,6 @@ Not run in this round: GPT 6 Astra. The subrouter paused gpt-6-astra admission
 
 ## Not run yet
 
-- `--surface all` (what acpmux gives Claude Code and Codex) and `--surface cli` after the
-  change. The change touches code-mode text and shared behavior (`current`, decimals).
-- Codex models: the harness replays Claude Code only. The mined data shows Codex never
-  called cmux MCP in 60 eval runs (it reads the skill and uses the CLI), so a Codex
-  template is the next step.
+- `--surface all` (what acpmux gives Claude Code and Codex) and `--surface cli`.
 - The app tier (browser, Markdown): needs a cmux-next app on a GUI host.
+- The OpenRouter panel on the round-8 build.

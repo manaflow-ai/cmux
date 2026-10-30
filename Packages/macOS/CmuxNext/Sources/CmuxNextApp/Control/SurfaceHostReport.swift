@@ -44,7 +44,7 @@ enum SurfaceHostReport {
     /// Terminal panes of every window, with their daemon tab.
     @MainActor static func targets(_ services: AppServices) -> [Target] {
         SurfaceDiagnosticsReport.statuses(services).compactMap { row in
-            guard let key = row.pane.currentTabKey, let (tab, pane) = services.locateTab(key), tab.kind == .pty else { return nil }
+            guard let key = row.pane.currentTabKey, let (tab, pane) = services.locateTab(key, onMachine: row.pane.daemon.machineID), tab.kind == .pty else { return nil }
             let daemon = services.daemon(for: pane)
             return Target(paneKey: row.status.paneKey, surface: tab.surface, terminalID: tab.terminalID?.rawValue,
                           connection: daemon.connection, supported: daemon.supports(TerminalResourcesRequest.capability))

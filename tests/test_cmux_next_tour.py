@@ -280,6 +280,27 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(step["postcondition"]["status"], "passed")
         self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
 
+    def test_a_shot_no_expect_checked_is_reported_unchecked(self) -> None:
+        # "ok" on a shot step only says the step ran: without an `expect` nothing read the screen it
+        # shows (a palette still with an empty field passed as "the command is selected", #28323).
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0, "shot": False},
+            {"title": "Unchecked shot", "cmux": ["action", "run", "splitRight"], "wait": 0},
+            {"title": "Checked shot", "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        launch, unchecked, checked = manifest["steps"]
+        self.assertEqual([step["status"] for step in manifest["steps"]], ["ok", "ok", "ok"])
+        self.assertEqual([step["checked"] for step in manifest["steps"]], [False, False, True])
+        self.assertNotIn("shot", launch)
+        self.assertIn("shot", unchecked)
+        self.assertRegex(done.stdout, r"02 unchecked +Unchecked shot")
+        self.assertRegex(done.stdout, r"03 ok +Checked shot")
+        self.assertRegex(done.stdout, r"01 ok +Launch")
+
     def test_required_rendered_state_mismatch_fails(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 0,
