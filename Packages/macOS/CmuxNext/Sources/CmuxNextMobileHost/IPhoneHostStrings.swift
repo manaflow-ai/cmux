@@ -57,6 +57,12 @@ enum IPhoneHostStrings {
     static func phone(_ shortID: String) -> String {
         String(format: String(localized: "iphone.phone.title", defaultValue: "iPhone %@", table: "IPhone", bundle: .module), shortID)
     }
+    static func phoneAccessPhone(_ name: String) -> String {
+        String(format: String(localized: "iphone.phone.transport.next", defaultValue: "%@ · cmux next", table: "IPhone", bundle: .module), name)
+    }
+    static func legacyPhone(_ name: String) -> String {
+        String(format: String(localized: "iphone.phone.transport.ios", defaultValue: "%@ · cmux (iOS)", table: "IPhone", bundle: .module), name)
+    }
     static func pairTitle(_ name: String) -> String {
         String(format: String(localized: "iphone.pair.title", defaultValue: "Allow “%@” to connect to this Mac?", table: "IPhone", bundle: .module), name)
     }

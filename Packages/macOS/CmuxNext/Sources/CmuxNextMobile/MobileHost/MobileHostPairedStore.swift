@@ -144,7 +144,17 @@ public final class MobileHostPairedStore: Sendable {
                     edit(&next)
                     do {
                         try file.save(next)
-                        publish(next, generation: selected)
+                        let completed = self.state.withLock { state -> [Removal: UUID] in
+                            guard state.generation == selected, state.userID == user else { return [:] }
+                            var completed: [Removal: UUID] = [:]
+                            for (removal, marker) in state.removals where next.devices.contains(where: {
+                                $0.id == removal.id && $0.transport == removal.transport
+                            }) {
+                                completed[removal] = marker
+                            }
+                            return completed
+                        }
+                        publish(next, generation: selected, completed: completed)
                         guard self.generation == selected else { throw CocoaError(.userCancelled) }
                         continuation.resume()
                     } catch { continuation.resume(throwing: error) }

@@ -22,7 +22,7 @@ import Testing
         let removed = AsyncStream<String>.makeStream()
         let admission = PhoneAdmission(phones: store, disconnect: { removed.continuation.yield($0) })
         var asks = 0
-        admission.ask = { _, user in asks += 1; #expect(user == "one"); return true }
+        admission.ask = { _, user in asks += 1; #expect(user == "one"); return .allow }
         #expect(await admission.decide(Self.phone))
         #expect(await admission.decide(Self.phone))
         #expect(asks == 1)
@@ -68,7 +68,7 @@ import Testing
         var asks = 0
         var time = ContinuousClock.now
         admission.now = { time }
-        admission.ask = { _, _ in asks += 1; return false }
+        admission.ask = { _, _ in asks += 1; return .deny }
         #expect(await !admission.decide(Self.phone))
         #expect(await !admission.decide(Self.phone))
         #expect(asks == 1)
@@ -92,6 +92,18 @@ import Testing
         #expect(spec.lines.contains { $0.contains("one") })
         #expect(spec.lines.contains { $0.contains(Self.phone.identityKey) })
         #expect(spec.identifier == IPhoneHostService.phoneAccessDialogIdentifier)
+    }
+
+    @Test func promptUsesAccountEmailWhenAvailable() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let admission = PhoneAdmission(phones: store, disconnect: { _ in })
+        admission.accountName = { "demo@example.invalid" }
+        var shown = ""
+        admission.ask = { _, account in shown = account; return .unavailable }
+        #expect(await !admission.decide(Self.phone))
+        #expect(shown == "demo@example.invalid")
     }
 
     @Test func concurrentConnectionsShareAQuestionAndTheQueueIsBounded() async throws {
@@ -127,6 +139,47 @@ import Testing
         #expect(asks == 2)
     }
 
+    @Test func timeoutAndDismissalDoNotCreateDenialCooldown() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        let admission = PhoneAdmission(phones: store, disconnect: { _ in })
+        var answers: [PhoneAdmission.PromptResult] = [.unavailable, .unavailable, .allow]
+        var asks = 0
+        admission.ask = { _, _ in
+            asks += 1
+            return answers.removeFirst()
+        }
+        #expect(await !admission.decide(Self.phone)) // timeout
+        #expect(await !admission.decide(Self.phone)) // dismissal
+        #expect(await admission.decide(Self.phone))
+        #expect(asks == 3)
+    }
+
+    @Test func missingKeyWindowUsesAppModalAndDoesNotDeny() async throws {
+        NSApp?.keyWindow?.resignKey()
+        NSApp?.deactivate()
+        let task = Task { await PhoneAdmission.askOnThisMac(Self.phone, user: "demo", timeout: .seconds(2)) }
+        for _ in 0..<4 { await Task.yield() }
+        let record = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == PhoneAdmission.dialogIdentifier })
+        #expect(record.scope == "app")
+        #expect(CmuxDialogCenter.shared.dismiss(record.id))
+        #expect(await task.value == .unavailable)
+    }
+
+    @Test func timeoutIsUnavailableAndDoesNotCreateDenial() async throws {
+        let result = await PhoneAdmission.askOnThisMac(Self.phone, user: "demo", timeout: .milliseconds(1))
+        #expect(result == .unavailable)
+    }
+
+    @Test func dismissalIsUnavailableAndDoesNotCreateDenial() async throws {
+        let task = Task { await PhoneAdmission.askOnThisMac(Self.phone, user: "demo", timeout: .seconds(2)) }
+        for _ in 0..<4 { await Task.yield() }
+        let record = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == PhoneAdmission.dialogIdentifier })
+        #expect(CmuxDialogCenter.shared.dismiss(record.id))
+        #expect(await task.value == .unavailable)
+    }
+
     @Test func localRowsRemainRemovableWhenIPhoneHostIsOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -134,8 +187,8 @@ import Testing
         host.pairedStore.select(userID: "one")
         await host.pairedStore.attach(directory: directory)
         try await host.pairedStore.change(for: "one") { $0.approve(Self.phone, at: Date()) }
-        host.paired = host.pairedStore.current
         #expect(host.pageJSON["phones"]?.arrayValue?.first?["removable"]?.boolValue == true)
+        #expect(host.pageJSON["phones"]?.arrayValue?.first?["title"]?.stringValue == "Phone · cmux next")
         await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
         #expect(!host.pairedStore.trusts(Self.phone))
         await host.pairedStore.reload()

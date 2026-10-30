@@ -8,12 +8,15 @@ import Foundation
 /// person on this Mac may persist its TLS-proved endpoint in the shared phone list.
 @MainActor
 final class PhoneAdmission {
+    enum PromptResult: Sendable, Equatable { case allow, deny, unavailable }
     static let dialogIdentifier = "cmux.dialog.phoneAccessAllow"
     private let phones: MobileHostPairedStore
     private var questions: [String: (id: UUID, generation: UInt64, task: Task<Bool, Never>)] = [:]
     private var denied: [String: ContinuousClock.Instant] = [:]
     private var generation: UInt64
-    var ask: (MobileHostPairRequest, String) async -> Bool = PhoneAdmission.askOnThisMac
+    var ask: (MobileHostPairRequest, String) async -> PromptResult = PhoneAdmission.askOnThisMac
+    var accountName: @MainActor () -> String = { "" }
+    var announce: @MainActor (MobileHostPairRequest) -> Void = { _ in }
     var now: () -> ContinuousClock.Instant = { .now }
 
     init(phones: MobileHostPairedStore, disconnect: @escaping @Sendable (String) async -> Void) {
@@ -51,11 +54,16 @@ final class PhoneAdmission {
             question = existing
         } else {
             guard questions.count < 2 else { return false }
+            announce(phone)
             // task-owner: one question and save per endpoint, shared by concurrent connections
             question = (UUID(), selected, Task { [self] in
-                let allowed = await ask(phone, user)
+                let answer = await ask(phone, accountName().isEmpty ? user : accountName())
                 guard !Task.isCancelled, phones.generation == selected, phones.current?.userID == user else { return false }
-                guard allowed else { denied[phone.phoneDeviceID] = now(); return false }
+                switch answer {
+                case .unavailable: return false
+                case .deny: denied[phone.phoneDeviceID] = now(); return false
+                case .allow: break
+                }
                 do {
                     try await phones.change(for: user, generation: selected) { $0.approve(phone, at: Date()) }
                     return phones.generation == selected && phones.trusts(phone)
@@ -76,15 +84,29 @@ final class PhoneAdmission {
                        identifier: dialogIdentifier)
     }
 
-    private static func askOnThisMac(_ phone: MobileHostPairRequest, user: String) async -> Bool {
-        guard let window = NSApp?.keyWindow, window.isVisible, !window.isMiniaturized else { return false }
+    static func askOnThisMac(_ phone: MobileHostPairRequest, user: String) async -> PromptResult {
+        await askOnThisMac(phone, user: user, timeout: .seconds(120))
+    }
+
+    static func askOnThisMac(_ phone: MobileHostPairRequest, user: String, timeout: Duration) async -> PromptResult {
         return await withCheckedContinuation { continuation in
             let timer = DemandTimer(owner: "PhoneAdmission.question")
-            let id = CmuxDialogCenter.shared.present(spec(phone, user: user), in: .window(window)) { answer in
-                timer.cancel()
-                continuation.resume(returning: !answer.isDismissal && answer.button == "allow")
+            let scope: CmuxDialogScope = if let window = NSApp?.keyWindow, window.isVisible, !window.isMiniaturized {
+                .window(window)
+            } else {
+                .app
             }
-            timer.schedule(after: .seconds(120)) { @MainActor in CmuxDialogCenter.shared.dismiss(id) }
+            let id = CmuxDialogCenter.shared.present(spec(phone, user: user), in: scope) { answer in
+                timer.cancel()
+                if answer.isDismissal {
+                    continuation.resume(returning: .unavailable)
+                } else if answer.button == "allow" {
+                    continuation.resume(returning: .allow)
+                } else {
+                    continuation.resume(returning: .deny)
+                }
+            }
+            timer.schedule(after: timeout) { @MainActor in CmuxDialogCenter.shared.dismiss(id) }
         }
     }
 }
@@ -95,7 +117,19 @@ extension IPhoneHostService {
     public func followPhoneAccess(_ gate: PhoneAccessGate, disconnect: @escaping @Sendable (String) async -> Void) {
         guard phoneAdmission == nil else { return }
         let admission = PhoneAdmission(phones: pairedStore, disconnect: disconnect)
+        admission.accountName = { [weak self] in self?.account?.email ?? self?.account?.userID ?? "" }
+        admission.announce = { [weak self] request in self?.announcePhoneAccess(request) }
         phoneAdmission = admission
         gate.setAdmission(decide: { await admission.decide($0) }, recheck: { [pairedStore] in pairedStore.trusts($0) })
+    }
+
+    func announcePhoneAccess(_ request: MobileHostPairRequest) {
+        let name = request.name.isEmpty ? IPhoneHostStrings.unnamedPhone : request.name
+        let body = account.map { IPhoneHostStrings.signedInAs($0.email ?? $0.userID) } ?? ""
+        pairNotices?.post(IPhoneHostStrings.noticeTitle(name), body)
+        if let app = NSApp, !app.isActive, !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment) {
+            if let attentionRequest { app.cancelUserAttentionRequest(attentionRequest) }
+            attentionRequest = app.requestUserAttention(.criticalRequest)
+        }
     }
 }

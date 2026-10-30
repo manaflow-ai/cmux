@@ -4,13 +4,14 @@ import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import Testing
 
-/// Opt-in fleet capture of the real dialog with synthetic device/account data.
-/// The before image has no prompt, matching the base behavior. No admission is granted.
+/// Fleet capture of the real dialog with synthetic device/account data. Run this test by name;
+/// the before image has no prompt, matching the base behavior. No admission is granted.
 @MainActor struct PhoneAdmissionCaptureTests {
-    @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_PHONE_ALLOW_CAPTURE"] != nil))
+    @Test
     func capturesAllowPrompt() throws {
         _ = NSApplication.shared
-        let directory = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["CMUX_PHONE_ALLOW_CAPTURE"]))
+        let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("artifacts/phone-access-capture", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
                               styleMask: [.borderless], backing: .buffered, defer: false)
