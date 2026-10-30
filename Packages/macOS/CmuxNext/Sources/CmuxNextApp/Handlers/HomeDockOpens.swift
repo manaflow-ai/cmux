@@ -31,11 +31,12 @@ enum HomeDockOpens {
     /// it is). `then` itself anywhere else. Called before the tab is made: the dock's strip leaves it
     /// out until it has moved (``OutboundTab``), so it first shows in the column on the right.
     static func placing(_ pane: PaneModel, services: AppServices, focus: Bool, target: FocusState.Target = .content,
-                        then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
+                        then: (@MainActor (SurfaceID) -> Void)?, hold: (@MainActor (OutboundTab) -> Void)? = nil) -> (@MainActor (SurfaceID) -> Void)? {
         guard opensBeside(pane, services: services) else { return then }
         let outbound = services.paneController(for: pane).map {
             OutboundTab.begin(in: $0, holdSelectionUntilLanded: true)
         }
+        if let outbound { hold?(outbound) }
         return { [weak services] surface in
             then?(surface)
             guard let services else { outbound?.finish(moved: false); return }

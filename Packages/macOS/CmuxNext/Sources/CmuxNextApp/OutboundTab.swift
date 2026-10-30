@@ -209,9 +209,4 @@ final class OutboundTab {
         open[ObjectIdentifier(pane)]?.count { $0.pane === pane } ?? 0
     }
 
-    /// Cancels the newest provisional open when its creator fails before naming a tab.
-    static func cancelLatest(in pane: PaneController) {
-        guard let tab = open[ObjectIdentifier(pane)]?.last(where: { $0.pane === pane }) else { return }
-        tab.finish(moved: false)
-    }
 }

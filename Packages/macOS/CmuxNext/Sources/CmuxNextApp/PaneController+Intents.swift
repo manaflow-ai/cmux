@@ -123,7 +123,8 @@ extension PaneController {
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
-        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
+        var outbound: OutboundTab?
+        let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil) { outbound = $0 }
         let workspace = services.workspaceKey(of: pane)
         let intent = self.workspace?.beginFocusIntent()
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
@@ -153,7 +154,7 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch {
-                OutboundTab.cancelLatest(in: self)
+                outbound?.finish(moved: false)
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -188,10 +189,10 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch is NewTerminalTabCancelled {
-                OutboundTab.cancelLatest(in: self)
+                outbound?.finish(moved: false)
                 return nil // the person closed the stand-in first
             } catch {
-                OutboundTab.cancelLatest(in: self)
+                outbound?.finish(moved: false)
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }

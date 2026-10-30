@@ -226,7 +226,8 @@ final class InternalPageTabStore {
               case .connected = store.connectionState else { return nil }
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
         // Build this only after the creation preconditions pass, so a refused page never leaves an outbound hold.
-        let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
+        var outbound: OutboundTab?
+        let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil) { outbound = $0 }
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -259,8 +260,13 @@ final class InternalPageTabStore {
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
+                if store.creations.wasCancelled(transaction) {
+                    outbound?.finish(moved: false)
+                } else {
+                    onCreated?(created.surface)
+                }
             } catch {
+                outbound?.finish(moved: false)
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
                 if !store.creations.wasCancelled(transaction) {
                     self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window)

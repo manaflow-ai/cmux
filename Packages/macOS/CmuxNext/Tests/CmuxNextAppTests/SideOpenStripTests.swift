@@ -126,6 +126,19 @@ import Testing
         #expect(!OutboundTab.hidden(in: pane).contains(Self.tabID(for: Self.link)), "a landed tab is released once it is no longer in transit")
     }
 
+    @Test func concurrentOutboundCancellationReleasesOnlyItsOwnHold() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let first = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        let second = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        #expect(OutboundTab.count(in: pane) == 2)
+        first.finish(moved: false)
+        #expect(OutboundTab.count(in: pane) == 1)
+        second.finish(moved: false)
+        #expect(OutboundTab.count(in: pane) == 0)
+        _ = services
+    }
+
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
     /// tab on the right split"): the tab stays in the chat's pane, which becomes the column right of
     /// the chat's new dock. While the chat is still there the strip leaves the tab out; once the chat
