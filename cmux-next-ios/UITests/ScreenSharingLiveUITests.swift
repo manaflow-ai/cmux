@@ -75,16 +75,41 @@ final class ScreenSharingLiveUITests: XCTestCase {
         if keyboardButton.waitForExistence(timeout: 5) {
             keyboardButton.tap()
             settle(app, 1)
-            app.typeText("hello mac")
+            // The screen's key target is a plain UIKeyInput view XCUITest can't focus: type on the system keyboard.
+            for key in ["h", "e", "l", "l", "o"] where app.keyboards.keys[key].waitForExistence(timeout: 5) {
+                app.keyboards.keys[key].tap()
+            }
             settle(app, 1.5)
             attach(app, "09-typed")
-            if app.buttons["⌘ modifier"].exists || app.buttons["Cmd modifier"].exists {
-                (app.buttons["⌘ modifier"].exists ? app.buttons["⌘ modifier"] : app.buttons["Cmd modifier"]).tap()
+            // Sticky ⌘ from the keyboard bar, then a tap: a ⌘-click on the Mac.
+            let command = app.buttons["⌘ modifier"]
+            if command.waitForExistence(timeout: 5) {
+                command.tap()
+                app.buttons["Hide keyboard"].firstMatch.tapIfExists()
+                settle(app, 1)
                 center.tap()
                 settle(app, 1.5)
                 attach(app, "10-command-click")
+            } else {
+                app.buttons["Hide keyboard"].firstMatch.tapIfExists()
             }
-            app.buttons["Hide keyboard"].firstMatch.tapIfExists()
+        }
+
+        // Trackpad mode (Options › Input): one finger moves the pointer, a tap clicks where it is.
+        app.buttons["Options"].firstMatch.tap()
+        let input = app.buttons["Input"].firstMatch
+        if input.waitForExistence(timeout: 5) {
+            input.tap()
+            app.buttons["Trackpad"].firstMatch.tap()
+            settle(app, 1)
+            screen.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.55))
+                .press(forDuration: 0.05, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.56)))
+            settle(app, 1)
+            center.tap()
+            settle(app, 1.5)
+            attach(app, "10b-trackpad-move-and-tap")
+        } else {
+            app.tap()
         }
 
         // Landscape: the shared screen turns with the phone.
