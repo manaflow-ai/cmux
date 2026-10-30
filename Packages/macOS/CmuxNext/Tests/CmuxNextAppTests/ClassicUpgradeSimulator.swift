@@ -107,8 +107,11 @@ final class ClassicUpgradeSimulator {
     private(set) var launchMade: Set<String> = []
     private var watcher: Task<Void, Never>?
 
-    /// - Parameter ssh: the daemon for an SSH destination (default: none connects).
-    init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil) throws {
+    /// - Parameters:
+    ///   - ssh: the daemon for an SSH destination (default: none connects).
+    ///   - documentRemote: wraps the home daemon's sidebar document remote (a test holds its replies).
+    init(mac: Mac, ssh: (@MainActor (String) throws -> DaemonService)? = nil,
+         documentRemote: (@MainActor (any SidebarDocRemote) -> any SidebarDocRemote)? = nil) throws {
         self.mac = mac
         let binary = try #require(SameTreeDaemonBinary.url)
         launcher = DaemonLauncher(
@@ -117,6 +120,15 @@ final class ClassicUpgradeSimulator {
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
+        if let documentRemote {
+            // `AppServices.sidebarLayout`'s own start, with the document's remote wrapped.
+            let services = services
+            let layout = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: services),
+                                              onRefused: { [weak services] message in services?.registry.refuse(message) })
+            layout.start()
+            SidebarDocWiring.start(services, layout: layout, wrapping: documentRemote)
+            services.sidebarLayout = layout
+        }
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.onboarding.classicMigrationSupport = mac.support
