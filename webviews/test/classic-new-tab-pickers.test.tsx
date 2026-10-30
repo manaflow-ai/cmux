@@ -363,7 +363,7 @@ test("classic Add Project keeps a failed browse open and applies the retried fol
   };
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const add = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-project-menu [role=option]")]
-    .find((row) => row.textContent?.includes("Add project"));
+    .find((row) => row.textContent?.includes("New project"));
   expect(add).toBeDefined();
   await act(async () => add!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   const choose = async (label: string) => {
