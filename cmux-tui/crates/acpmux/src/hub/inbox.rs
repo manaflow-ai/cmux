@@ -10,8 +10,9 @@
 //! pull request its first line names, else its sender. An image, an upload, a slash command, a
 //! sub-session family message and a Web one are no inbox items: each still runs as before. So
 //! far only a plain send from this host is ([`plain_send`]): a peer's or the mesh relay's forward,
-//! a team message, a correction under a supersede key, a steer-only send, and the prompts acpmux
-//! makes itself (lane reports, task cards, a paused pair's release) still queue.
+//! a team message, a correction under a supersede key, a steer-only send, a `cmux agent message`
+//! (the cmux daemon delivers and tracks it, [`plain_kind`]) and the prompts acpmux makes itself
+//! (lane reports, task cards, a paused pair's release) still queue.
 //!
 //! The agent hears of its inbox as ONE notice (provenance `inbox_notice`), one line per thread
 //! with new messages (how many, from whom, the newest one's first line), blockers first, the way
@@ -165,11 +166,17 @@ pub(crate) fn plain_send(from_peer: bool, team: bool, supersede: bool, steer_onl
 }
 
 /// Whether a provenance is a plain message from another agent: none (a sender that named
-/// itself, or a connection that proved its session), `agent_message` or `session_message`.
+/// itself, or a connection that proved its session) or `session_message`.
+///
+/// A `cmux agent message` (`agent_message`, which only the cmux daemon's delivery pump sends)
+/// is not one: the cmux daemon keeps that message, its delivery receipt and its Stop hold, and
+/// its chat shows it as the agent message the app's reply in place answers (`app_reply.rs`
+/// finds its `user_message`). In this inbox it became a notice, so a reply in place was refused,
+/// a send to a chat that cannot run said delivered, and a send to an idle chat ran no turn.
 fn plain_kind(provenance: Option<&Value>) -> bool {
     match provenance.and_then(|p| p.get("kind")) {
         None => true,
-        Some(kind) => matches!(kind.as_str(), Some("agent_message" | "session_message")),
+        Some(kind) => kind.as_str() == Some("session_message"),
     }
 }
 
