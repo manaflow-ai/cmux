@@ -438,6 +438,15 @@ class RobustnessTests(unittest.TestCase):
             failed = good_capture(Path(tmp) / "failed")
             (failed / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"}]}))
             self.assertEqual(run_gate(bad_png, failed).returncode, 1)
+            # A failed step in the same state as a bad still keeps the state failed: the
+            # step's failure is recorded before the still is read, and an error later in
+            # the checks must not replace it (that maps to `unavailable` and publishes).
+            both = good_capture(Path(tmp) / "both")
+            (both / "dark.png").write_bytes(b"\x89PNG\r\n\x1a\nnot really")
+            (both / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"}],
+                                                          "window_points": [60, 40]}))
+            self.assertEqual(gate.judge(both)["verdict"], "fail")
+            self.assertEqual(run_gate(both).returncode, 1)
 
     def test_a_malformed_result_json_is_unjudged_never_a_pass(self):
         # result.json's schema is the capture's contract: no `steps`, a step with no or an unknown
