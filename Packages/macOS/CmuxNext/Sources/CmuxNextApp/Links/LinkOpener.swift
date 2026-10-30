@@ -106,51 +106,69 @@ final class LinkOpener {
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
     /// the column on its right). False with no source pane (no window) or when `make` refused.
+    /// Opens beside one source run one at a time (``RightColumn/serially(beside:_:)``): one asked for
+    /// while another is still moving into place waits, answers true, and decides its place once that
+    /// one has landed, from the column it made.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
+        var opened = true
+        let now = RightColumn.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
+            guard let self, let source else { return done() }
+            opened = self.place(from: source, background: background, mainPane: mainPane, make, done: done)
+        }
+        return now ? opened : true
+    }
+
+    /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
+    /// failed, so the next open beside `source` reads the column it left.
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, _ make: Make,
+                       done: @escaping @MainActor () -> Void) -> Bool {
         switch target(from: source, mainPane: mainPane) {
         case .pane(let id):
+            defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
-            let outbound = OutboundTab.begin(in: source)
-            return outbound.started(make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return outbound.finish(moved: false) }
-                self.move(surface, from: source, to: .split(.right), focus: !background, outbound: outbound)
-            })
+            return moved(from: source, to: .split(.right), background: background, make, done: done)
         case .splitBelow(let id):
             // Made unselected in the pane on the right, which keeps showing what it shows, then moved below it.
-            // Until its move lands the column reads as two panes (RightColumn.reserveBelow): a link opened meanwhile is a tab.
-            guard let right = source.workspace?.panes[id] else { return make(source, nil) }
-            let outbound = OutboundTab.begin(in: right), release = RightColumn.reserveBelow(id)
-            let started = outbound.started(make(right) { [weak self, weak right] surface in
-                guard let self, let right else { release(); return outbound.finish(moved: false) }
-                self.move(surface, from: right, to: .split(.bottom), focus: !background, outbound: outbound, then: release)
-            })
-            if !started { release() }
-            return started
+            guard let right = source.workspace?.panes[id] else { defer { done() }; return make(source, nil) }
+            return moved(from: right, to: .split(.bottom), background: background, make, done: done)
         case .newColumn:
-            let outbound = OutboundTab.begin(in: source)
-            return outbound.started(make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return outbound.finish(moved: false) }
-                self.move(surface, from: source, to: .besideColumn, focus: !background, outbound: outbound)
-            })
+            return moved(from: source, to: .besideColumn, background: background, make, done: done)
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
             // right of it. Home's dock takes tabs, so the tab is made there and moves to the right.
-            guard source.isOpenPinnedDockPane else { return make(source, nil) }
-            return make(source) { [weak self, weak source] surface in
-                guard let self, let source else { return }
-                self.moveBeside(surface, from: source, focus: !background)
+            guard source.isOpenPinnedDockPane else { defer { done() }; return make(source, nil) }
+            let made = make(source) { [weak self, weak source] surface in
+                guard let self, let source else { return done() }
+                self.moveBeside(surface, from: source, focus: !background, then: done)
             }
+            if !made { done() }
+            return made
         case .dockChat:
             let outbound = OutboundTab.begin(in: source)
-            return outbound.started(make(source) { [weak source] surface in
-                guard let source else { return outbound.finish(moved: false) }
+            let made = outbound.started(make(source) { [weak source] surface in
+                guard let source else { done(); return outbound.finish(moved: false) }
                 outbound.made(surface)
-                MainPaneLayout.dockChat(of: source, keeping: surface, focus: !background, services: source.services, outbound: outbound)
+                MainPaneLayout.dockChat(of: source, keeping: surface, focus: !background, services: source.services, outbound: outbound) { _ in done() }
             })
+            if !made { done() }
+            return made
         }
+    }
+
+    /// `make`'s tab, made unselected in `pane` and kept out of its strip (``OutboundTab``), moved to
+    /// `destination`; `done` once the move has landed or failed.
+    private func moved(from pane: PaneController, to destination: Destination, background: Bool, _ make: Make,
+                       done: @escaping @MainActor () -> Void) -> Bool {
+        let outbound = OutboundTab.begin(in: pane)
+        let made = outbound.started(make(pane) { [weak self, weak pane] surface in
+            guard let self, let pane else { done(); return outbound.finish(moved: false) }
+            self.move(surface, from: pane, to: destination, focus: !background, outbound: outbound, then: done)
+        })
+        if !made { done() }
+        return made
     }
 
     /// A web link in a cmux browser tab (``LinkRouter/openInCmux``), as Chrome opens a clicked
@@ -250,27 +268,33 @@ final class LinkOpener {
     /// that folder); a column or the pane on the right gets a terminal tab.
     func openFolder(_ path: String, from source: PaneController?) {
         guard let source = source ?? services?.windows.active?.focusedPane else { return }
-        switch target(from: source) {
-        case .pane(let id):
-            (source.workspace?.panes[id] ?? source).newTerminalTab(cwd: path)
-        case .besideDock:
-            source.workspace?.newColumn(after: source.layoutPaneID, options: SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key))
-        case .dockChat:
-            // The chat docks and leaves the folder's terminal in its pane, in one daemon commit.
-            let spawn = SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key)
-            ChatColumnPlacement.route(from: source, respawn: .terminal(spawn), services: source.services)?.newTerminalTab(cwd: path)
-        case .splitRight, .newColumn:
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: source.paneKey),
-                                              arguments: ["cwd": .string(path)], origin: .user)
-            invocation.opensTerminal = true
-            source.services.registry.perform("splitRight", invocation: invocation)
-        case .splitBelow(let id):
-            // The pane on the right keeps what it shows: the folder's terminal is a split below it.
-            let right = source.workspace?.panes[id] ?? source
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: right.paneKey),
-                                              arguments: ["cwd": .string(path)], origin: .user)
-            invocation.opensTerminal = true
-            source.services.registry.perform("splitDown", invocation: invocation)
+        // In its turn beside `source`, like every open on the right (RightColumn.serially). A split's
+        // terminal is made in the pane it splits and moved there, as a New Tab page's terminal is.
+        RightColumn.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
+            guard let self, let source else { return done() }
+            let terminal: Make = { pane, placed in
+                pane.newTerminalTab(cwd: path, then: placed)
+                return true
+            }
+            switch self.target(from: source) {
+            case .pane(let id):
+                (source.workspace?.panes[id] ?? source).newTerminalTab(cwd: path)
+                done()
+            case .besideDock:
+                source.workspace?.newColumn(after: source.layoutPaneID, options: SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key))
+                done()
+            case .dockChat:
+                // The chat docks and leaves the folder's terminal in its pane, in one daemon commit.
+                let spawn = SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key)
+                ChatColumnPlacement.route(from: source, respawn: .terminal(spawn), services: source.services)?.newTerminalTab(cwd: path)
+                done()
+            case .splitRight, .newColumn:
+                // A split on the source's right, for New Column too, as Split Right with that folder made it.
+                _ = self.moved(from: source, to: .split(.right), background: false, terminal, done: done)
+            case .splitBelow(let id):
+                // The pane on the right keeps what it shows: the folder's terminal is a split below it.
+                _ = self.moved(from: source.workspace?.panes[id] ?? source, to: .split(.bottom), background: false, terminal, done: done)
+            }
         }
     }
 
@@ -323,8 +347,9 @@ final class LinkOpener {
 
     /// Moves new tab `surface`, made in `source`, to a new column right of it, focusing `target` in
     /// it when `focus` (Home's dock, which takes tabs, opens its tools beside itself this way).
-    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content) {
-        move(surface, from: source, to: .besideColumn, focus: focus, target: target)
+    func moveBeside(_ surface: SurfaceID, from source: PaneController, focus: Bool, target: FocusState.Target = .content,
+                    then: (@MainActor () -> Void)? = nil) {
+        move(surface, from: source, to: .besideColumn, focus: focus, target: target, then: then)
     }
 
     /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)

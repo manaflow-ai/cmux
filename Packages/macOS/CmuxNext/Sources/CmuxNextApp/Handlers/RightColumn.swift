@@ -7,10 +7,17 @@ import CmuxNextWakeups
 /// The right column beside a pane as the window shows it, for ``RightColumnPlacement``: the panes
 /// that start at its right edge and overlap its height, top to bottom. Only panes that take new
 /// tabs count.
+///
+/// Every open on the right of a pane (a link, file, folder or browser tab through
+/// ``LinkOpener/open(from:background:mainPane:_:)``; a subagent, side chat, Session Info session or
+/// transcript session card through ``AgentTabStore/openOnRight(of:origin:open:created:finished:)``)
+/// runs through ``serially(beside:_:)``: one at a time per source pane, each deciding its place from
+/// the column as it is when its turn comes, after the open before it has landed. Two opens never
+/// read the same column, so neither splits where the other already did (reviews of #28044 at
+/// c15e0d89 and e954bd85).
 @MainActor
 enum RightColumn {
-    /// The right column beside `source`, measured: its panes (layout pane ids) and their widths. A pending
-    /// lower split reads as a full column whose lower pane is its right pane (``panes(beside:in:)``).
+    /// The right column beside `source`, measured: its panes (layout pane ids) and their widths.
     static func measure(beside source: PaneController) -> RightColumnPlacement.Column {
         guard let content = source.workspace else { return .init(sourceWidth: source.view.bounds.width) }
         let panes = panes(beside: source.layoutPaneID, in: content)
@@ -19,61 +26,69 @@ enum RightColumn {
         return .init(sourceWidth: source.view.bounds.width, panes: panes.map(\.rawValue), widths: widths)
     }
 
-    /// Lower splits under way, by the right pane they split: until a split's move lands, its column is
-    /// read as two panes, so an open started meanwhile is a tab there instead of a second split below the
-    /// same pane (review of #28044 at c15e0d89: two links opened together made three panes on the right).
-    private static var pendingBelow: [LayoutPaneID: Int] = [:]
-    /// How long a reservation holds when its move never reports back.
-    static let reservationLimit: Duration = .seconds(30)
-
-    /// Reserves the lower split of right pane `pane` for one open; call the returned function when its
-    /// move lands or fails (it is safe to call more than once). A backstop ends it after ``reservationLimit``.
-    static func reserveBelow(_ pane: LayoutPaneID) -> @MainActor () -> Void {
-        pendingBelow[pane, default: 0] += 1
-        let reservation = Reservation(pane)
-        reservation.backstop.schedule(after: reservationLimit) { @MainActor [reservation] in reservation.end() }
-        return { reservation.end() }
+    /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
+    /// that holds `source`, active or not (``RightColumnPlacement/column(beside:frames:gap:)``),
+    /// keeping those that take new tabs. Review of #28044 at bd2b918d: the active screen's frames
+    /// read an empty column for a chat on a screen the person switched away from mid-open.
+    static func panes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] {
+        RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source))
+            .filter { content.panes[$0]?.stripModel.showsNewTabButton == true }
     }
 
-    /// One reservation: its count goes once, whichever comes first, its release or its backstop.
-    @MainActor private final class Reservation {
-        let pane: LayoutPaneID
-        let backstop = DemandTimer(owner: "RightColumn.reserveBelow")
+    /// An open's turn: it gets `done`, which it calls once its open has landed or failed.
+    typealias Turn = @MainActor (_ done: @escaping @MainActor () -> Void) -> Void
+
+    /// How long a turn holds its source when its open never reports back.
+    static let turnLimit: Duration = .seconds(30)
+    /// The sources with an open under way.
+    private static var running: Set<LayoutPaneID> = []
+    /// The opens waiting for their source, oldest first.
+    private static var waiting: [LayoutPaneID: [Turn]] = [:]
+
+    /// Runs `turn` now, or once every open already under way beside `source` has landed or failed.
+    /// Returns whether it ran now (false: it waits its turn).
+    @discardableResult
+    static func serially(beside source: LayoutPaneID, _ turn: @escaping Turn) -> Bool {
+        guard !running.contains(source) else {
+            waiting[source, default: []].append(turn)
+            return false
+        }
+        run(turn, beside: source)
+        return true
+    }
+
+    /// Whether an open beside `source` is under way (for tests).
+    static func isBusy(beside source: LayoutPaneID) -> Bool { running.contains(source) }
+
+    private static func run(_ turn: Turn, beside source: LayoutPaneID) {
+        running.insert(source)
+        let hold = Hold(source)
+        hold.backstop.schedule(after: turnLimit) { @MainActor [hold] in hold.end() }
+        turn { hold.end() }
+    }
+
+    /// Ends `source`'s turn and starts the next waiting one, if any.
+    fileprivate static func next(after source: LayoutPaneID) {
+        running.remove(source)
+        guard var queue = waiting[source], !queue.isEmpty else { waiting[source] = nil; return }
+        let turn = queue.removeFirst()
+        waiting[source] = queue.isEmpty ? nil : queue
+        run(turn, beside: source)
+    }
+
+    /// One turn's hold on its source: it ends once, whichever comes first, its open's `done` or the backstop.
+    @MainActor private final class Hold {
+        let source: LayoutPaneID
+        let backstop = DemandTimer(owner: "RightColumn.turn")
         private var ended = false
 
-        init(_ pane: LayoutPaneID) { self.pane = pane }
+        init(_ source: LayoutPaneID) { self.source = source }
 
         func end() {
             guard !ended else { return }
             ended = true
             backstop.cancel()
-            let left = (RightColumn.pendingBelow[pane] ?? 1) - 1
-            RightColumn.pendingBelow[pane] = left > 0 ? left : nil
+            RightColumn.next(after: source)
         }
-    }
-
-    /// `column` with the lower pane of each split under way: its right pane, then a stand-in for the pane
-    /// still moving in, so ``RightColumnPlacement`` sees the column as full. ``panes(beside:in:)`` maps the
-    /// stand-in back (``realPane(_:)``) before it leaves this type: callers only ever see real panes (review
-    /// of #28044 at a4ae195d: a folder link and DurableTabLink's fallback looked the stand-in up and missed).
-    static func withPendingSplits(_ column: [LayoutPaneID]) -> [LayoutPaneID] {
-        guard column.count == 1, let pane = column.first, pendingBelow[pane] != nil else { return column }
-        return [pane, LayoutPaneID("pending-below:\(pane.rawValue)")]
-    }
-
-    /// The pane a tab goes to when placement picks `id`: a pending lower split's stand-in is still its
-    /// right pane, where the moving tab sits until its split lands.
-    static func realPane(_ id: LayoutPaneID) -> LayoutPaneID {
-        id.rawValue.hasPrefix("pending-below:") ? LayoutPaneID(String(id.rawValue.dropFirst("pending-below:".count))) : id
-    }
-
-    /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
-    /// that holds `source`, active or not (``RightColumnPlacement/column(beside:frames:gap:)``),
-    /// keeping those that take new tabs. Review of #28044 at bd2b918d: the active screen's frames
-    /// read an empty column for a chat on a screen the person switched away from mid-open.
-    /// Only real ids: a pending lower split is its right pane listed twice, which still reads as a full column.
-    static func panes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] {
-        withPendingSplits(RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source))
-            .filter { content.panes[$0]?.stripModel.showsNewTabButton == true }).map(realPane)
     }
 }
