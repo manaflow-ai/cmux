@@ -146,6 +146,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runs_on_values.py
 
+      - name: Validate every compile job declares its warm source
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_warm_sources.py
+
       - name: Validate the cloud overflow switch
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
