@@ -1283,6 +1283,7 @@ CLI actions (the live action catalog is authoritative):
   machine-link              enroll-machine
   open-desktop              apply-machine-config
   deliver-secrets           start-session
+  set-network-access
 
 Secrets (stored in this Mac's Keychain):
   cmux cloud secret set NAME [--repo OWNER/NAME]
@@ -1336,6 +1337,7 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   machine-link              enroll-machine
   open-desktop              apply-machine-config
   deliver-secrets           start-session
+  set-network-access
 
 シークレット（この Mac のキーチェーンに保存）:
   cmux cloud secret set NAME [--repo OWNER/NAME]

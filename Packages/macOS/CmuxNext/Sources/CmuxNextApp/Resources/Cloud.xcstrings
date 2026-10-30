@@ -16324,6 +16324,268 @@
         }
       }
     },
+    "cloud.cli.networkAccessMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access must be one of: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスには次のいずれかを指定してください: %@。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون الوصول واحدًا من: %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pristup mora biti jedno od: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adgang skal være en af: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Zugriff muss einer dieser Werte sein: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El acceso debe ser uno de: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès doit être l’une des valeurs suivantes : %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso deve essere uno tra: %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលប្រើត្រូវតែជាមួយក្នុងចំណោម៖ %@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근은 다음 중 하나여야 합니다: %@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgang må være én av: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostęp musi mieć jedną z wartości: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso deve ser um destes: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ должен быть одним из значений: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึงต้องเป็นค่าใดค่าหนึ่งต่อไปนี้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim şunlardan biri olmalıdır: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ має бути одним зі значень: %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quyền truy cập phải là một trong: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问级别必须是以下之一：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存取層級必須是下列其中之一：%@。"
+          }
+        }
+      }
+    },
+    "cloud.cli.networkAccessAgentWidens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent can narrow a machine's internet access but not widen it. Choose Internet Access… from the machine's menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはマシンのインターネットアクセスを狭めることはできますが、広げることはできません。マシンのメニューから「インターネットアクセス…」を選んでください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكيل تضييق وصول الآلة إلى الإنترنت لكن لا يمكنه توسيعه. اختر «الوصول إلى الإنترنت…» من قائمة الآلة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent može suziti pristup mašine internetu, ali ga ne može proširiti. Odaberite Pristup internetu… u meniju mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan begrænse en maskines internetadgang, men ikke udvide den. Vælg Internetadgang… i maskinens menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent kann den Internetzugriff einer Maschine einschränken, aber nicht erweitern. Wählen Sie „Internetzugriff …“ im Menü der Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente puede restringir el acceso a Internet de una máquina, pero no ampliarlo. Elige Acceso a Internet… en el menú de la máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent peut restreindre l’accès à Internet d’une machine, mais pas l’élargir. Choisissez Accès à Internet… dans le menu de la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente può restringere l’accesso a Internet di una macchina, ma non ampliarlo. Scegli Accesso a Internet… dal menu della macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចបង្រួមការចូលប្រើអ៊ីនធឺណិតរបស់ម៉ាស៊ីនបាន ប៉ុន្តែមិនអាចពង្រីកវាបានទេ។ សូមជ្រើស ការចូលប្រើអ៊ីនធឺណិត… ពីម៉ឺនុយរបស់ម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 머신의 인터넷 접근을 좁힐 수는 있지만 넓힐 수는 없습니다. 머신의 메뉴에서 인터넷 접근…을 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan begrense en maskins internettilgang, men ikke utvide den. Velg Internettilgang … i maskinens meny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent może zawęzić dostęp maszyny do internetu, ale nie może go poszerzyć. Wybierz Dostęp do internetu… z menu maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente pode restringir o acesso à internet de uma máquina, mas não ampliá-lo. Escolha Acesso à Internet… no menu da máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент может сузить доступ машины в интернет, но не расширить его. Выберите «Доступ в интернет…» в меню машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์จำกัดการเข้าถึงอินเทอร์เน็ตของเครื่องให้แคบลงได้ แต่ขยายไม่ได้ เลือก การเข้าถึงอินเทอร์เน็ต… จากเมนูของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan makinenin internet erişimini daraltabilir ama genişletemez. Makinenin menüsünden İnternet Erişimi…'ni seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент може звузити доступ машини до інтернету, але не розширити його. Виберіть «Доступ до інтернету…» у меню машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân có thể thu hẹp quyền truy cập Internet của máy nhưng không thể mở rộng. Hãy chọn Truy cập Internet… trong menu của máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理可以收紧机器的互联网访问，但不能放宽。请从机器的菜单中选择“互联网访问…”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式可以收緊機器的網際網路存取，但不能放寬。請從機器的選單中選擇「網際網路存取…」。"
+          }
+        }
+      }
+    },
     "cloud.link.unsupported": {
       "comment": "A Cloud machine connect needs a connection path this cmux build does not have yet.",
       "extractionState": "manual",

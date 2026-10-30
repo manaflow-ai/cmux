@@ -290,6 +290,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.idlePauseChoice], targets: [.machine], cliName: "cloud set-idle-pause"
             ),
             ActionDescriptor(
+                id: "cloudSetNetworkAccess",
+                title: String(localized: "action.cloudSetNetworkAccess", defaultValue: "Internet Access…", bundle: .module),
+                keywords: ["vm", "network", "internet", "egress", "allowlist", "firewall", "offline", "sandbox"], category: .cloud,
+                symbol: "globe", surfaces: [.contextMenu],
+                arguments: [CatalogArgument.networkAccessChoice], targets: [.machine], cliName: "cloud set-network-access"
+            ),
+            ActionDescriptor(
                 id: "palette.cloud.deleteSnapshot",
                 title: String(localized: "action.palette.cloud.deleteSnapshot", defaultValue: "Delete Cloud Snapshot…", bundle: .module),
                 keywords: ["vm", "snapshot", "delete", "remove"], category: .cloud, symbol: "trash",
