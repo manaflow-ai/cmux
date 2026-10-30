@@ -82,14 +82,22 @@ struct AttachmentSourceTests {
         // A drop of a file and a picture names both: the file by its URL, the picture by the claim.
         record.stashSource([URL(fileURLWithPath: "/tmp/c.png")], items: 2, claimed: nil, kind: .drop)
         #expect(record.source(.drop, names: ["c.png", "image.png"])?.urls == [URL(fileURLWithPath: "/tmp/c.png")])
-        // A pane moved to another chat forgets the last gesture's record.
-        record.stashSource([URL(fileURLWithPath: "/tmp/d.png")], items: 1, claimed: nil, kind: .drop)
-        record.clearForSessionChange()
-        #expect(record.source(.drop, names: ["d.png"]) == nil)
         let taken = record.source(.paste, names: ["a.png"])
         #expect(taken?.urls == [URL(fileURLWithPath: "/tmp/a.png")] && taken?.claimed == "com.apple.finder")
         // Once only.
         #expect(record.source(.paste, names: ["a.png"]) == nil)
+        // A pane moved to another chat forgets every gesture's record, a drop's and a paste's: the
+        // next chat can't learn where the last chat's files came from. A draft keeps its chips'
+        // sources itself (the draft and wake state), not through this record.
+        record.stashSource([URL(fileURLWithPath: "/tmp/d.png")], items: 1, claimed: nil, kind: .drop)
+        record.stashSource([URL(fileURLWithPath: "/tmp/e.png")], items: 1, claimed: "com.apple.finder", kind: .paste)
+        record.clearForSessionChange()
+        #expect(record.source(.drop, names: ["d.png"]) == nil)
+        #expect(record.source(.paste, names: ["e.png"]) == nil)
+        // The next chat's own gesture answers as before.
+        record.stashSource([URL(fileURLWithPath: "/tmp/f.png")], items: 1, claimed: "com.apple.finder", kind: .paste)
+        let next = record.source(.paste, names: ["f.png"])
+        #expect(next?.urls == [URL(fileURLWithPath: "/tmp/f.png")] && next?.claimed == "com.apple.finder")
         // A pasted picture (no file): only as many files as the pasteboard held items.
         record.stashSource([], items: 1, claimed: "com.google.Chrome", kind: .paste)
         #expect(record.source(.paste, names: ["image.png", "other.png"]) == nil)
