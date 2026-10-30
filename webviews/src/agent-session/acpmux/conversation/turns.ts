@@ -483,6 +483,28 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[]): Fol
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
+/// The ids of a finished turn's replies to the person, which keep their action row inside its open
+/// fold (model.ts hasReplyActions): each takeaway, and the last words before each steer or received
+/// message (the reply after the part's last step). Short narration between steps stays quiet.
+function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
+  const replies = new Set<string>();
+  let stepped = false;
+  let answered = false;
+  for (let at = body.length - 1; at >= 0; at -= 1) {
+    const row = body[at]!;
+    if (row.kind === "user") {
+      stepped = answered = false;
+      continue;
+    }
+    if (isReply(row) && (isTakeaway(row) || (!stepped && !answered))) {
+      replies.add(row.id);
+      answered = true;
+    }
+    if (isWork(row)) stepped = true;
+  }
+  return replies;
+}
+
 function shapeTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
@@ -514,6 +536,7 @@ function shapeTurn(
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
   const version = summary.version * VERSION_SPAN + (answer?.version ?? 0);
   const edits: AcpmuxRow[] = [];
+  const replies = repliesIn(body);
   let folded = false;
   // A completed turn gets one fold, including steers received inside that connected turn. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
@@ -554,7 +577,7 @@ function shapeTurn(
             settled: true,
             // A finished turn's earlier replies fold here too; each keeps its action row, while a
             // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-            ...(isTakeaway(row) && { foldedReply: true }),
+            ...(replies.has(row.id) && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
             ...(liveRuns && row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
           })),

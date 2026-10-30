@@ -82,12 +82,12 @@ test("a reply followed by a steer keeps its row in the opened Worked for; the tu
   expect(marked(turnView(source, new Set(), { now: 10_000 }))).toEqual({ a2: false });
 });
 
-test("a short note folded under an opened Worked for stays without a row", () => {
+test("a short note between steps folded under an opened Worked for stays without a row", () => {
   const rows = turnView(
     [
       row("u1", "user", 0, { text: "Report the merge." }),
-      row("t1", "activity", 1_000, { items: [send], toolCount: 1 }),
-      reply("n1", 2_000, "Checking the review."),
+      reply("n1", 1_000, "Checking the review."),
+      row("t1", "activity", 2_000, { items: [send], toolCount: 1 }),
       row("s1", "user", 3_000, { text: "Also tell Lawrence.", steer: "landed" }),
       reply("a2", 4_000, ANSWER),
       row("f1", "turnSummary", 5_000, { durationMs: 5_000, toolCount: 1, status: "completed" }),
