@@ -90,6 +90,9 @@ export function TrustAsk({
                 ? t("trust.notTrustedRepo", { agent, repo })
                 : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
           </span>
+          {answers && onContinueWithoutFolder && (
+            <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
+          )}
           {continueError && <span role="alert">{t("trust.failed")}</span>}
           <span className="acpmux-trust-ask-actions">
             {!answers ? null : retrustsRepo ? (
@@ -119,7 +122,7 @@ export function TrustAsk({
                       });
                     }}
                   >
-                    {t("trust.continueWithoutFolder")}
+                    {t("trust.continueWithoutFolderLabel")}
                   </button>
                 )}
                 <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>

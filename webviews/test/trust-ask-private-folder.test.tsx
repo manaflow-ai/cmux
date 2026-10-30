@@ -106,9 +106,27 @@ test("a declined folder offers continuation without folder context", async () =>
     );
   });
   const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) =>
-    item.textContent?.includes("Continue without folder context"),
+    item.textContent?.includes("Continue without folder"),
   );
   expect(button).toBeDefined();
   await act(async () => button!.click());
   expect(continued).toBe(1);
+});
+
+
+test("continuation disables duplicate clicks and reports a failed start for retry", async () => {
+  let reject!: (error: Error) => void;
+  let starts = 0;
+  await act(async () => root.render(<TrustAsk
+    ask={{ state: "decided", level: "untrusted", cwd: "/project" }} agent="Agent"
+    onTrust={() => {}} onDistrust={() => {}} onUndo={() => {}}
+    onContinueWithoutFolder={() => { starts += 1; return new Promise<void>((_, no) => { reject = no; }); }}
+  />));
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent === "Continue without folder")!;
+  await act(async () => { button.click(); button.click(); });
+  expect(starts).toBe(1);
+  expect(button.disabled).toBe(true);
+  await act(async () => reject(new Error("offline")));
+  expect(button.disabled).toBe(false);
+  expect(host.querySelector('[role="alert"]')).not.toBeNull();
 });
