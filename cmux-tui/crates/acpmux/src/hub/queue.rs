@@ -463,7 +463,7 @@ impl Hub {
             queued.set("fromAgent", json!(agent));
         }
         if let Some(class) = p.class {
-            queued["class"] = json!(class);
+            queued.set("class", json!(class));
         }
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
