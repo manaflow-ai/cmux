@@ -62,7 +62,7 @@ try {
         }
       }
     });
-    const target = page.locator(".acpmux-shell").first();
+    const target = page.locator(".acpmux-pane, .acpmux-shell").first();
     const box = await target.boundingBox();
     if (!box) throw new Error("transcript gallery shell did not render");
     const file = path.join(out, `after-${scheme}-coarse.png`);
@@ -80,13 +80,15 @@ try {
       const copy = group?.querySelector('button[aria-label="Copy"]');
       const retry = group?.querySelector('button[aria-label="Retry"]');
       return {
-        shell: document.querySelector(".acpmux-shell")?.getBoundingClientRect().toJSON(),
+        shell: document.querySelector(".acpmux-pane, .acpmux-shell")?.getBoundingClientRect().toJSON(),
         copyRetryGap: copy && retry ? retry.getBoundingClientRect().left - copy.getBoundingClientRect().right : null,
         dpr: devicePixelRatio,
       };
     });
     console.log(JSON.stringify({ scheme, file, metrics, base: process.env.CMUX_CAPTURE_BASE_SHA ?? null }));
-    console.log(`CAPTURE_BASE64 ${path.basename(file)} ${fs.readFileSync(file).toString("base64")}`);
+    const encoded = fs.readFileSync(file).toString("base64");
+    for (let offset = 0; offset < encoded.length; offset += 2000)
+      console.log(`CAPTURE_BASE64 ${path.basename(file)} ${offset} ${encoded.slice(offset, offset + 2000)}`);
     await context.close();
   } finally {
     await browser.close();
