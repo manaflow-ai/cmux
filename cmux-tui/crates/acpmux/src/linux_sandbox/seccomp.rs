@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use std::io;
+use std::os::fd::{FromRawFd, OwnedFd};
 
 pub(crate) fn deny_filter() -> Result<Vec<libc::sock_filter>, String> {
     filter(false)
@@ -53,7 +54,10 @@ impl Assembler {
     }
 
     fn mark(&mut self, label: Label) {
-        self.labels[label.0] = Some(self.program.len());
+        let at = self.program.len();
+        if let Some(slot) = self.labels.get_mut(label.0) {
+            *slot = Some(at);
+        }
     }
 
     fn stmt(&mut self, code: u32, k: u32) {
@@ -73,7 +77,11 @@ impl Assembler {
 
     fn finish(mut self) -> Result<Vec<libc::sock_filter>, String> {
         for (index, label, true_branch) in self.patches {
-            let target = self.labels[label.0]
+            let target = self
+                .labels
+                .get(label.0)
+                .copied()
+                .flatten()
                 .ok_or_else(|| format!("unresolved seccomp label {}", label.0))?;
             let offset = target
                 .checked_sub(index + 1)
@@ -81,10 +89,13 @@ impl Assembler {
             if offset > u8::MAX as usize {
                 return Err(format!("seccomp jump at {index} is too far ({offset})"));
             }
+            let Some(insn) = self.program.get_mut(index) else {
+                return Err(format!("seccomp jump at {index} is outside the program"));
+            };
             if true_branch {
-                self.program[index].jt = offset as u8;
+                insn.jt = offset as u8;
             } else {
-                self.program[index].jf = offset as u8;
+                insn.jf = offset as u8;
             }
         }
         if self.program.len() >= 4096 {
@@ -375,30 +386,46 @@ fn classify_install_result(rc: libc::c_long, errno: i32) -> io::Result<()> {
     }
 }
 
-pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+fn install_flags(filter: &[libc::sock_filter], flags: libc::c_ulong) -> io::Result<libc::c_long> {
     if filter.is_empty() || filter.len() >= 4096 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seccomp filter length"));
     }
     // SAFETY: PR_SET_NO_NEW_PRIVS takes an integer flag and no pointers.
-    let rc = unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) };
-    if rc != 0 {
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
         return Err(io::Error::last_os_error());
     }
     let program = libc::sock_fprog {
         len: filter.len() as libc::c_ushort,
         filter: filter.as_ptr() as *mut libc::sock_filter,
     };
-    // SAFETY: `program` points to the immutable filter for the duration of
-    // the raw syscall, and TSYNC asks the kernel to synchronize this process.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_seccomp,
-            libc::SECCOMP_SET_MODE_FILTER,
-            libc::SECCOMP_FILTER_FLAG_TSYNC,
-            &program,
-        )
-    };
-    classify_install_result(rc, io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO))
+    // SAFETY: `program` remains live for the raw syscall.
+    let rc =
+        unsafe { libc::syscall(libc::SYS_seccomp, libc::SECCOMP_SET_MODE_FILTER, flags, &program) };
+    if rc < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(rc)
+}
+
+pub(crate) fn install(filter: &[libc::sock_filter]) -> io::Result<()> {
+    let rc = install_flags(filter, libc::SECCOMP_FILTER_FLAG_TSYNC as _)?;
+    classify_install_result(rc, 0)
+}
+
+/// Install USER_NOTIF and return the kernel-owned listener. The listener is
+/// handed to the host before exec; the target filter remains active afterward.
+pub(crate) fn install_notify(filter: &[libc::sock_filter]) -> io::Result<OwnedFd> {
+    const NEW_LISTENER: libc::c_ulong = 1 << 3;
+    const TSYNC_ESRCH: libc::c_ulong = 1 << 4;
+    let fd = install_flags(
+        filter,
+        (libc::SECCOMP_FILTER_FLAG_TSYNC as libc::c_ulong) | NEW_LISTENER | TSYNC_ESRCH,
+    )?;
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: seccomp returned a newly owned listener descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd as _) })
 }
 
 #[cfg(all(test, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]

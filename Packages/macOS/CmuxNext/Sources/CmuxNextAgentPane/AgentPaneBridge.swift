@@ -105,9 +105,11 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
+            AgentPaneComputerUsePreview.replay(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
+            view.model.readAloud?.push(to: view)
         }
         return view.model
     }

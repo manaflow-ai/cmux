@@ -8,6 +8,7 @@ import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { incomingRows } from "./incomingFixture";
+import { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";
 import { SHARED_PRESENCE, sharedRows } from "./multiplayer/sharedFixture";
 import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
@@ -27,7 +28,9 @@ export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, with the worked turn of
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
   /// (incomingFixture.ts) when it is "incoming", or with a shared chat (teammates' prompts, who
-  /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared".
+  /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
+  /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
+  /// "subagents".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -129,17 +132,27 @@ export function createAcpmuxDebug(
     };
   };
 
+  // The subagents fixture's steps share the time its step 0 began, so its rows keep their places.
+  let subagentsAt: number | undefined;
+  const trayStep = (count: number) => (Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0);
+  const trayOrigin = (count: number) => {
+    if (trayStep(count) === 0 || subagentsAt === undefined) subagentsAt = Date.now() - 60_000;
+    return subagentsAt;
+  };
+
   return {
     async seedRows(count = 5000, fixture) {
       acpmuxPerf.enable();
       const rows =
-        fixture === "worked-turn"
-          ? workedTurnRows(Date.now() - 60_000)
-          : fixture === "incoming"
-            ? incomingRows(Date.now() - 120_000)
-            : fixture === "shared"
-              ? sharedRows(Date.now() - 720_000)
-              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+        fixture === "subagents"
+          ? subagentTrayRows(trayStep(count), trayOrigin(count))
+          : fixture === "worked-turn"
+            ? workedTurnRows(Date.now() - 60_000)
+            : fixture === "incoming"
+              ? incomingRows(Date.now() - 120_000)
+              : fixture === "shared"
+                ? sharedRows(Date.now() - 720_000)
+                : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);

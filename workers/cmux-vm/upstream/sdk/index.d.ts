@@ -1,3 +1,5 @@
+import { CustomersNamespace } from "./customers.js";
+export * from "./customers.js";
 import { type FreestyleOptions } from "./client.js";
 import { DomainsNamespace } from "./domains.js";
 import { FirewallNamespace } from "./firewall.js";
@@ -7,7 +9,8 @@ import { TunnelsNamespace } from "./tunnel.js";
 import { VmsNamespace } from "./vms/index.js";
 import { VpcNamespace } from "./vpc.js";
 export * from "./client.js";
-export * from "./errors.js";
+export { FreestyleApiError, FreestyleTransportError } from "./errors.js";
+export type { FreestyleErrorBody, FreestyleConnectionError } from "./errors.js";
 export * from "./vms/index.js";
 export * from "./vpc.js";
 export * from "./tunnel.js";
@@ -26,6 +29,7 @@ export * from "./identities.js";
  */
 export declare class Freestyle {
     private readonly client;
+    readonly customers: CustomersNamespace;
     readonly vms: VmsNamespace;
     readonly vpc: VpcNamespace;
     readonly tunnels: TunnelsNamespace;

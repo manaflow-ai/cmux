@@ -696,10 +696,11 @@ final class TerminalSurfaceView: UIView {
                 let wait = submit.enterWait ?? ComposerSubmit.enterDelay
                 Task { @MainActor [weak self] in
                     try? await ContinuousClock().sleep(for: wait)
-                    self?.sendKey(usage: TerminalHIDUsage.enter)
+                    guard let self else { return }
+                    self.perform(self.input.plainKey(usage: TerminalHIDUsage.enter))
                 }
             case .enter:
-                sendKey(usage: TerminalHIDUsage.enter)
+                perform(input.plainKey(usage: TerminalHIDUsage.enter))
             }
         }
     }
@@ -749,6 +750,8 @@ final class TerminalSurfaceView: UIView {
 
     override func paste(_ sender: Any?) {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        // A paste is not a key: an armed modifier would linger unseen (classic disarms).
+        input.sticky.reset()
         perform([.paste(text)])
     }
 
@@ -766,7 +769,10 @@ final class TerminalSurfaceView: UIView {
         for provider in itemProviders where provider.canLoadObject(ofClass: NSString.self) {
             _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
                 guard let text = object as? String, !text.isEmpty else { return }
-                DispatchQueue.main.async { self?.perform([.paste(text)]) }
+                DispatchQueue.main.async {
+                    self?.input.sticky.reset()
+                    self?.perform([.paste(text)])
+                }
             }
             return
         }

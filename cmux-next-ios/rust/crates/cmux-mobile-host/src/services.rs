@@ -77,7 +77,8 @@ pub async fn serve(
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
-        "file" => file(&config, &args, &sender).await,
+        "file" => file(&config, &args, &sender, false).await,
+        "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
@@ -122,7 +123,7 @@ impl Refusal {
 pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
-pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+pub const CAPABILITIES: [&str; 2] = ["removal-v1", "file-preview-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -785,9 +786,6 @@ pub fn confine(roots: &[PathBuf], requested: &Path) -> Result<PathBuf, Refusal> 
     Ok(resolved)
 }
 
-/// Largest file the `file` service streams (artifact previews, not transfers).
-pub const MAXIMUM_FILE_BYTES: u64 = 64 << 20;
-
 /// The open file's real path (`F_GETPATH`) must still be inside a root.
 #[cfg(target_vendor = "apple")]
 fn confine_open(roots: &[PathBuf], file: &tokio::fs::File) -> Result<(), Refusal> {
@@ -872,10 +870,16 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now.
-async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -895,7 +899,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     };
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
-    let mut file = tokio::fs::OpenOptions::new()
+    let file = tokio::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(&resolved)
@@ -908,9 +912,19 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
-    if metadata.len() > MAXIMUM_FILE_BYTES {
-        return Err(Refusal::new("too_large", "file is larger than 64 MiB"));
+    // A distinct service keeps old hosts' raw file bytes from being mistaken for
+    // metadata. Read the size from this descriptor, after all confinement checks,
+    // so the phone can check free storage before accepting the file's contents.
+    if preview_metadata
+        && sender.send(Bytes::from(serde_json::json!({"size": metadata.len()}).to_string())).await.is_err()
+    {
+        return Ok(());
     }
+    // Any size streams (Leo: "arbitrarily large files of any type"): one buffer at a time,
+    // each send waiting for room in the channel's bounded queue, so memory stays bounded
+    // whatever the file's size. The read stops at the size the file had when it was
+    // opened, so a file that keeps growing (a log) still ends.
+    let mut file = file.take(metadata.len());
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         let read = file.read(&mut buffer).await.map_err(|e| Refusal::new("io", e.to_string()))?;
@@ -1239,9 +1253,10 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
 /// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short, long or oversized upload leaves no file. `size`
-/// may be a JSON number or a decimal string (the app's channel arguments
-/// are strings).
+/// executed, and a short or long upload leaves no file. Any `size` is
+/// accepted: the bytes stream to disk as they arrive (attachments have no
+/// size cap). `size` may be a JSON number or a decimal string (the app's
+/// channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
@@ -1280,12 +1295,6 @@ async fn receive_upload(
         _ => None,
     }
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
-    if size > config.upload_max_bytes {
-        return Err(Refusal::new(
-            "too_large",
-            format!("the file is larger than {} MB", config.upload_max_bytes / (1024 * 1024)),
-        ));
-    }
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
     let folder = upload_folder(config, peer, cwd).await?;
@@ -1346,7 +1355,6 @@ mod tests {
             pairing: None,
             agent_tab_host: None,
             uploads_dir: base.path().join("uploads"),
-            upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
@@ -1438,17 +1446,19 @@ mod tests {
             pairing: None,
             agent_tab_host: None,
             uploads_dir: std::path::PathBuf::from("/tmp"),
-            upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1"]);
+        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
-        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]);
+        assert_eq!(
+            capabilities(&config),
+            ["removal-v1", "file-preview-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+        );
     }
 
     #[test]

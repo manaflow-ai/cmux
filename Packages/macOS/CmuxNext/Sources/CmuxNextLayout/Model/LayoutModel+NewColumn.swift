@@ -76,6 +76,13 @@ extension LayoutModel {
         guard let pane = pane ?? focusedPane else { return }
         intentHandler?(.newColumn(after: pane, width: prepareNewColumn(nextTo: pane).width))
     }
+
+    /// Requests a new column before `pane`'s column (default: the focused pane), at the
+    /// `layout.newColumnWidth` width (New Column Left).
+    public func newColumn(before pane: PaneID? = nil) {
+        guard let pane = pane ?? focusedPane else { return }
+        intentHandler?(.newColumnLeft(of: pane, width: prepareNewColumn(nextTo: pane).width))
+    }
 }
 
 /// The width of a new column and the width changes of existing columns,

@@ -67,6 +67,13 @@ export function heightFoldInFlight(row: Element): boolean {
   return false;
 }
 
+/// Marks the transcript row holding `node` as resizing for `ms` (and a short settle after), so the
+/// rows below it are placed before paint while the height animation plays (`heightFoldInFlight`).
+export function markHeightFold(node: Element, ms: number): void {
+  const row = node.closest(".acpmux-row");
+  if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
+}
+
 const always = () => true;
 
 /// The resize each box is playing (`playResize`), so a resize that ends late lets go of only its own.
@@ -82,8 +89,7 @@ export function playResize(node: HTMLElement, from: number): void {
   const to = node.getBoundingClientRect().height;
   if (ms <= 0 || Math.abs(to - from) < 0.5) return;
   // The rows below are placed before paint while it plays, as a fold's are (`heightFoldInFlight`).
-  const row = node.closest(".acpmux-row");
-  if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
+  markHeightFold(node, ms);
   node.style.overflow = "hidden";
   // `max-height` too: a cut box's own max-height would otherwise hold it short while it opens.
   const animation = node.animate(
@@ -208,8 +214,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // From where the box is drawn now: midway through the other fold, else closed or open. An open
     // ends at the height measured here and then lets go of it (no fill), so the body takes its own
     // height again, content that loaded meanwhile included.
-    const row = node.closest(".acpmux-row");
-    if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
+    markHeightFold(node, ms);
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;

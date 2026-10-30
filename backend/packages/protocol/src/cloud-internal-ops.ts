@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import type { CloudOpDef } from "./op-def.ts"
 import { InstallId } from "./schemas.ts"
+import { isMinLength, isPattern } from "./json-checks.ts"
 
 /**
  * Ops only CloudDO itself submits (plans/cmux-next/state-placement.md 5.2). Not exported to the
@@ -21,7 +22,13 @@ export const CloudDriverResultParams = Schema.Struct({
   /** create (and a failed resize): the VM's real resources read from the provider, so the record is honest. */
   resources: Schema.optionalKey(Schema.Struct({ cpu: Schema.Int, memory_mb: Schema.Int, disk_mb: Schema.Int })),
   /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */
-  bind_token_sha256: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)))
+  bind_token_sha256: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9a-f]{64}$/))),
+  /** env_build: where a failed build stopped and its log tail, or a finished build's timings (ms). */
+  env_build: Schema.optionalKey(Schema.Struct({
+    stage: Schema.optionalKey(Schema.Literals(["boot", "ready", "setup", "snapshot", "warm"])),
+    log_tail: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8192))),
+    timings: Schema.optionalKey(Schema.Struct({ boot_ms: Schema.Int, ready_ms: Schema.Int, setup_ms: Schema.Int, snapshot_ms: Schema.Int, warm_ms: Schema.Int, total_ms: Schema.Int }))
+  }))
 })
 
 /**
@@ -29,9 +36,9 @@ export const CloudDriverResultParams = Schema.Struct({
  * token before the op, so neither the token nor its plaintext enters params, events or the ledger.
  */
 export const CloudMachineBindParams = Schema.Struct({
-  machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)),
-  token_sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
-  wg_public_key: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/)),
+  machine: Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)),
+  token_sha256: Schema.String.check(isPattern(/^[0-9a-f]{64}$/)),
+  wg_public_key: Schema.String.check(isPattern(/^[A-Za-z0-9+/]{43}=$/)),
   daemon: Schema.Struct({
     version: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
     capabilities: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))).check(Schema.isMaxLength(32))
@@ -45,7 +52,7 @@ export const CloudMachineBindParams = Schema.Struct({
 
 /** One applied cloud.vm.status.report (coalesced by CloudDO to at most 1 per 10 s per machine). */
 export const CloudVmStatusParams = Schema.Struct({
-  machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)),
+  machine: Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)),
   report: Schema.Unknown,
   now: Schema.Int
 })
@@ -57,7 +64,7 @@ export const CloudAbandonedClearParams = Schema.Struct({
   key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
   by_email: Schema.NullOr(Schema.String.check(Schema.isMaxLength(320))),
-  reason: Schema.String.check(Schema.isMinLength(8), Schema.isMaxLength(500)),
+  reason: Schema.String.check(isMinLength(8), Schema.isMaxLength(500)),
   at: Schema.Int
 })
 
@@ -88,8 +95,8 @@ export const cloudInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("cloud.driver_result", CloudDriverResultParams, "Internal: a provider call (create or delete) finished, failed, or was refused."),
   internal("cloud.watch_result", CloudWatchResultParams, "Internal: one lookup of a cancelled create's recorded name finished."),
   internal("cloud.machine.bind", CloudMachineBindParams, "Internal: the VM's bind agent spent its one-time bind token (POST /v1/cloud/bind)."),
-  internal("cloud.machine.provider_state", Schema.Struct({ machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)), state: Schema.NullOr(Schema.String) }), "Internal: the VM's real provider state (read by connect_info or link_token) differs from a running record: the record follows it (paused, or failed when the VM is gone)."),
-  internal("cloud.machine.idle_pause", Schema.Struct({ machine: Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)), reason: Schema.optionalKey(Schema.Literals(["idle", "no_report"])) }), "Internal: CloudDO pauses a machine its own activity report showed idle past its idle policy (team policy cloud.idlePause on); the same ledger and provider path as cloud.machine.pause."),
+  internal("cloud.machine.provider_state", Schema.Struct({ machine: Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)), state: Schema.NullOr(Schema.String) }), "Internal: the VM's real provider state (read by connect_info or link_token) differs from a running record: the record follows it (paused, or failed when the VM is gone)."),
+  internal("cloud.machine.idle_pause", Schema.Struct({ machine: Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)), reason: Schema.optionalKey(Schema.Literals(["idle", "no_report"])) }), "Internal: CloudDO pauses a machine its own activity report showed idle past its idle policy (team policy cloud.idlePause on); the same ledger and provider path as cloud.machine.pause."),
   internal("cloud.machine.vm_status", CloudVmStatusParams, "Internal: CloudDO applies the VM's latest coalesced status report (state, daemon, activity)."),
   internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days."),
   internal("cloud.abandoned_clear", CloudAbandonedClearParams, "Internal: an operator (a person, with the admin key) cleared one abandoned ledger row after a provider lookup found no VM; audited.")

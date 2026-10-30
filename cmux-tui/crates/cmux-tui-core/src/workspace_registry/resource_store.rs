@@ -4741,15 +4741,21 @@ pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
              LEFT JOIN resource_workspaces rw
                ON rw.workspace_key = w.workspace_key AND rw.deleted_revision IS NULL
              WHERE w.tombstoned = 0 AND rw.public_id IS NULL
-               AND NOT EXISTS (
-                 SELECT 1
+               AND w.workspace_key NOT IN (
+                 -- One list, read once: a correlated NOT EXISTS reread every
+                 -- receipt per live workspace (876 x 3,723: 2 s at each open
+                 -- of a nightly registry, Lawrence 2026-10-29).
+                 SELECT json_extract(
+                          creation.intent_json,
+                          '$.workspace_reservation.workspace_key'
+                        )
                  FROM resource_creation_receipts creation
                  WHERE creation.execution_kind = 'effect'
                    AND creation.state = 'executing'
                    AND json_extract(
                          creation.intent_json,
                          '$.workspace_reservation.workspace_key'
-                       ) = w.workspace_key
+                       ) IS NOT NULL
                )
              LIMIT 1",
             [],
@@ -5109,16 +5115,9 @@ fn upsert_resource_identity(
 }
 
 fn ensure_no_foreign_key_violations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let violation = transaction
-        .query_row("PRAGMA foreign_key_check", [], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })
-        .optional()?;
+    // The registry state tables only: the receipt ledgers and journal history
+    // are validated when read, and walking them made a large registry's open slow.
+    let violation = first_state_foreign_key_violation(transaction)?;
     if let Some((table, rowid, parent, index)) = violation {
         anyhow::bail!(
             "resource topology foreign-key violation: table={table} rowid={rowid} parent={parent:?} index={index}"

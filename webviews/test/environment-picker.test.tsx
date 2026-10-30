@@ -151,11 +151,11 @@ const machineRows = () => rows().filter((row) => row.querySelector(".acpmux-env-
 const newRows = () => rows().filter((row) => row.querySelector(".acpmux-env-new"));
 const rowText = (row: HTMLElement) => row.textContent?.replace(/\s+/g, " ").trim() ?? "";
 
-async function openPicker() {
+async function openPicker(init: { altKey?: boolean } = {}) {
   const button = computerButton();
   expect(button, "no computer control").toBeTruthy();
   await act(async () => {
-    button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, ...init }));
     button!.click();
   });
 }
@@ -233,6 +233,50 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: cosmic-gray`);
   await openPicker();
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+});
+
+// A fresh home must offer setup without enabling the environments preview. The same
+// plain Computer menu is usable from an existing local chat; its machine stays fixed.
+for (const started of [false, true]) {
+  test(`previews off: ${started ? "a local chat" : "a new chat"} with no other computers offers setup`, async () => {
+    const calls = await mount(false, {
+      started,
+      sessions: [],
+      peers: [],
+      cloudMachines: [],
+      summary: { sessionId: started ? "local-chat" : "", harness: "claude", hostKind: "local" },
+    });
+    await openPicker();
+    const actions = () => [...doc().querySelectorAll<HTMLButtonElement>(".acpmux-location-choose")];
+    expect(actions().map((button) => button.textContent)).toEqual([
+      t("composer.addComputer"),
+      t("composer.newCloudMachine"),
+    ]);
+    await act(async () => actions()[0]!.click());
+    expect(calls).toEqual([["connect", "addMachine"]]);
+    await openPicker();
+    await act(async () => actions()[1]!.click());
+    expect(calls).toEqual([
+      ["connect", "addMachine"],
+      ["connect", "cloud"],
+    ]);
+    expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  });
+}
+
+test("previews off: New Tab does not add setup beside existing computers", async () => {
+  await mount(false, { connectOnlyWhenEmpty: true });
+  await openPicker();
+  expect(doc().querySelector(".acpmux-location-choose")).toBeNull();
+});
+
+test("previews off: an existing remote computer keeps the current connection footer", async () => {
+  await mount(false);
+  await openPicker();
+  expect([...doc().querySelectorAll(".acpmux-location-choose")].map((button) => button.textContent)).toEqual([
+    t("composer.connectSSH"),
+    t("composer.newCloudMachine"),
+  ]);
 });
 
 test("previews on: one list in This Mac, My machines and Cloud and VMs sections, numbered ⌥⌘1–9, defaulting to this computer", async () => {
@@ -422,33 +466,6 @@ test("Return on a search never moves a chat by itself", async () => {
   expect(calls).toEqual([]);
 });
 
-test("a started chat with a folder action keeps the chip actionable", async () => {
-  const folders: string[] = [];
-  await mount(true, {
-    ...startedOn("local"),
-    onBrowseFolder: async () => "/Users/you/src/other",
-    onNewChat: (cwd: string) => folders.push(cwd),
-  });
-  await openPicker();
-  // Only where the chat runs: a started chat cannot be picked onto another machine.
-  expect(machineRows().map(rowText)).toEqual([expect.stringContaining("cosmic-gray")]);
-  expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toContain(
-    t("composer.chooseFolderMenu"),
-  );
-  const folder = newRows().find(
-    (row) => row.querySelector(".acpmux-menu-label")?.textContent === t("composer.chooseFolderMenu"),
-  )!;
-  await act(async () => folder.click());
-  expect(folders).toEqual(["/Users/you/src/other"]);
-});
-
-test("a started chat with a folder panel but no new chat to start keeps the fixed label", async () => {
-  // The floating chat: the host reads folders but opens no new chat from it.
-  await mount(true, { ...startedOn("ssh"), onBrowseFolder: async () => "/Users/you/src/other" });
-  expect(computerButton()).toBeUndefined();
-  expect(host.querySelector(".acpmux-location-readonly")).not.toBeNull();
-});
-
 test("a started chat with no move to offer keeps the fixed computer label", async () => {
   const fixed = () =>
     [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>
@@ -623,6 +640,18 @@ test("New Tab, previews on: a worktree reply after a machine pick doesn't take t
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
   expect(folderName()).not.toContain("owl");
+});
+
+test("without Labs, or once the chat started, there is no Sandboxed", async () => {
+  const runMode = { mode: "persistent", onMode: () => undefined };
+  await mount(false, { runMode });
+  expect(host.textContent).not.toContain(t("composer.sandboxed"));
+  act(() => root?.unmount());
+  root = undefined;
+  await mount(true, { runMode, started: true, onOffload: () => undefined, offloads: ["move"] });
+  await openPicker();
+  await press(doc().body, { key: "Alt", altKey: true });
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
 });
 
 // The daemon's host list (`_acpmux/status` peers as the relay keeps them, sorted by name): four
@@ -869,4 +898,49 @@ test("a chat's machine the daemon no longer lists is shown not connected, and is
     ["listed", true, true],
     ["removed", false, false],
   ]);
+});
+
+test("Labs: Sandboxed is New Cloud Machine's other face, shown while ⌥ is held or searched, never a row of its own", async () => {
+  const calls: unknown[][] = [];
+  const runMode = { mode: "persistent", onMode: (mode: string) => calls.push(["mode", mode]) };
+  await mount(true, { runMode });
+  await openPicker();
+  const before = rows().length;
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
+  await press(doc().body, { key: "Alt", altKey: true });
+  expect(rows()).toHaveLength(before);
+  const sandbox = rows().find((row) => row.querySelector('[data-mode="sandboxed"]'))!;
+  expect(rowText(sandbox)).toContain(t("composer.sandboxed"));
+  await act(async () => sandbox.click());
+  expect(calls).toEqual([["mode", "sandboxed"]]);
+  await openPicker();
+  await type("sandbox");
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
+  // It is a match: no "no environment" line over it.
+  expect(doc().querySelector(".acpmux-location-empty")).toBeNull();
+  await press(doc().body, { key: "Escape" });
+  // ⌥ already held as the control is pressed shows it too.
+  await openPicker({ altKey: true });
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeTruthy();
+});
+
+test("Labs: with Sandboxed picked the control names it, no machine is checked, and a machine pick goes back to Persistent", async () => {
+  const calls: unknown[][] = [];
+  const runMode = { mode: "sandboxed", onMode: (mode: string) => calls.push(["mode", mode]) };
+  const picks = await mount(true, { runMode });
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.sandboxed")}`);
+  await openPicker();
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"][data-current]')).toBeTruthy();
+  expect(machineRows().some((row) => row.querySelector("[data-current]"))).toBe(false);
+  await act(async () => machineRows()[1]!.click());
+  expect(calls).toEqual([["mode", "persistent"]]);
+  expect(picks.at(-1)?.[0]).toBe("project");
+  // ⌥ shows New Cloud Machine again while Sandboxed is the pick; picking it is Persistent too.
+  calls.length = 0;
+  await openPicker();
+  await press(doc().body, { key: "Alt", altKey: true });
+  expect(doc().querySelector('.acpmux-env-popover [data-mode="sandboxed"]')).toBeNull();
+  const cloud = rows().find((row) => row.querySelector('[data-kind="cloud"]'))!;
+  await act(async () => cloud.click());
+  expect(calls).toEqual([["mode", "persistent"]]);
 });

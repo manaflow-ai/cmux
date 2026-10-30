@@ -43,6 +43,30 @@ class FakeResponse:
         return self.body
 
 
+class StreamResponse(FakeResponse):
+    """A binary answer: these chunks in turn, then an error (a stall) or the end."""
+
+    def __init__(
+        self, chunks: list[bytes], *, status: int = 200, headers: dict[str, str] | None = None,
+        then: BaseException | None = None,
+    ) -> None:
+        super().__init__({})
+        self.chunks = list(chunks)
+        self.status = status
+        self.headers = headers or {}
+        self.then = then
+
+    def read(self, size: int = -1) -> bytes:
+        raise AssertionError("a binary is read with read1, which returns what has come so far")
+
+    def read1(self, size: int = -1) -> bytes:
+        if self.chunks:
+            return self.chunks.pop(0)
+        if self.then is not None:
+            raise self.then
+        return b""
+
+
 class VerifyPublishedManifestTests(TestCase):
     COMMIT = "a" * 40
     WINDOWS = "cmux-tui-x86_64-pc-windows-gnu.exe"
@@ -225,13 +249,178 @@ class VerifyPublishedManifestTests(TestCase):
             raise TimeoutError("The read operation timed out")
 
         with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
-            with self.assertRaisesRegex(VERIFY.ManifestError, r"timed out \(after 3 reads\)"):
+            with self.assertRaisesRegex(VERIFY.ManifestError, r"timed out \(after 5 reads .*5 in a row with no new byte\)"):
                 VERIFY.verify_manifest(
                     "https://files.example/cmux-tui/latest/manifest.json",
                     expected_commit=self.COMMIT,
                     required_artifacts=(self.WINDOWS,),
                 )
         self.assertEqual(len(calls), VERIFY.FETCH_ATTEMPTS)
+        self.assertEqual(calls[0], "https://files.example/cmux-tui/latest/manifest.json")
+        self.assertEqual(len(set(calls)), len(calls), "every read again goes to a fresh URL")
+
+    PAYLOAD = bytes(range(256)) * 4
+    BINARY = "cmux-tui-aarch64-unknown-linux-gnu"
+    BASE = "https://files.example/cmux-tui/sha"
+
+    def stalling_binary(self, serve) -> tuple[list[tuple[str, str | None]], object]:
+        """urlopen that serves the manifest, then hands each binary request (its URL and Range
+        header, recorded) to serve."""
+        manifest = {"commit": self.COMMIT, "binaries": {self.BINARY: hashlib.sha256(self.PAYLOAD).hexdigest()}}
+        seen: list[tuple[str, str | None]] = []
+
+        def opener(request: object, timeout: float = 0) -> object:
+            url = request.full_url  # type: ignore[attr-defined]
+            if url.endswith("/manifest.json"):
+                response = FakeResponse(manifest)
+                response.headers = {"Content-Length": str(len(response.body))}
+                return response
+            seen.append((url, request.get_header("Range")))  # type: ignore[attr-defined]
+            return serve(len(seen), request.get_header("Range"))  # type: ignore[attr-defined]
+
+        return seen, opener
+
+    def verify_binaries(self) -> None:
+        VERIFY.verify_manifest(
+            f"{self.BASE}/manifest.json",
+            expected_commit=self.COMMIT,
+            required_artifacts=(),
+            artifact_base_url=self.BASE,
+        )
+
+    def stall_at(self, offset: int) -> StreamResponse:
+        return StreamResponse(
+            [self.PAYLOAD[:offset]], headers={"Content-Length": str(len(self.PAYLOAD))},
+            then=TimeoutError("The read operation timed out"),
+        )
+
+    def rest_from(self, offset: int, body: bytes | None = None) -> StreamResponse:
+        total = len(self.PAYLOAD)
+        rest = self.PAYLOAD[offset:] if body is None else body
+        return StreamResponse([rest], status=206, headers={
+            "Content-Length": str(len(rest)), "Content-Range": f"bytes {offset}-{total - 1}/{total}"})
+
+    def whole(self) -> StreamResponse:
+        return StreamResponse([self.PAYLOAD], headers={"Content-Length": str(len(self.PAYLOAD))})
+
+    def test_a_stalled_binary_read_resumes_from_a_fresh_url_with_a_range(self) -> None:
+        """Run 40651931144 read one binary's URL three times, each read stalled, and the tree's publish failed."""
+        seen, opener = self.stalling_binary(
+            lambda n, range_header: self.stall_at(600) if n == 1
+            else self.rest_from(600) if range_header == "bytes=600-" else self.whole())
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            self.verify_binaries()
+        self.assertEqual(seen[0], (f"{self.BASE}/{self.BINARY}", None))
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(seen[1][0].startswith(f"{self.BASE}/{self.BINARY}?read="), seen[1][0])
+        self.assertEqual(seen[1][1], "bytes=600-")
+
+    def test_a_binary_whose_reads_keep_stalling_is_read_from_fresh_urls_until_one_answers(self) -> None:
+        def serve(n: int, range_header: str | None) -> StreamResponse:
+            if n <= 3:
+                raise TimeoutError("The read operation timed out")
+            return self.whole()
+
+        seen, opener = self.stalling_binary(serve)
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            self.verify_binaries()
+        self.assertEqual(len(seen), 4)
+        self.assertEqual(len({url for url, _ in seen}), 4, "every read again goes to a fresh URL")
+
+    def test_a_resumed_read_the_server_answers_whole_or_with_another_range_starts_over(self) -> None:
+        wrong_range = StreamResponse([self.PAYLOAD], status=206, headers={
+            "Content-Length": str(len(self.PAYLOAD)), "Content-Range": f"bytes 0-1023/{len(self.PAYLOAD)}"})
+        for name, second in (("ignores the Range", self.whole()), ("answers another range", wrong_range)):
+            with self.subTest(name):
+                answers = [self.stall_at(600), second, self.whole()]
+                seen, opener = self.stalling_binary(lambda n, range_header: answers.pop(0))
+                with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+                    self.verify_binaries()
+                if name == "answers another range":
+                    self.assertEqual(len(seen), 3)
+                    self.assertIsNone(seen[2][1], "a read that starts over asks for the whole object")
+                else:
+                    self.assertEqual(len(seen), 2)
+
+    def test_a_stalled_read_with_no_length_still_resumes(self) -> None:
+        """A chunked answer gives no Content-Length; the 206 that resumes it gives the length."""
+        def serve(n: int, range_header: str | None) -> StreamResponse:
+            if n == 1:
+                return StreamResponse([self.PAYLOAD[:600]], then=TimeoutError("The read operation timed out"))
+            total = len(self.PAYLOAD)
+            return StreamResponse([self.PAYLOAD[600:]], status=206, headers={
+                "Content-Range": f"bytes 600-{total - 1}/{total}"})
+
+        seen, opener = self.stalling_binary(serve)
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            self.verify_binaries()
+        self.assertEqual([range_header for _, range_header in seen], [None, "bytes=600-"])
+
+    def test_a_range_answer_that_does_not_fit_the_request_starts_over(self) -> None:
+        total = len(self.PAYLOAD)
+        for content_range, content_length in (
+            (f"bytes 600-700/{total}", None),  # ends before the last byte
+            (f"bytes 600-{total - 1}/{total}", "5"),  # Content-Length disagrees with the range
+            (f"bytes 600-{total - 1}/{total + 1}", None),  # another length
+        ):
+            with self.subTest(content_range=content_range, content_length=content_length):
+                headers = {"Content-Range": content_range}
+                if content_length is not None:
+                    headers["Content-Length"] = content_length
+                answers = [self.stall_at(600), StreamResponse([self.PAYLOAD[600:]], status=206, headers=headers),
+                           self.whole()]
+                seen, opener = self.stalling_binary(lambda n, range_header: answers.pop(0))
+                with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+                    self.verify_binaries()
+                self.assertEqual([range_header for _, range_header in seen], [None, "bytes=600-", None])
+
+    def test_a_trickling_read_is_cut_and_resumed(self) -> None:
+        def serve(n: int, range_header: str | None) -> StreamResponse:
+            offset = int(range_header[len("bytes="):-1]) if range_header else 0
+            chunks = [self.PAYLOAD[at:at + 100] for at in range(offset, len(self.PAYLOAD), 100)]
+            total = len(self.PAYLOAD)
+            if not offset:
+                return StreamResponse(chunks, headers={"Content-Length": str(total)})
+            return StreamResponse(chunks, status=206, headers={
+                "Content-Length": str(total - offset), "Content-Range": f"bytes {offset}-{total - 1}/{total}"})
+
+        seen, opener = self.stalling_binary(serve)
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"), \
+                patch.object(VERIFY, "READ_ATTEMPT_SECONDS", -1):
+            self.verify_binaries()
+        self.assertEqual([range_header for _, range_header in seen],
+                         [None] + [f"bytes={at}-" for at in range(100, len(self.PAYLOAD), 100)])
+
+    def test_a_resumed_read_never_passes_a_4xx_or_wrong_bytes(self) -> None:
+        def not_found(n: int, range_header: str | None) -> StreamResponse:
+            if n == 1:
+                return self.stall_at(600)
+            raise urllib.error.HTTPError("https://files.example/x", 404, "Not Found", {}, None)
+
+        seen, opener = self.stalling_binary(not_found)
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            with self.assertRaisesRegex(VERIFY.ManifestError, "404"):
+                self.verify_binaries()
+        self.assertEqual(len(seen), 2)
+
+        wrong_tail = b"\0" * (len(self.PAYLOAD) - 600)
+        seen, opener = self.stalling_binary(
+            lambda n, range_header: self.rest_from(600, wrong_tail) if range_header else self.stall_at(600))
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            with self.assertRaisesRegex(VERIFY.ManifestError, rf"digest mismatch for {self.BINARY}.* after 3 reads"):
+                self.verify_binaries()
+        self.assertEqual(len(seen), 2 * VERIFY.BINARY_READ_ATTEMPTS)
+
+    def test_a_fetch_stops_reading_again_at_its_deadline(self) -> None:
+        def stall(n: int, range_header: str | None) -> StreamResponse:
+            return self.stall_at(n * 10)
+
+        seen, opener = self.stalling_binary(stall)
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"), \
+                patch.object(VERIFY, "FETCH_DEADLINE_SECONDS", 0):
+            with self.assertRaisesRegex(VERIFY.ManifestError, r"timed out \(after 1 reads"):
+                self.verify_binaries()
+        self.assertEqual(len(seen), 1)
 
     def test_a_4xx_or_a_wrong_manifest_fails_at_once(self) -> None:
         calls: list[str] = []

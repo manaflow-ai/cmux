@@ -26,6 +26,7 @@ on:
       - scripts/ci/cloud_overflow_switch.py
       - scripts/ci/pr_runner_pool.py
       - scripts/ci/runner_label_policy.py
+      - scripts/ci/signing_runner_variables.py
   workflow_dispatch:
 
 permissions:
@@ -57,6 +58,7 @@ jobs:
           CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
           CMUX_CI_RUNNER_VARIABLES: |
             CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
+            CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
             CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}

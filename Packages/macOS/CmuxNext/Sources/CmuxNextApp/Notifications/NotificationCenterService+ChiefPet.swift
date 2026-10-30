@@ -1,6 +1,8 @@
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
 import CmuxNextDaemon
+import CmuxNextDesignTokens
 import CmuxNextFloating
 import CmuxNextSettings
 
@@ -14,7 +16,18 @@ extension NotificationCenterService {
         chiefPet = pet
         pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
                   mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
-                  upload: { [weak services] in services?.wornUpload(of: nil)?.file })
+                  upload: { [weak services] in services?.wornUpload(of: nil)?.file },
+                  state: { Self.chiefPetState(ChiefSidebar.shared.status.activity) })
+    }
+
+    /// The Chief's sidebar status as the pet draws it: working, waiting on you, failed, else idle.
+    nonisolated static func chiefPetState(_ activity: StatusIndicatorState) -> ChiefPetState {
+        switch activity {
+        case .working, .busy: .working
+        case .waiting: .waiting
+        case .error: .error
+        case .idle, .paused, .success: .idle
+        }
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's
@@ -22,7 +35,7 @@ extension NotificationCenterService {
     func notifyChiefPet(_ notification: DaemonNotification, located: LocatedTab, decision: NotificationPolicy.Decision, program: ProgramStatusNotification?) {
         // Off, the pet takes nothing: no notice is built (the body reads whether the screen is locked).
         guard decision.alerts, let chiefPet, chiefPet.isOn else { return }
-        chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, workspace: located.workspace.displayName,
+        chiefPet.arrive(ChiefPetNotice(notification, tab: located.tab, name: shownName(of: located.tab), workspace: located.workspace.displayName,
                                             programTitle: program?.title(localizations: localizations),
                                             body: notification.bannerBody(previews: previews, screenLocked: screenLocked())))
     }
