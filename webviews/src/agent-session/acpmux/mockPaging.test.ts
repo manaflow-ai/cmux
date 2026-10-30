@@ -81,6 +81,8 @@ test("learning a native chat thread seeds the live subagent fold even when unnam
     setRoot: (id: string) => {
       seeded = id;
     },
+    // Nothing to publish: the seed repaired no rows.
+    takeRows: () => [],
   };
   client.learnChatThread();
   expect(seeded).toBe("native-root");
