@@ -44,7 +44,7 @@ export function useStopThroughReconnect(
   const stop = useCallback(() => {
     const sessionId = latest.current.view.sessionId;
     latest.current.cancel().catch(() => {
-      void sessionId; // base: the refusal goes unseen
+      if (sessionId) keepRefused(sessionId);
     });
   }, [keepRefused]);
   const next = kept ? keptStopStep(kept, view) : undefined;
