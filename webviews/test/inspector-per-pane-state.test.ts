@@ -128,6 +128,13 @@ test("a new chat never opens Session Info by itself, whatever another chat or an
   store.bind("chat-handed");
   expect(store.current().open).toBe(false);
   expect(store.shownFor("chat-switched").open).toBe(true);
+  // The host hands the tab back the same chat (no session between): it shows and saves as before.
+  store.bind("chat-switched");
+  store.startNewChat();
+  store.bind("chat-switched");
+  expect(store.current().open).toBe(true);
+  store.setWidth(410);
+  expect(createInspectorStore(() => localStorage).shownFor("chat-switched").width).toBe(410);
   // The viewer opens it on the new chat before its first prompt: that open is the viewer's and stays.
   store.startNewChat();
   store.bind(undefined);

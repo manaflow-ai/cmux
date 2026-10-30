@@ -244,7 +244,16 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     /// pane went straight from another chat's session to it. No session (a new chat not started yet,
     /// a harness switch): nothing is saved until one comes, and the pane keeps what it shows.
     bind(sessionId: string | undefined) {
-      if (sessionId === pane) return;
+      if (sessionId === pane) {
+        // The host handed the tab back the chat it showed (no new chat after all): it shows its own
+        // saved state again and saves as before.
+        if (pane && leaving === pane) {
+          leaving = undefined;
+          const saved = storedState(read(INSPECTOR_PANE_PREFIX + pane));
+          if (saved) update(saved, false);
+        }
+        return;
+      }
       leaving = undefined;
       const left = pane !== undefined;
       pane = sessionId || undefined;
