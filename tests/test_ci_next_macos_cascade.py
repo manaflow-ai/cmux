@@ -1776,7 +1776,10 @@ class DeadLabel(unittest.TestCase):
         self.assertIsNone(cascade.stale_seen(expired, NOW))
 
     def test_the_sign_runner_reads_the_same_rule(self):
-        sign = load("nightly_sign_runner")
+        # Loaded without replacing sys.modules' copy: nightly_build_runner's tests patch that one.
+        spec = importlib.util.spec_from_file_location("nightly_sign_runner_dead_label", SCRIPTS / "nightly_sign_runner.py")
+        sign = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sign)
         snap = observed_dead(38)
         self.assertEqual(sign.dead(snap, NOW), set(cascade.dead(snap, NOW)))
 
