@@ -149,7 +149,7 @@ may create that group); it does not move focus. Use a human label only, never a
 `grp_…`, `ws_…` or other object id. Omit it unless the person asked for this
 sidebar placement. To recover from an unwanted placement, inspect
 `cmux --json workspace group list`, then move/delete the affected workspace or
-group with `cmux workspace group …`; rerunning without `--group` is safe.
+group with the other `workspace group` commands; rerunning without `--group` is safe.
 
 A child of another harness under your own chat (a Codex child of a Claude chat): it lists
 under your chat, and your sub-session tools read, message and stop it.

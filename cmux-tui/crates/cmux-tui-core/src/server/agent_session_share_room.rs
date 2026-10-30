@@ -201,7 +201,8 @@ fn done(mux: &Mux, share_id: &str, op: &Value) -> bool {
         let before = s.pending_room_ops.len();
         s.pending_room_ops.retain(|o| o != op);
         ((), s.pending_room_ops.len() != before)
-    }).is_some()
+    })
+    .is_some()
 }
 
 enum Put {
@@ -289,12 +290,10 @@ fn valid_url_base(room: &Room, raw: &str) -> bool {
                 || (domain.eq_ignore_ascii_case("localhost") && candidate.scheme() == "http")
         }
         Some(url::Host::Ipv4(address)) => {
-            candidate.scheme() == "https"
-                || (address.is_loopback() && candidate.scheme() == "http")
+            candidate.scheme() == "https" || (address.is_loopback() && candidate.scheme() == "http")
         }
         Some(url::Host::Ipv6(address)) => {
-            candidate.scheme() == "https"
-                || (address.is_loopback() && candidate.scheme() == "http")
+            candidate.scheme() == "https" || (address.is_loopback() && candidate.scheme() == "http")
         }
         None => false,
     }
@@ -433,7 +432,8 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                         abandon_share(s, false);
                         s.pending_room_ops.retain(|pending| pending != &op);
                         ((), true)
-                    }).is_some()
+                    })
+                    .is_some()
                 };
                 if saved {
                     return;
