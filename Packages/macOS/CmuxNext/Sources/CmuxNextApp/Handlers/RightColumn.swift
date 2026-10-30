@@ -17,10 +17,12 @@ enum RightColumn {
         return .init(sourceWidth: source.view.bounds.width, panes: panes.map(\.rawValue), widths: widths)
     }
 
-    /// The panes right of `source` in `content`, top to bottom, from the active screen's pane frames
-    /// (``RightColumnPlacement/column(beside:frames:gap:)``), keeping those that take new tabs.
+    /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
+    /// that holds `source`, active or not (``RightColumnPlacement/column(beside:frames:gap:)``),
+    /// keeping those that take new tabs. Review of #28044 at bd2b918d: the active screen's frames
+    /// read an empty column for a chat on a screen the person switched away from mid-open.
     static func panes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] {
-        RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames)
+        RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source))
             .filter { content.panes[$0]?.stripModel.showsNewTabButton == true }
     }
 }

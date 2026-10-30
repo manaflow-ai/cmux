@@ -163,11 +163,15 @@ final class LinkOpener {
         if !background { _ = from?.workspace?.beginFocusIntent() }
         // The same link clicked again (a chat's PR link or card): the pane on the right selects the
         // tab it already has for that page instead of piling up another (Austin 2026-10-25, eleven
-        // tabs of one PR). A tab in the source's own pane stays Chrome's: each click is a new tab.
-        if reusesTab, !background, let from, let id = Self.existingPane(of: target(from: from)), id != from.layoutPaneID,
-           let pane = from.workspace?.panes[id], let shown = browserTab(showing: url, in: pane) {
+        // tabs of one PR). Any pane of the right column counts, not only the one this open would use
+        // (LinkOpenPlacement.reusePanes). A tab in the source's own pane stays Chrome's: each click is a new tab.
+        if reusesTab, !background, let from, let content = from.workspace,
+           let found = LinkOpenPlacement<LayoutPaneID>.reusePanes(target: target(from: from), column: RightColumn.panes(beside: from.layoutPaneID, in: content),
+                                                                  source: from.layoutPaneID)
+               .lazy.compactMap({ id in content.panes[id].flatMap { pane in self.browserTab(showing: url, in: pane).map { (pane: pane, tab: $0) } } }).first {
+            let (pane, shown) = (found.pane, found.tab)
             // As for a new tab clicked open there: its close, emptying that pane, gives the focus back.
-            if let content = from.workspace { returnFocus(of: shown.surface, to: from.layoutPaneID, in: content) }
+            returnFocus(of: shown.surface, to: from.layoutPaneID, in: content)
             pane.select(StripTabID(shown.id))
             pane.focusContent()
             return true

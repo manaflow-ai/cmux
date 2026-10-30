@@ -58,6 +58,20 @@ struct LinkOpenPlacement<Pane: Equatable> {
         return .splitRight(of: source)
     }
 
+    /// The panes whose tab for the same page an open selects instead of opening another, in order:
+    /// the existing pane `target` opens in or below, then every pane of the source's right column
+    /// (`column`), never the source. Review of #28044 at bd2b918d: with links A (upper) and B
+    /// (lower) open, A again targets the lower pane, so looking only there opened a second A.
+    static func reusePanes(target: Target, column: [Pane], source: Pane) -> [Pane] {
+        var panes: [Pane] = []
+        switch target {
+        case .pane(let pane), .splitBelow(of: let pane): panes.append(pane)
+        default: break
+        }
+        for pane in column where !panes.contains(pane) { panes.append(pane) }
+        return panes.filter { $0 != source }
+    }
+
     /// An item opened beside pane `right`, already on the source's right: ``RightColumnPlacement``
     /// over the measured `column` (a split below its one pane, else a tab in its lower pane), or a tab
     /// in `right` when the column was not measured. Main pane layout's strip column uses it too.

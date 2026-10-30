@@ -252,6 +252,14 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
+    /// ``navigationFrames`` of the screen that holds `pane`, active or not: a hidden screen view keeps
+    /// its geometry at the root's size, so what opens beside a pane on a screen the person switched
+    /// away from reads that screen's layout (RightColumn).
+    public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
+        return view.navigationFrames
+    }
+
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
     public func frame(of pane: PaneID) -> CGRect? {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }

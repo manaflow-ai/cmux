@@ -61,6 +61,34 @@ struct LinkOpenPlacementTests {
         #expect(Rule(setting: .splitRight).target(source: "home", takesTabs: false, right: nil, sourceWidth: 600) == .besideDock("home"))
     }
 
+    /// Review of #28044 at bd2b918d: link A opens on the right (upper pane), B splits below it (lower
+    /// pane), and A again targets the lower pane, which holds no A. The panes searched for a tab of
+    /// that page are the whole right column, so A is selected where it is, never opened twice.
+    @Test func aLinkOpenAgainIsFoundAnywhereInTheRightColumn() {
+        let rule = Rule(setting: .splitRight), wide: (String) -> CGFloat? = { _ in 700 }
+        var shows: [String: Set<String>] = ["chat": []]
+        var column: [String] = []
+        func open(_ url: String) -> String {
+            let target = rule.target(source: "chat", takesTabs: true, right: column.first, column: column, sourceWidth: 1400, width: wide)
+            if let pane = Rule.reusePanes(target: target, column: column, source: "chat").first(where: { shows[$0]?.contains(url) == true }) {
+                return "selected in \(pane)"
+            }
+            switch target {
+            case .splitRight: column = ["upper"]; shows["upper", default: []].insert(url); return "opened in upper"
+            case .splitBelow: column.append("lower"); shows["lower", default: []].insert(url); return "opened in lower"
+            case .pane(let pane): shows[pane, default: []].insert(url); return "opened in \(pane)"
+            default: return "unexpected \(target)"
+            }
+        }
+        #expect(open("A") == "opened in upper")
+        #expect(open("B") == "opened in lower")
+        #expect(rule.target(source: "chat", takesTabs: true, right: "upper", column: column, sourceWidth: 1400, width: wide) == .pane("lower"),
+                "fixture: a third open targets the lower pane")
+        #expect(open("A") == "selected in upper", "A was opened a second time in the lower pane")
+        #expect(Rule.reusePanes(target: .pane("lower"), column: ["upper", "lower"], source: "chat") == ["lower", "upper"])
+        #expect(Rule.reusePanes(target: .splitRight(of: "chat"), column: [], source: "chat").isEmpty)
+    }
+
     @Test func aNarrowRightColumnTakesTheTabInsteadOfSplitting() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: { _ in 419 })
