@@ -132,8 +132,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    Harness rows also expose `auth_status` and `recovery` (the same action as
    `user_action`, or null). `auth_status` is `detected` for existing sign-in or
    provider-configuration evidence, `signed_out` for the existing check's explicit
-   sign-out, `needs_action` when a provider/check error prevents verification,
-   `unknown` when the check is deliberately unavailable, or `not_installed`.
+   sign-out or expired credential, `needs_action` when a provider/check error
+   prevents verification, `unknown` when the check is deliberately unavailable,
+   or `not_installed`.
    `detected` does **not** prove a token is fresh or belongs to the expected account.
    No expiry or wrong-account conclusion is inferred from missing files or errors.
    An explicit provider/check error keeps `signed_in: null`, makes the task

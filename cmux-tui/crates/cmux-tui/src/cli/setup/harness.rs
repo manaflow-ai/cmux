@@ -61,7 +61,8 @@ impl CheckedHarness {
         } else {
             match health.auth {
                 Auth::SignedIn => AuthStatus::Detected,
-                Auth::SignedOut => AuthStatus::SignedOut,
+                // An expired credential is recovered like a sign-out: the login command.
+                Auth::SignedOut | Auth::Expired => AuthStatus::SignedOut,
                 Auth::Unknown
                     if health.auth_detail.as_deref()
                         == Some(acpmux::launch_policy::DISABLED_MESSAGE) =>

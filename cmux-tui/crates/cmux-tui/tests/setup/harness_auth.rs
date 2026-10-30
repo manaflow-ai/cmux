@@ -126,6 +126,40 @@ login = "claude auth login"
 }
 
 #[test]
+fn cmux_setup_harness_auth_expired_credential_is_signed_out_with_login() {
+    let world = World::new("hexpired");
+    let agent = world.bin.join("claude");
+    World::executable(&agent, "#!/bin/sh\necho 1.0.0\n");
+    let check = world.bin.join("expired-check");
+    World::executable(&check, "#!/bin/sh\necho 'OAuth token has expired'\nexit 1\n");
+    let profiles = world.home.join(".config/cmux/harnesses");
+    std::fs::create_dir_all(&profiles).unwrap();
+    std::fs::write(
+        profiles.join("work-claude.toml"),
+        format!(
+            r#"schema = 1
+id = "work-claude"
+protocol = "claude-stdio"
+command = {command:?}
+[auth]
+check = [{check:?}]
+login = "claude auth login"
+"#,
+            command = agent.to_string_lossy(),
+            check = check.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    let report = world.json(&["setup", "harness", "work-claude"]);
+    let row = &report["harnesses"][0];
+    assert_eq!(row["auth_status"], "signed_out", "{row}");
+    assert_eq!(row["signed_in"], false);
+    assert_eq!(row["state"], "needs_user");
+    assert_eq!(row["recovery"]["kind"], "oauth");
+    assert_eq!(row["recovery"]["command"], "cmux harness login work-claude");
+}
+
+#[test]
 fn cmux_setup_harness_auth_timeout_is_not_sign_out() {
     let world = World::new("htimeout");
     let agent = world.bin.join("opencode");
