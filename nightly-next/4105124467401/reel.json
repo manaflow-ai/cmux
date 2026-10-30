@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4105124467401",
+  "notes": "notes/4105124467401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27309,
+      "title": "fix(ios): make recovery screens retry their failed loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27642,
+      "title": "ci(ios): add unsigned Release simulator compile route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28252,
+      "title": "fix(cli): describe every cmux cloud verb in its help",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28085,
+      "title": "cmux NEXT MCP: tool evals on real Claude/Codex harnesses, and code mode takes the script shapes models write",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
