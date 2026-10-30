@@ -697,7 +697,8 @@ pub(super) fn check_guest(
         let Some(client_id) = client_id else { return Err(Refusal::BadRequest) };
         let hash = digest(&[share_id, guest_id, client_id]);
         let prompt_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash);
-        object.insert("prompt_id".into(), json!(format!("g-{}", &prompt_id[..22])));
+        let prompt_id = prompt_id.get(..22).unwrap_or(&prompt_id);
+        object.insert("prompt_id".into(), json!(format!("g-{prompt_id}")));
     }
     if cmd == "agent-session-detach" {
         // This connection's attachment to the shared chat, on whatever surface it resolved to

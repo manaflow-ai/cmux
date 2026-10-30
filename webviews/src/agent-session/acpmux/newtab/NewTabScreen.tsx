@@ -1,3 +1,5 @@
+import { SignInContext, useSignIn } from "../signIn";
+import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -469,6 +471,7 @@ export function NewTabScreen(props: Props) {
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    if (targetAuthPending || authBlocksSend(targetAuth)) return false;
     if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
       const started = props.onSandbox(agent, prompt, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
@@ -498,6 +501,31 @@ export function NewTabScreen(props: Props) {
     [snapshot, agents, lastAgent, chatFolder, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
+  const parentSignIn = useSignIn();
+  // Auth must follow the same target precedence as askChat: a saved environment wins over a
+  // previously picked machine, so an old machine verdict cannot block this environment's prompt.
+  const targetHost = environment
+    ? environment.kind === "ssh" && environment.host && snapshot.peers?.includes(environment.host)
+      ? environment.host
+      : undefined
+    : machine?.peer;
+  const remoteTarget = environment ? environment.kind === "ssh" : Boolean(machine?.peer);
+  const authQuery =
+    harness && (!remoteTarget || targetHost)
+      ? { target: { harness, ...(targetHost ? { host: targetHost } : {}) } }
+      : undefined;
+  const {
+    auth: targetAuth,
+    pending: targetAuthPending,
+    recheck: recheckTarget,
+  } = useSessionAuth(
+    authQuery,
+    parentSignIn?.readSessionAuth,
+    parentSignIn?.authEpoch,
+    parentSignIn?.authRefresh,
+    parentSignIn?.authObservation,
+  );
+
   // The Ask row names the agent Return asks and the model on its chip.
   const ask = useMemo(() => {
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
@@ -563,6 +591,7 @@ export function NewTabScreen(props: Props) {
     setSelected(row ? rowKey(row) : NO_ROW);
   };
   const t = useT();
+  const targetAuthText = authText(targetAuth, t);
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
@@ -1324,6 +1353,11 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+        {authBlocksSend(targetAuth) && (
+          <p className="acpmux-composer-remote-note" role="alert">
+            {targetAuthText}
+          </p>
+        )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
@@ -1712,7 +1746,21 @@ export function NewTabScreen(props: Props) {
     </ContextMenu>
   );
   // The chips' menus open down and drop their key hints here (newTabComposer.ts).
-  return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
+  return (
+    <SignInContext.Provider
+      value={
+        parentSignIn && {
+          ...parentSignIn,
+          signedOut: targetHost ? {} : parentSignIn.signedOut,
+          sessionAuth: targetAuth,
+          recheckSession: recheckTarget,
+          loginSession: () => parentSignIn.loginSession?.(targetAuth),
+        }
+      }
+    >
+      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+    </SignInContext.Provider>
+  );
 }
 
 /// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards

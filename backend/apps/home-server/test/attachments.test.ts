@@ -45,6 +45,27 @@ describe("self-hosted attachments", () => {
     const stranger = await post(server, PEERS.carol, "/v1/home/attachments/url", { conversation: dm, hash })
     expect(stranger.status).toBe(403)
   })
+  it("deleting a conversation's storage also ends its open multipart uploads, so no parts stay on disk", async () => {
+    server = startServer()
+    const alice = client(server, PEERS.alice)
+    const b = (await client(server, PEERS.bob).info()).json
+    const dm = (await alice.op("dm.open", { peer: b.user_id })).json.value.conversation.id as string
+    const other = `conv_${"0".repeat(26)}`
+    const bucket = server.runtime.env.HOME_ATTACHMENTS as FsBucket
+    // An upload the client abandoned after its first part, and one in another conversation.
+    const abandoned = await bucket.createMultipartUpload(`home/v1/${dm}/abandoned`)
+    await abandoned.uploadPart(1, "a part nobody will complete")
+    const kept = await bucket.createMultipartUpload(`home/v1/${other}/kept`)
+    await kept.uploadPart(1, "still uploading")
+    await bucket.put(`home/v1/${dm}/stored`, "stored")
+
+    const conv = server.runtime.runtime.stub("CONVERSATION_DO", dm) as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
+    await conv.deleteAttachmentStorage(dm)
+    expect(await bucket.head(`home/v1/${dm}/stored`)).toBeNull()
+    // Only the other conversation's upload is left under .multipart.
+    expect(readdirSync(join(server.dataDir, "blobs", ".multipart")).sort()).toEqual([kept.uploadId, `${kept.uploadId}.json`].sort())
+    await expect(abandoned.uploadPart(2, "late")).rejects.toThrow(/NoSuchUpload/)
+  })
 })
 
 describe("self-hosted attachments: conversation storage deletion", () => {

@@ -1,8 +1,27 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
+
+/** Every file under `dir` with its contents, to show an operation left a directory exactly as it was. */
+const snapshot = (dir: string): Record<string, string> =>
+  Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => [join(entry.parentPath, entry.name), readFileSync(join(entry.parentPath, entry.name), "utf8")])
+  )
+
+/** `dir` becomes a link to `target`; `restore` puts the real directory back. */
+const swapForLink = (dir: string, target: string) => {
+  renameSync(dir, `${dir}.real`)
+  symlinkSync(target, dir)
+}
+const restore = (dir: string) => {
+  rmSync(dir)
+  renameSync(`${dir}.real`, dir)
+}
 
 describe("self-hosted attachment bucket", () => {
   it("streams resumable multipart objects and keeps listing cursors valid across deletes", async () => {
@@ -18,7 +37,7 @@ describe("self-hosted attachment bucket", () => {
       const stored = await bucket.get("home/v1/original")
       expect(stored?.body).toBeDefined()
       expect(new Uint8Array(await new Response(stored!.body!).arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4, 5]))
-      await expect(bucket.resumeMultipartUpload(upload.key, upload.uploadId).abort()).resolves.toBeUndefined()
+      expect(() => bucket.resumeMultipartUpload(upload.key, upload.uploadId)).toThrow(/NoSuchUpload/)
       // R2 numbers parts 1 to 10,000.
       const more = await bucket.createMultipartUpload("home/v1/numbers")
       for (const number of [0, 10_001, 1.5, -1]) await expect(more.uploadPart(number, "x")).rejects.toThrow()
@@ -36,6 +55,62 @@ describe("self-hosted attachment bucket", () => {
     }
   })
 
+  it("rejects equal-sized bytes whose content hash does not match the metadata", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      await bucket.put("home/v1/hash", "old bytes")
+      // Simulate a crash/torn replacement after data was published but before metadata changed.
+      writeFileSync(join(root, "home", "v1", "hash"), "new bytes")
+      expect(await bucket.head("home/v1/hash")).toBeNull()
+      expect(await bucket.get("home/v1/hash")).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("reads objects with the pre-contentHash metadata format and cleans orphaned data files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const data = "legacy bytes"
+      const etag = createHash("md5").update(data).digest("hex")
+      mkdirSync(join(root, "home", "v1"), { recursive: true })
+      writeFileSync(join(root, "home", "v1", "legacy"), data)
+      writeFileSync(join(root, "home", "v1", "legacy.meta.json"), JSON.stringify({ etag, size: data.length, uploaded: 0 }))
+      expect(await bucket.head("home/v1/legacy")).toMatchObject({ etag, size: data.length })
+
+      // Simulate a crash after the data rename but before metadata publication.
+      writeFileSync(join(root, "home", "v1", "orphan"), "orphaned bytes")
+      expect((await bucket.list({ prefix: "home/v1/" })).objects.map((object) => object.key)).toContain("home/v1/legacy")
+      expect(existsSync(join(root, "home", "v1", "orphan"))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a parent-directory symlink swapped after the final directory check", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const root = join(parent, "bucket")
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      const keyDir = join(root, "a")
+      let checks = 0
+      const bucket = new FsBucket(root, {
+        afterPathCheck: () => {
+          checks += 1
+          if (checks === 2) swapForLink(keyDir, outside)
+        }
+      })
+      await expect(bucket.put("a/secret", "inside")).rejects.toThrow(/symbolic link/)
+      expect(existsSync(join(outside, "secret"))).toBe(false)
+      restore(keyDir)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+
   it("refuses a resumed upload whose id is forged, path-like or minted for another object", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
@@ -49,15 +124,10 @@ describe("self-hosted attachment bucket", () => {
       for (const forged of ["", "../escape", "a/b", `${mine.uploadId}/x`, `${mine.uploadId}.part.1`, mine.uploadId.toUpperCase(), "0".repeat(31)]) {
         expect(() => bucket.resumeMultipartUpload("home/v1/mine", forged)).toThrow(/NoSuchUpload/)
       }
-      const unminted = bucket.resumeMultipartUpload("home/v1/mine", "0".repeat(32))
-      await expect(unminted.uploadPart(1, "x")).rejects.toThrow(/NoSuchUpload/)
-      await expect(unminted.complete([{ partNumber: 1, etag: kept.etag }])).rejects.toThrow(/NoSuchUpload/)
+      expect(() => bucket.resumeMultipartUpload("home/v1/mine", "0".repeat(32))).toThrow(/NoSuchUpload/)
 
       // Another object's upload id, resumed under this key, can't write, assemble or abort it.
-      const crossed = bucket.resumeMultipartUpload("home/v1/mine", theirs.uploadId)
-      await expect(crossed.uploadPart(1, "overwritten")).rejects.toThrow(/NoSuchUpload/)
-      await expect(crossed.complete([kept])).rejects.toThrow(/NoSuchUpload/)
-      await expect(crossed.abort()).rejects.toThrow(/NoSuchUpload/)
+      expect(() => bucket.resumeMultipartUpload("home/v1/mine", theirs.uploadId)).toThrow(/NoSuchUpload/)
       expect(await bucket.head("home/v1/mine")).toBeNull()
       expect(await bucket.head("home/v1/theirs")).toBeNull()
 
@@ -122,6 +192,27 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it("serializes concurrent part replacement and completion with abort", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const upload = await bucket.createMultipartUpload("home/v1/serialized")
+      const parts = await Promise.all([upload.uploadPart(1, "first"), upload.uploadPart(1, "second")])
+      const winner = parts.at(-1)!
+      const [completed, aborted] = await Promise.allSettled([upload.complete([winner]), upload.abort()])
+      expect(aborted.status).toBe("fulfilled")
+      if (completed.status === "fulfilled") {
+        expect(await new Response((await bucket.get("home/v1/serialized"))!.body!).text()).toBe("second")
+      } else {
+        expect(await bucket.head("home/v1/serialized")).toBeNull()
+      }
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("answers NoSuchUpload for an unknown upload before it checks the part number, and InvalidPart for a real upload", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
@@ -131,20 +222,14 @@ describe("self-hosted attachment bucket", () => {
       const closed = await bucket.createMultipartUpload("home/v1/closed")
       await closed.abort()
       const unknown = [
-        bucket.resumeMultipartUpload("home/v1/mine", "0".repeat(32)),
-        bucket.resumeMultipartUpload("home/v1/mine", theirs.uploadId),
-        bucket.resumeMultipartUpload("home/v1/closed", closed.uploadId)
+        () => bucket.resumeMultipartUpload("home/v1/mine", "0".repeat(32)),
+        () => bucket.resumeMultipartUpload("home/v1/mine", theirs.uploadId),
+        () => bucket.resumeMultipartUpload("home/v1/closed", closed.uploadId)
       ]
       const badNumbers = [0, 10_001, 1.5, -1, Number.NaN, "1" as unknown as number]
       // The upload id and key are checked first: an upload that does not exist for this key is
       // NoSuchUpload whatever part number it names, so a caller can't tell a bad number from a bad id.
-      for (const upload of unknown) {
-        for (const number of [...badNumbers, 1]) {
-          const error = await upload.uploadPart(number, "x").catch((e: unknown) => e)
-          expect(error).toBeInstanceOf(FsBucketError)
-          expect((error as FsBucketError).code).toBe("NoSuchUpload")
-        }
-      }
+      for (const resume of unknown) expect(resume).toThrow(/NoSuchUpload/)
       // A real upload names a bad part number as InvalidPart, and writes nothing for it.
       for (const number of badNumbers) {
         const error = await mine.uploadPart(number, "x").catch((e: unknown) => e)
@@ -289,10 +374,7 @@ describe("self-hosted attachment bucket", () => {
       }
       expect(readFileSync(recordPath, "utf8")).toBe(original)
 
-      const redirected = bucket.resumeMultipartUpload("home/v1/target", victim.uploadId)
-      await expect(redirected.uploadPart(2, "attacker")).rejects.toThrow(/NoSuchUpload/)
-      await expect(redirected.complete([part])).rejects.toThrow(/NoSuchUpload/)
-      await expect(redirected.abort()).rejects.toThrow(/NoSuchUpload/)
+      expect(() => bucket.resumeMultipartUpload("home/v1/target", victim.uploadId)).toThrow(/NoSuchUpload/)
       expect(await bucket.head("home/v1/target")).toBeNull()
       expect(readFileSync(recordPath, "utf8")).toBe(original)
 
@@ -419,6 +501,181 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it("refuses any key whose first segment folds to .multipart, so a case-insensitive disk can't reach an upload record", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const victim = await bucket.createMultipartUpload("home/v1/victim")
+      const part = await victim.uploadPart(1, "victim bytes")
+      const recordPath = join(root, ".multipart", `${victim.uploadId}.json`)
+      const original = readFileSync(recordPath, "utf8")
+      const id = victim.uploadId
+      // Case (APFS, HFS+ and NTFS ignore it), compatibility forms (fullwidth), ignorable code points
+      // (HFS+ drops some) and the trailing dots and spaces Windows strips all name the same directory.
+      const folded = [
+        `.MULTIPART/${id}.json`,
+        `.Multipart/${id}.json`,
+        ".Multipart/x",
+        ".MULTIPART",
+        `\uFF0E\uFF4D\uFF55\uFF4C\uFF54\uFF49\uFF50\uFF41\uFF52\uFF54/${id}.json`,
+        `.multi\u200Dpart/${id}.json`,
+        `.MULTI\u00ADPART/${id}.json`,
+        `.multipart./${id}.json`,
+        `.multipart /${id}.json`
+      ]
+      for (const key of folded) {
+        await expect(bucket.put(key, "{}"), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.get(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.head(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.createMultipartUpload(key), key).rejects.toThrow(/invalid object key/)
+        expect(() => bucket.resumeMultipartUpload(key, id), key).toThrow(/invalid object key/)
+      }
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+
+      // The attack through an upper-case key: rewrite the record to name another object, then finish it as that object.
+      await expect(bucket.put(`.MULTIPART/${id}.json`, JSON.stringify({ key: "home/v1/target" }))).rejects.toThrow(/invalid object key/)
+      expect(() => bucket.resumeMultipartUpload("home/v1/target", id)).toThrow(/NoSuchUpload/)
+      expect(await bucket.head("home/v1/target")).toBeNull()
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+      await bucket.resumeMultipartUpload("home/v1/victim", id).complete([part])
+      expect(await new Response((await bucket.get("home/v1/victim"))!.body!).text()).toBe("victim bytes")
+
+      // Only the first segment is reserved, and only when it folds to exactly .multipart.
+      for (const key of ["home/v1/.MULTIPART/b", "home/.Multipart", ".multipart-notes/x", "multipart/x", ".multiparts/x"]) {
+        await bucket.put(key, key)
+        expect(await new Response((await bucket.get(key))!.body!).text()).toBe(key)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("refuses an operation when a checked directory is swapped for a link before it is used, at every point between check and use", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      writeFileSync(join(outside, "secret"), "secret")
+      writeFileSync(join(outside, "secret.meta.json"), JSON.stringify({ etag: "e", size: 6, uploaded: 0 }))
+      const root = join(parent, "bucket")
+      // The test seam runs after the bucket has checked a path's directories and before it uses them.
+      let calls = 0
+      let swapAt = 0
+      let swap: () => void = () => undefined
+      const bucket = new FsBucket(root, {
+        afterPathCheck: () => {
+          calls += 1
+          if (calls === swapAt) swap()
+        }
+      })
+      /**
+       * Runs `op` once to count its checkpoints, then once per checkpoint with the swap there. The op
+       * is refused at every checkpoint, except that one which finished its last use of the swapped
+       * directory before the swap (completion, which closes the upload afterwards) may succeed and pass `finished`.
+       */
+      const atEveryCheckpoint = async (name: string, setup: () => Promise<() => Promise<unknown>>, swapNow: () => void, undo: () => void, finished?: () => Promise<void>) => {
+        const dry = await setup()
+        calls = 0
+        swapAt = 0
+        await dry()
+        const checkpoints = calls
+        expect(checkpoints, `${name}: the check seam ran`).toBeGreaterThan(0)
+        for (let at = 1; at <= checkpoints; at++) {
+          const op = await setup()
+          const before = snapshot(parent)
+          let swapped = false
+          swap = () => {
+            swapped = true
+            swapNow()
+          }
+          calls = 0
+          swapAt = at
+          const outcome = await op().then(() => null, (error: unknown) => error)
+          expect(swapped, `${name} @${at}`).toBe(true)
+          swapAt = 0
+          undo()
+          if (outcome === null && finished) await finished()
+          else expect(String(outcome), `${name} @${at}`).toMatch(/symbolic link/)
+          // Nothing outside the bucket was read into it, written, created or removed.
+          expect(Object.fromEntries(Object.entries(snapshot(parent)).filter(([path]) => !path.startsWith(`${root}/`))), `${name} @${at}`).toEqual(
+            Object.fromEntries(Object.entries(before).filter(([path]) => !path.startsWith(`${root}/`)))
+          )
+        }
+      }
+      const a = join(root, "a")
+      const linkA = () => swapForLink(a, outside)
+      const unlinkA = () => restore(a)
+      await atEveryCheckpoint("get", async () => {
+        await bucket.put("a/secret", "inside")
+        return () => bucket.get("a/secret")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("head", async () => {
+        await bucket.put("a/secret", "inside")
+        return () => bucket.head("a/secret")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("delete", async () => {
+        await bucket.put("a/secret", "inside")
+        return () => bucket.delete("a/secret")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("put", async () => () => bucket.put("a/secret", "overwrite"), linkA, unlinkA)
+      await atEveryCheckpoint("put creating directories", async () => {
+        await bucket.put("a/secret", "inside")
+        rmSync(join(a, "b"), { recursive: true, force: true })
+        return () => bucket.put("a/b/c/new", "new")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("complete", async () => {
+        await bucket.put("a/secret", "inside")
+        const upload = await bucket.createMultipartUpload("a/up")
+        const part = await upload.uploadPart(1, "up")
+        return () => upload.complete([part])
+      }, linkA, unlinkA, async () => {
+        expect(await new Response((await bucket.get("a/up"))!.body!).text()).toBe("up")
+      })
+
+      // The upload directory itself, swapped for a link to a copy outside the root: its record and parts are not trusted.
+      const multipart = join(root, ".multipart")
+      const copy = join(parent, "multipart-copy")
+      // The copy holds other bytes under the same part etags, so reading anything through it shows.
+      const linkMultipart = () => {
+        rmSync(copy, { recursive: true, force: true })
+        cpSync(multipart, copy, { recursive: true })
+        for (const entry of readdirSync(copy, { recursive: true, withFileTypes: true })) {
+          if (entry.isFile() && /^part\.\d+$/.test(entry.name)) writeFileSync(join(entry.parentPath, entry.name), "FORGED")
+        }
+        swapForLink(multipart, copy)
+      }
+      const unlinkMultipart = () => {
+        restore(multipart)
+        rmSync(copy, { recursive: true, force: true })
+      }
+      await atEveryCheckpoint("upload part", async () => {
+        const upload = await bucket.createMultipartUpload("home/v1/parts")
+        await upload.uploadPart(1, "one")
+        return () => upload.uploadPart(2, "two")
+      }, linkMultipart, unlinkMultipart)
+      await atEveryCheckpoint("complete from .multipart", async () => {
+        await bucket.delete("home/v1/assembled")
+        const upload = await bucket.createMultipartUpload("home/v1/assembled")
+        const part = await upload.uploadPart(1, "one")
+        return async () => {
+          try {
+            return await upload.complete([part])
+          } finally {
+            // Refused or not, no object was assembled from bytes read through the link: a swap
+            // before the parts are read refuses the completion, one after it leaves the real bytes.
+            // (Read through a bucket without the seam, so the check itself adds no checkpoint.)
+            const stored = await new FsBucket(root).get("home/v1/assembled")
+            if (stored) expect(await new Response(stored.body!).text()).toBe("one")
+          }
+        }
+      }, linkMultipart, unlinkMultipart)
+
+      expect(await new Response((await bucket.get("a/secret"))!.body!).text()).toBe("inside")
+      expect(readFileSync(join(outside, "secret"), "utf8")).toBe("secret")
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
   it("keeps an upload's custom metadata on the object it completes, as R2 does, so a caller can recognise its own completed upload", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
@@ -471,6 +728,94 @@ describe("self-hosted attachment bucket", () => {
       } finally {
         rmSync(outside, { recursive: true, force: true })
       }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("aborts uploads by prefix only through the bucket's own .multipart: a linked directory, a linked record or a swap after the check is refused", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      const id = "a".repeat(32)
+      const forged = JSON.stringify({ key: "home/v1/conv_a/x" })
+      writeFileSync(join(outside, `${id}.json`), forged)
+      mkdirSync(join(outside, id))
+      writeFileSync(join(outside, id, "part.1"), "kept")
+
+      // .multipart itself a link: refused, and nothing it points at is removed.
+      const linkedRoot = join(parent, "linked")
+      mkdirSync(linkedRoot)
+      symlinkSync(outside, join(linkedRoot, ".multipart"))
+      await expect(new FsBucket(linkedRoot).abortMultipartUploads("home/")).rejects.toThrow(/symbolic link/)
+
+      // A record that is a link is not an upload.
+      const root = join(parent, "bucket")
+      const bucket = new FsBucket(root)
+      const real = await bucket.createMultipartUpload("home/v1/conv_b/real")
+      await real.uploadPart(1, "real part")
+      symlinkSync(join(outside, `${id}.json`), join(root, ".multipart", `${id}.json`))
+      expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
+
+      // .multipart swapped for a link to a copy after the bucket checked it: refused, the copy and the real uploads untouched.
+      const copy = join(parent, "copy")
+      let swapped = false
+      const swapping = new FsBucket(root, {
+        afterPathCheck: () => {
+          if (swapped) return
+          swapped = true
+          cpSync(join(root, ".multipart"), copy, { recursive: true, verbatimSymlinks: true })
+          swapForLink(join(root, ".multipart"), copy)
+        }
+      })
+      const before = snapshot(outside)
+      await expect(swapping.abortMultipartUploads("home/v1/conv_b/")).rejects.toThrow(/symbolic link/)
+      expect(swapped).toBe(true)
+      expect(readdirSync(copy).sort()).toEqual([real.uploadId, `${real.uploadId}.json`, `${id}.json`].sort())
+      restore(join(root, ".multipart"))
+      expect(snapshot(outside)).toEqual(before)
+      expect(await bucket.abortMultipartUploads("home/v1/conv_b/")).toBe(1)
+      expect(readdirSync(join(root, ".multipart"))).toEqual([`${id}.json`])
+      expect(readFileSync(join(outside, `${id}.json`), "utf8")).toBe(forged)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+  it("commits each write to a key whole: concurrent puts and completions never leave one write's bytes with another's metadata", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const md5 = (text: string) => createHash("md5").update(text).digest("hex")
+      /** What a reader sees is one write: the bytes, their size and their etag agree. */
+      const whole = async (key: string, written: ReadonlyArray<string>) => {
+        const head = await bucket.head(key)
+        const got = await bucket.get(key)
+        const text = await new Response(got!.body!).text()
+        expect(written).toContain(text)
+        expect([head!.size, head!.etag, got!.size, got!.etag]).toEqual([text.length, md5(text), text.length, md5(text)])
+        expect((await bucket.list({ prefix: key })).objects.filter((o) => o.key === key).map((o) => [o.size, o.etag])).toEqual([[text.length, md5(text)]])
+      }
+      for (let round = 0; round < 20; round++) {
+        // Bodies of different sizes, so a mismatch shows in the size as well as the etag.
+        const bodies = Array.from({ length: 8 }, (_, i) => `${round}:${i}:${"x".repeat(i * 97 + 1)}`)
+        await Promise.all(bodies.map((body) => bucket.put("home/v1/race", body)))
+        await whole("home/v1/race", bodies)
+
+        // A completion racing puts to its own key.
+        const upload = await bucket.createMultipartUpload("home/v1/race-mp")
+        const part = await upload.uploadPart(1, `mp:${round}`)
+        const others = bodies.slice(0, 4)
+        await Promise.all([upload.complete([part]), ...others.map((body) => bucket.put("home/v1/race-mp", body))])
+        await whole("home/v1/race-mp", [`mp:${round}`, ...others])
+
+        // Only one of several conditional puts to a new key wins; what is stored is that one, whole.
+        const fresh = `home/v1/once-${round}`
+        const results = await Promise.all(bodies.map((body) => bucket.put(fresh, body, { onlyIf: { etagDoesNotMatch: "*" } })))
+        expect(results.filter((r) => r !== null)).toHaveLength(1)
+        await whole(fresh, [bodies[results.findIndex((r) => r !== null)]!])
+      }
+      // No temp file is left beside the objects.
+      expect(readdirSync(join(root, "home", "v1")).filter((name) => name.includes(".tmp-") || name.includes(".multipart-"))).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

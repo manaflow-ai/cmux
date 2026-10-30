@@ -28,7 +28,7 @@ const modes = {
   availableModes: [
     { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
     { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-    { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
   ],
 };
 

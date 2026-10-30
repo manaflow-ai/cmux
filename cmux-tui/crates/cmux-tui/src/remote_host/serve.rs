@@ -18,6 +18,7 @@ use super::config::{self, Config};
 use super::grant::{self, Scope};
 use super::preface::{self, Op};
 use super::tailnet::{self, Tailnet};
+use cmux_json::JsonSet as _;
 
 /// How long a peer has to send its preface.
 const PREFACE_BOUND: Duration = Duration::from_secs(5);
@@ -280,8 +281,10 @@ fn serve_one(
             record("probe", "ok", None);
             let mut reply = probe_reply(host, &config, access);
             if let Some(scopes) = &scopes {
-                reply["host"]["scopes"] =
-                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
+                reply.set_path(
+                    &["host", "scopes"],
+                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()),
+                );
             }
             preface::write_value(&mut stream, &reply)?;
             Ok(())
