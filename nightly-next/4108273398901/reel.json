@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4108273398901",
+  "notes": "notes/4108273398901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28363,
+      "title": "acpmux: an imported chat takes no prompt before its receipt is logged",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27868,
+      "title": "acpmux: carried turns arm their own cap, hold their own output and count lane reports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28039,
+      "title": "fix(agent-pane): settle compacting Stop once and show Continue (carries #27185)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28375,
+      "title": "ci(signing): trust glaeda runner hook a3fc59d7, 0de22d74, 4a7dff39, 0e773943",
+      "author": "cmux-bot[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27817,
+      "title": "Agent pane: a chat another app runs opens View Only, with Fork It and Open Anyway over it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27135,
+      "title": "feat(agent-pane): bridge opt-in native tab-row icon tools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27943,
+      "title": "cmux NEXT Cloud: the app server's connect answers the caller's vm_kind (cmux-platform#89 A2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28320,
+      "title": "webviews: chatOpenTrips test waits on conditions, not fixed time (base red from #27755)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28330,
+      "title": "ci: test_reds compares bun test reds by name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28161,
+      "title": "acpmux: ACP session/list goes in pages when the whole list is too large to send",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
