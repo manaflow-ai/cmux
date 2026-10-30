@@ -1,3 +1,4 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
 // App.tsx +12 -3"). Opened, commands, reads and searches list as Claude Code desktop lists a run's
 // steps: one bordered, rounded group, the thought that led into the run first as its full text,
@@ -10,7 +11,7 @@ import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
 import { EditDiff } from "./EditDiff";
-import { StepThought } from "./ThoughtRow";
+import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } from "./icons";
 import { isQuietThought } from "./thoughts";
@@ -73,6 +74,45 @@ function useStepEntries(items: readonly AcpmuxActivity[]): StepEntry[] {
   });
   last.current = { items, entries };
   return entries;
+}
+
+type EntryNode = { kind: ToolGroupKind; key: string | number; node: ReactNode };
+const entryCache = new WeakMap<AcpmuxActivity, EntryNode>();
+
+/// An edits group's item rows (commands, reads and searches draw as Steps), one element per item,
+/// kept by item identity. direct.ts and childRows.ts
+/// replace only the item a chunk changed, so an unchanged item keeps its element and React skips
+/// its row: a streamed chunk renders only the changed call, never its siblings, and no sibling
+/// output or thought is parsed again. The pass is an identity check per item, with no element,
+/// render or parse for an unchanged one. It is the walk React makes over the children anyway,
+/// and it notices a delayed update to any earlier call, not only the tail. Items are immutable
+/// snapshots, so an entry lives exactly as long as its item (a WeakMap, no cleanup needed).
+function entryNodes(
+  items: readonly AcpmuxActivity[],
+  kind: ToolGroupKind,
+  thoughtId: (n: number) => string,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let thoughts = 0;
+  for (let at = 0; at < items.length; at += 1) {
+    const item = items[at]!;
+    // A thought's stable ordinal keeps its choice when more calls append to the group.
+    const key = item.tool ? item.tool.id || at : thoughtId(thoughts++);
+    let entry = entryCache.get(item);
+    if (entry?.kind !== kind || entry.key !== key) {
+      const node = !item.tool ? (
+        <ThoughtRow key={key} id={key as string} item={item} />
+      ) : kind === "commands" ? (
+        <CommandRow key={key} item={item} />
+      ) : (
+        <ToolRow key={key} item={item} />
+      );
+      entry = { kind, key, node };
+      entryCache.set(item, entry);
+    }
+    nodes.push(entry.node);
+  }
+  return nodes;
 }
 
 /// Two drawings of one thought say the same: the transcript merges consecutive thoughts into a new
@@ -165,6 +205,7 @@ export function ToolGroupRow({
       <button
         type="button"
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
+        data-tool-group={disclosureKey}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         ref={fold.headerRef}
@@ -206,23 +247,27 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <div {...fold.bodyProps}>
           {kind === "edits" ? (
-            <div className="cv-tool-group" id={detailsId}>
-              {files.map((file) => (
-                <EditDiff key={file.path} file={file} />
-              ))}
-              {/* Edits that carried no diff (a delete, a move), as rows. */}
-              {items
-                .filter((item) => item.tool && (!files.length || !item.tool.diffs?.length))
-                .map((item, at) => (
-                  <ToolRow key={item.tool!.id || at} item={item} />
-                ))}
+            <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
+              {!files.length
+                ? entryNodes(items, kind, thoughtId)
+                : [
+                    ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                    // Edits that carried no diff (a delete, a move), as rows.
+                    ...entryNodes(items, kind, thoughtId).filter((_, index) => !items[index]!.tool?.diffs?.length),
+                  ]}
             </div>
           ) : (
-            <div className="cv-tool-group is-flat cv-steps" id={detailsId} data-kind={kind}>
+            <div
+              className="cv-tool-group is-flat cv-steps"
+              id={detailsId}
+              data-kind={kind}
+              data-tool-group-items={disclosureKey}
+            >
               {entries.map(({ at, key, thought }) => (
                 <Step
                   key={thought < 0 ? key : thoughtId(thought)}

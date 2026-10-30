@@ -93,7 +93,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -694,10 +723,21 @@
+@@ -694,12 +723,23 @@
          key = ""
          // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
          if liveKept { liveKept = false; spec = nil }
@@ -102,8 +102,8 @@
          markdownOverlay?.detach()
          CustomRows.host?.detach(self)
          dropWant()
-+    }
-+
+     }
+ 
 +    /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
 +    /// coordinates.
 +    func setSelectionHighlight(_ path: CGPath?) {
@@ -112,9 +112,11 @@
 +        if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
 +        selectionHighlight.path = path
 +        CATransaction.commit()
-     }
- 
++    }
++
      func clearAnimations() {
+         layer.removeAllAnimations()
+         contentView.layer.removeAllAnimations()
 @@ -719,10 +759,11 @@
              guard let spec else { return nil }
              switch spec.kind {
@@ -199,13 +201,14 @@
          var images = [CGImage?](repeating: nil, count: specs.count)
          // Per row: its drawing time on its worker (ms), for the display change's evidence.
          var rowMs = [Double](repeating: 0, count: specs.count)
-@@ -1004,13 +1060,17 @@
+@@ -1004,13 +1060,18 @@
              DispatchQueue.concurrentPerform(iterations: specs.count) { i in
                  // checked reads and writes (crash ratchet)
                  let r0 = CACurrentMediaTime()
 -                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] { out[slot] = RowBitmaps.render(spec, scale: sc) }
-+                if let slot = out.checkedIndex(i), let spec = specs[checked: i], let sc = scales[checked: i] {
-+                    out[slot] = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
++                if let spec = specs[checked: i], let sc = scales[checked: i] {
++                    let image = PaletteScope.with(palettes[checked: i] ?? nil) { RowBitmaps.render(spec, scale: sc) }
++                    if let slot = out.checkedIndex(i) { out[slot] = image }
 +                }
                  if let slot = ms.checkedIndex(i) { ms[slot] = (CACurrentMediaTime() - r0) * 1000 }
              }
@@ -219,7 +222,7 @@
          let t2 = CACurrentMediaTime()
          if displayPass || DisplayTiming.flushOpen {
              DisplayTiming.note("flush.draw", (t1 - t0) * 1000)
-@@ -1133,7 +1193,7 @@
+@@ -1133,7 +1194,7 @@
      private func snapTyping() {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard case .typing? = spec?.kind else { return }
@@ -228,7 +231,7 @@
          // In the row's content, which snapRow already moved by rowSnap.
          let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
          guard top.isFinite, left.isFinite else { return }
-@@ -1197,8 +1257,11 @@
+@@ -1197,8 +1258,11 @@
          box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
          box.contentsScale = renderScale
          badgeTop = c.y - 20
@@ -242,7 +245,7 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1357,6 +1420,7 @@
+@@ -1357,6 +1421,7 @@
      /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
      /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
      /// every pass.
@@ -250,7 +253,7 @@
      static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
          guard abs(k) > 1e-6 else { return 0 }
          let r = o + k * v
-@@ -1386,7 +1450,7 @@
+@@ -1386,7 +1451,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -259,7 +262,7 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1402,7 +1466,7 @@
+@@ -1402,7 +1467,7 @@
      /// Moves the content to the snapped place; true when the snap changed.
      @discardableResult private func snapRow() -> Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
@@ -268,7 +271,7 @@
          let x = RowCell.anchorX(spec, layer.frame)
          guard windowY.isFinite, x.isFinite else { return false }
          let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
-@@ -1451,6 +1515,16 @@
+@@ -1451,6 +1516,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
@@ -285,7 +288,7 @@
      /// Window y of the cell's top: the outgoing fill shades with it.
      var windowY: CGFloat = 0 {
          didSet {
-@@ -1471,10 +1545,12 @@
+@@ -1471,10 +1546,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -301,7 +304,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1487,7 +1563,7 @@
+@@ -1487,7 +1564,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -310,7 +313,7 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1566,6 +1642,8 @@
+@@ -1566,6 +1643,8 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
@@ -319,7 +322,7 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1654,8 @@
+@@ -1576,6 +1655,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -328,7 +331,7 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1610,8 +1690,10 @@
+@@ -1610,8 +1691,10 @@
          // 0 after snapTyping), read from the window's layer tree.
          let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
          let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
@@ -340,7 +343,7 @@
              guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
              let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
              return abs(f) > 1e-6 ? f : 0
-@@ -1674,7 +1756,8 @@
+@@ -1674,7 +1757,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)

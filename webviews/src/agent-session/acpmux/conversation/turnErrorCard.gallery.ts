@@ -5,16 +5,25 @@
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import type { AcpmuxSnapshot } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
 
-const failed = (error: string, errorCode?: string) =>
-  chat([
-    user(prompt, 6),
-    assistant("Running the sidebar tests first.", 5.8),
-    summary(5.5, { status: "failed", durationMs: 662_000, error, ...(errorCode ? { errorCode } : {}) }),
-  ]);
+const failed = (error: string, errorCode?: string, fields: Partial<AcpmuxSnapshot> = {}) =>
+  chat(
+    [
+      user(prompt, 6),
+      assistant("Running the sidebar tests first.", 5.8),
+      summary(5.5, { status: "failed", durationMs: 662_000, error, ...(errorCode ? { errorCode } : {}) }),
+    ],
+    fields,
+  );
+
+/// Claude Code's own /compact, as its `available_commands_update` lists it.
+const compactCommand = { name: "compact", description: "Clear conversation history but keep a summary in context" };
+const contextFull =
+  'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}';
 
 const cloudFailed = (error: string) => {
   const snapshot = chat([
@@ -34,7 +43,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 300,
   covers: ["agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter", "agent-session/acpmux/failureCopy.ts"],
-  keywords: ["error", "failure", "disk full", "tailscale", "agent process closed"],
+  keywords: ["error", "failure", "disk full", "tailscale", "agent process closed", "context window", "compact"],
   variants: {
     "cloud-missing": {
       note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
@@ -74,8 +83,23 @@ export default agentPaneEntry({
       snapshot: failed("failed to spawn agent: spawn claude-code-acp ENOENT"),
     },
     "rate-limited": {
-      note: "Capacity: Switch model is the way out, Retry beside it.",
+      note: "Capacity after the turn did work (Lawrence 2026-10-29): Continue leads and resumes the turn with its context (Return on the focused card), Switch model beside it.",
       snapshot: failed("API Error: 529 overloaded_error"),
+    },
+    "rate-limited-before-work": {
+      note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
+      ]),
+    },
+    "context-full": {
+      note: "A long chat that outgrew the model's context window: Compact (the agent's /compact) first, Retry after it. Before, it read as an unknown failure whose Retry failed the same way.",
+      snapshot: failed(contextFull, undefined, { commands: [compactCommand] }),
+    },
+    "context-full-no-compact": {
+      note: "The same failure from an agent that lists no /compact: Retry stays the way out.",
+      snapshot: failed(contextFull),
     },
     unknown: {
       note: "An error nothing names still reads human; its words are under Details.",

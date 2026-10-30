@@ -101,6 +101,7 @@ test("an opened thought inside a group stays open as calls join", async () => {
   expect(toggles().length).toBe(6);
   expect(opened()).toHaveLength(1);
   expect(opened()[0]).toContain("Thought number 2:");
+  expect(host.querySelector(".cv-tool-group__more")).toBeNull();
 });
 
 test("a thought that led into a run opens its group in full, and keeps the reader's choice", async () => {
