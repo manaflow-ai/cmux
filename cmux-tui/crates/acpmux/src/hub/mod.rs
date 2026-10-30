@@ -1208,6 +1208,19 @@ impl Hub {
         self.append_at(session, dir, kind, msg, host_seq, None)
     }
 
+    /// Persist a record without broadcasting it. Callers use this for a durable marker whose
+    /// in-memory state is installed immediately afterward; the following state event is the
+    /// first watcher-visible record.
+    pub(super) fn append_quiet(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> EventRecord {
+        self.append_at_notify(session, dir, kind, msg, None, None, false).0
+    }
+
     /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
     /// None: now), as a fork's copy of its parent's turns did.
     pub(super) fn append_at(
@@ -1215,9 +1228,22 @@ impl Hub {
         session: &Session,
         dir: &str,
         kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+        at: Option<u64>,
+    ) -> (EventRecord, bool) {
+        self.append_at_notify(session, dir, kind, msg, host_seq, at, true)
+    }
+
+    fn append_at_notify(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
         mut msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
+        notify: bool,
     ) -> (EventRecord, bool) {
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
@@ -1297,11 +1323,13 @@ impl Hub {
         ) {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
-        let _ = self.events.send(HubEvent {
-            session_id: session.id.clone(),
-            record: Arc::new(record.clone()),
-            remote: None,
-        });
+        if notify {
+            let _ = self.events.send(HubEvent {
+                session_id: session.id.clone(),
+                record: Arc::new(record.clone()),
+                remote: None,
+            });
+        }
         (record, stored)
     }
 

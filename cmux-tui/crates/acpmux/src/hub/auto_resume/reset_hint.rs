@@ -1,6 +1,8 @@
 //! Provider reset and retry hints. Times are absolute milliseconds since Unix epoch.
 use serde_json::Value;
 
+const MAX_HINT_DELAY_MS: u64 = 8 * 24 * 60 * 60 * 1000;
+
 fn seconds(s: &str) -> Option<u64> {
     s.trim().parse::<u64>().ok().filter(|v| *v > 0)
 }
@@ -27,7 +29,8 @@ fn duration_ms(s: &str) -> Option<u64> {
     } else {
         1_000.0
     };
-    Some((n * multiplier).min(u64::MAX as f64) as u64)
+    let ms = n * multiplier;
+    (ms.is_finite() && ms <= MAX_HINT_DELAY_MS as f64).then_some(ms as u64)
 }
 
 fn nth_sunday(year: i32, month: time::Month, nth: u8) -> Option<u8> {
@@ -374,6 +377,7 @@ mod tests {
         assert_eq!(reset_at("503 retry after 2401s", None, 1000), Some(2_402_000));
         assert_eq!(reset_at("usage limit|1760000000", None, 0), Some(1_760_000_000_000));
         assert_eq!(reset_at("Retry-After: 2m", None, 1000), Some(121_000));
+        assert_eq!(reset_at("Retry-After: 999999999999999999d", None, 1000), None);
         assert_eq!(
             reset_at("You've hit your limit · resets 3pm", None, 12 * 3_600_000),
             Some(15 * 3_600_000)

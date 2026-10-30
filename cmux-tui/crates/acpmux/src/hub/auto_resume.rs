@@ -466,7 +466,7 @@ impl Hub {
             }
             // Persist the schedule before publishing the in-memory retry row. A daemon crash
             // between these operations must leave an event that restart restoration can replay.
-            hub.append(&session, "mux", "auto_resume_scheduled", msg);
+            hub.append_quiet(&session, "mux", "auto_resume_scheduled", msg);
             if hub.set_retry(&session, &turn_id, retry) {
                 // Publish after installing the in-memory row so watchers do not retain
                 // `retry: null` for a long reset wait.
