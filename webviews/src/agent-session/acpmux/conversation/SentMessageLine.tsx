@@ -1,8 +1,9 @@
 // A message this agent sent another one, as one tool row: "Sending message to tests" with the
 // working spinner while it goes out, "Sent message to tests" with the envelope once it went, and
 // "Couldn't send to tests" when it failed; then how it was delivered, when the call says ("· queued"),
-// and the message's first line, muted. The row opens to the whole message as Markdown and, behind
-// Raw, the call itself (its command and output, or its MCP request and response); a failed send
+// and the message's first line, muted, while the row is shut. The row opens to the whole message as
+// Markdown, its first line then gone from the row (Leo 2026-10-29, on the line and the body under it
+// saying the same thing: "this rendering can be better for sent stuff"), and, behind Raw, the call itself (its command and output, or its MCP request and response); a failed send
 // opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
 // Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
@@ -27,6 +28,7 @@ import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
+import { SentActions } from "./MessageActions";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
@@ -140,6 +142,8 @@ export function SentMessageLine({
   const readChat = () => targetChat(store, target, targetSession);
   const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
   const preview = text ? messagePreview(text) : "";
+  // The open row shows the whole message under it: its first line on the row would say it twice.
+  const trailing = preview && state !== "failed" && !(open && text) ? preview : "";
   const label =
     shape === "arrow" && (state === "sending" || state === "sent") && preview
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
@@ -188,16 +192,22 @@ export function SentMessageLine({
           {before}
           {name}
           {after}
-          {shape === "quote" && preview && state !== "failed" && (
+          {shape === "quote" && trailing && (
             // l10n-allow: punctuation around the message's own words.
-            <span className="cv-tool__detail">{`: “${preview}”`}</span>
+            <span className="cv-tool__detail">{`: “${trailing}”`}</span>
           )}
           {detail && <span className="cv-tool__detail">{` · ${detail}`}</span>}
           {more && <span className="cv-tool__detail cv-sent__more">{` · ${more}`}</span>}
-          {shape === "sentence" && preview && state !== "failed" && (
-            <span className="cv-tool__detail cv-sent__preview">{preview}</span>
-          )}
+          {shape === "sentence" && trailing && <span className="cv-tool__detail cv-sent__preview">{trailing}</span>}
         </span>
+        {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
+            row's is (MessageCard.tsx); its click never toggles the row. */}
+        {text && (
+          // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
+          <span onClick={(event) => event.stopPropagation()}>
+            <SentActions text={text} />
+          </span>
+        )}
         <ChevronRight
           size={14}
           strokeWidth={1.2}

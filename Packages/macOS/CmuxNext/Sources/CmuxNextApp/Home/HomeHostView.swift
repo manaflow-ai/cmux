@@ -112,6 +112,7 @@ final class HomeHostView: NSView {
             guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
             service.hostedChief.pick(other)
         }
+        transcript.chatColors = service.chatColors  // Chat Colors…: this chat's own colours, live
         // task-owner: lives as long as this view; event-driven (Observation)
         hostWatch = Task { [weak self, weak service] in
             for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {
@@ -351,7 +352,9 @@ final class HomeHostView: NSView {
                 (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
                  service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
-                self?.transcript.isHidden = !available
+                // An unanswered availability check is still loading: keep Home's existing
+                // transcript loading/connecting treatment visible instead of leaving a blank pane.
+                self?.transcript.isHidden = !available && explained
                 self?.message.isHidden = available || !explained
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
@@ -503,6 +506,11 @@ final class HomeHostView: NSView {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
+    /// `debug.home.api` edit_picture: a picture picked or dropped on this view's Chief card (Move and Scale).
+    func debugEditPicture(_ source: URL, zoom: CGFloat?, save: Bool) async -> Bool? {
+        loadAvatar()
+        return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
+    }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif

@@ -85,12 +85,15 @@ extension SidebarBridge {
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
-            // A double-click in a group's empty part, or its "+": the end of that group.
+            // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
+            // new workspace in it (its top under the default `top`).
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
             // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.
             if machine != nil || state.machineID != MachineRegistry.localID, daemon == nil { return }
-            services.windows.newWorkspace(in: state, on: daemon, at: group.map(WorkspaceSlot.endOfGroup))
+            let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
+            let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
+            services.windows.newWorkspace(in: state, on: daemon, at: slot)
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {
@@ -185,7 +188,7 @@ extension SidebarBridge {
     /// Puts daemon truth back after a refused or rejected intent.
     func resync() {
         guard let state else { return }
-        model.ungroupedFirst = !usesMixedOrder
+        model.ungroupedFirst = !SidebarDocWiring.isActive && !usesMixedOrder
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,

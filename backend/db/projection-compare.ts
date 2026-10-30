@@ -102,7 +102,7 @@ const myScope = (table: string, exclude: ReadonlyArray<string>, values: Array<un
 }
 
 /** Key columns that are numbers, not ASCII ids. */
-const NUMERIC_KEYS: ReadonlySet<string> = new Set(["n", "seq"])
+export const NUMERIC_KEYS: ReadonlySet<string> = new Set(["n", "seq"])
 
 export interface PgLike {
   query(sql: string, values?: Array<unknown>): Promise<{ rows: Array<Record<string, unknown>> }>
