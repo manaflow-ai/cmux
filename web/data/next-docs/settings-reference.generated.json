@@ -115,6 +115,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.showMachineLoadWarnings",
+          "title": "Show Machine Load Warnings",
+          "help": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.spellChecking",
           "title": "Check Spelling While Typing",
           "help": "Underlines misspellings and offers system suggestions in the composer.",
@@ -205,7 +213,7 @@
         {
           "key": "agents.subsessions.maxChildren",
           "title": "Open Sub-sessions per Session",
-          "help": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+          "help": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
           "kind": "number",
           "default": 50,
           "group": "Sub-sessions",
@@ -1040,6 +1048,14 @@
           "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
           "kind": "toggle",
           "default": true,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.nativeNewTabPage",
+          "title": "Native New Tab Page",
+          "help": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
+          "kind": "toggle",
+          "default": false,
           "group": "Tabs"
         },
         {

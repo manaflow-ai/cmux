@@ -12,11 +12,12 @@ export function toolArtifacts(tool: Tool): Artifact[] {
   const previous = cache.get(tool);
   if (previous) return previous;
   const full = (tool.diffs ?? []).filter((diff) => !diff.fragment || (diff.fromInput && diff.oldText == null));
-  // Claude/pi/Gemini may send the whole write in rawInput without a diff block.
+  // Claude/pi/OpenCode/Gemini may send the whole write in rawInput without a diff block; each names
+  // the file its own way (toolPaths.ts).
   if (!full.length && /^(write|write_file|writefile|create_file)(?:\s|$)/i.test(tool.title)) {
     try {
       const input = JSON.parse(tool.inputSummary ?? "null");
-      const path = input?.file_path ?? input?.path;
+      const path = input?.file_path ?? input?.filePath ?? input?.absolute_path ?? input?.path;
       if (typeof path === "string" && typeof input?.content === "string")
         full.push({ path, canonical: toolCanonical(tool, path), newText: input.content });
     } catch {

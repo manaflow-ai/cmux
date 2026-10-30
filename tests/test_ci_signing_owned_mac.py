@@ -42,6 +42,7 @@ The claim script and the drained-mini pick are tested here too.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -697,6 +698,19 @@ class SigningOwnedMacTests(unittest.TestCase):
             self.assertEqual(values["owned"], "")
             self.assertTrue(values["runner"].startswith("blacksmith-"))
             self.assertTrue(values["alternate"].startswith("blacksmith-"))
+            # No pool snapshot: the Blacksmith pick is unverified and says so, and takes the size with the
+            # most slots rather than vars.MACOS_RUNNER_26 unchecked (HQ#5168).
+            self.assertEqual(values["placement"], "unverified")
+            self.assertEqual((values["runner"], values["alternate"]),
+                             ("blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"))
+            output.unlink()
+            fresh = {"generated_at": "2099-01-01T00:00:00Z", "pools": {}}
+            self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0",
+                                                  "CANDIDATE": "blacksmith-12vcpu-macos-26", "SNAPSHOT_TOKEN": "s"}, [], read, jobs,
+                                                 lambda t, r: fresh,
+                                                 dt.datetime(2099, 1, 1, 0, 1, tzinfo=dt.timezone.utc)), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual((values["runner"], values["placement"]), ("blacksmith-12vcpu-macos-26", "verified"))
 
 
     def test_the_cap_counts_every_signing_job_glaeda_holds_the_mini_for(self) -> None:
