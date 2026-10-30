@@ -41,7 +41,9 @@ test("a second tile of an image still loading shows it when the first load ends"
       <ReplyImage src={src} alt="b" fallback={null} />
     </>,
   );
-  await act(async () => void (await Promise.resolve()));
+  await act(async () => {
+    await Promise.resolve();
+  });
   expect(calls()).toBe(1);
   expect(dom.host().querySelectorAll("img").length).toBe(0);
   await act(async () => releases[0]!());
@@ -58,10 +60,14 @@ test("when the first load fails the other tile asks the host itself", async () =
       <ReplyImage src={src} alt="b" fallback={null} />
     </>,
   );
-  await act(async () => void (await Promise.resolve()));
+  await act(async () => {
+    await Promise.resolve();
+  });
   expect(calls()).toBe(1);
   await act(async () => releases[0]!());
-  await act(async () => void (await Promise.resolve()));
+  await act(async () => {
+    await Promise.resolve();
+  });
   expect(calls()).toBe(2);
   await act(async () => releases[1]!());
   expect(dom.host().querySelectorAll("img").length).toBe(1);
