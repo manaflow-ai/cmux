@@ -216,6 +216,15 @@ class ExpectedCommitTests(unittest.TestCase):
             with self.assertRaises(check.Unknown):
                 self.resolve(served, run_record(status="completed"))
 
+    def test_signed_json_that_is_not_an_object_is_unknown(self) -> None:
+        body = b"[]"
+        served = {
+            f"{NOTES}/{BUILD}.json": body,
+            f"{NOTES}/{BUILD}.json.sig": base64.b64encode(ed25519_sign(SEED, body)) + b"\n",
+        }
+        with self.assertRaisesRegex(check.Unknown, "not a JSON object"):
+            self.resolve(served, run_record(status="completed"))
+
     def test_unsigned_notes_are_not_trusted(self) -> None:
         served = self.notes()
         del served[f"{NOTES}/{BUILD}.json.sig"]

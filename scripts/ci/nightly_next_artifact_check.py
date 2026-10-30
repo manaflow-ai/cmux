@@ -158,7 +158,9 @@ def signed_notes_head(build: str, notes_base: str, fetch, public_key: str | None
         notes = json.loads(body)
     except ValueError:
         raise Unknown(f"{url} is not JSON") from None
-    head = str(notes.get("head", "")) if isinstance(notes, dict) else ""
+    if not isinstance(notes, dict):
+        raise Unknown(f"{url} is not a JSON object")
+    head = str(notes.get("head", ""))
     if str(notes.get("build", "")) != build or not FULL_SHA.match(head):
         raise Unknown(f"{url} is not build {build}'s notes with a 40-hex head")
     return head
