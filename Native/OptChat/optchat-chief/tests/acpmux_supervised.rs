@@ -148,41 +148,42 @@ fn a_local_host_starts_acpmux_in_its_acpmux_home() {
 
 /// An update hands the Chief to a new host while the old host's acpmux
 /// daemon still stops and holds `daemon.lock`, so the daemon the new host
-/// starts exits at once ("another acpmux daemon holds ..."). The new host
-/// waits for the old daemon to let the lock go and starts acpmux again.
-/// Before, it exited; with the watch's restarts that was three exits in a
-/// minute, and the Chief stayed silent until the next ask (2026-10-20).
+/// starts exits at once (75, "another acpmux daemon holds ..."). The new
+/// host starts acpmux again until the old daemon lets the lock go. Before,
+/// it exited; with the watch's restarts that was three exits in a minute,
+/// and the Chief stayed silent until the next ask (2026-10-20).
 #[test]
 fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
-    use std::os::unix::io::AsRawFd;
-    // It locks the daemon home's lock: never a real home's.
+    use std::sync::Mutex;
+    // It starts a daemon in the daemon home: never a real home's.
     if std::env::var_os("ACPMUX_HOME").is_some() || std::env::var_os("ACPMUX_SOCKET").is_some() {
         eprintln!("skipped: ACPMUX_HOME or ACPMUX_SOCKET is set");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().to_owned();
-    let first = dir.path().join("first-run");
-    let second = dir.path().join("second-run");
+    let held = dir.path().join("held");
+    let attempts = dir.path().join("attempts");
+    let started = dir.path().join("started");
     let bin = dir.path().join("fake-acpmux");
-    // Its first run fails as acpmux does while another daemon holds the
-    // lock; the next one runs, and the test binds its socket.
+    // As acpmux: it exits 75 while another daemon holds the lock (`held`
+    // stands for it); once it is free, it runs and the test binds its socket.
     exe::write_executable(
         &bin,
         &format!(
-            "#!/bin/sh\nif [ ! -e '{first}' ]; then touch '{first}'; exit 1; fi\ntouch '{second}'\nsleep 5\n",
-            first = first.display(),
-            second = second.display()
+            "#!/bin/sh\necho run >> '{attempts}'\nif [ -e '{held}' ]; then exit 75; fi\ntouch '{started}'\nsleep 5\n",
+            attempts = attempts.display(),
+            held = held.display(),
+            started = started.display()
         ),
     );
-    let lock = std::fs::File::create(home.join("daemon.lock")).unwrap();
-    // SAFETY: flock on a descriptor this test owns.
-    assert_eq!(
-        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
-        0
-    );
+    std::fs::write(&held, "").unwrap();
     let socket = dir.path().join("acpmux.sock");
-    let (path, first_seen, second_seen) = (socket.clone(), first.clone(), second.clone());
+    let (path, attempts_seen, started_seen, held_marker) = (
+        socket.clone(),
+        attempts.clone(),
+        started.clone(),
+        held.clone(),
+    );
     let old_daemon = std::thread::spawn(move || {
         let wait_for = |file: &std::path::Path| {
             let deadline = Instant::now() + Duration::from_secs(10);
@@ -191,19 +192,18 @@ fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
             }
             file.exists()
         };
-        assert!(wait_for(&first_seen), "the first start ran");
+        assert!(wait_for(&attempts_seen), "the first start ran");
         // The old daemon ends a moment after the first start failed.
         std::thread::sleep(Duration::from_millis(300));
-        // SAFETY: as above.
-        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) };
-        drop(lock);
-        if !wait_for(&second_seen) {
+        std::fs::remove_file(&held_marker).unwrap();
+        if !wait_for(&started_seen) {
             return;
         }
         let listener = UnixListener::bind(&path).unwrap();
         let _ = listener.accept();
         std::thread::sleep(Duration::from_millis(200));
     });
+    let logs = Mutex::new(Vec::<String>::new());
     let seen = AtomicBool::new(false);
     let r = ensure_with(
         &socket,
@@ -211,18 +211,30 @@ fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
         &seen,
         Some(bin.to_str().unwrap()),
         Duration::from_secs(1),
-        &|_| {},
+        &|message| logs.lock().unwrap().push(message.to_owned()),
     );
     old_daemon.join().unwrap();
-    assert!(matches!(r, Ok(Some(_))), "started on the second try: {r:?}");
-    assert!(second.exists(), "it started acpmux again");
+    assert!(
+        matches!(r, Ok(Some(_))),
+        "started once the lock was free: {r:?}"
+    );
+    assert!(started.exists(), "it started acpmux again");
+    assert!(
+        logs.lock()
+            .unwrap()
+            .iter()
+            .any(|m| m.contains("waiting for it to stop")),
+        "it waited for the old daemon: {:?}",
+        logs.lock().unwrap()
+    );
+    let runs = std::fs::read_to_string(&attempts).unwrap().lines().count();
+    assert!(runs >= 2, "it started acpmux again after a refusal: {runs}");
 }
 
-/// Another starter can bring up the daemon while retaining daemon.lock.
-/// The host adopts its socket without waiting for that daemon to stop.
+/// Another starter can bring up the daemon while this host's starts find
+/// daemon.lock held. The host adopts its socket without owning a daemon.
 #[test]
 fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
-    use std::os::unix::io::AsRawFd;
     use std::sync::{atomic::Ordering, mpsc};
 
     if std::env::var_os("ACPMUX_HOME").is_some() || std::env::var_os("ACPMUX_SOCKET").is_some() {
@@ -231,16 +243,17 @@ fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
     }
     let dir = tempfile::tempdir().unwrap();
     let attempts = dir.path().join("attempts");
+    let give_up = dir.path().join("give-up");
     let bin = dir.path().join("fake-acpmux");
+    // Every start finds the lock held, until the test ends a broken host's
+    // wait with a plain failure.
     exe::write_executable(
         &bin,
-        &format!("#!/bin/sh\necho run >> '{}'\nexit 1\n", attempts.display()),
-    );
-    let lock = std::fs::File::create(dir.path().join("daemon.lock")).unwrap();
-    // SAFETY: flock on a descriptor this test owns.
-    assert_eq!(
-        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
-        0
+        &format!(
+            "#!/bin/sh\necho run >> '{}'\nif [ -e '{}' ]; then exit 1; fi\nexit 75\n",
+            attempts.display(),
+            give_up.display()
+        ),
     );
     let socket = dir.path().join("acpmux.sock");
     let path = socket.clone();
@@ -267,9 +280,9 @@ fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
     waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
     let listener = UnixListener::bind(&socket).unwrap();
     let result = result_rx.recv_timeout(Duration::from_secs(5));
-    // Release the lock before joining even on failure, so a broken host
-    // finishes without waiting out its full startup limit.
-    drop(lock);
+    // End a broken host's starts before joining, so it finishes without
+    // waiting out its full startup limit.
+    std::fs::write(&give_up, "").unwrap();
     host.join().unwrap();
     drop(listener);
     assert_eq!(
@@ -277,8 +290,5 @@ fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
         (Ok(None), true),
         "adopted without owning a daemon"
     );
-    assert_eq!(
-        std::fs::read_to_string(attempts).unwrap().lines().count(),
-        1
-    );
+    assert!(std::fs::read_to_string(attempts).unwrap().lines().count() >= 1);
 }

@@ -512,55 +512,21 @@ fn shutdown_at(bin: &Path, home: &Path, socket: &Path, log: &dyn Fn(&str)) -> bo
 const READY_LIMIT: Duration = Duration::from_secs(30);
 
 /// How long [`spawn`] takes at most, a wait for the daemon before it to let
-/// `daemon.lock` go and the second start included. That daemon still stops
+/// `daemon.lock` go and the later starts included. That daemon still stops
 /// after an update's handoff: the new host started 15 s after the old one
 /// ended, and the old daemon took 15 to 23 s to stop (2026-10-20).
 const SPAWN_LIMIT: Duration = Duration::from_secs(60);
 
-/// Whether another process holds the daemon lock at `path` now. The probe
-/// takes the lock for an instant, as the app's `AcpmuxQuitProof.lockState`.
-fn lock_held(path: &Path) -> bool {
-    use std::os::unix::io::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-    else {
-        return false;
-    };
-    // SAFETY: flock on a descriptor this function owns.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        // SAFETY: as above.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-        return false;
-    }
-    std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock
-}
-
-/// Waits for the daemon lock to be released or another starter's socket to
-/// answer, at most `wait`. A ready daemon keeps its lock for its lifetime.
-/// Deviation, as in acpmux's own `wait_for_lock_release`: flock gives no
-/// release event, so this checks with a short, growing interval.
-fn await_lock_release_or_socket(path: &Path, socket: &Path, wait: Duration) -> bool {
-    let deadline = Instant::now() + wait;
-    let mut step = Duration::from_millis(10);
-    while lock_held(path) {
-        if reachable(socket) {
-            return true;
-        }
-        if Instant::now() >= deadline || STOP_ASKED.load(Ordering::SeqCst) {
-            return false;
-        }
-        std::thread::sleep(step.min(deadline.saturating_duration_since(Instant::now())));
-        step = (step * 2).min(Duration::from_millis(250));
-    }
-    true
-}
+/// `acpmux daemon run`'s exit status when another daemon holds
+/// `daemon.lock` (`daemon_lock_held`): one that runs, stops or starts.
+const LOCK_HELD_EXIT: i32 = 75;
 
 /// Starts `$ACPMUX_BIN daemon run` and waits for its socket (local mode).
-/// When the daemon exits before its socket answers, most often because the
-/// one before it still holds `daemon.lock` (it stops after a handoff), this
-/// waits for that lock and starts it once more, all within [`SPAWN_LIMIT`].
+/// When the daemon exits because the one before it still holds
+/// `daemon.lock` (it stops after a handoff), this starts it again with a
+/// growing interval until it runs, all within [`SPAWN_LIMIT`]. The daemon's
+/// own exit tells the lock is held: a probe that took the lock for an
+/// instant could make a concurrent start find it held and exit.
 /// `None`: a daemon this host did not start answered meanwhile.
 fn spawn(
     socket: &Path,
@@ -568,50 +534,44 @@ fn spawn(
     log: &dyn Fn(&str),
 ) -> Result<Option<std::process::Child>, String> {
     let limit = Instant::now() + SPAWN_LIMIT;
-    let lock = daemon_home(socket).join("daemon.lock");
-    let status = match spawn_once(socket, bin, log, limit)? {
-        Spawned::Ready(child) => return Ok(Some(child)),
-        Spawned::Exited(status) => status,
-    };
-    // The lock may already be free here: the old daemon can stop between
-    // this start's exit and the probe, so a free lock starts once more too.
-    if lock_held(&lock) {
-        log(&format!(
-            "acpmux daemon exited ({status}): the daemon before it still holds {}; waiting for it to stop",
-            lock.display()
-        ));
-        if !await_lock_release_or_socket(
-            &lock,
-            socket,
-            limit.saturating_duration_since(Instant::now()),
-        ) {
+    let mut step = Duration::from_millis(50);
+    let mut waiting = false;
+    loop {
+        let status = match spawn_once(socket, bin, log, limit)? {
+            Spawned::Ready(child) => return Ok(Some(child)),
+            Spawned::Exited(status) => status,
+        };
+        if status.code() != Some(LOCK_HELD_EXIT) {
             return Err(format!(
-                "acpmux daemon exited before its socket was ready: {status}; another daemon still holds {}",
-                lock.display()
+                "acpmux daemon exited before its socket was ready: {status}"
             ));
         }
-    }
-    if reachable(socket) {
-        return Ok(None);
-    }
-    if STOP_ASKED.load(Ordering::SeqCst) {
-        return Err("the host is stopping; it starts no acpmux".into());
-    }
-    if Instant::now() >= limit {
-        return Err(format!(
-            "acpmux daemon exited before its socket was ready: {status}; no time is left to start it again"
-        ));
-    }
-    match spawn_once(socket, bin, log, limit)? {
-        Spawned::Ready(child) => Ok(Some(child)),
-        // Another starter's daemon took the lock first: use it once it answers.
-        Spawned::Exited(_) if lock_held(&lock) => {
-            await_socket(socket, limit.saturating_duration_since(Instant::now()))?;
-            Ok(None)
+        if !waiting {
+            waiting = true;
+            log(&format!(
+                "acpmux daemon exited ({status}): the daemon before it still holds its lock; waiting for it to stop"
+            ));
         }
-        Spawned::Exited(status) => Err(format!(
-            "acpmux daemon exited before its socket was ready: {status}"
-        )),
+        // Deviation, as in acpmux's own `wait_for_lock_release`: flock gives
+        // no release event, so this starts again after a short, growing
+        // interval.
+        let now = Instant::now();
+        if now < limit {
+            std::thread::sleep(step.min(limit - now));
+        }
+        step = (step * 2).min(Duration::from_millis(500));
+        // Another starter's daemon may have taken the lock and answered.
+        if reachable(socket) {
+            return Ok(None);
+        }
+        if STOP_ASKED.load(Ordering::SeqCst) {
+            return Err("the host is stopping; it starts no acpmux".into());
+        }
+        if Instant::now() >= limit {
+            return Err(format!(
+                "acpmux daemon exited before its socket was ready: {status}; another daemon still holds its lock"
+            ));
+        }
     }
 }
 
@@ -692,13 +652,15 @@ fn spawn_once(
     let deadline = (started + READY_LIMIT).min(limit);
     let mut step = Duration::from_millis(10);
     loop {
+        // Exit first: a start that found the lock held must not count
+        // another starter's daemon, answering meanwhile, as its own.
+        if let Ok(Some(status)) = child.try_wait() {
+            return Ok(Spawned::Exited(status));
+        }
         if reachable(socket) {
             // Never waited for while it runs: it outlives the host (its own
             // process group); the stop asks whether it still runs.
             return Ok(Spawned::Ready(child));
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            return Ok(Spawned::Exited(status));
         }
         if Instant::now() >= deadline {
             // Started and never ready: it is this host's, so it ends here.
