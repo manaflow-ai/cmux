@@ -469,9 +469,9 @@ impl Hub {
             // Persist before setting the in-memory row so restart restoration never loses the
             // retry. The durable write is quiet; the watcher-visible event follows once the row
             // exists and therefore cannot expose `retry: null`.
-            hub.append_quiet(&session, "mux", "auto_resume_scheduled", msg.clone());
+            let scheduled = hub.append_quiet(&session, "mux", "auto_resume_scheduled", msg);
             if hub.set_retry(&session, &turn_id, retry) {
-                hub.append(&session, "mux", "auto_resume_scheduled", msg);
+                hub.publish(&session, &scheduled);
                 // Publish after installing the in-memory row so watchers do not retain
                 // `retry: null` for a long reset wait.
                 hub.append(

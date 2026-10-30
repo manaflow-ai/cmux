@@ -1221,6 +1221,16 @@ impl Hub {
         self.append_at_notify(session, dir, kind, msg, None, None, false).0
     }
 
+    /// Broadcast a record that was already persisted. This lets a caller install related
+    /// in-memory state before watchers observe the durable marker.
+    pub(super) fn publish(&self, session: &Session, record: &EventRecord) {
+        let _ = self.events.send(HubEvent {
+            session_id: session.id.clone(),
+            record: Arc::new(record.clone()),
+            remote: None,
+        });
+    }
+
     /// [`Hub::append_logged`] of a record that happened at `at` (Unix ms;
     /// None: now), as a fork's copy of its parent's turns did.
     pub(super) fn append_at(
