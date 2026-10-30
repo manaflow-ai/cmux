@@ -782,6 +782,40 @@ for (const end of ["queue_removed", "prompt_refused"] as const)
     expect(earlier.shown(500).map((row) => row.id)).toEqual(["user-403"]);
   });
 
+test("a prompt sent now while idle stays on the rail once older pages say no turn ran", async () => {
+  // acpmux promotes a queued prompt with no turn running (queue_edit.rs interrupt): it opens its own
+  // turn. Split every way around queue_order / user_message, the newer page sees an unknown boundary
+  // first; the older page then resolves it to idle and the prompt must show.
+  const log: PromptRecord[] = [
+    { seq: 1, dir: "mux", kind: "user_message", msg: { promptId: "root", text: "Root" } },
+    { seq: 2, dir: "mux", kind: "turn_started", msg: { promptId: "root" } },
+    { seq: 3, dir: "mux", kind: "turn_result", msg: { status: "completed" } },
+    { seq: 4, dir: "mux", kind: "queue_order", msg: { next: true, promptId: "idle" } },
+    { seq: 5, dir: "mux", kind: "user_message", msg: { promptId: "idle", text: "Idle" } },
+    { seq: 6, dir: "mux", kind: "turn_started", msg: { promptId: "idle" } },
+    { seq: 7, dir: "mux", kind: "turn_result", msg: { status: "completed" } },
+  ];
+  for (let split = 1; split < log.length; split++) {
+    const idle = manualIdle();
+    const earlier = new EarlierPrompts(
+      async (_sessionId, beforeSeq) => {
+        const events = log.filter((record) => record.seq < beforeSeq);
+        const page = beforeSeq > split + 1 ? events.filter((record) => record.seq > split) : events;
+        return { events: page, hasMore: page.length < events.length };
+      },
+      toRow,
+      () => {},
+      idle,
+    );
+    earlier.start("s", 8);
+    while (idle.queue.length) {
+      idle.queue.shift()!();
+      await flush();
+    }
+    expect({ split, rows: earlier.shown(8).map((row) => row.id) }).toEqual({ split, rows: ["user-1", "user-5"] });
+  }
+});
+
 test("a prompt sent now at the unread boundary hides only that same prompt, not another", () => {
   const starts = new TurnStarts(false);
   const record = (seq: number, kind: string, msg: Record<string, unknown>): PromptRecord => ({ seq, kind, dir: "mux", msg });
