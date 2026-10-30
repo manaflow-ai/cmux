@@ -43,6 +43,13 @@ final class SidebarListView: NSView {
             for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
         }
     }
+    /// The multi-selection, drawn on the blocks' pinned workspace tiles (`SidebarRegionView.selectedWorkspaces`).
+    var selectedWorkspaces: Set<WorkspaceID> = [] {
+        didSet {
+            guard oldValue != selectedWorkspaces else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.selectedWorkspaces = selectedWorkspaces }
+        }
+    }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
     /// and no pop when the move lands; a refusal lets it go and the rows spring back.
@@ -61,6 +68,8 @@ final class SidebarListView: NSView {
     var fadingRows: [ObjectIdentifier: SidebarRowView] = [:]
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
     var configureBlockRegion: ((SidebarRegionView) -> Void)?
+    /// The workspaces pinned above the list (the band), in drawn order: a Shift range starts there (`selectionOrder`).
+    var leadingSelectionOrder: () -> [WorkspaceID] = { [] }
     /// Listed document items (link, tab, app rows) by item id.
     var listItems: [String: SidebarListItem] = [:]
     /// The drag gap CALayer, under the rows.
