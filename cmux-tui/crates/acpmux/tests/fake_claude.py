@@ -716,7 +716,7 @@ while True:
                   "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
             continue
         if os.environ.get("FAKE_CLAUDE_DIE") == "1" or (die_if and os.path.exists(die_if)):
-            sys.stderr.write("proxy down\n")
+            sys.stderr.write(("Not logged in" if os.environ.get("FAKE_CLAUDE_AUTH_FAIL") == "1" else "proxy down") + "\n")
             sys.stderr.flush()
             sys.exit(1)
         if STORE and RESUME and not os.path.exists(stored(RESUME)):

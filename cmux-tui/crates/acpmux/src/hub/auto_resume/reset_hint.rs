@@ -60,7 +60,7 @@ fn last_sunday(year: i32, month: time::Month) -> Option<u8> {
     Some(day - last.weekday().number_days_from_sunday())
 }
 
-fn us_dst_utc(utc: time::OffsetDateTime) -> bool {
+fn us_dst_utc(utc: time::OffsetDateTime, start_hour: u8, end_hour: u8) -> bool {
     let year = utc.year();
     let Some(start_day) = nth_sunday(year, time::Month::March, 2) else {
         return false;
@@ -76,10 +76,11 @@ fn us_dst_utc(utc: time::OffsetDateTime) -> bool {
     else {
         return false;
     };
-    let start = time::PrimitiveDateTime::new(start_date, time::Time::from_hms(10, 0, 0).unwrap())
+    let start =
+        time::PrimitiveDateTime::new(start_date, time::Time::from_hms(start_hour, 0, 0).unwrap())
+            .assume_utc();
+    let end = time::PrimitiveDateTime::new(end_date, time::Time::from_hms(end_hour, 0, 0).unwrap())
         .assume_utc();
-    let end =
-        time::PrimitiveDateTime::new(end_date, time::Time::from_hms(9, 0, 0).unwrap()).assume_utc();
     utc >= start && utc < end
 }
 
@@ -144,10 +145,10 @@ fn zone_offset_at_utc(zone: &str, utc: time::OffsetDateTime) -> Option<time::Utc
     let zone = zone.trim().to_ascii_lowercase();
     match zone.as_str() {
         "america/los_angeles" | "us/pacific" => {
-            time::UtcOffset::from_hms(if us_dst_utc(utc) { -7 } else { -8 }, 0, 0).ok()
+            time::UtcOffset::from_hms(if us_dst_utc(utc, 10, 9) { -7 } else { -8 }, 0, 0).ok()
         }
         "america/new_york" | "us/eastern" => {
-            time::UtcOffset::from_hms(if us_dst_utc(utc) { -4 } else { -5 }, 0, 0).ok()
+            time::UtcOffset::from_hms(if us_dst_utc(utc, 7, 6) { -4 } else { -5 }, 0, 0).ok()
         }
         "europe/london" => Some(if london_dst_utc(utc) {
             time::UtcOffset::from_hms(1, 0, 0).ok()?
@@ -406,6 +407,17 @@ mod tests {
         assert_eq!(
             reset_at("You've hit your limit · resets 12am (America/Los_Angeles)", None, spring,),
             Some(spring + 30 * 60_000)
+        );
+        let fall = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::November, 1).unwrap(),
+            time::Time::from_hms(6, 30, 0).unwrap(),
+        )
+        .assume_utc()
+        .unix_timestamp_nanos() as u64
+            / 1_000_000;
+        assert_eq!(
+            reset_at("You've hit your limit · resets 3am (America/New_York)", None, fall,),
+            Some(fall + 90 * 60_000)
         );
         let usage = serde_json::json!({
             "windows": [

@@ -1138,7 +1138,8 @@ def handle_prompt(rid, params):
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
         if os.environ.get("FAKE_FALLBACK") != "1":
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
