@@ -7,7 +7,7 @@ import Testing
 /// an echo, an input method, secure input or a write that is not a key does to it, and that the
 /// setting's off makes no engine at all.
 @MainActor
-@Suite struct PredictiveEchoDisplayTests {
+@Suite(.ghosttyStarted) struct PredictiveEchoDisplayTests {
     /// A grid, a frame counter and what was drawn, in place of the surface view.
     final class Host: PredictiveEchoHost {
         var columns = 10
