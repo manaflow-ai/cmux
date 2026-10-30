@@ -192,6 +192,9 @@ struct WorkspaceAutoNameTests {
                                               allowsLegacyDefaults: false))
         #expect(WorkspaceAutoName.isUserNamed(name: "api", title: nil, nameSource: .user, nameRevision: 0,
                                               allowsLegacyDefaults: false))
+        // The daemon matches `workspace-N` exactly; a padded one is the person's and stays pinned.
+        #expect(WorkspaceAutoName.isUserNamed(name: " workspace-151 ", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
     }
 
     @Test func persistNamesARemoteWorkspaceWhenTheDaemonSupportsNameSource() {
