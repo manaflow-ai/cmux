@@ -86,6 +86,9 @@ public actor SSHMachineLink {
     private var exitedOutput: String?
     private var socket: String?
     private var starting: Task<String, any Error>?
+    /// Bumped by every start and every disconnect: a start's late failure reports only while its
+    /// attempt is still the current one, so it never marks a newer attempt failed.
+    private var attempt: UInt64 = 0
     private var localProtocol: Int?
     /// The last probe's findings (platform for the installer).
     public private(set) var lastReport: SSHProbeReport?
@@ -118,13 +121,21 @@ public actor SSHMachineLink {
     public func handle(_ event: SSHConnectionMachine.Event) {
         let before = machine.status
         machine.handle(event)
-        if event == .disconnect { tearDown() }
+        if event == .disconnect {
+            // A stopped start is not reused by the next socketPath(), and its failure is no longer reported.
+            starting?.cancel()
+            starting = nil
+            attempt &+= 1
+            tearDown()
+        }
         if machine.status != before { onStatus(machine.status) }
     }
 
     public func socketPath() async throws -> String {
         if let socket, child?.isRunning == true, FileManager.default.fileExists(atPath: socket) { return socket }
         if let starting { return try await starting.value }
+        attempt &+= 1
+        let generation = attempt
         let task = Task {
             do {
                 return try await self.start()
@@ -134,14 +145,14 @@ public actor SSHMachineLink {
                 // Probe decoding, local state preparation and process launch can
                 // fail before the link has a child to report an SSH error.
                 // Preserve typed remote failures, install consent and disconnect.
-                if self.machine.status == .connecting || self.machine.status == .reconnecting {
+                if self.attempt == generation, self.machine.status == .connecting || self.machine.status == .reconnecting {
                     self.handle(.failed(.remoteFailed(String(describing: error))))
                 }
                 throw error
             }
         }
         starting = task
-        defer { starting = nil }
+        defer { if starting == task { starting = nil } }
         return try await task.value
     }
 
