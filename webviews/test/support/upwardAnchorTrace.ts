@@ -85,6 +85,8 @@ export async function traceUpwardAnchors({
   const samples: UpwardAnchorFrame[] = [];
   let cancelledWheels = 0;
   let foldToggleClicks = 0;
+  const foldTransitions: { before: string | null; after: string | null }[] = [];
+  let pendingFold: string | null | undefined;
   const commands = [...steps, ...Array.from({ length: restFrames }, () => 0)];
   const driven = new Map<number, { asked: number; applied: number; geometry: number }>();
   let next = 0;
@@ -97,6 +99,13 @@ export async function traceUpwardAnchors({
         if (!command) return;
         driven.delete(paint);
         const current = read();
+        if (pendingFold !== undefined) {
+          const toggle = scroller.querySelector<HTMLButtonElement>(
+            '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
+          );
+          foldTransitions.push({ before: pendingFold, after: toggle?.getAttribute("aria-expanded") ?? null });
+          pendingFold = undefined;
+        }
         // Usually the previous first visible row. At a boundary, use the next row that the two
         // frames share; a missing anchor is evidence too, never a zero-drift sample.
         const anchor = previous.visible.find((row) => current.mounted.has(row.id));
@@ -147,6 +156,7 @@ export async function traceUpwardAnchors({
               '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
             );
             if (!toggle) throw new Error(`received fold toggle missing at frame ${frame}`);
+            pendingFold = toggle.getAttribute("aria-expanded");
             toggle.click();
             foldToggleClicks += 1;
           }
@@ -192,6 +202,7 @@ export async function traceUpwardAnchors({
     maxViewportEdgeGap: Math.max(0, ...samples.flatMap((sample) => [sample.topEdgeGap, sample.bottomEdgeGap])),
     cancelledWheels,
     foldToggleClicks,
+    foldTransitions,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
     maxImmediateReadbackError: Math.max(
       0,
