@@ -1076,3 +1076,68 @@ fn a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the
         "{seen:#?}"
     );
 }
+
+fn inbox_page(conversations: &[&str], next_cursor: Value, revision: &str) -> Value {
+    let entries: Vec<Value> = conversations
+        .iter()
+        .map(|conversation| json!({"conversation": conversation, "last_seq": 1}))
+        .collect();
+    json!({"ok":true,"op":"inbox.list","value":{"entries":entries,"next_cursor":next_cursor},"revision":revision})
+}
+
+/// The whole inbox, not its newest page: Home (`home-inbox`'s Cloud rows, the
+/// Mac's Cloud list) listed only the first 200 entries, so every Chief and
+/// conversation past them never showed and left the list on each refresh.
+#[test]
+fn inbox_list_without_a_limit_reads_every_page() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a", "conv_b"], json!("k1"), "7"));
+    // conv_b moved while the pages were read: the second page lists it again.
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b", "conv_c"], json!("k2"), "8"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_d"], Value::Null, "9"));
+    let listed = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
+    assert_eq!(listed["ok"], true, "{listed}");
+    let ids: Vec<&str> = listed["data"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["conversation"].as_str())
+        .collect();
+    assert_eq!(ids, ["conv_a", "conv_b", "conv_c", "conv_d"]);
+    // The first page's revision: an inbox event after any page is newer than the list.
+    assert_eq!(listed["data"]["revision"], "7");
+    assert_eq!(listed["data"]["next_cursor"], Value::Null);
+    let cursors: Vec<Value> =
+        backend.posted().iter().map(|post| post.body["params"]["cursor"].clone()).collect();
+    assert_eq!(cursors, [Value::Null, json!("k1"), json!("k2")]);
+}
+
+#[test]
+fn inbox_list_with_a_limit_or_cursor_reads_one_page() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let first = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list","limit":1}));
+    assert_eq!(first["data"]["next_cursor"], "k1", "{first}");
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], Value::Null, "8"));
+    let second = reply(&mux, client, json!({"id":2,"cmd":"cloud-inbox-list","cursor":"k1"}));
+    assert_eq!(second["data"]["entries"][0]["conversation"], "conv_b", "{second}");
+    assert_eq!(second["data"]["next_cursor"], Value::Null);
+    let posted = backend.posted();
+    assert_eq!(posted.len(), 2);
+    assert_eq!(posted[0].body["params"], json!({"limit":1}));
+    assert_eq!(posted[1].body["params"], json!({"limit":200,"cursor":"k1"}));
+}
+
+/// A cursor the owner hands back unchanged ends the read instead of looping.
+#[test]
+fn inbox_list_stops_on_a_cursor_that_does_not_move() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], json!("k1"), "7"));
+    let listed = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
+    assert_eq!(listed["data"]["entries"].as_array().unwrap().len(), 2, "{listed}");
+    assert_eq!(backend.posted().len(), 2);
+}
