@@ -622,14 +622,24 @@ public final class ConversationStore {
                     if let oldestRetained, let seq = message.seq, seq < oldestRetained { continue }
                     // Current state changed after this fetch began: it wins
                     // over the snapshot, including a send acknowledged live.
-                    if var current = self.message(id: message.id) {
+                    var incoming = message
+                    if let live = self.message(id: message.id) {
+                        var current = live
                         // Loading a URL card is local enrichment, not a newer
                         // message revision. Let history refresh its text/unsend;
                         // merged(existing:incoming:) preserves a useful card.
                         current.linkPreview = retained[message.id]?.linkPreview
+                        // A reaction made since (an optimistic one here, which
+                        // may yet fail, or a live one) is newer than this page
+                        // for reactions only: it keeps them, and the page still
+                        // brings its text, edit or unsend (an unsend clears them).
+                        if let kept = retained[message.id], current.reactions != kept.reactions {
+                            current.reactions = kept.reactions
+                            if !incoming.isUnsent { incoming.reactions = live.reactions }
+                        }
                         if current != retained[message.id] { continue }
                     }
-                    if upsert(message) { inserted.append(message.rowID) }
+                    if upsert(incoming) { inserted.append(incoming.rowID) }
                 }
             }
             sortAndReindex()
