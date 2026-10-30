@@ -23,5 +23,8 @@ struct NewWorkspacePlacementDefaultTests {
         let root = JSONValue.object(["workspaces": .object(["newPlacement": .string("top")])])
         let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
         #expect(snapshot.newWorkspacePlacement == .top)
+        let descriptor = SettingsSchema.descriptor(for: ["workspaces", "newPlacement"])
+        #expect(descriptor?.effectiveValue(in: root) == .string("top"))
+        #expect(descriptor?.paletteOptions(current: .string("top"), themeColors: []).contains { $0.value == .string("top") } == true)
     }
 }

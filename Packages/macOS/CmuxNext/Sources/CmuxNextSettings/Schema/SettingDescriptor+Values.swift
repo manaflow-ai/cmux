@@ -29,6 +29,11 @@ extension SettingDescriptor {
         switch kind {
         case .choice(let choices):
             if path == BackdropSelectionSetting().configPath { return BackdropSelectionSetting.accepts(value) }
+            // `top` is a retired workspace-placement value. Keep it readable
+            // for existing cmux.json files without exposing a third choice in
+            // the setting's current UI.
+            if path == CmuxConfigSnapshot.newWorkspacePlacementPath,
+               value.stringValue == NewWorkspacePlacement.top.rawValue { return true }
             return value.stringValue.map { text in choices.contains { $0.value == text } } ?? false
         case .choiceOrNumber(let choices, let number):
             if let text = value.stringValue { return choices.contains { $0.value == text } }

@@ -14,10 +14,6 @@ final class SidebarIconView: NSView {
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
-    /// A row is configured before the list attaches a newly realized view. Keep
-    /// its entrance until the icon has a window, so Motion.canAnimate can see
-    /// the screened display and the first frame carries the grow/fade.
-    private var entrancePending = false
     /// What the last `configure` drew from (the glyphs scale with the title font).
     private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat)?
     /// One ink for every symbol, tinted or not (the solid group header's
@@ -57,7 +53,6 @@ final class SidebarIconView: NSView {
     func configure(icon: WorkspaceIcon?) {
         // A row's status tick configures the row again with the same icon: keep the image. A new
         // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
-        let oldIcon = self.icon
         let pointSize = SidebarStyle.titleFont.pointSize
         if let configured, configured.icon == icon, configured.pointSize == pointSize { return }
         configured = (icon, pointSize)
@@ -84,28 +79,16 @@ final class SidebarIconView: NSView {
         }
         needsDisplay = true
         needsLayout = true
-        if oldIcon == nil, icon != nil {
-            entrancePending = true
-            animateEntranceIfAttached()
-        }
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        animateEntranceIfAttached()
-    }
-
-    private func animateEntranceIfAttached() {
-        guard entrancePending, window != nil else { return }
-        entrancePending = false
-        animateEntrance()
     }
 
     /// A workspace created by Cmd-N enters with its icon growing and fading in
     /// alongside the row's shared `.move` spring. This is intentionally on the
     /// icon well, so the row's frame and its text remain one layout pass.
-    private func animateEntrance() {
-        guard let layer else { return }
+    /// Starts the icon motion for a row that the list is inserting. The list
+    /// calls this after attaching the row, so existing icons never animate as
+    /// they scroll into realization or during a nonanimated reload.
+    func animateEntrance() {
+        guard let layer, window != nil else { return }
         layer.removeAnimation(forKey: "workspace-icon-scale")
         layer.removeAnimation(forKey: "workspace-icon-opacity")
         guard Motion.sidebar.animates(.newWorkspace), Motion.sidebar.animatesMovement,
@@ -134,7 +117,6 @@ final class SidebarIconView: NSView {
 
     /// Clears a previous row's entrance state before this icon well is reused.
     func resetMotion() {
-        entrancePending = false
         layer?.removeAnimation(forKey: "workspace-icon-scale")
         layer?.removeAnimation(forKey: "workspace-icon-opacity")
         Motion.withoutAnimation {

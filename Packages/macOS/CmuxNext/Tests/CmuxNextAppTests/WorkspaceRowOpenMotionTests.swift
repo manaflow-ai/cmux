@@ -9,10 +9,12 @@ import Testing
 struct WorkspaceRowOpenMotionTests {
     private static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
-    private static func sections(_ icon: WorkspaceIcon?) -> [SidebarSection] {
+    private static func sections(_ icon: WorkspaceIcon?, includeSecond: Bool = true) -> [SidebarSection] {
         let one = SidebarWorkspace(id: WorkspaceID("one"), title: "one")
         let two = SidebarWorkspace(id: WorkspaceID("two"), title: "two", icon: icon)
-        return [SidebarSection(kind: .machine(machine), nodes: [.workspace(one), .workspace(two)])]
+        var nodes: [SidebarNode] = [.workspace(one)]
+        if includeSecond { nodes.append(.workspace(two)) }
+        return [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
 
     private static func sidebar(_ model: SidebarModel) -> SidebarView {
@@ -29,7 +31,7 @@ struct WorkspaceRowOpenMotionTests {
     }
 
     @Test func aNewWorkspaceIconGrowsAndFadesIn() throws {
-        let model = SidebarModel(sections: Self.sections(nil))
+        let model = SidebarModel(sections: Self.sections(nil, includeSecond: false))
         let sidebar = Self.sidebar(model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
