@@ -13,7 +13,10 @@ test("the pane request carries the subagent's name, and leaves it out when there
   expect(await openSubagentPane(call, "agent-1", false, "Review the tray motion diff")).toBe(true);
   expect(await openSubagentPane(call, "agent-2", true)).toBe(true);
   expect(calls).toEqual([
-    { method: "chat.subagentPane", params: { subagent: "agent-1", focus: false, title: "Review the tray motion diff" } },
+    {
+      method: "chat.subagentPane",
+      params: { subagent: "agent-1", focus: false, title: "Review the tray motion diff" },
+    },
     { method: "chat.subagentPane", params: { subagent: "agent-2", focus: true } },
   ]);
 });
