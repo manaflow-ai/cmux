@@ -8450,8 +8450,7 @@ function AcpmuxPane() {
               // Recovery is a different start, so retire that intent before taking the draft.
               harnessSwitch.cancel();
               return folderContinuation.run({
-                start: () =>
-                  client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
+                start: () => client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
                 current: () =>
                   directClient.current === client &&
                   client.trustGeneration === generation &&
@@ -9037,7 +9036,16 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [folderContinuation, harnessSwitch, newChatPrewarm, queryClient, toggleInspector, earlyNewTab, restartGate, sandbox]);
+  }, [
+    folderContinuation,
+    harnessSwitch,
+    newChatPrewarm,
+    queryClient,
+    toggleInspector,
+    earlyNewTab,
+    restartGate,
+    sandbox,
+  ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
