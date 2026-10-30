@@ -24,9 +24,11 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     /// The newest save's number; a queued save with an older one does nothing.
     private let newest = Mutex<UInt64>(0)
 
+    /// Set on this file's queue only, so a read from inside one of its saves does not wait on
+    /// itself, and a read of another file from inside a save still waits for that file's saves.
+    private let onQueue = DispatchSpecificKey<Bool>()
+
     private static let files = Mutex<[String: AgentPaneStateFile]>([:])
-    /// Set on every file queue, so a read from inside a save does not wait on itself.
-    private static let onQueue = DispatchSpecificKey<Bool>()
 
     /// The one writer for `url`: two stores of one file (a test's fresh store, a second window)
     /// share its queue and so its order.
@@ -43,7 +45,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     private init(url: URL) {
         self.url = url
         queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.state-file", qos: .utility)
-        queue.setSpecific(key: Self.onQueue, value: true)
+        queue.setSpecific(key: onQueue, value: true)
     }
 
     /// Saves what `encode` returns, atomically, on the file's queue; nil removes the file, and a
@@ -67,7 +69,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
 
     /// The file's bytes once the saves queued before this call have run; nil when there is none.
     public func read() -> Data? {
-        if DispatchQueue.getSpecific(key: Self.onQueue) == true { return try? Data(contentsOf: url) }
+        if DispatchQueue.getSpecific(key: onQueue) == true { return try? Data(contentsOf: url) }
         // concurrency-allow: one small local read per store (at its first use), after this file's queued saves
         return queue.sync { try? Data(contentsOf: url) }
     }

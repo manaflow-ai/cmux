@@ -102,6 +102,23 @@ struct AgentPaneStateFileTests {
         #expect(inner.withLock { $0 } == Data("first".utf8))
     }
 
+    @Test func aReadOfAnotherFileFromInsideASaveWaitsForThatFilesSaves() throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = AgentPaneStateFile.at(directory.appending(path: "a2.json"))
+        let b = AgentPaneStateFile.at(directory.appending(path: "b2.json"))
+        let release = Self.holdQueue(b)
+        b.write { Data("b".utf8) }
+        let seen = Mutex<Data?>(nil)
+        a.write {
+            seen.withLock { $0 = b.read() }
+            return Data("a".utf8)
+        }
+        release.signal()
+        #expect(a.read() == Data("a".utf8))
+        #expect(seen.withLock { $0 } == Data("b".utf8), "read b directly instead of after its queued save")
+    }
+
     @Test func flushAllGivesUpAtItsDeadline() throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
