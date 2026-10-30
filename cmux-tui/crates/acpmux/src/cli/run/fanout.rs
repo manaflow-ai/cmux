@@ -22,11 +22,11 @@ pub(super) fn tag_targets(
         .filter(|s| s.get("status").and_then(Value::as_str) != Some("closed"))
         .filter_map(|s| {
             let id = s.get("sessionId").and_then(Value::as_str)?;
-            if Some(id) == own {
-                return None;
-            }
+            // The sender's own id is a session here; a peer's session may carry the same bare id.
             let target = if s.get("peer").and_then(Value::as_str).is_some() {
                 s.get("qualifiedSessionId").and_then(Value::as_str)?
+            } else if Some(id) == own {
+                return None;
             } else {
                 id
             };
@@ -127,6 +127,13 @@ mod tests {
             json!({"sessionId": "e", "name": "huge-blue/no-receipt", "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}),
             json!({"sessionId": "me", "name": "ao-cli-audit", "status": "running", "tags": {"area": {"value": "acpmux"}}}),
         ];
+        // A peer's session with the sender's bare id is another session: it still gets the message.
+        let mut twin = sessions.clone();
+        twin.push(json!({"sessionId": "me", "qualifiedSessionId": "huge-blue/me", "name": "huge-blue/twin",
+                         "peer": "huge-blue", "status": "idle", "tags": {"area": "acpmux"}}));
+        let got = tag_targets(&twin, "area=acpmux", Some("me"));
+        assert!(got.contains(&("huge-blue/me".to_owned(), "huge-blue/twin".to_owned())), "{got:?}");
+        assert!(!got.iter().any(|(target, _)| target == "me"), "{got:?}");
         let got = tag_targets(&sessions, "area=acpmux", Some("me"));
         assert_eq!(
             got,
