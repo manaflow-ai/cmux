@@ -65,6 +65,82 @@ class FakeGitHub:
         return self.logs[job["id"]]
 
 
+class InProgressJobLogGitHub(FakeGitHub):
+    """An in-progress run whose failed job has already finished.
+
+    The Actions run-log endpoint serves this job immediately; the run-level
+    ``gh run view --log`` command waits for every other job in the run.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.jobs[3] = dict(failed_job(3, 10, HEAD, name="Mac compile"),
+                            status="queued", conclusion=None, steps=[])
+        self.log_requests: list[list[str]] = []
+
+    def json(self, route, *, paginate=False):
+        result = super().json(route, paginate=paginate)
+        if route == f"repos/{REPO}/actions/runs/10":
+            result.update(status="in_progress", conclusion=None)
+        return result
+
+    def log(self, repo, job):
+        return excuse.GitHub.log(self, repo, job)
+
+    def run(self, args):
+        self.log_requests.append(args)
+        if args[:2] == ["run", "view"]:
+            raise excuse.Refused("logs will be available when it is complete")
+        for job_id, text in self.logs.items():
+            if args == ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"]:
+                # Raw endpoint output has timestamps but no job/step prefix.
+                return "\n".join(line.split("\t", 2)[-1] for line in text.splitlines())
+        raise AssertionError(args)
+
+
+class JobLogEndpoint(unittest.TestCase):
+    def test_finished_red_job_is_classified_while_its_run_is_in_progress(self):
+        github = InProgressJobLogGitHub()
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertEqual(github.json(f"repos/{REPO}/actions/runs/10")["status"], "in_progress")
+        self.assertEqual(
+            github.log_requests,
+            [["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/{job_id}/logs"] for job_id in (1, 2)],
+        )
+
+    def test_job_logs_are_read_even_with_terminal_colours(self):
+        # gh 2.98 refuses `gh api` output holding escape sequences unless asked, and
+        # almost every job log has ANSI colours: without the flag nothing can be judged.
+        github = InProgressJobLogGitHub()
+        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertTrue(all("--allow-escape-sequences" in r for r in github.log_requests))
+
+    def test_new_failure_in_finished_job_still_blocks(self):
+        github = InProgressJobLogGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, OTHER)
+        github.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
+        with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_raw_log_tabs_do_not_hide_a_new_error(self):
+        github = InProgressJobLogGitHub()
+        for job_id in (1, 2):
+            github.jobs[job_id]["name"] = SCHEME
+            github.logs[job_id] = log(SCHEME, TEST_STEP, "Source.swift:10:1: error: existing failure")
+        github.logs[1] += "\n" + log(SCHEME, TEST_STEP, "##[error]\tnew compile failure")
+        with self.assertRaisesRegex(excuse.Refused, "new compile failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_raw_log_tabs_do_not_hide_no_verdict_annotation(self):
+        text = f"2026-10-30T12:00:00.000Z ##[error]No build-fleet verdict for `\t{HEAD}`"
+        self.assertIsNotNone(excuse.no_verdict(text))
+
+    def test_raw_log_tabs_preserve_the_entire_error(self):
+        text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
+        self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
+
+
 class Excusing(unittest.TestCase):
     def setUp(self):
         self.gh = FakeGitHub()
