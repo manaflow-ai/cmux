@@ -125,7 +125,7 @@ fn a_web_pane_has_at_most_64_calls_in_flight() {
     let f = web_fixture(json!({ "workspace:read": "r" }));
     f.install(BOARD);
     let (tx, rx) = channel();
-    let send = |tx: &std::sync::mpsc::Sender<Result<Value, String>>| {
+    let send = |tx: &Sender<Result<Value, String>>| {
         let tx = tx.clone();
         f.supervisor.web_call(
             BOARD,
