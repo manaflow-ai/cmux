@@ -104,7 +104,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     if with_tools(params)? {
         return reply(hub, conn, limit, |list| {
             if by_bytes {
-                return Ok(shown(list.bounded(hub, params, true, LIST_PAGE_BYTES)?));
+                return within_limit(raw, |budget| list.bounded(hub, params, true, budget));
             }
             let full = list.full_whole(hub);
             let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
@@ -124,17 +124,16 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     }
     if !whole(params) {
         return reply(hub, conn, limit, |list| {
-            Ok(shown(if by_bytes {
-                list.bounded(hub, params, false, LIST_PAGE_BYTES)?
-            } else {
-                list.page(params)?
-            }))
+            if by_bytes {
+                return within_limit(raw, |budget| list.bounded(hub, params, false, budget));
+            }
+            Ok(shown(list.page(params)?))
         })
         .await;
     }
     reply(hub, conn, None, |list| {
         if list.whole.len() > LIST_PAGE_BYTES {
-            return Ok(shown(list.bounded(hub, params, false, LIST_PAGE_BYTES)?));
+            return within_limit(raw, |budget| list.bounded(hub, params, false, budget));
         }
         Ok(if raw {
             list.whole.clone()
@@ -179,19 +178,71 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         }
         let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
         let rows = full["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let (page, next) =
-            crate::hub::session_pages::byte_page(rows, cursor, LIST_PAGE_BYTES, |s| {
-                acp_row(s).to_string().len()
-            })?;
-        let sessions: Vec<Value> = rows.get(page).unwrap_or_default().iter().map(acp_row).collect();
-        let mut result = json!({"sessions": sessions});
-        if let Some(next) = next {
-            result["nextCursor"] = Value::String(next);
-        }
-        Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
+        let page = |budget: usize| -> Result<String, RpcError> {
+            let row = |s: &Value| acp_row_within(s, budget);
+            let size = |s: &Value| row(s).to_string().len();
+            let (page, next) = crate::hub::session_pages::byte_page(rows, cursor, budget, size)?;
+            let sessions: Vec<Value> = rows.get(page).unwrap_or_default().iter().map(row).collect();
+            let mut result = json!({"sessions": sessions});
+            if let Some(next) = next {
+                result["nextCursor"] = Value::String(next);
+            }
+            Ok(result.to_string())
+        };
+        within_limit(raw, page)
     })
     .await
 }
+
+/// The page `page` cuts to [`LIST_PAGE_BYTES`], as the client reads it: a peer reads it masked
+/// (`peer_text.rs`), which may make it longer than the budget it was cut to; then it is cut
+/// again, smaller.
+fn within_limit(
+    raw: bool,
+    page: impl Fn(usize) -> Result<String, RpcError>,
+) -> Result<Arc<String>, RpcError> {
+    let mut budget = LIST_PAGE_BYTES;
+    loop {
+        let text = page(budget)?;
+        if raw {
+            return Ok(Arc::new(text));
+        }
+        let text = masked(serde_json::from_str(&text).unwrap_or_default());
+        if text.len() <= LIST_PAGE_BYTES || budget < MIN_PAGE_BYTES {
+            return Ok(Arc::new(text));
+        }
+        budget /= 2;
+    }
+}
+
+/// The smallest budget a masked page is cut down to before it goes as it is.
+const MIN_PAGE_BYTES: usize = 64 << 10;
+
+/// [`acp_row`], or, for a row larger than `budget` alone, a stub that says so with its size, as
+/// a record too large for a reply goes (`hub/paging.rs`): a page holds at least one row, and
+/// one that large would be refused, page and all. The stub keeps only the row's id and `cwd`,
+/// each at most [`STUB_TEXT_BYTES`], and no title: it stays small whatever field was large,
+/// and holds no text a peer's reply masks (`peer_text.rs`).
+fn acp_row_within(s: &Value, budget: usize) -> Value {
+    let row = acp_row(s);
+    let bytes = row.to_string().len();
+    if bytes <= budget {
+        return row;
+    }
+    let short =
+        |k: &str| s.get(k).filter(|v| v.as_str().is_some_and(|t| t.len() <= STUB_TEXT_BYTES));
+    let id = short("sessionId").cloned().unwrap_or(Value::Null);
+    json!({
+        "sessionId": id,
+        "cwd": short("cwd").cloned().unwrap_or(Value::Null),
+        "title": Value::Null,
+        "updatedAt": row["updatedAt"],
+        "_meta": {"acpmux": {"sessionId": id, "omitted": {"bytes": bytes, "reason": "too_large"}}},
+    })
+}
+
+/// The longest id or `cwd` a stub row keeps.
+const STUB_TEXT_BYTES: usize = 4 << 10;
 
 /// The most a session list result may hold (`session/list`, and `_acpmux/sessions` or
 /// `_acpmux/watch` with no `limit`): a megabyte under the message limit, for the reply's own
@@ -232,6 +283,28 @@ pub(super) fn reply_line(id: &Value, result: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session row larger than a page alone goes as a stub with its size, not as a page
+    /// too large to send.
+    #[test]
+    fn an_acp_row_larger_than_its_page_goes_as_a_stub() {
+        let s = json!({"sessionId": "big", "cwd": "/w", "updatedAt": 5,
+            "tools": [{"id": "t", "description": "x".repeat(1000)}]});
+        assert_eq!(acp_row_within(&s, 1 << 20), acp_row(&s));
+        let stub = acp_row_within(&s, 100);
+        assert_eq!(stub["sessionId"], "big");
+        assert_eq!(stub["_meta"]["acpmux"]["sessionId"], "big");
+        assert_eq!(stub["_meta"]["acpmux"]["omitted"]["reason"], "too_large");
+        assert!(stub["_meta"]["acpmux"]["omitted"]["bytes"].as_u64().unwrap() > 1000);
+        assert!(stub.to_string().len() < 400, "{stub}");
+        // A huge title or cwd is not kept either, and the stub has no title to mask.
+        let s = json!({"sessionId": "big", "cwd": "/".repeat(1 << 20), "updatedAt": 5,
+            "title": "secret ".repeat(1 << 18), "harness": "claude", "lastSeq": 1});
+        let stub = acp_row_within(&s, 1 << 16);
+        assert_eq!(stub["sessionId"], "big");
+        assert!(stub["title"].is_null() && stub["cwd"].is_null(), "{stub}");
+        assert!(stub.to_string().len() < 400, "{stub}");
+    }
 
     #[tokio::test]
     async fn a_serialized_reply_is_the_line_message_writes_and_parsed_back_outside_a_request() {
