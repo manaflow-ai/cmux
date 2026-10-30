@@ -174,10 +174,15 @@ fn run_in_process(plan: Vec<String>, env: &dyn Fn(&str) -> Option<String>) -> i3
     ))
 }
 
+/// `token create` that the app may mint. With `--config` (an explicit
+/// issuer) or `-h`/`--help`, cmux-vm handles it in process instead.
 pub(super) fn is_token_create(plan: &[String]) -> bool {
     let words: Vec<&str> =
         plan.iter().map(String::as_str).filter(|word| *word != "--json").collect();
-    matches!(words.as_slice(), ["token", "create", ..])
+    let in_process = |word: &&str| {
+        matches!(*word, "-h" | "--help" | "--config") || word.starts_with("--config=")
+    };
+    matches!(words.as_slice(), ["token", "create", ..]) && !words.iter().any(in_process)
 }
 
 /// Whether cmux-vm already has a credential that can mint (an API key in the
@@ -283,6 +288,13 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
                 "invalid_params" => 2,
                 _ => 1,
             };
+            if code == "method_not_found" {
+                return fail(
+                    &code,
+                    "this cmux app cannot mint VM tokens yet (no vm.agent_key.create); update cmux, or set CMUX_VM_API_KEY",
+                    exit,
+                );
+            }
             return fail(&code, &message, exit);
         }
         Err(message) => return fail("app.transport", &message, 1),

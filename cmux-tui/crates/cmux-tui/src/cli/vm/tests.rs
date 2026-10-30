@@ -107,6 +107,14 @@ fn token_create_is_recognized_with_or_without_json() {
 }
 
 #[test]
+fn token_create_with_an_explicit_issuer_or_help_runs_in_process() {
+    assert!(!is_token_create(&args(&["token", "create", "--config", "/tmp/issuer.json"])));
+    assert!(!is_token_create(&args(&["token", "create", "--config=/tmp/issuer.json"])));
+    assert!(!is_token_create(&args(&["token", "create", "--help"])));
+    assert!(!is_token_create(&args(&["token", "create", "-h"])));
+}
+
+#[test]
 fn an_environment_key_or_config_mints_without_the_app() {
     let none = |_: &str| None;
     assert!(!has_own_credential(&none));

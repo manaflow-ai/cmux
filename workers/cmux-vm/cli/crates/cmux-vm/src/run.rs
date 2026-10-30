@@ -259,9 +259,14 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
     }))?;
     let key_text = new_idempotency_key();
     let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
-    let created = retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, &body)))
-        .await
-        .map_err(|e| e.with_idempotency_hint(&key_text))?;
+    let created = match retrying(|| fetch_body(client.vms_create_vm(Some(&key), None, &body))).await
+    {
+        Ok(created) => created,
+        Err(error) if unconfirmed(&error) => {
+            return Err(cancel_unconfirmed(client, &key_text, error).await);
+        }
+        Err(error) => return Err(error),
+    };
     let vm: Value = serde_json::from_slice(&created)
         .map_err(|_| CliError::unexpected("the create response was not a VM"))?;
     let id = vm["id"]
@@ -269,6 +274,38 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
         .ok_or_else(|| CliError::unexpected("the create response named no VM"))?
         .to_owned();
     Ok(id)
+}
+
+/// A create that failed without a definite answer (the connection dropped, or
+/// the server failed) may still have allocated a VM. 501 is a definite no.
+fn unconfirmed(error: &CliError) -> bool {
+    match error.status() {
+        Some(status) => status >= 500 && status != 501,
+        None => error.exit_code() == exit::NETWORK,
+    }
+}
+
+/// Cancels whatever an unconfirmed create allocated, by its idempotency key,
+/// so a lost answer never leaves a VM running (with --keep it would have no
+/// auto-delete deadline). Returns the create's error with what was done.
+async fn cancel_unconfirmed(client: &Client, key_text: &str, error: CliError) -> CliError {
+    let cancelled = match parse_key::<types::VmCreationsCancelVmCreationIdempotencyKey>(key_text) {
+        Ok(key) => {
+            match retrying(|| fetch_body(client.vm_creations_cancel_vm_creation(&key, None))).await
+            {
+                // 404: the server holds no creation under this key.
+                Err(cancel) if cancel.status() == Some(404) => Ok(()),
+                other => other.map(drop),
+            }
+        }
+        Err(parse) => Err(parse),
+    };
+    match cancelled {
+        Ok(()) => error.with_recovery("the create was not confirmed, so any VM it allocated was cancelled"),
+        Err(_) => error.with_recovery(&format!(
+            "the create was not confirmed and its cancellation failed: run `cmux vm creation cancel --idempotency-key {key_text} --yes`"
+        )),
+    }
 }
 
 async fn wait_running(client: &Client, vm_id: &str) -> Result<(), CliError> {
@@ -533,7 +570,11 @@ async fn send_exec(
     vm_id: &str,
     body: &types::ExecRequest,
 ) -> Result<ExecResult, CliError> {
-    let bytes = retrying(|| fetch_body(client.exec_exec_vm(vm_id, None, body))).await?;
+    // An exec is not idempotent: a 503 can come after the command started
+    // (the upstream link failed mid-call), so only a 429, which refuses the
+    // call before it runs, is retried. A retry could run the command twice
+    // or append an upload chunk twice.
+    let bytes = retrying_on(&[429], || fetch_body(client.exec_exec_vm(vm_id, None, body))).await?;
     let result: Value = serde_json::from_slice(&bytes)
         .map_err(|_| CliError::unexpected("the exec response was not JSON"))?;
     Ok(ExecResult {
@@ -549,8 +590,19 @@ async fn send_exec(
     })
 }
 
-/// Retries a call the server refused for load (429, 503) with backoff.
-async fn retrying<T, F, Fut>(mut call: F) -> Result<T, CliError>
+/// Retries a call the server refused for load (429, 503) with backoff. Only
+/// for calls that are safe to repeat: reads, and creates under one
+/// idempotency key.
+async fn retrying<T, F, Fut>(call: F) -> Result<T, CliError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, CliError>>,
+{
+    retrying_on(&[429, 503], call).await
+}
+
+/// Retries a call answered with one of `statuses`, with backoff.
+async fn retrying_on<T, F, Fut>(statuses: &[u16], mut call: F) -> Result<T, CliError>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, CliError>>,
@@ -558,7 +610,7 @@ where
     let mut delay = Duration::from_millis(500);
     for _ in 0..RETRIES {
         match call().await {
-            Err(error) if matches!(error.status(), Some(429 | 503)) => {
+            Err(error) if error.status().is_some_and(|status| statuses.contains(&status)) => {
                 tokio::time::sleep(delay).await;
                 delay = (delay * 2).min(Duration::from_secs(10));
             }
@@ -1001,6 +1053,17 @@ mod tests {
             command_line(&["echo".to_owned(), "it's".to_owned(), "a b".to_owned()]),
             "echo 'it'\\''s' 'a b'"
         );
+    }
+
+    #[test]
+    fn only_a_create_without_a_definite_answer_is_cancelled() {
+        assert!(unconfirmed(&CliError::network("connection reset")));
+        assert!(unconfirmed(&CliError::from_status(503, b"")));
+        assert!(unconfirmed(&CliError::from_status(500, b"")));
+        assert!(!unconfirmed(&CliError::from_status(501, b"")));
+        assert!(!unconfirmed(&CliError::from_status(429, b"")));
+        assert!(!unconfirmed(&CliError::from_status(402, b"")));
+        assert!(!unconfirmed(&CliError::usage("bad flag")));
     }
 
     #[test]

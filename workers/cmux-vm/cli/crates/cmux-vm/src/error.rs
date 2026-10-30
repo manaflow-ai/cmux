@@ -158,7 +158,7 @@ impl CliError {
         }
     }
 
-    fn from_status(status: u16, body: &[u8]) -> Self {
+    pub(crate) fn from_status(status: u16, body: &[u8]) -> Self {
         let parsed: Option<Value> = serde_json::from_slice(body).ok();
         let field = |name: &str| {
             parsed
