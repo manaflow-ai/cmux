@@ -125,7 +125,17 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/** Shows the full prompt as a tooltip only when its one line (the button's inner text) cuts it off. */
+/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
+/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
+export function shownText(entry: QueuedEntry, t: Translate): string {
+  const retry = entry.retry;
+  if (!retry) return entry.prompt;
+  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Shows the row's whole text as a tooltip only when its one line (the button's inner text) cuts it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
   const text = button.firstElementChild ?? button;
@@ -668,7 +678,7 @@ export function ComposerQueue({
           className="acpmux-queued-text"
           data-open={open.has(entry.id) ? "" : undefined}
           aria-expanded={open.has(entry.id)}
-          onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
+          onPointerEnter={(event) => titleWhenTruncated(event, shownText(entry, t))}
           onPointerDown={(event) => (pressedBy.current = event.pointerType)}
           onClick={(event) => {
             // A mouse or pen press is a hovering pointer; a key (no press) or a touch is none.
