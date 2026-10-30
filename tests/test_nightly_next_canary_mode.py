@@ -190,6 +190,38 @@ class VerdictDurabilityTests(unittest.TestCase):
             self.assertEqual(s.get("if"), "success()", s.get("name"))
         self.assertEqual(steps[save]["with"]["key"], "${{ env.CANARY_CACHE_PREFIX }}${{ needs.pick.outputs.build }}")
 
+    def durable(self, document: str | None) -> str:
+        """Run the pick job's durable-verdict read against a `curl` that serves
+        this verdicts/<build>.json body (None: the document is missing)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp)
+            if document is not None:
+                (bin_dir / "doc").write_text(document)
+            (bin_dir / "curl").write_text(f"""#!/bin/bash
+out=
+while [ $# -gt 0 ]; do [ "$1" = -o ] && {{ out=$2; shift; }}; shift; done
+[ -f {tmp}/doc ] || {{ echo "curl: (22) 404" >&2; exit 22; }}
+cp {tmp}/doc "$out"
+""")
+            (bin_dir / "curl").chmod(0o755)
+            result, output = self.run_step("pick", "Read the build's durable verdict",
+                                           {"BUILD": "4100", "NIGHTLY_NEXT_FEED": "https://x/nightly-next/next/appcast-arm64.xml"},
+                                           path=bin_dir)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return output
+
+    def test_a_marked_build_is_checked_only_while_its_verdict_document_exists(self):
+        # The dispatch was accepted, but nightly-next-verdict.yml failed before
+        # its upload: the marker alone must not suppress the build forever.
+        self.assertIn("written=true", self.durable('{"build": "4100", "verdict": "pass"}'))
+        self.assertIn("written=true", self.durable('{"build": "4100", "verdict": "fail"}'))
+        self.assertNotIn("written=", self.durable(None))
+        self.assertNotIn("written=", self.durable('{"build": "4099", "verdict": "pass"}'))
+        self.assertNotIn("written=", self.durable("not json"))
+        checked = self.jobs["pick"]["outputs"]["checked"]
+        self.assertIn("steps.seen.outputs.cache-hit == 'true'", checked)
+        self.assertIn("steps.durable.outputs.written == 'true'", checked)
+
     def dispatch(self, *answers: str) -> subprocess.CompletedProcess:
         """Run the dispatch step against a `gh` that gives these answers in turn
         (`ok`, or the error text it prints before exiting 1)."""
