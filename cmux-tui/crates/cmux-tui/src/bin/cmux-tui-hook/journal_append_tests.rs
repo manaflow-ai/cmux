@@ -428,3 +428,109 @@ fn a_missing_session_socket_fails_at_once_and_keeps_nothing() {
     let left: Vec<_> = std::fs::read_dir(root.path()).unwrap().collect();
     assert!(left.is_empty(), "a hook for a gone session left {left:?}");
 }
+
+/// The hook queue directory beside `socket`, and the file the hook children
+/// count an ended session's dropped events in.
+fn spool_dir(socket: &Path) -> PathBuf {
+    socket.parent().unwrap().join("hook-spool")
+}
+
+fn ended_session_events(socket: &Path) -> Option<String> {
+    std::fs::read_to_string(spool_dir(socket).join("ended-session-events")).ok()
+}
+
+/// Writes a queue of `lines` for `terminal` of the session whose socket file
+/// name, as the queue names it, is `socket_part`: what a sender that stopped
+/// leaves behind.
+fn leave_queue(socket: &Path, socket_part: &str, terminal: &str, lines: &[Vec<u8>]) -> PathBuf {
+    let dir = spool_dir(socket);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("{socket_part}.{terminal}.jsonl"));
+    std::fs::write(&path, lines.concat()).unwrap();
+    path
+}
+
+/// The files left in the hook queue directory, but the drop count.
+fn queue_files(socket: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(spool_dir(socket))
+        .map(|entries| {
+            entries.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect()
+        })
+        .unwrap_or_default();
+    names.retain(|name| name != "ended-session-events");
+    names.sort();
+    names
+}
+
+/// A session that ended (its daemon removed its socket) can never take its
+/// queued hook events. The next hook child, of any agent, deletes that queue
+/// and counts its events where the daemon's `server-stats` reads them; no
+/// timer decides it. A sent queue leaves no file behind.
+#[test]
+fn an_ended_sessions_queue_is_dropped_counted_and_deleted_by_the_next_hook() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("live.sock");
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let ended: Vec<Vec<u8>> = (0..2).map(|_| hook_request_in("terminal_ended").1).collect();
+    let ended_queue = leave_queue(&socket, "ended_sock", "terminal_ended", &ended);
+    let (id, encoded) = hook_request_in("terminal_live");
+
+    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
+    let (_, admitted) = daemon.stop();
+
+    result.unwrap();
+    assert_eq!(admitted, vec![id]);
+    assert!(!ended_queue.exists(), "the ended session's queue is still on disk");
+    assert_eq!(ended_session_events(&socket).as_deref().map(str::trim), Some("2"));
+    assert_eq!(queue_files(&socket), Vec::<String>::new(), "a sent queue left files");
+}
+
+/// A queue of the live session that nobody sends (its sender died, or its
+/// agent ran no hook since) is sent by the next hook child of any agent.
+#[test]
+fn an_orphaned_queue_of_the_live_session_is_sent_by_any_agents_next_hook() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("live.sock");
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let (orphan_id, orphan) = hook_request_in("terminal_orphan");
+    leave_queue(&socket, "live_sock", "terminal_orphan", &[orphan]);
+    let (id, encoded) = hook_request_in("terminal_live");
+
+    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
+    let (_, admitted) = daemon.stop();
+
+    result.unwrap();
+    assert!(admitted.contains(&orphan_id), "the orphaned event was not sent: {admitted:?}");
+    assert_eq!(queue_files(&socket), Vec::<String>::new());
+    assert_eq!(ended_session_events(&socket), None, "a sent event was counted as dropped");
+}
+
+/// The session ends while the sender waits on it: its queue is dropped and
+/// counted at once, not kept for a session that cannot come back.
+#[test]
+fn a_sender_drops_and_counts_its_queue_when_the_session_ends() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("ending.sock");
+    let mut daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Close));
+    let ender = {
+        let (socket, moved) = (socket.clone(), root.path().join("ended.sock"));
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            // How a daemon ends its session: its socket file goes away.
+            std::fs::rename(&socket, &moved).unwrap();
+            moved
+        })
+    };
+    let (id, encoded) = hook_request_in("terminal_ending");
+
+    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
+    daemon.socket = ender.join().unwrap();
+    daemon.stop();
+
+    assert!(result.is_err(), "the session ended before the event was answered");
+    assert_eq!(queue_files(&socket), Vec::<String>::new(), "the ended session's queue was kept");
+    assert_eq!(ended_session_events(&socket).as_deref().map(str::trim), Some("1"));
+}
