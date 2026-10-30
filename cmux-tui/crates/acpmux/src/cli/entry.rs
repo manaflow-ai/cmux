@@ -167,7 +167,8 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
     if let Some(Command::New(_)) = &cli.command
         && let Some((_, new)) = matches.subcommand()
-        && let Some(refusal) = crate::cli::unknown_command::stdin_dash(new, &argv, at, name)
+        && let Some(refusal) =
+            crate::cli::unknown_command::stdin_dash(&grammar, new, &argv, at, name)
     {
         errors::exit_with(&refusal.into(), json_out)
     }

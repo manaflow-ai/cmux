@@ -104,33 +104,61 @@ pub(crate) fn envelope(e: &clap::Error, program: &str) -> Option<AppError> {
 }
 
 /// The refusal of `new`'s command line when one of its prompt words is a lone `-`, which would
-/// go as the text "-": `data.try` is the same line without those words (by the positions clap
-/// parsed them at, so a flag's own value `-` stays) and with `--prompt-file -`, which reads stdin,
-/// right after the command word, where no flag can take it as its value (none when one is
-/// given). `new` is the command's parse; `argv` is the command line, its command word at `at`.
+/// go as the text "-": `data.try` is the same line without those words and with
+/// `--prompt-file -`, which reads stdin, right after the command word, where no flag can take it
+/// as its value (none when one is given). A `-` is a prompt word when the line parsed without it
+/// has the same prompt less that one `-`; a flag's own value `-` stays (clap's indices are no
+/// argv positions: a short-flag cluster and `--` shift them). `grammar` parses `argv`, whose
+/// command word is at `at`; `new` is that command's parse.
 pub(crate) fn stdin_dash(
+    grammar: &clap::Command,
     new: &clap::ArgMatches,
     argv: &[OsString],
     at: usize,
     program: &str,
 ) -> Option<AppError> {
-    let prompt = new.get_many::<String>("prompt").into_iter().flatten();
-    let indices = new.indices_of("prompt").into_iter().flatten();
-    // A subcommand's indices count from its own word (index 0), which is `argv[at]`.
-    let dashes: Vec<usize> =
-        prompt.zip(indices).filter(|(w, _)| *w == "-").map(|(_, i)| at + i).collect();
-    if dashes.is_empty() {
+    let prompt = |m: &clap::ArgMatches| -> Vec<String> {
+        m.get_many::<String>("prompt").into_iter().flatten().cloned().collect()
+    };
+    let dashes = |words: &[String]| words.iter().filter(|w| *w == "-").count();
+    let words_of =
+        |words: &[String]| -> Vec<String> { words.iter().filter(|w| *w != "-").cloned().collect() };
+    let parsed = prompt(new);
+    if dashes(&parsed) == 0 {
         return None;
     }
-    let words: Vec<String> = argv.iter().map(|a| a.to_string_lossy().into_owned()).collect();
-    let command = words.get(at).cloned().unwrap_or_default();
-    let mut line = vec![format!("{program} {command}")];
-    if !new.contains_id("prompt_file") {
-        line.extend(["--prompt-file".to_owned(), "-".to_owned()]);
+    let kept_words = words_of(&parsed);
+    let mut line: Vec<OsString> = argv.to_vec();
+    let mut left = dashes(&parsed);
+    let mut p = at + 1;
+    while left > 0 && p < line.len() {
+        if line[p] != "-" {
+            p += 1;
+            continue;
+        }
+        let mut without = line.clone();
+        without.remove(p);
+        let fits = grammar.clone().try_get_matches_from(&without).ok().is_some_and(|m| {
+            m.subcommand().is_some_and(|(_, sub)| {
+                let words = prompt(sub);
+                dashes(&words) + 1 == left && words_of(&words) == kept_words
+            })
+        });
+        if fits {
+            line = without;
+            left -= 1;
+        } else {
+            p += 1;
+        }
     }
-    let rest = words.iter().enumerate().skip(at + 1).filter(|(i, _)| !dashes.contains(i));
-    line.extend(rest.map(|(_, w)| quote(w)));
-    let try_command = line.join(" ");
+    let words: Vec<String> = line.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let command = words.get(at).cloned().unwrap_or_default();
+    let mut try_line = vec![format!("{program} {command}")];
+    if !new.contains_id("prompt_file") {
+        try_line.extend(["--prompt-file".to_owned(), "-".to_owned()]);
+    }
+    try_line.extend(words.iter().skip(at + 1).map(|w| quote(w)));
+    let try_command = try_line.join(" ");
     let message = format!(
         "{command}'s words are its prompt, so `-` would be sent as the text \"-\" (the session \
          name is `-n NAME`); `--prompt-file -` reads the prompt from stdin. Try: {try_command}"
@@ -211,7 +239,7 @@ mod tests {
             cli.try_get_matches_from(argv.clone()).unwrap_or_else(|e| panic!("{args:?}: {e}"));
         let (_, new) = matches.subcommand()?;
         let at = argv.iter().skip(1).position(|a| a != "--json").map(|i| i + 1)?;
-        let refusal = stdin_dash(new, &argv, at, "acpmux")?;
+        let refusal = stdin_dash(&crate::cli::command::Cli::command(), new, &argv, at, "acpmux")?;
         Some(refusal.data.unwrap()["try"].as_str().unwrap().to_owned())
     }
 
