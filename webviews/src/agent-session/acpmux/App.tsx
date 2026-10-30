@@ -276,6 +276,7 @@ import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
 import {
   ANCHORED_COLLAPSE_EVENT,
+  foldHoldTarget,
   foldRoomFor,
   foldToggleAt,
   holdFold,
@@ -4076,8 +4077,9 @@ export function VirtualTranscript({
     const holdClicked = (event: MouseEvent) => {
       const toggle = node ? foldToggleAt(event.target, node) : undefined;
       if (!toggle) return;
-      settleFold(toggle);
-      foldAnchor.current = holdFold(toggle);
+      const line = foldHoldTarget(toggle);
+      settleFold(line);
+      foldAnchor.current = holdFold(line);
       keepFoldRoom();
     };
     // A collapsible's header that asks to be held (useAnchoredCollapse.ts): a toggle from the keyboard

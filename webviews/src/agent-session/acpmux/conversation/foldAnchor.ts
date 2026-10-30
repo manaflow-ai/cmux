@@ -15,8 +15,17 @@
 // into it (`trimmedFoldRoom`); a send and Jump to latest drop it (App.tsx).
 import { foldMs } from "./fold";
 
-/// The disclosures a click holds in place.
-export const FOLD_TOGGLE = "button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], summary";
+/// The disclosures a click holds in place: every control that opens or closes something in its row
+/// (a button or a `role="button"` line with `aria-expanded`: a tool or sent message's line, Show
+/// more, Show all lines, Raw, a file list's "+N more"), a `<summary>`, and the words of a line that
+/// toggle with its button (`data-interactive` inside an agent message's line). A menu's trigger
+/// (`aria-haspopup`) opens no body in the row and is left out.
+export const FOLD_TOGGLE = [
+  "button[aria-expanded]:not([aria-haspopup])",
+  '[role="button"][aria-expanded]:not([aria-haspopup])',
+  "summary",
+  ".cv-agentmsg__line > [data-interactive]",
+].join(", ");
 /// What a collapsible's header sends up (bubbling, cancelable) to be held where it is drawn while its
 /// body opens or closes (useAnchoredCollapse.ts); the transcript that holds it cancels it.
 export const ANCHORED_COLLAPSE_EVENT = "cmux:anchored-collapse";
@@ -36,6 +45,19 @@ export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement):
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
   const toggle = element?.closest<HTMLElement>(FOLD_TOGGLE);
   return toggle && scroller.contains(toggle) && toggle.closest(".acpmux-row") ? toggle : undefined;
+}
+
+/// The lines that open a body under themselves: a click holds the line itself.
+const HEADER_TOGGLE =
+  'button.is-toggle[aria-expanded], button.cv-subagents[aria-expanded], [role="button"][aria-expanded], summary, .cv-agentmsg__line > [data-interactive]';
+
+/// What a click on `toggle` holds in place. A line that opens a body under itself holds itself. Any
+/// other control (Show more, Show all lines, "+N more", Raw) may sit under or beside the body it
+/// opens or closes, so its row holds by its top: the body grows and shrinks downward and nothing
+/// above it moves, the control with it.
+export function foldHoldTarget(toggle: HTMLElement): HTMLElement {
+  if (toggle.matches(HEADER_TOGGLE)) return toggle;
+  return toggle.closest<HTMLElement>(".acpmux-row") ?? toggle;
 }
 
 /// Holds `toggle` where it is drawn now, for its fold and a little after.
