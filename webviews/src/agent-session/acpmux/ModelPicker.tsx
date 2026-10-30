@@ -329,7 +329,9 @@ function railByHarness(
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
     const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
-    const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
+    // A launch tab starts its harness; it lists no rows (stale ones of a failed probe included), so
+    // reaching it with the arrow keys shows nothing that could start a model.
+    const own = { ...family, name: currentName, ...(alternate ? { launch: true, models: [], more: [] } : {}) };
     return [
       own,
       ...names.flatMap((profile): QuickFamily[] => {
@@ -862,7 +864,9 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.pickable &&
         !blockedProfile(entry) &&
         entry.folder?.state !== "needs-enable" &&
-        loginFor(entry) === undefined,
+        loginFor(entry) === undefined &&
+        // A harness whose probe failed has stale rows: the search finds none of them, unless it runs the chat.
+        (!entry.unavailable || entry.ids.includes(harness ?? "")),
     );
     const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
@@ -910,8 +914,10 @@ export function ModelPicker(props: ModelPickerProps) {
       (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
     );
     const list: QuickFamily[] = [];
+    // A harness whose probe failed lends no rows to Starred (they are stale), unless it runs the chat.
+    const stale = (entry: HarnessChoice) => !!entry.unavailable && !entry.ids.includes(harness ?? "");
     const starred = startable
-      .filter((entry) => loginFor(entry) === undefined)
+      .filter((entry) => loginFor(entry) === undefined && !stale(entry))
       .flatMap((entry) =>
         groupChoices(
           choicesFor(entry, lang).filter((model) => favorites.has(model.id)),

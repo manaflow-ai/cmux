@@ -642,3 +642,34 @@ test("a new chat still launches a named harness entry whose probe failed from it
   await settle();
   expect(switched).toEqual(["claude-work"]);
 });
+
+// Review of #28050: a launch tab reached with the arrow keys (no launch) shows none of its rows, and
+// a failed probe's stale models are not in the compact menu's search.
+test("a failed probe's launch tab shows no rows when reached with the arrows, and search finds none of them", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    {
+      id: "claude-work",
+      name: "Claude (work)",
+      family: "claude-work",
+      icon: "claude",
+      unavailable: "probe failed",
+      probeFailed: true,
+      models: [{ id: "opus-stale", name: "Opus Stale" }],
+    },
+  ] as Snapshot["catalog"];
+  const { switched } = await mount(0, undefined, "claude", catalog);
+  await open();
+  const rows = () =>
+    [...(menu()?.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]') ?? [])].map(
+      (item) => item.textContent ?? "",
+    );
+  for (let step = 0; step < 4 && !rows().some((text) => text.includes("Stale")); step++) {
+    await act(async () => {
+      menu()!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    await settle();
+  }
+  expect(rows().some((text) => text.includes("Stale")), rows().join(" | ")).toBe(false);
+  expect(switched).toEqual([]);
+});
