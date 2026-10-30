@@ -138,7 +138,7 @@ public final class MobileHostPairedStore: Sendable {
                     edit(&next)
                     do {
                         try file.save(next)
-                        publish(next, generation: selected, replacing: true)
+                        publish(next, generation: selected)
                         guard self.generation == selected else { throw CocoaError(.userCancelled) }
                         continuation.resume()
                     } catch { continuation.resume(throwing: error) }
@@ -148,15 +148,10 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     private func publish(_ list: MobileHostPairedDevices, generation: UInt64,
-                         completed: [Removal: UUID] = [:], replacing: Bool = false) {
+                         completed: [Removal: UUID] = [:]) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard state.generation == generation, state.userID == list.userID else { return nil }
             for (key, marker) in completed where state.removals[key] == marker { state.removals[key] = nil }
-            if replacing {
-                for key in state.removals.keys where list.devices.contains(where: { $0.id == key.id && $0.transport == key.transport }) {
-                    state.removals[key] = nil
-                }
-            }
             var next = list
             for removal in state.removals.keys { next.remove(removal.id, transport: removal.transport) }
             let removed = (state.list?.devices ?? []).filter { old in
