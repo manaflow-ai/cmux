@@ -4,7 +4,7 @@
 // metrics (12px on 20px lines), so its height is final as it grows; when it closes, Pierre renders
 // it once underneath, and the highlighted card fades in over the plain one only after Pierre has
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import { CodeBrackets } from "./icons";
@@ -17,7 +17,17 @@ import { entranceAllowed } from "../../shared/pageReveal";
 /// The card's chrome over plain lines: an open fence, or a closed one drawn plain (the highlighted
 /// card's chunk still loading, a fence over the highlight limits, a highlight past its budget). A
 /// closed fence keeps the highlighted card's Open preview, so the panel opens from either card.
-export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
+export function PlainCode({
+  code,
+  lang,
+  open = false,
+  actions,
+}: {
+  code: string;
+  lang: string;
+  open?: boolean;
+  actions?: ReactNode;
+}) {
   const t = useT();
   const lines = code.split("\n");
   // An open fence's trailing empty line is the newline before a line still arriving; drawing it
@@ -31,6 +41,7 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
         <span className="cv-codeblock__actions">
           {!open && <OpenPreview code={code} lang={lang} />}
           <CopyButton text={code} label={t("code.copy")} />
+          {actions}
         </span>
       </div>
       <div className="cv-codeblock__body">
@@ -50,7 +61,7 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
+export function CodeHandoff({ code, lang, actions }: { code: string; lang: string; actions?: ReactNode }) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
@@ -95,18 +106,16 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
-      {stage !== "done" && <PlainCode code={code} lang={lang} />}
+      {stage !== "done" && <PlainCode code={code} lang={lang} actions={actions} />}
       <div
         className="cv-code-handoff__real"
-        // During the handoff the highlighted card is already mounted underneath the plain card.
-        // Keep its duplicate copy/open controls out of the accessibility tree (and tab order)
-        // until the fade finishes; pointer-events alone does not stop keyboard or screen-reader
-        // interaction with the transparent card.
+        // Keep duplicate highlighted controls out of keyboard and assistive technology traversal
+        // while the plain card is visible underneath.
         aria-hidden={stage !== "done" || undefined}
         inert={stage !== "done" || undefined}
         onAnimationEnd={() => setStage("done")}
       >
-        <CodeBlock code={code} lang={lang} />
+        <CodeBlock code={code} lang={lang} actions={stage === "done" ? actions : undefined} />
       </div>
     </div>
   );

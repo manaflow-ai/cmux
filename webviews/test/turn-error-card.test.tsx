@@ -89,12 +89,13 @@ test("cloud auth failures explain safe causes without leaking provider output or
   expect(failureKind("needs a team account on this machine; run cr add claude", cloud)).toBe("no-team-account");
 });
 
-test("the way out: Retry for what may pass, Switch model for capacity and keys, none for sign-in", () => {
+test("the way out: Retry for what may pass (capacity too), Switch model for keys, none for sign-in", () => {
   expect(failureRecovery("disk-full")).toBe("retry");
   expect(failureRecovery("tailscale")).toBe("retry");
   expect(failureRecovery("agent-exited")).toBe("retry");
   expect(failureRecovery("other")).toBe("retry");
-  expect(failureRecovery("rate-limited")).toBe("switch-model");
+  // Capacity passes (Lawrence 2026-10-29): Continue or Retry leads, Switch model beside it.
+  expect(failureRecovery("rate-limited")).toBe("retry");
   expect(failureRecovery("invalid-key")).toBe("switch-model");
   expect(failureRecovery("subscription-login")).toBeUndefined();
   expect(failureRecovery("trust-pending")).toBeUndefined();
@@ -223,7 +224,7 @@ test("cloud credential transfer retries only the failed prompt after a successfu
   expect(calls).toEqual(["transfer:user-1:Run the sidebar tests and fix what fails"]);
 });
 
-test("capacity puts Switch model first, Retry after it", async () => {
+test("capacity puts Retry first, Switch model after it", async () => {
   await act(async () =>
     root.render(
       <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
@@ -232,9 +233,9 @@ test("capacity puts Switch model first, Retry after it", async () => {
     ),
   );
   const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
-  expect(labels).toEqual(["Switch model", "Retry"]);
-  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
-  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  expect(labels).toEqual(["Retry", "Switch model"]);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
 test("the typed reason reaches the card", async () => {
@@ -250,6 +251,74 @@ test("the typed reason reaches the card", async () => {
   // No retry wired: no Retry button, Details still there.
   expect(button("Retry")).toBeUndefined();
   expect(card().querySelector("details summary")!.textContent).toBe("Details");
+});
+
+// A long chat that outgrew the model's context window read as "ran into a problem and stopped" with
+// Retry, which sends the same prompt into the same history and fails the same way: a dead end. It
+// names the cause and offers Compact (the agent's own /compact) first, Retry after it.
+test("a chat that outgrew its context window reads as such, from the text or the typed reason", () => {
+  const cases = [
+    'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 212043 tokens > 200000 maximum"}}',
+    "Prompt is too long",
+    "This model's maximum context length is 128000 tokens. However, your messages resulted in 131072 tokens.",
+    "context_length_exceeded",
+    "Your input exceeds the context window of this model. Please adjust your input and try again.",
+  ];
+  for (const message of cases) expect([message, failureKind(message, claude)]).toEqual([message, "context-full"]);
+  expect(failureKind("stream ended", claude, "context_window_exceeded")).toBe("context-full");
+  // A per-minute token limit is capacity, not a full context.
+  expect(failureKind("429 rate_limit_error: too many tokens per minute", claude)).toBe("rate-limited");
+  expect(failureRecovery("context-full")).toBe("compact");
+  expect(failureCopy(t, "Prompt is too long", claude)).toBe(
+    "This chat is too long for Claude Code’s context window. Compact it, then retry.",
+  );
+});
+
+test("a context-full card puts Compact first, sends it once, and keeps Retry after it", async () => {
+  let compacts = 0;
+  let settle: () => void = () => undefined;
+  const compact = () => {
+    compacts += 1;
+    return new Promise<void>((resolve) => (settle = resolve));
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined, compact }}>
+        <TurnFooter row={failed("Prompt is too long")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("context-full");
+  const labels = [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+  expect(labels).toEqual(["Compact", "Retry"]);
+  expect(button("Compact")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(false);
+  await act(async () => button("Compact")!.click());
+  await act(async () => button("Compact")!.click());
+  expect(compacts).toBe(1);
+  expect(button("Compact")!.hasAttribute("disabled")).toBe(true);
+  await act(async () => settle());
+  expect(button("Compact")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a harness without /compact keeps Retry as the context-full card's way out", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined }}>
+        <TurnFooter row={failed("Prompt is too long")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Compact")).toBeUndefined();
+  expect(button("Retry")!.classList.contains("cv-turn-error__primary")).toBe(true);
+});
+
+test("Compact is offered only where the agent lists /compact", async () => {
+  const { offersCompact } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  expect(offersCompact([{ name: "compact", description: "Clear history but keep a summary" }])).toBe(true);
+  expect(offersCompact([{ name: "compact", description: "", source: "skill" }])).toBe(false);
+  expect(offersCompact([{ name: "review", description: "" }])).toBe(false);
+  expect(offersCompact(undefined)).toBe(false);
 });
 
 // Lawrence 2026-10-23, on a "Deepseek has no valid API key" card with Switch model and Copy error:
