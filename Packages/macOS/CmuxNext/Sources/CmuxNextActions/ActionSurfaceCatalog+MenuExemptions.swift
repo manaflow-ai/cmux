@@ -141,6 +141,17 @@ nonisolated extension ActionSurfaceCatalog {
             // Open in New Window took its row (spaces-overhaul-DESIGN.md rule 4); New Window in Space… (a new
             // window with a new workspace of the space) stays in the palette and the CLI.
             "space.newWindow",
+            // Specialist tab controls stay canonical palette/CLI commands, outside the
+            // compact pointer menu. Shared commands keep their other menu placements.
+            "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
+            "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute",
+            "hibernateTab", "wakeTab", "neverHibernateSite", "browser.resetPinnedTab",
+            // Pane geometry, providers and diagnostics stay searchable; the menu keeps
+            // its common actions, including target-dependent reconnect, remote and chat tools.
+            "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout", "palette.newSimulatorPane",
+            "remote.openTerminalHere", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
+            "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.dock", "column.undock", "column.float",
+            "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
         ],
         // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
         .pointerMenuTrim: [
