@@ -63,10 +63,13 @@ public final class NativePopupHost {
     /// `trailing` and `centered` align it on the anchor (``PopupPlacement/frame(anchor:size:preferred:trailing:centered:screen:gap:margin:)``).
     /// `makeKey` gives it the keys (a ``NativePopupPanel`` takes them only while the app is
     /// active). The popup shows in one frame, with no grow or fade in; its close still fades.
+    /// `tooltipEntrance` is for a page tooltip only (``WebPopupHost``): it fades and grows in
+    /// (``NSWindow/openTooltipWithEntrance(pivot:)``). Menus and popovers never pass it.
     /// Returns the card frame and the side it took, or nil when it cannot show.
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
-                     trailing: Bool = false, centered: Bool = false, makeKey: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
+                     tooltipEntrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
                                                  centered: centered, screen: screen.visibleFrame)
@@ -84,7 +87,10 @@ public final class NativePopupHost {
         // Opens like every native popup (no flash); a popup already open stays put.
         if opening, !panel.isVisible { panel.alphaValue = 0 }
         if makeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFront(nil) }
-        if opening { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) }
+        if opening {
+            let pivot = panel.popupPivot(toward: anchor)
+            if tooltipEntrance { panel.openTooltipWithEntrance(pivot: pivot) } else { panel.openPopup(pivot: pivot) }
+        }
         watch(window)
         return (frame, side)
     }

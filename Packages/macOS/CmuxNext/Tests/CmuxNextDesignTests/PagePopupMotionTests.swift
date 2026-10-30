@@ -78,6 +78,38 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
+    /// Review of #27136: menus open in one frame, but a page tooltip that does not ask for
+    /// `instant` (every tooltip outside New Tab, `popupHost.ts`) keeps its fade and grow in.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
+    func aPageTooltipKeepsItsEntranceUnlessItAsksForNone() async throws {
+        for instant in [false, true] {
+            let (window, page) = try Self.page()
+            defer { window.orderOut(nil) }
+            let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
+            var params: [String: Any] = [
+                "items": [["id": "tip", "label": "A tooltip"]], "kind": "tooltip",
+                "anchor": ["left": 40, "top": 40, "right": 200, "bottom": 64], "width": 160,
+            ]
+            if instant { params["instant"] = true }
+            let model = try #require(WebPopupHost.Model(params))
+            let opening = try { () throws -> [String] in
+                Motion.reduceMotionOverride = false
+                defer { Motion.reduceMotionOverride = nil }
+                host.show(model)
+                let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+                let layer = panel.contentView?.layer
+                return ["opacity", "sublayerTransform"].filter { layer?.animation(forKey: $0) != nil }
+            }()
+            if instant {
+                #expect(opening == [], "an instant tooltip animated in")
+            } else {
+                #expect(opening == ["opacity", "sublayerTransform"], "the tooltip lost its entrance")
+            }
+            host.hide()
+            #expect(await GUIAnimationTestSupport.settle { host.shownFrame == nil })
+        }
+    }
+
     /// Native menus and popovers use the host's default: no entrance motion.
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aNativePopupDefaultsToAnInstantOpenAndFadesOnClose() async throws {

@@ -32,6 +32,41 @@ public extension NSWindow {
         showPopupAtOnce()
     }
 
+    /// Opens a page tooltip (not a menu or popover) with its fade and grow
+    /// from `pivot`: the one entrance left, for the tooltips `popupHost.ts`
+    /// sends without `instant` (every tooltip outside New Tab). Menus and
+    /// popovers open with ``openPopup(pivot:)``. A fresh open (the owner left
+    /// the window at alpha 0) starts from nothing; a reopen during the close
+    /// continues from what is on screen.
+    func openTooltipWithEntrance(pivot: CGPoint) {
+        guard let content = contentView else {
+            alphaValue = 1
+            return
+        }
+        content.wantsLayer = true
+        guard let layer = content.layer else {
+            alphaValue = 1
+            return
+        }
+        let reopening = layer.animation(forKey: "opacity") != nil || layer.animation(forKey: "sublayerTransform") != nil
+        let fresh = !reopening && alphaValue < 1
+        guard Motion.canAnimate(in: content) else { return showPopupAtOnce() }
+        Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn,
+                   from: fresh ? NSNumber(value: Float(0)) : nil)
+        if Motion.overlays.animatesMovement {
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
+                       from: fresh ? NSValue(caTransform3D: Motion.scale(Motion.popupOpenScale, about: pivot, in: layer)) : nil)
+        } else {
+            // Reduce Motion: at the tooltip's size, whatever a close left on screen.
+            layer.removeAnimation(forKey: "sublayerTransform")
+            setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
+        }
+        // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
+        // perf-gate-ok: one commit per tooltip open (no flash of the full card); a theme change never opens one.
+        CATransaction.flush()
+        alphaValue = 1
+    }
+
     /// Shows the popup's card at its size and full opacity in this frame, ending any open or close
     /// on screen, including a reopen during a close.
     func showPopupAtOnce() {
