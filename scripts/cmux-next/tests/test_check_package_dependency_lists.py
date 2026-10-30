@@ -549,6 +549,18 @@ class HealTests(unittest.TestCase):
         self.assertEqual(changed, [heal.MANIFEST], "only Package.swift changes")
         self.assertEqual(lint.missing_imports(manifest, (self.repo / heal.MANIFEST).parent), [])
 
+    def test_a_stale_baseline_line_beside_a_fixable_import_opens_nothing(self):
+        # Review of 8e00c8ba: the check after the repair counted only "does not declare" problems, so a stale
+        # IMPORT_BASELINE line passed it and the planned fix pull request was itself red on the dependency check.
+        self.bad_push()
+        out = self.root / "plan"
+        with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset({"CmuxNextCompat: CmuxNextHome"})), \
+                unittest.mock.patch.object(heal, "load_check", lambda: lint):
+            result = heal.plan(self.repo, "HEAD", out)
+        self.assertEqual(result, {"red": "true", "fixable": "false"})
+        self.assertFalse(out.exists())
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
     def test_the_same_gap_plans_the_same_branch(self):
         self.bad_push()
         first, _ = self.plan()

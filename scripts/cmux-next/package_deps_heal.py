@@ -15,7 +15,7 @@ tree, finds the commit that brought each import in, and writes the pull request 
 (autofix/package-deps-<digest of what it repairs>, so a later push with the same gap finds the same branch and
 opens no second pull request), `title`, `body.md` (it names the offending commits), `commit-message` and `labels`.
 It prints `red`, `fixable` and `branch` lines for $GITHUB_OUTPUT. A red it cannot repair from Package.swift alone
-(a stale IMPORT_BASELINE line) is `fixable=false`: nothing is opened.
+(a stale IMPORT_BASELINE line, alone or beside a fixable import) is `fixable=false`: nothing is opened.
 
 `open` commits the planned tree on that branch, pushes the branch (never feat-cmux-next) and opens the pull
 request with `gh`, unless one is already open from that branch. cmux-next-package-deps-heal.yml runs both.
@@ -130,8 +130,9 @@ def plan(repo: Path, head: str, out: Path, github_repo: str = "", run_url: str =
         except (check.FixError, check.ListError) as error:
             print(f"package-deps-heal: cannot declare {module} in {target}: {error}", file=sys.stderr)
             return {"red": "true", "fixable": "false"}
-    still = check.check(fixed_text, fix=False)[0] + [
-        p for p in check.import_problems(fixed_text, manifest.parent) if "does not declare" in p]
+    # Every problem, a stale IMPORT_BASELINE line included: a pull request that leaves one is red itself (review of
+    # 8e00c8ba).
+    still = check.check(fixed_text, fix=False)[0] + check.import_problems(fixed_text, manifest.parent)
     if still:
         print("package-deps-heal: still red after the repair:\n  " + "\n  ".join(still), file=sys.stderr)
         return {"red": "true", "fixable": "false"}
