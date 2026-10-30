@@ -37,6 +37,15 @@ ALWAYS = {("CmuxNextBrowserTests", "RemoteVideoPageTests"),
 OWN_PROCESS = {("CmuxNextAppTests", "MarkdownLiveShareTests"),  # aChangeOnDiskSendsReload: no `reload` in 10 s
                ("CmuxNextAppTests", "ScriptPaneFocusTests"),  # the snapshot never names the focused pane (20 s)
                ("CmuxNextAppTests", "BackgroundAccessoryPolicyTests")}  # the restore reopens a closed window
+# Suites that hold a wall-clock budget (a fade within 0.33 s, a switch cost ratio), which a shard misses when the
+# other shards share the runner's cores: each failed in a shard of #26809 run 41042041227 (cmux-next swift test at
+# 84121afc) and passes alone at both the base c66f534b and that head (fleet steps dcbc8328fa4d and 31512d495f11).
+# TabHoverCardTimingTests fails the same way in the base's own single-process run too (job 123558222461: the card
+# faded in 0.60 s of a 0.33 s budget). The heavy step runs them one at a time with nothing beside them.
+OWN_PROCESS |= {("CmuxNextAppTests", "IconPickerMotionTests"),  # the picker is still visible after its close motion
+                ("CmuxNextAppTests", "SidebarHoverCardDwellTests"),  # the card fades out in 0.51 s of 0.33 s
+                ("CmuxNextAppTests", "TabHoverCardTimingTests"),
+                ("CmuxNextAppTests", "SpaceSwitchCostTests")}  # p50 at 500 workspaces 133 ms of 124 ms
 ALWAYS |= OWN_PROCESS
 # Suites the frame scan finds that stay in the shared pass. WindowScreenshotTests commits one frame of its own two
 # small windows per test (5 s in all), so it never held the main thread. In the shared pass it passes on CI
