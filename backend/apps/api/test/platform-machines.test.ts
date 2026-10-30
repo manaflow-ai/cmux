@@ -137,7 +137,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(saved).toMatchObject({ ok: true, value: { id: expect.stringMatching(/^snap_[a-z0-9]{20}$/) } })
     const id = saved.value.id as string
     expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
-    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.snapshot.not_found" })
+    expect(await rpc.deleteSnapshot(c, id)).toEqual({ ok: true, value: { deleted: true } })
     expect(((await stub.fakeControl({})) as any).snapshot_deletes).toBe(1)
 
     const other = caller()
