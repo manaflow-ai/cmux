@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useLoad } from "../../lib/hooks"
+import { integrationCompletionRequest } from "../../lib/integration-callback"
 import { callbackSearch } from "../../lib/search"
 import { mutate } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
@@ -18,12 +19,8 @@ function Callback() {
   const signedIn = useSignedIn()
   const search = Route.useSearch()
   const result = useLoad<{ ok: boolean; message: string }>(signedIn && search.state && !search.error ? `complete:${search.state}` : null, async () => {
-    const params: Record<string, unknown> = { state: search.state }
-    if (search.code) params.code = search.code
-    if (search.installation_id) params.installation_id = search.installation_id
-    if (search.setup_action) params.setup_action = search.setup_action
     // The key is derived from the state, so a reload of this page replays instead of exchanging the code twice.
-    const r = await mutate({ data: { op: "integration.complete", params, idempotency_key: `complete:${search.state!.slice(-40)}` } })
+    const r = await mutate({ data: { op: "integration.complete", ...integrationCompletionRequest(search.state!, search) } })
     if (r.status === 401) setSignedIn(false)
     if (r.body.ok) return { ok: true, message: "Connected." }
     return { ok: false, message: `${r.body.error?.code ?? r.status}: ${r.body.error?.message ?? "failed"}` }

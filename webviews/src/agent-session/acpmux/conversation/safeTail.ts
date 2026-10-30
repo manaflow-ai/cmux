@@ -15,12 +15,14 @@
 // into math. A table without edge pipes is not held: its header is a prose line until the next one.
 
 const FENCE = /^\s*```/;
-/// Complete inline math on one line (Markdown.tsx's INLINE_RE and normalizeMath's `\(…\)`).
+/// Complete dollar candidates and explicit math on one line. This mask deliberately includes
+/// candidates the renderer rejects (such as `$x$word`): rejected math must remain literal while
+/// streaming rather than be mistaken for an unfinished equation.
 const INLINE_MATH =
   /`[^`]*`|\\[\\$]|\$\$[^$\n]+?\$\$|(?<![\\$])\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d)|\\\(.+?\\\)/g;
 /// An opener with no closer yet: `$$`, `\(`, `$` before something that is not a digit or
 /// space (`$5` is a price), or a backslash at the very end (`\(`, `\[` or `\$` arriving).
-const OPEN_MATH = /\$\$|\\\(|(?<!\\)\$(?=[^\s\d$]|$)|\\$/;
+const OPEN_MATH = /\$\$|\\\(|(?<!\\)\$(?![({])(?=[^\s\d$]|$)|\\$/;
 
 /// The index of the line that opens a display equation not yet closed (-1 when none), and
 /// whether the last line closes one (it is the equation's, not inline math).

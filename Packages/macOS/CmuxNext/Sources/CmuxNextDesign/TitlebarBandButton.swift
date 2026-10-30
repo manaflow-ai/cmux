@@ -70,21 +70,50 @@ public final class TitlebarBandButton: NSButton {
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
     }
 
+    /// Told `true` as a menu this button opened (press, long-press or right-click) shows and
+    /// `false` once it closes, so a host that fades the button on hover keeps it revealed while
+    /// its menu is open (Leo, 2026-10-26: a hover-revealed control stays revealed and lit while
+    /// the menu it opened is open).
+    public var onMenuOpenChange: ((Bool) -> Void)?
+
+    /// Shows `menu` with the button pressed (lit) for as long as it is open.
+    private func showMenu(_ show: () -> Void) {
+        isHighlighted = true
+        hover.state.pressed = true
+        onMenuOpenChange?(true)
+        defer {
+            isHighlighted = false
+            hover.state.pressed = false
+            onMenuOpenChange?(false)
+        }
+        show()
+    }
+
+    /// Opens the press menu for keyboard and VoiceOver activation. Mouse presses
+    /// use the same path from ``mouseDown(with:)``.
+    public func performPressMenu() {
+        guard isEnabled, let menu = pressMenu?(), !menu.items.isEmpty else { return }
+        showMenu { presentMenu(menu, self) }
+    }
+
+    override public func accessibilityPerformPress() -> Bool {
+        guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
+        guard pressMenu != nil else { return sendAction(action, to: target) }
+        performPressMenu()
+        return true
+    }
+
     override public func rightMouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        showMenu { NSMenu.popUpContextMenu(menu, with: event, for: self) }
     }
 
     /// A long press shows the menu like a browser's Back button; a click runs.
     override public func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        if let pressMenu {
-            guard let menu = pressMenu(), !menu.items.isEmpty else { return }
-            // Pressed while its menu is open, like a pop-up button.
-            isHighlighted = true
-            defer { isHighlighted = false }
-            presentMenu(menu, self)
+        if pressMenu != nil {
+            performPressMenu()
             return
         }
         guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
@@ -92,6 +121,6 @@ public final class TitlebarBandButton: NSButton {
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }
         }
-        if let menu = menuProvider?() { presentMenu(menu, self) }
+        if let menu = menuProvider?() { showMenu { presentMenu(menu, self) } }
     }
 }

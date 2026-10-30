@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Live receipt of #22829 on a DEV build (2026-10-21): Home and App Store draw in the list's top block,
 /// so a tile drag there is the list's one drag (`dragTile`), not the band's own reorder the band test
 /// covers. A press on App Store while a Home drag was still held ended the drag, but Home's slot stayed
 /// empty: the tile the drag hid never showed again until something else reloaded the list.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarListTilePressTests {
     static let home = LayoutItemID("itm_home"), store = LayoutItemID("itm_app_store")
     static let topKey = SidebarRowKey.block(SidebarLayoutDocument.topSectionID.rawValue)
@@ -70,7 +71,7 @@ struct SidebarListTilePressTests {
     @Test func aPressOnAnotherTileShowsTheTileAStaleDragHid() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let home = try h.tile(Self.home)
         home.mouseDown(with: try h.event(.leftMouseDown, on: home))
         home.mouseDragged(with: try h.event(.leftMouseDragged, on: home, dy: 40))
@@ -95,7 +96,7 @@ struct SidebarListTilePressTests {
     @Test func aPressOnTheListShowsTheTileAStaleDragHid() throws {
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let restingStore = try h.event(.leftMouseDown, on: h.tile(Self.store))
         let home = try h.tile(Self.home)
         home.mouseDown(with: try h.event(.leftMouseDown, on: home))

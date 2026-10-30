@@ -41,6 +41,18 @@ import Testing
         #expect(wire.reaction(kind: ["emoji": "🔥"]) == .emoji("🔥"))
     }
 
+    /// The owner writes milliseconds; Rust timestamps may carry micro- or
+    /// nanoseconds, or none.
+    @Test func datesParseAtEveryPrecision() throws {
+        let base = try #require(wire.date("2026-10-12T09:41:07Z"))
+        for text in ["2026-10-12T09:41:07.123Z", "2026-10-12T09:41:07.123456Z", "2026-10-12T09:41:07.123456789Z"] {
+            let date = try #require(wire.date(text), "\(text)")
+            #expect(abs(date.timeIntervalSince(base) - 0.123) < 0.001, "\(text)")
+        }
+        #expect(wire.date("2026-10-12T11:41:07.5+02:00").map { $0.timeIntervalSince(base) } == 0.5)
+        #expect(wire.date("not a date") == nil)
+    }
+
     @Test func messageMapsPartsReceiptsAndReactions() throws {
         let object: [String: Any] = [
             "id": "msg_1", "conversation": "conv_1", "seq": 4, "client_msg_id": "c1", "author": "user_local",
@@ -135,6 +147,17 @@ final class FakeDaemon: @unchecked Sendable {
             queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
                                 "transaction": NSNull(), "change": ["kind": "message", "message": posted]]))
             queuedUntil = command
+        }
+    }
+
+    /// Chief retracts message `id`: a `message-updated` event after the next reply.
+    func queueRetraction(of id: String) {
+        lock.withLock {
+            guard let index = messages.firstIndex(where: { $0["id"] as? String == id }) else { return }
+            messages[index]["retracted_at"] = "2026-10-12T09:45:00.000Z"
+            rev += 1
+            queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
+                                "transaction": NSNull(), "change": ["kind": "message-updated", "message": messages[index]]]))
         }
     }
 
@@ -438,6 +461,17 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
         #expect(preferences.muted("conv_chief"))
         await backend.markRead(upToSeq: 3)
         #expect(!daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" })
+        // QA 2026-10-27: a new backend (the link came back) still knows the
+        // position read here; it was in memory only, so unread came back.
+        let again = ChiefDaemonBackend(client: DaemonClient(channel: try await MockMacLink { _, request in daemon.respond(request) }
+            .openChannel(service: "chief", args: [:])), preferences: preferences)
+        var reconnected = again.events().makeAsyncIterator()
+        var readAfterReconnect: Int?
+        while readAfterReconnect == nil, let event = await reconnected.next() {
+            if case .readState(let state) = event { readAfterReconnect = state.lastReadSeq }
+        }
+        #expect(readAfterReconnect == 3)
+        again.close()
         // Back on: the position read here goes to the Mac.
         _ = try await backend.updateListState(ConversationListStateChange(sendReadReceipts: true))
         #expect(daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" && $0["seq"] as? Int == 3 })
@@ -466,7 +500,7 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
         let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
         session.send(ConversationComposeMessage(text: "run the tests"))
         #expect(session.outbox.count == 1)
-        #expect(outbox.load().map(\.text) == ["run the tests"])
+        #expect(outbox.load().map(\.message.text) == ["run the tests"])
         // A relaunch keeps it.
         #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
         session.use(ChiefMockBackend(sleep: { _ in }))

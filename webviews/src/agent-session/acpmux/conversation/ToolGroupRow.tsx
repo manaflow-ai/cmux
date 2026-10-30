@@ -1,3 +1,4 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
 // App.tsx +12 -3") over the calls on a tree guide: commands as command rows, edits as their
 // diffs, reads and searches as their own rows, and a thought between two calls in its place.
@@ -15,6 +16,7 @@ import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
@@ -117,12 +119,14 @@ export function ToolGroupRow({
             <WriteLabel tool={tools[0]!} write={write} t={t} />
           ) : (
             <>
-              {toolGroupLabel(
-                t,
-                kind,
-                items,
-                files.map((file) => file.path),
-              )}
+              <ToolLabel
+                text={toolGroupLabel(
+                  t,
+                  kind,
+                  items,
+                  files.map((file) => file.path),
+                )}
+              />
               {counted.length > 0 && (
                 <span className="cv-tool__counts">
                   <span className="cv-edit-diff__add">+{additions}</span>
@@ -145,6 +149,7 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
+      <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
         <div {...fold.bodyProps}>

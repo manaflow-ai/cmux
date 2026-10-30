@@ -58,7 +58,7 @@ below do not:
   agent cursor; it does not move the user's pointer.
 
 For native macOS apps (not web pages) the tool is cmux Computer Use (the
-`cmux-cua` skill), and only when the user asks for it.
+`cmux-cua` skill), for a task that needs an app on the Mac; never `osascript`.
 
 ## Read the CLI contract first
 

@@ -18,6 +18,7 @@ use super::config::{self, Config};
 use super::grant::{self, Scope};
 use super::preface::{self, Op};
 use super::tailnet::{self, Tailnet};
+use cmux_json::JsonSet as _;
 
 /// How long a peer has to send its preface.
 const PREFACE_BOUND: Duration = Duration::from_secs(5);
@@ -121,6 +122,12 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let ready = super::service::take_ready_signal();
+    // One listener per state directory; the OS drops the lock with the
+    // process, so `status` and `stop` never act on a stale pid. Taken before
+    // the config is read: a `config::commit` that saved before this sees the
+    // new config here, and one that saves after finds the lock held and
+    // restarts this listener, so none serves access a write already removed.
+    let _lock = super::service::acquire()?;
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");
@@ -137,9 +144,6 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     if self_ips.is_empty() {
         bail!("this machine has no tailnet address");
     }
-    // One listener per state directory; the OS drops the lock with the
-    // process, so `status` and `stop` never act on a stale pid.
-    let _lock = super::service::acquire()?;
     let mut listeners = Vec::new();
     for ip in &self_ips {
         let addr = SocketAddr::new(*ip, config.port);
@@ -277,8 +281,10 @@ fn serve_one(
             record("probe", "ok", None);
             let mut reply = probe_reply(host, &config, access);
             if let Some(scopes) = &scopes {
-                reply["host"]["scopes"] =
-                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
+                reply.set_path(
+                    &["host", "scopes"],
+                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>()),
+                );
             }
             preface::write_value(&mut stream, &reply)?;
             Ok(())

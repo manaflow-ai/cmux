@@ -5,6 +5,7 @@
 //!
 //!   cargo run --example chief_eval -- [--cases DIR] [--only PREFIX] [--out DIR]
 //!       [--jobs N] [--model M] [--effort E] [--judge-model M] [--compactor api|fake]
+//!       [--repeat N] [--min-pass F] [--baseline SUMMARY_JSON_OR_DIR]
 //!   chief_eval shim NAME ARGS...   (the stubs on a turn's PATH call this)
 //!
 //! What a turn sends is what a production Chief turn on a Claude harness
@@ -335,6 +336,8 @@ struct CaseRun<'a> {
     system: String,
     model: Model,
     spawned: Mutex<u32>,
+    /// The subagents this run spawned (id, title), for `control status`.
+    running: Mutex<Vec<(String, String)>>,
     frozen: Mutex<Option<optchat_core::Frozen>>,
     /// The running turn's tail, and whether stop or sleep ended it.
     tail: Mutex<String>,
@@ -475,6 +478,10 @@ impl CaseRun<'_> {
                         short_hash(cwd),
                         short_hash(&format!("{id}{title}"))
                     );
+                    self.running
+                        .lock()
+                        .unwrap()
+                        .push((id.clone(), title.to_owned()));
                     out.push(format!(
                         "{id} spawned in {cwd}, workspace \"{title}\" ({ws})"
                     ));
@@ -516,7 +523,19 @@ impl CaseRun<'_> {
                 let _ = std::fs::write(&p, text);
                 ("outcome: done. remembered".into(), false)
             }
-            "control" => ("outcome: done. No subagents in the last 2 h.".into(), false),
+            // The subagents this run started are running (none: the old answer).
+            "control" => {
+                let running = self.running.lock().unwrap();
+                if running.is_empty() {
+                    ("outcome: done. No subagents in the last 2 h.".into(), false)
+                } else {
+                    let lines: Vec<String> = running
+                        .iter()
+                        .map(|(id, title)| format!("- {id} [running] {title}: working"))
+                        .collect();
+                    (format!("outcome: done.\n{}", lines.join("\n")), false)
+                }
+            }
             "sleep" | "stop" if !self.opts.ledger_pre && self.open.lock().unwrap().is_some() => {
                 let (id, preview) = self.open.lock().unwrap().clone().unwrap();
                 (
@@ -1019,6 +1038,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         system,
         model: Model::new(&opts.base_url, opts.key.clone()),
         spawned: Mutex::new(0),
+        running: Mutex::new(Vec::new()),
         frozen: Mutex::new(None),
         tail: Mutex::new(String::new()),
         ended: Mutex::new(false),
@@ -1196,6 +1216,33 @@ fn main() {
     )
     .unwrap();
     println!("{}", table(&rows, &summary));
+    println!("\n{}", group_table(&summary));
+    // Against a baseline: an earlier run's summary.json (or its directory).
+    // Report only; the gate below stays the pass fraction.
+    if let Some(path) = flag("--baseline").map(PathBuf::from) {
+        let file = if path.is_dir() {
+            path.join("summary.json")
+        } else {
+            path
+        };
+        match std::fs::read_to_string(&file)
+            .map_err(|e| e.to_string())
+            .and_then(|t| serde_json::from_str::<Value>(&t).map_err(|e| e.to_string()))
+        {
+            Ok(base) => {
+                let d = baseline_diff(&summary, &base);
+                let md = diff_markdown(&d, &file.display().to_string());
+                std::fs::write(
+                    out.join("diff.json"),
+                    serde_json::to_string_pretty(&d).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(out.join("diff.md"), &md).unwrap();
+                println!("\n{md}");
+            }
+            Err(e) => eprintln!("baseline {}: {e}", file.display()),
+        }
+    }
     println!("artifacts: {}", out.display());
     // The gate: every case passes, or with --min-pass F at least that
     // fraction (model cases are sampled: one run of a 90% case fails 1 in 10).
@@ -1225,13 +1272,12 @@ fn summarize(rows: &[Value], wall: f64, opts: &Opts) -> Value {
     let col = |k: &str| -> Vec<u64> { turns.iter().map(|t| t[k].as_u64().unwrap_or(0)).collect() };
     let sum = |k: &str| col(k).iter().sum::<u64>();
     let (read, write, input) = (sum("cache_read"), sum("cache_write"), sum("input"));
+    let cases = case_counts(rows);
     let mut groups: BTreeMap<String, (u32, u32)> = BTreeMap::new();
-    for r in rows {
-        let g = groups
-            .entry(r["group"].as_str().unwrap_or("").into())
-            .or_default();
-        g.1 += 1;
-        g.0 += u32::from(r["pass"] == true);
+    for (group, p, n) in cases.values() {
+        let g = groups.entry(group.clone()).or_default();
+        g.0 += p;
+        g.1 += n;
     }
     json!({
         "model": opts.model, "effort": opts.effort, "judge": opts.judge_model,
@@ -1248,7 +1294,236 @@ fn summarize(rows: &[Value], wall: f64, opts: &Opts) -> Value {
         "retry_turns": sum("retry_turns"),
         "tokens_per_turn": (input + read + write + sum("output")) / turns.len().max(1) as u64,
         "groups": groups.iter().map(|(k, (p, n))| (k.clone(), json!(format!("{p}/{n}")))).collect::<serde_json::Map<_, _>>(),
+        "group_pass_rate": groups.iter().map(|(k, (p, n))| (k.clone(), json!(rate(*p, *n)))).collect::<serde_json::Map<_, _>>(),
+        // Per case (repeats folded into one id): what --baseline diffs.
+        "case_results": cases.iter().map(|(id, (g, p, n))| (id.clone(), json!({"group": g, "passed": p, "runs": n}))).collect::<serde_json::Map<_, _>>(),
     })
+}
+
+fn rate(p: u32, n: u32) -> f64 {
+    if n == 0 {
+        0.0
+    } else {
+        (f64::from(p) / f64::from(n) * 1000.0).round() / 1000.0
+    }
+}
+
+/// Case id (a `--repeat` suffix `#k` dropped) -> (group, passed, runs).
+fn case_counts(rows: &[Value]) -> BTreeMap<String, (String, u32, u32)> {
+    let mut cases: BTreeMap<String, (String, u32, u32)> = BTreeMap::new();
+    for r in rows {
+        let id = r["id"].as_str().unwrap_or("");
+        let id = id.split_once('#').map_or(id, |(base, _)| base);
+        let c = cases
+            .entry(id.into())
+            .or_insert_with(|| (r["group"].as_str().unwrap_or("").into(), 0, 0));
+        c.1 += u32::from(r["pass"] == true);
+        c.2 += 1;
+    }
+    cases
+}
+
+/// Group -> (passed, runs) of a summary.json. Summaries written before
+/// `case_results` existed still carry `groups` as "p/n".
+fn summary_groups(s: &Value) -> BTreeMap<String, (u32, u32)> {
+    let mut groups: BTreeMap<String, (u32, u32)> = BTreeMap::new();
+    if let Some(cases) = s["case_results"].as_object() {
+        for c in cases.values() {
+            let g = groups
+                .entry(c["group"].as_str().unwrap_or("").into())
+                .or_default();
+            g.0 += c["passed"].as_u64().unwrap_or(0) as u32;
+            g.1 += c["runs"].as_u64().unwrap_or(0) as u32;
+        }
+        return groups;
+    }
+    for (k, v) in s["groups"].as_object().into_iter().flatten() {
+        let mut it = v
+            .as_str()
+            .unwrap_or("")
+            .split('/')
+            .map(|x| x.parse().unwrap_or(0));
+        groups.insert(k.clone(), (it.next().unwrap_or(0), it.next().unwrap_or(0)));
+    }
+    groups
+}
+
+/// This run against a baseline summary: pass rate per group before and
+/// after, the total over the groups both runs have (over the cases both
+/// have when both carry `case_results`), and the cases whose pass rate went
+/// down or up.
+/// A group only the baseline ran is named in `groups_not_run`; a case only
+/// one side ran is `added` or, within a group this run has, `removed`.
+fn baseline_diff(now: &Value, base: &Value) -> Value {
+    // With per-case results on both sides, the groups and the total compare
+    // only the cases both runs have (an `--only` run, or new cases, keep it
+    // like for like); `added`, `regressed` and the rest use every case.
+    let (mut now_common, mut common) = (now.clone(), base.clone());
+    if let (Some(n), Some(b)) = (
+        now["case_results"].as_object(),
+        base["case_results"].as_object(),
+    ) {
+        if let Some(m) = now_common["case_results"].as_object_mut() {
+            m.retain(|id, _| b.contains_key(id));
+        }
+        if let Some(m) = common["case_results"].as_object_mut() {
+            m.retain(|id, _| n.contains_key(id));
+        }
+    }
+    let (gn, gb) = (summary_groups(&now_common), summary_groups(&common));
+    let side = |g: Option<&(u32, u32)>| {
+        g.map_or(
+            Value::Null,
+            |(p, n)| json!({"passed": p, "runs": n, "rate": rate(*p, *n)}),
+        )
+    };
+    let delta = |a: &(u32, u32), b: &(u32, u32)| {
+        ((rate(b.0, b.1) - rate(a.0, a.1)) * 1000.0).round() / 1000.0
+    };
+    let mut groups = serde_json::Map::new();
+    let (mut tb, mut tn) = ((0, 0), (0, 0));
+    let all_now = summary_groups(now);
+    for (name, all_b) in &all_now {
+        // A group with no shared case (also one whose cases moved to
+        // another group) shows all its cases, as new.
+        let (a, b) = match (gb.get(name), gn.get(name)) {
+            (Some(a), Some(b)) => (Some(a), b),
+            _ => (None, all_b),
+        };
+        if let Some(a) = a {
+            tb = (tb.0 + a.0, tb.1 + a.1);
+            tn = (tn.0 + b.0, tn.1 + b.1);
+        }
+        groups.insert(
+            name.clone(),
+            json!({"baseline": side(a), "now": side(Some(b)),
+                   "delta": a.map_or(Value::Null, |a| json!(delta(a, b)))}),
+        );
+    }
+    let all_base = summary_groups(base);
+    let not_run: Vec<&String> = all_base
+        .keys()
+        .filter(|g| !all_now.contains_key(*g))
+        .collect();
+    let cases = |s: &Value| -> BTreeMap<String, (String, f64)> {
+        s["case_results"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(id, c)| {
+                let (p, n) = (
+                    c["passed"].as_u64().unwrap_or(0),
+                    c["runs"].as_u64().unwrap_or(0),
+                );
+                let group = c["group"].as_str().unwrap_or("").to_owned();
+                (id.clone(), (group, rate(p as u32, n as u32)))
+            })
+            .collect()
+    };
+    let (cb, cn) = (cases(base), cases(now));
+    // A baseline without `case_results` (older runs) diffs by group only.
+    let (mut worse, mut better, mut added) = (vec![], vec![], vec![]);
+    for (id, (_, r)) in &cn {
+        match cb.get(id) {
+            Some((_, b)) if r < b => worse.push(json!({"id": id, "baseline": b, "now": r})),
+            Some((_, b)) if r > b => better.push(json!({"id": id, "baseline": b, "now": r})),
+            Some(_) => {}
+            None if !cb.is_empty() => added.push(json!(id)),
+            None => {}
+        }
+    }
+    let removed: Vec<&String> = cb
+        .iter()
+        .filter(|(id, (g, _))| !cn.contains_key(*id) && all_now.contains_key(g))
+        .map(|(id, _)| id)
+        .collect();
+    json!({
+        "total": {"baseline": side(Some(&tb)), "now": side(Some(&tn)), "delta": delta(&tb, &tn)},
+        "groups": groups, "groups_not_run": not_run,
+        "regressed": worse, "improved": better, "added": added, "removed": removed,
+        "baseline_model": base["model"], "model": now["model"],
+    })
+}
+
+fn fmt_side(v: &Value) -> String {
+    if v.is_null() {
+        return "-".into();
+    }
+    format!(
+        "{}/{} ({:.0}%)",
+        v["passed"],
+        v["runs"],
+        v["rate"].as_f64().unwrap_or(0.0) * 100.0
+    )
+}
+
+fn fmt_delta(v: &Value) -> String {
+    v.as_f64()
+        .map_or("new".into(), |d| format!("{:+.0} pts", d * 100.0))
+}
+
+fn diff_markdown(d: &Value, baseline: &str) -> String {
+    let mut out = format!(
+        "### Against baseline {baseline}\n\n| group | baseline | now | change |\n| --- | --- | --- | --- |\n"
+    );
+    for (g, v) in d["groups"].as_object().into_iter().flatten() {
+        out.push_str(&format!(
+            "| {g} | {} | {} | {} |\n",
+            fmt_side(&v["baseline"]),
+            fmt_side(&v["now"]),
+            fmt_delta(&v["delta"])
+        ));
+    }
+    let t = &d["total"];
+    out.push_str(&format!(
+        "| **total** (cases in both runs) | {} | {} | {} |\n",
+        fmt_side(&t["baseline"]),
+        fmt_side(&t["now"]),
+        fmt_delta(&t["delta"])
+    ));
+    let list = |key: &str, title: &str| -> String {
+        let items: Vec<String> = d[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|c| match c.as_str() {
+                Some(id) => id.to_string(),
+                None => format!(
+                    "{} ({:.0}% -> {:.0}%)",
+                    c["id"].as_str().unwrap_or(""),
+                    c["baseline"].as_f64().unwrap_or(0.0) * 100.0,
+                    c["now"].as_f64().unwrap_or(0.0) * 100.0
+                ),
+            })
+            .collect();
+        if items.is_empty() {
+            String::new()
+        } else {
+            format!("\n{title}: {}\n", items.join(", "))
+        }
+    };
+    out.push_str(&list("regressed", "Regressed"));
+    out.push_str(&list("improved", "Improved"));
+    out.push_str(&list("added", "New cases"));
+    out.push_str(&list("removed", "Cases not in this run"));
+    out.push_str(&list("groups_not_run", "Groups not in this run"));
+    if d["baseline_model"] != d["model"] {
+        out.push_str(&format!(
+            "\nModel changed: {} -> {}\n",
+            d["baseline_model"].as_str().unwrap_or("?"),
+            d["model"].as_str().unwrap_or("?")
+        ));
+    }
+    out
+}
+
+/// Pass rate per group (category) of this run.
+fn group_table(s: &Value) -> String {
+    let mut out = String::from("| group | pass | rate |\n| --- | --- | --- |\n");
+    for (g, (p, n)) in summary_groups(s) {
+        out.push_str(&format!("| {g} | {p}/{n} | {:.0}% |\n", rate(p, n) * 100.0));
+    }
+    out
 }
 
 fn table(rows: &[Value], s: &Value) -> String {
@@ -1287,6 +1562,116 @@ fn table(rows: &[Value], s: &Value) -> String {
             failed.join("; ")
         ));
     }
+    // The per-case results are the rows above; keep the line short.
+    let mut s = s.clone();
+    if let Some(m) = s.as_object_mut() {
+        m.remove("case_results");
+    }
     out.push_str(&format!("\nsummary: {s}"));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: &str, group: &str, pass: bool) -> Value {
+        json!({"id": id, "group": group, "pass": pass, "turns": []})
+    }
+
+    fn summary(rows: &[Value]) -> Value {
+        let opts = Opts {
+            model: "m".into(),
+            effort: String::new(),
+            judge_model: String::new(),
+            compactor: String::new(),
+            base_url: String::new(),
+            key: String::new(),
+            evals_dir: PathBuf::new(),
+            ledger_pre: false,
+        };
+        summarize(rows, 1.0, &opts)
+    }
+
+    #[test]
+    fn repeats_fold_into_one_case_and_groups_get_a_rate() {
+        let s = summary(&[
+            row("links-a#0", "links", true),
+            row("links-a#1", "links", false),
+            row("tone-b", "tone", true),
+        ]);
+        assert_eq!(
+            s["case_results"]["links-a"],
+            json!({"group": "links", "passed": 1, "runs": 2})
+        );
+        assert_eq!(s["groups"]["links"], "1/2");
+        assert_eq!(s["group_pass_rate"]["links"], 0.5);
+        assert_eq!(s["group_pass_rate"]["tone"], 1.0);
+        assert!(group_table(&s).contains("| links | 1/2 | 50% |"));
+        assert!(!table(&[], &s).contains("case_results"));
+    }
+
+    #[test]
+    fn diff_names_regressions_improvements_and_new_cases() {
+        let base = summary(&[
+            row("links-a", "links", true),
+            row("links-b", "links", false),
+            row("links-e", "links", true),
+            row("memory-c", "memory", true),
+        ]);
+        let now = summary(&[
+            row("links-a", "links", false),
+            row("links-b", "links", true),
+            row("links-f", "links", false),
+            row("tone-d", "tone", true),
+        ]);
+        let d = baseline_diff(&now, &base);
+        assert_eq!(
+            d["regressed"],
+            json!([{"id": "links-a", "baseline": 1.0, "now": 0.0}])
+        );
+        assert_eq!(
+            d["improved"],
+            json!([{"id": "links-b", "baseline": 0.0, "now": 1.0}])
+        );
+        assert_eq!(d["added"], json!(["links-f", "tone-d"]));
+        // links-e left the links group; memory was not run at all.
+        assert_eq!(d["removed"], json!(["links-e"]));
+        assert_eq!(d["groups_not_run"], json!(["memory"]));
+        assert!(d["groups"]["memory"].is_null());
+        assert!(d["groups"]["tone"]["baseline"].is_null());
+        // links-e is not in this run and links-f is new, so links compares
+        // links-a and links-b only.
+        assert_eq!(d["groups"]["links"]["delta"], 0.0);
+        let md = diff_markdown(&d, "base/summary.json");
+        assert!(
+            md.contains("| links | 1/2 (50%) | 1/2 (50%) | +0 pts |"),
+            "{md}"
+        );
+        assert!(md.contains("| tone | - | 1/1 (100%) | new |"), "{md}");
+        // The total covers the cases both runs have: links-a and links-b.
+        assert!(
+            md.contains("| **total** (cases in both runs) | 1/2 (50%) | 1/2 (50%) | +0 pts |"),
+            "{md}"
+        );
+        assert!(md.contains("Regressed: links-a (100% -> 0%)"), "{md}");
+        assert!(md.contains("New cases: links-f, tone-d"), "{md}");
+        assert!(md.contains("Groups not in this run: memory"), "{md}");
+    }
+
+    #[test]
+    fn diff_reads_a_summary_from_before_case_results() {
+        let base = json!({"model": "m", "groups": {"links": "3/4", "tenacity": "1/2"}});
+        let now = summary(&[
+            row("links-a", "links", true),
+            row("tenacity-b", "tenacity", true),
+        ]);
+        let d = baseline_diff(&now, &base);
+        assert_eq!(d["groups"]["links"]["baseline"]["rate"], 0.75);
+        assert_eq!(d["groups"]["links"]["delta"], 0.25);
+        assert_eq!(d["total"]["baseline"]["passed"], 4);
+        // No per-case data on the old side: nothing is called new or gone.
+        assert_eq!(d["added"], json!([]));
+        assert_eq!(d["removed"], json!([]));
+    }
 }

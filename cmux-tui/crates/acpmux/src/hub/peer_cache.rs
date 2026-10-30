@@ -27,6 +27,15 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
+    if summary.get("state").is_some() {
+        summary["state"] = Value::String("unreachable".into());
+    }
+    // Unreachable is not stuck: last-known stuck details would contradict `state`.
+    for key in ["stuckReason", "stuckSince", "stuckError"] {
+        if summary.get(key).is_some() {
+            summary[key] = Value::Null;
+        }
+    }
     summary["stale"] = Value::Bool(true);
     summary["lastSeen"] = json!(last_seen);
     super::views::decide(summary);
@@ -89,15 +98,30 @@ impl Hub {
         for mut summary in saved.sessions {
             let Some(receipt) = super::peers::session_receipt(&summary) else { continue };
             mark_stale(&mut summary, saved.last_seen);
+            // An older build saved rows with a peer's own display line.
+            super::drop_display_lines(&mut summary);
             let remote = RemoteSession { peer: peer.name.clone(), summary, receipt };
             map.insert(remote.receipt.qualified_id(), remote);
         }
     }
 
+    /// `forget_peer_files` under the rows lock (`remove_peer` holds it itself).
+    #[cfg(test)]
     pub(super) fn forget_peer_cache(&self, peer: &str) {
+        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        self.forget_peer_files(peer);
+    }
+
+    /// `forget_peer_cache` with the rows lock held by the caller (`remove_peer`).
+    pub(super) fn forget_peer_files(&self, peer: &str) {
         if let Some(path) = self.store.peer_cache_dir().and_then(|d| cache_path(&d, peer)) {
             let _ = std::fs::remove_file(path);
         }
+        // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
+        // peer has left the registry (`remove_peer`): a listing or capture of it that found it
+        // current (under this lock) has sent its op already and none after it does, so no
+        // listing that lets a page start a copy again comes after this.
+        self.peer_snapshots.forget_peer(peer);
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and
@@ -194,6 +218,26 @@ mod tests {
         assert!(!dir.path().join("peers/huge-blue.json").exists());
     }
 
+    /// A cache an older build saved can hold a peer's own display line on a pending ask: the
+    /// row a restart lists carries none (`drop_display_lines`), the tool's own input kept.
+    #[test]
+    fn a_saved_rows_display_line_is_dropped_when_loaded() {
+        let (hub, dir) = test_hub();
+        let mut row = Hub::remote_summary("huge-blue", remote("m1", "lane"));
+        row["pending"] = json!([{"permissionId": "p1", "request": {"toolCall": {
+            "rawInput": {"_meta": {"acpmux": {"display": {"headline": "the tool's own input"}}}},
+            "_meta": {"acpmux": {"display": {"headline": "Leo wants to say hi"}}}}}}]);
+        std::fs::create_dir_all(dir.path().join("peers")).unwrap();
+        let saved = json!({"lastSeen": now_ms() - 40_000, "sessions": [row]});
+        std::fs::write(dir.path().join("peers/huge-blue.json"), saved.to_string()).unwrap();
+        let peer = add_idle_peer(&hub, "huge-blue");
+        hub.load_peer_cache(&peer);
+        let listed = Value::from(hub.remote_sessions());
+        assert_eq!(listed[0]["name"], "huge-blue/lane", "{listed}");
+        assert!(!listed.to_string().contains("Leo wants to say hi"), "{listed}");
+        assert!(listed.to_string().contains("the tool's own input"), "{listed}");
+    }
+
     #[tokio::test]
     async fn a_request_for_a_down_peers_session_is_peer_unreachable_not_no_session() {
         let (hub, _dir) = test_hub();
@@ -230,5 +274,16 @@ mod tests {
         assert!(e.message.starts_with("peer_unreachable: huge-blue"), "{}", e.message);
         assert!(hub.peer_down_for("nopeer/lane").is_none());
         assert!(hub.peer_down_for("lane").is_none());
+    }
+
+    #[test]
+    fn a_stale_row_is_unreachable_with_no_stuck_details() {
+        let mut row = json!({"sessionId": "m1", "status": "ready", "state": "stuck",
+            "stuckReason": "capacity", "stuckSince": 7, "stuckError": "HTTP 503"});
+        assert!(mark_stale(&mut row, Some(9)));
+        assert_eq!(row["state"], "unreachable", "{row}");
+        for key in ["stuckReason", "stuckSince", "stuckError"] {
+            assert!(row[key].is_null(), "{key}: {row}");
+        }
     }
 }

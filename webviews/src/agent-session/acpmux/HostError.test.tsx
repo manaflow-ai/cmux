@@ -71,6 +71,30 @@ test("a restart in flight holds both buttons", async () => {
   expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
 });
 
+test("a queued Retry disables Restart acpmux until the handshake settles", async () => {
+  const container = installDom();
+  const pressed: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostError
+        message="socket closed"
+        reconnecting
+        retrying
+        onRetry={() => pressed.push("retry")}
+        onRestart={() => pressed.push("restart")}
+      />,
+    );
+  });
+  const [restart, retry] = [...container.querySelectorAll<HTMLButtonElement>("button")];
+  expect(restart?.textContent).toBe("Restart acpmux");
+  expect(retry?.textContent).toBe("Retrying…");
+  expect(restart?.disabled).toBe(true);
+  expect(retry?.disabled).toBe(true);
+  await act(async () => restart?.click());
+  expect(pressed).toEqual([]);
+});
+
 test("without the offer the card keeps only Retry and says cmux tries again", async () => {
   const container = installDom();
   await act(async () => {
@@ -79,4 +103,18 @@ test("without the offer the card keeps only Retry and says cmux tries again", as
   });
   expect(buttons(container)).toEqual(["Retry"]);
   expect(container.textContent).toContain("cmux tries again on its own");
+});
+
+test("a reconnect is a quiet status with a spinner, never an alert", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<HostError message="socket closed" reconnecting onRetry={() => undefined} />);
+  });
+  expect(container.querySelector("output.acpmux-reconnecting")).not.toBeNull();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector(".cv-spinner__arc")).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+  expect(container.textContent).not.toContain("socket closed");
+  expect(buttons(container)).toEqual(["Retry"]);
 });

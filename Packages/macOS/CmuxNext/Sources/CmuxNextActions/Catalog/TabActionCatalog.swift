@@ -104,7 +104,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "macScreen.open",
-                title: String(localized: "action.macScreen.open", defaultValue: "New Mac Screen Tab", bundle: .module),
+                title: String(localized: "action.macScreen.open", defaultValue: "Screen Sharing", bundle: .module),
                 keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
                 category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
                 targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file

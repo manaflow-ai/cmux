@@ -104,7 +104,8 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
     }
   };
 
-  test(`no orange or system accent and no opaque glass on ${stages.length} gallery stages`, async () => {
+  // A constant title: the stage count in it made every PR that adds a stage look like a new failing test.
+  test("no orange or system accent and no opaque glass on the gallery stages", async () => {
     const results: Scanned[] = [];
     const queue = [...stages];
     await Promise.all(
@@ -151,10 +152,10 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
       `accent-glass: scanned ${results.filter((result) => !("error" in result)).length} of ${stages.length} stages, ${reported.size} findings, ${fresh.length} new`,
     );
     if (fresh.length) console.log(`accent-glass findings:\n${fresh.join("\n")}`);
-    expect(fresh).toEqual([]);
+    expect(fresh, `new accent-glass findings across ${stages.length} gallery stages`).toEqual([]);
     // A scan that reached nothing proves nothing: most stages, and each allowlisted theme, scanned.
     const scanned = results.filter((result) => !("error" in result));
-    expect(scanned.length).toBeGreaterThan(stages.length * 0.9);
+    expect(scanned.length, `stages scanned of ${stages.length}`).toBeGreaterThan(stages.length * 0.9);
     for (const theme of orangeThemes)
       if (themes.includes(theme))
         expect(

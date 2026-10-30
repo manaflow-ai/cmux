@@ -1,5 +1,6 @@
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
+import { OlderPageDelay } from "./conversation/olderPageDelay";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
@@ -1321,6 +1322,7 @@ export class AcpmuxDirectClient {
   /// After a failed older page the next waits until then, so a reader near the top does not retry every frame.
   private olderRetryAt = 0;
   private readonly olderDelay = new OlderPageDelay();
+  private readonly olderDelay = new OlderPageDelay();
   /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
@@ -1950,7 +1952,7 @@ export class AcpmuxDirectClient {
         afterSeq: cursor,
         limit: 5_000,
       });
-      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
       const missed = records(result?.events);
       this.events = mergeEventRecords(this.events, missed);
       this.rebuildKeepingLiveState(replayLiveState ? cursor : undefined);

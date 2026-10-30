@@ -42,7 +42,7 @@ Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the 
 
 ## Selectors
 
-Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `current` is the focused object in the session, not the caller; use `$CMUX_TUI_TERMINAL_ID` for the caller. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
+Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `caller`, `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current` or `caller`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `caller` is the workspace, screen, pane, tab or terminal the command runs in (its terminal or agent chat, as `cmux identify` reports). Inside cmux, `current` means the caller's object too; it is the focused object only without a caller (a shell outside cmux) or under `--socket`/`--session`. Prefer `caller` in scripts: it fails instead of guessing. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
 
 ## Running a command in a new terminal
 
@@ -73,7 +73,7 @@ To open a link, the MCP tool `workspace_open_url` loads it on the workspace's ri
 
 ## Asking the person
 
-The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (computer use, importing a browser's cookies, deleting their data) waits for that request, and a cmux consent panel is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
+The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (importing a browser's cookies, deleting their data) waits for that request, and a cmux consent card (computer use setup) is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
 
 ## Screenshots of the app
 

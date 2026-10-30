@@ -41,6 +41,28 @@ const call = (used: number, size = 200_000, output = used): Step => [
     _meta: { acpmux: { call: true } },
   }),
 ];
+/// One model call's usage with all four counts acpmux sends (claude_stdio/inbound.rs): `used` is
+/// what it read, and the counts split that from what it wrote.
+const splitCall = (split: { input: number; cacheRead: number; cacheWrite: number; output: number }): Step => [
+  "in",
+  "usage_update",
+  update({
+    sessionUpdate: "usage_update",
+    used: split.input + split.cacheRead + split.cacheWrite,
+    size: 200_000,
+    inputTokens: split.input,
+    cachedReadTokens: split.cacheRead,
+    cachedWriteTokens: split.cacheWrite,
+    outputTokens: split.output,
+    _meta: { acpmux: { call: true } },
+  }),
+];
+/// A marked call from an older acpmux: `used` alone, which is context, not output.
+const legacyCall = (used: number): Step => [
+  "in",
+  "usage_update",
+  update({ sessionUpdate: "usage_update", used, size: 200_000, _meta: { acpmux: { call: true } } }),
+];
 /// The context a harness holds: Claude Code's result repeating its last call, or another harness.
 const held = (used: number, size = 200_000): Step => [
   "in",
@@ -249,6 +271,55 @@ test("a five-step turn counts generated output, not repeated context", async () 
     // output-only: five requests × 1K generated tokens = about 5K out.
     expect(snapshot().turnTokens).toBe(5_000);
     expect(snapshot().summary?.usage).toEqual({ used: 100_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
+
+test("a turn's output stays its count, and what its calls read is split apart, while every call carries the split", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      splitCall({ input: 1_200, cacheRead: 30_000, cacheWrite: 4_000, output: 300 }),
+      splitCall({ input: 800, cacheRead: 35_000, cacheWrite: 0, output: 9_100 }),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    // The count is output alone; what the calls read never folds into it.
+    expect(snapshot().turnTokens).toBe(9_400);
+    expect(snapshot().turnTokenSplit).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    // A marked call from an older acpmux (`used` alone): it adds no output, and the split goes
+    // away rather than leave the call's reads out.
+    daemon.push(record([legacyCall(5_000)], 5));
+    await until(() => snapshot().turnTokenSplit === undefined, "the unsplit call");
+    expect(snapshot().turnTokens).toBe(9_400);
+    // The turn's result names its tokens; its summary row carries them for Worked for.
+    daemon.push(
+      record(
+        [
+          [
+            "mux",
+            "turn_result",
+            {
+              status: "completed",
+              outputTokens: 9_400,
+              inputTokens: 2_000,
+              cacheReadTokens: 65_000,
+              cacheWriteTokens: 4_000,
+            },
+          ],
+        ],
+        6,
+      ),
+    );
+    // The fake daemon never reports the session idle, so the turn's end is its summary row.
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    const row = summary();
+    expect(row?.tokens).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    expect(snapshot().turnTokenSplit).toBeUndefined();
   } finally {
     client.close();
   }

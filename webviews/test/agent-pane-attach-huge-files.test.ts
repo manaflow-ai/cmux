@@ -1,4 +1,5 @@
 // cmux-web-test-timeout: 3000
+// cmux-web-test-alone
 // Leo, 2026-10-25: "are the fixes for all the composer attachment/image big size things fixed? like
 // arbitarrily large file sizes the composer should never ever freeze and prevent new things from
 // happening/from cancelling the thing". And: "also why dont we have previews of videos we should ...
@@ -745,7 +746,7 @@ os.replace(path + ".part", path)
     if (c.way === "menu") {
       await page.locator(".acpmux-composer-plus .acpmux-picker-button").click();
       const chooser = page.waitForEvent("filechooser", { timeout: 5_000 });
-      await page.locator('[role="listbox"] [role="option"][data-value="attach"]').click();
+      await page.locator('[role="listbox"] [role="option"][data-value="add.files"]').click();
       await (await chooser).setFiles(path.join(dir, c.file!.name));
       await page.waitForFunction(() => (window as unknown as BigWindow).__big.gestureAt > 0, undefined, {
         polling: 20,

@@ -263,8 +263,12 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI on its own host. Names:
-/// `agents_*` and `render` (cmux mcp agent tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
+/// `agents_*` and `render` (cmux mcp agent tools). `agents_chat_send`,
+/// `agents_chat_read` and `agents_chat_state` reach the agent chats the user
+/// started in the app (#25571): a send is the Chief's agent message, under
+/// the daemon's agent message policy, and starts a turn in that chat, a
+/// restored chat no tab has shown yet included.
+pub const CHIEF_CMUX_TOOLS: [&str; 16] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -278,6 +282,9 @@ pub const CHIEF_CMUX_TOOLS: [&str; 13] = [
     "render",
     "agents_terminal_list",
     "agents_terminal_send",
+    "agents_chat_send",
+    "agents_chat_read",
+    "agents_chat_state",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server
@@ -577,8 +584,9 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
+    // The Mac host never runs the Cloud mode; it would take Claude's files.
     match setup.tools {
-        Tools::Mcp => {
+        Tools::Mcp | Tools::Cloud(_) => {
             let text = system_text(setup.instructions.as_deref(), &Tools::Mcp);
             write_if_changed(&paths.session.join("CLAUDE.md"), text.as_bytes())?;
         }
@@ -739,7 +747,7 @@ pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Re
         settings.as_bytes(),
     )?;
     match setup.tools {
-        Tools::Mcp => remove_if_present(&dir.join("AGENTS.md")),
+        Tools::Mcp | Tools::Cloud(_) => remove_if_present(&dir.join("AGENTS.md")),
         Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
     }
 }

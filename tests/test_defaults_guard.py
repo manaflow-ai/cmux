@@ -152,6 +152,114 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS flag.CmuxNextApp/PaneSplitCommand.optimisticSplitEnabled: false -> true", result.stdout)
 
+    def test_tunable_default_changes_are_snapshotted_and_reported(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevSurface.swift"
+        source = '''public struct DevSurface {
+    // Tunable<Bool>.toggle("commented.out", .status, "Commented", help: "no", default: true)
+    /* Tunable<Bool>.toggle("also.commented", .status, "Commented", help: "no", default: true) */
+    public static let enabled = Tunable<Bool>.toggle(
+        "dev.surface", .status, "Developer surface", help: "opt-in",
+        // Keep the default argument visible despite this comment.
+        default: false)
+    public static let label = Tunable<String>.choice(
+        "dev.label", .status, "Developer label", help: "opt-in",
+        default: "two  spaces")
+}
+'''
+        self.repo.write(path, source)
+        self.base = self.repo.commit("tunable base")
+        head = self.head(extra={path: source.replace("default: false", "default: true")})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable.dev.surface: false -> true", result.stdout)
+        self.assertNotIn("commented.out", result.stdout)
+        self.assertNotIn("also.commented", result.stdout)
+        snapshot = self.repo.guard("snapshot").stdout + self.repo.root.joinpath(
+            "schemas/defaults/cmux-next.json").read_text()
+        self.assertIn("tunable.dev.label", snapshot)
+        self.assertIn('"two  spaces"', snapshot)
+
+    def test_tunable_helper_and_symbol_dependencies_cannot_bypass_review(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
+        dependency = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Material.swift"
+        source = r'''enum DevTunables {
+    static let devDefault = false
+    static let enabled = Tunable<Bool>.toggle("dev.enabled", .status, "Dev", default: devDefault)
+    static func points(_ name: String, _ value: Double) -> Tunable<Double> {
+        .number("dev.\(name)", .status, name, default: value)
+    }
+    static let gap = points("gap", 2)
+    static let opacity = Tunable<Double>.number("dev.opacity", .status, "Opacity", default: Material.opacity)
+    static let values = [1, 2]
+    static let dynamic = values.map { value in
+        Tunable.number("dev.\(value)", .status, "Value", default: value)
+    }
+    static func unrelated() { print("before") }
+}
+'''
+        material = 'enum Material { static let opacity = 0.5 }\n'
+        self.repo.write(path, source)
+        self.repo.write(dependency, material)
+        self.base = self.repo.commit("tunable dependencies")
+        for title, changed, other, expected in (
+            ("symbol", source.replace("devDefault = false", "devDefault = true"), material, "DevTunables.swift:devDefault"),
+            ("helper", source.replace('points("gap", 2)', 'points("gap", 3)'), material, "DevTunables.swift:gap"),
+            ("helper body", source.replace("default: value)", "default: value + 1)"), material, "DevTunables.swift:points"),
+            ("dynamic", source.replace("values = [1, 2]", "values = [1, 3]"), material, "DevTunables.swift:values"),
+            ("external symbol", source, material.replace("0.5", "0.6"), "Material.swift:opacity"),
+        ):
+            with self.subTest(title=title):
+                head = self.head(extra={path: changed, dependency: other})
+                result = self.check(head)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/" + expected, result.stdout)
+        head = self.head(extra={path: source.replace('print("before")', 'print("after")')
+                               .replace("static let devDefault", "/* comment */ static   let devDefault"),
+                               dependency: material})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_backticked_static_default_dependency_is_snapshotted(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
+        source = """enum DevTunables {
+    static let enabled = Tunable<Bool>.toggle("dev.enabled", .status, "Dev", default: BrowserResize.default)
+}
+enum BrowserResize { static let `default` = true }
+"""
+        self.repo.write(path, source)
+        self.base = self.repo.commit("backticked dependency")
+        head = self.head(extra={path: source.replace("= true", "= false")})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/DevTunables.swift:default", result.stdout)
+
+    def test_cross_file_helper_and_continued_expression_are_snapshotted(self):
+        helper = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        caller = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Surface.swift"
+        helper_source = """enum Factory {
+    static func number(_ value: Double) -> Tunable<Double> { .number("factory.value", .status, "Value", default: value) }
+}
+"""
+        caller_source = """enum Surface {
+    static let gap = Factory.number(2.0)
+    static let defaultGap = 2.0
+        * 3.0
+    static let size = Tunable<Double>.number("surface.size", .status, "Size", default: defaultGap)
+}
+"""
+        self.repo.write(helper, helper_source)
+        self.repo.write(caller, caller_source)
+        self.base = self.repo.commit("cross-file and continued defaults")
+        for changed, expected in (
+            (caller_source.replace("Factory.number(2.0)", "Factory.number(4.0)"), "gap"),
+            (caller_source.replace("* 3.0", "* 4.0"), "defaultGap"),
+        ):
+            with self.subTest(expected=expected):
+                head = self.head(extra={caller: changed})
+                result = self.check(head)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Surface.swift:" + expected, result.stdout)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
@@ -351,6 +459,62 @@ class DefaultsGuardTests(unittest.TestCase):
                         self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR"),
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    def private_member_check(self, head, roles, body=None, extra_comments=()):
+        """A receipt from a member whose org membership is private: the workflow's token sees
+        CONTRIBUTOR (cmux#26153). `roles` is what a fake `gh` answers for the permission lookup."""
+        bin_dir = self.repo.root.parent / f"{self.repo.root.name}-bin"
+        bin_dir.mkdir(exist_ok=True)
+        calls = bin_dir / "calls"
+        fake = bin_dir / "gh"
+        fake.write_text("#!/usr/bin/env python3\n"
+                        "import json, sys\n"
+                        f"roles = json.loads({json.dumps(json.dumps(roles))})\n"
+                        f"open({str(calls)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+                        "login = sys.argv[2].split('/')[-2]\n"
+                        "if login not in roles:\n"
+                        "    sys.stderr.write('HTTP 404: Not Found\\n'); sys.exit(1)\n"
+                        "print(roles[login])\n", encoding="utf-8")
+        fake.chmod(0o755)
+        body = body or f"Review (Claude Opus 5.5 subagent, correctness): SHIP at {head}\n\nFollow-up review"
+        nodes = [{"databaseId": 6483350726, "body": body, "createdAt": "2026-10-28T23:25:01Z",
+                  "authorAssociation": "CONTRIBUTOR", "author": {"login": "austinywang", "__typename": "User"}}]
+        nodes += list(extra_comments)
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False,
+                "reviews": {"nodes": []}, "comments": {"nodes": nodes}}
+        path = self.repo.root.parent / f"{self.repo.root.name}-private-pull.json"
+        path.write_text(json.dumps(pull), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path),
+                                 "--repo", "manaflow-ai/cmux",
+                                 env={"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+        result.calls = calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+        return result
+
+    def test_a_private_org_member_with_write_access_ships_the_head(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {"austinywang": "admin"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.calls, ["api repos/manaflow-ai/cmux/collaborators/austinywang/permission --jq .role_name"])
+
+    def test_a_contributor_without_write_access_still_does_not_pass(self):
+        head = self.changed_head()
+        for roles in ({}, {"austinywang": "read"}, {"austinywang": "triage"}):
+            result = self.private_member_check(head, roles)
+            self.assertEqual(result.returncode, 1, (roles, result.stdout))
+
+    def test_a_private_member_is_looked_up_only_for_a_receipt_on_the_head(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {"austinywang": "admin"}, body=f"Review (subagent): SHIP at {self.base}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.calls, [])
+
+    def test_a_later_block_from_a_private_member_still_beats_a_ship(self):
+        head = self.changed_head()
+        ship = {"databaseId": 1, "body": f"Review (subagent): SHIP at {head}", "createdAt": "2026-10-28T20:00:00Z",
+                "authorAssociation": "MEMBER", "author": {"login": AUTHOR, "__typename": "User"}}
+        result = self.private_member_check(head, {"austinywang": "write"},
+                                           body=f"Review (subagent): BLOCK at {head}", extra_comments=[ship])
+        self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_a_receipt_below_the_first_line_does_not_pass(self):
         head = self.changed_head()

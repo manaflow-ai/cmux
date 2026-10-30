@@ -78,6 +78,7 @@ extension ActionDescriptor {
         "announcements.show", "announcements.hide", "nowPlaying.showCard", "nowPlaying.disableCard",
         "nowPlaying.hideCardUntilRelaunch", "sidebar.profileControl.show", "sidebar.profileControl.hide",
         "tabs.overflow.scroll", "tabs.overflow.shrink", "links.openInCmuxBrowser", "links.openInDefaultBrowser",
+        "links.signInPagesInCmux", "links.signInPagesByLinkSettings",
         "browser.defaultEngine.chromium", "browser.defaultEngine.webkit", "layout.centerFocusedColumn.always",
         "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.onOverflow", "layout.toggleStripScrollbar",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "increaseWorkspaceTerminalFontSize",
@@ -265,8 +266,7 @@ extension ActionDescriptor {
                           "notifications.dismissal.keystroke", "notifications.dismissal.never",
                           "notifications.dismissal.timeout",
                       ]),
-        PaletteFamily("forkConversation", title: familyTitle("palette.family.forkConversation", "Fork Conversation…"),
-                      symbol: "arrow.triangle.branch", members: [
+        PaletteFamily("forkConversation", parent: "palette.forkAgentConversation", members: [
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",

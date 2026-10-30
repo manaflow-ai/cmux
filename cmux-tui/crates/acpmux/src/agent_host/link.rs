@@ -152,8 +152,170 @@ pub struct QueryReply {
 
 type Queries = Arc<std::sync::Mutex<std::collections::HashMap<u64, oneshot::Sender<QueryReply>>>>;
 
+/// The fences of the lines sent to a host (`ControllerFrame::Line`), with its incarnation,
+/// until its receipt (`WRITTEN_METHOD`, `settle_receipt`) or its end (`settle_receipts_of`)
+/// settles them. Shared by every connection this daemon makes, so a receipt a later connection
+/// to the same host gets settles its line (review 82 of #23322). A protocol-1 host gives no
+/// receipt: its lines wait here for its end, or for their request's answer (review 83).
+type Receipts = std::sync::Mutex<std::collections::HashMap<u64, (String, crate::agent::Fence)>>;
+
+static RECEIPTS: std::sync::LazyLock<Receipts> = std::sync::LazyLock::new(Default::default);
+
+/// This daemon's next receipt: random high bits, so a receipt a previous daemon left in a
+/// host's queue never names a line of this one.
+static NEXT_RECEIPT: std::sync::LazyLock<std::sync::atomic::AtomicU64> =
+    std::sync::LazyLock::new(|| {
+        let mut high = [0u8; 4];
+        let _ = getrandom::fill(&mut high);
+        std::sync::atomic::AtomicU64::new(u64::from(u32::from_le_bytes(high)) << 32)
+    });
+
+/// The receipts that came while no fence waited for them (a previous daemon's, or one settled
+/// another way), newest last, at most [`UNCLAIMED_CAP`]: a line held again at adoption
+/// (`adopt_receipt`) whose receipt came between the log's read and its hold is settled by it.
+/// Locked only under `RECEIPTS`.
+static UNCLAIMED: std::sync::LazyLock<std::sync::Mutex<std::collections::VecDeque<(u64, bool)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+const UNCLAIMED_CAP: usize = 4096;
+
+/// A host's receipt (`WRITTEN_METHOD`) for the line it names: written, or never (`written`
+/// false: its harness's stdin closed). An unknown one (a previous daemon's) is kept for an
+/// adoption that holds its line again (`adopt_receipt`).
+pub fn settle_receipt(receipt: u64, written: bool) {
+    let mut receipts = RECEIPTS.lock_or_recover();
+    let fence = receipts.remove(&receipt).map(|(_, f)| f);
+    if fence.is_none() {
+        let mut unclaimed = UNCLAIMED.lock_or_recover();
+        if unclaimed.len() >= UNCLAIMED_CAP {
+            unclaimed.pop_front();
+        }
+        unclaimed.push_back((receipt, written));
+    }
+    drop(receipts);
+    match fence {
+        Some(f) if written => f.written(),
+        Some(f) => f.failed(),
+        None => {}
+    }
+}
+
+/// Keeps `fence`, its host's end watched, until a receipt or its host's end settles it: its
+/// receipt.
+fn await_receipt(host: &HostRecord, fence: &crate::agent::Fence) -> u64 {
+    let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hold_receipt(host, receipt, fence);
+    receipt
+}
+
+/// `fence` waits in `RECEIPTS` for `receipt`, or for its host's end, which is watched.
+fn hold_receipt(host: &HostRecord, receipt: u64, fence: &crate::agent::Fence) {
+    let mut receipts = RECEIPTS.lock_or_recover();
+    // Settled ones another way (an answered request) go.
+    receipts.retain(|_, (_, f)| !f.is_settled());
+    receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    drop(receipts);
+    watch_end(host);
+}
+
+/// Watches `host`'s end once, from its first held line.
+fn watch_end(host: &HostRecord) {
+    if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
+        // task-owner: ends with the host, or when its lock can not be watched.
+        tokio::spawn(watch_host_end(host.clone()));
+    }
+}
+
+/// A fenced line a previous daemon sent `host` under `receipt` whose receipt its log does not
+/// have (`QUEUED_METHOD` with no `WRITTEN_METHOD`): its harness may not have it yet, so it is
+/// held again until that receipt or its host's end settles it, and a cut ends its host
+/// (`Fence::held_by_host`). A receipt that came before this hold settles it at once; a line
+/// this daemon sent itself (a later adoption of the same host) keeps the fence it has.
+pub fn adopt_receipt(host: &HostRecord, receipt: u64) -> crate::agent::Fence {
+    // One lock across the look and the hold: its receipt is either kept already or finds it.
+    let mut receipts = RECEIPTS.lock_or_recover();
+    if let Some((_, own)) = receipts.get(&receipt) {
+        return own.clone();
+    }
+    let fence = crate::agent::Fence::held_by_host(host.clone());
+    let came = {
+        let mut unclaimed = UNCLAIMED.lock_or_recover();
+        let at = unclaimed.iter().position(|(r, _)| *r == receipt);
+        at.and_then(|at| unclaimed.remove(at)).map(|(_, written)| written)
+    };
+    if came.is_none() {
+        receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    }
+    drop(receipts);
+    match came {
+        Some(true) => fence.written(),
+        Some(false) => fence.failed(),
+        None => watch_end(host),
+    }
+    fence
+}
+
+/// What `host`'s log can not tell apart (a host older than protocol 3 logs no
+/// `QUEUED_METHOD`): a line a previous daemon fenced that its harness may not have yet. Held
+/// until `host` ends, as a line to a host that gives no receipt is (fail closed); a cut ends
+/// `host`.
+pub fn adopt_untold(host: &HostRecord) -> crate::agent::Fence {
+    let fence = crate::agent::Fence::held_by_host(host.clone());
+    // A receipt of this daemon's that `host` was never sent: only its end settles it.
+    let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hold_receipt(host, receipt, &fence);
+    fence
+}
+
+/// The host incarnations whose end is watched (`watch_host_end`), one watch each.
+static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Settles what host `record` had once its live lock proves it gone, whatever logs its entries
+/// or holds its connection: a killed host leaves no `Exit` (review 87 of #23322). Ends with the
+/// host, or at once when its lock can not be watched, which leaves its lines to their answer,
+/// receipt or `Exit` (fail closed).
+async fn watch_host_end(record: HostRecord) {
+    let (sid, nonce) = (&record.session_id, &record.start_nonce);
+    let gone = loop {
+        let dirs = live_lock_dirs(&record);
+        let states: Vec<_> = dirs.iter().map(|d| (d, liveness(d, sid, nonce))).collect();
+        if states.iter().any(|(_, l)| *l == Liveness::Unknown) {
+            break false;
+        }
+        // Gone once no directory holds it live; a move from the pool wakes the watch, which
+        // looks again.
+        let Some((dir, _)) = states.into_iter().find(|(_, l)| *l == Liveness::Live) else {
+            break true;
+        };
+        if !dead(dir, sid, nonce).await {
+            break false;
+        }
+    };
+    WATCHED.lock_or_recover().remove(&record.incarnation);
+    if gone {
+        settle_receipts_of(&record.incarnation);
+    }
+}
+
+/// The host incarnation `incarnation` ended: what it had is never written now.
+pub fn settle_receipts_of(incarnation: &str) {
+    let ended: Vec<_> = {
+        let mut receipts = RECEIPTS.lock_or_recover();
+        let ids: Vec<u64> =
+            receipts.iter().filter(|(_, (i, _))| i == incarnation).map(|(r, _)| *r).collect();
+        ids.into_iter().filter_map(|r| receipts.remove(&r)).collect()
+    };
+    for (_, fence) in ended {
+        fence.failed();
+    }
+}
+
+/// A frame, a receipt once it is in the socket, and the fence of the message it carries.
+type Outgoing = (ControllerFrame, Option<oneshot::Sender<()>>, Option<crate::agent::Fence>);
+
 pub struct Link {
-    tx: mpsc::Sender<(ControllerFrame, Option<oneshot::Sender<()>>)>,
+    tx: mpsc::Sender<Outgoing>,
     queries: Queries,
     next_query: std::sync::atomic::AtomicU64,
     pub record: HostRecord,
@@ -161,6 +323,8 @@ pub struct Link {
     detach_ack: Mutex<Option<oneshot::Receiver<()>>>,
     /// Set when the host closed the connection or another owner took over.
     pub closed: Arc<std::sync::atomic::AtomicBool>,
+    /// The last entry the host sent on this link (`replay_end_within`).
+    highest: Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Connect as owner and resume after `resume_after` (the last entry already
@@ -173,8 +337,24 @@ pub async fn connect(record: HostRecord, resume_after: u64) -> Result<Connect> {
         .map_err(|_| anyhow!("agent host did not answer hello within {HELLO_BUDGET:?}"))?
 }
 
+/// [`connect`], speaking at most protocol `max`, as a daemon of an older build does. For tests.
+#[doc(hidden)]
+pub async fn connect_with_max(record: HostRecord, resume_after: u64, max: u16) -> Result<Connect> {
+    connect_inner_max(record, resume_after, max).await
+}
+
 #[cfg(unix)]
 async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect> {
+    connect_inner_max(record, resume_after, PROTOCOL_MAX).await
+}
+
+#[cfg(not(unix))]
+async fn connect_inner_max(record: HostRecord, resume_after: u64, _max: u16) -> Result<Connect> {
+    connect_inner(record, resume_after).await
+}
+
+#[cfg(unix)]
+async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> Result<Connect> {
     let stream = UnixStream::connect(&record.socket)
         .await
         .with_context(|| format!("connect {}", record.socket.display()))?;
@@ -183,7 +363,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         &mut wr,
         &ControllerFrame::Hello {
             min: PROTOCOL_MIN,
-            max: PROTOCOL_MAX,
+            max,
             token: record.owner_token.clone(),
             controller_build: crate::hub::BUILD.to_owned(),
         },
@@ -218,15 +398,58 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
     if adopted.incarnation != record.incarnation {
         bail!("agent host incarnation does not match its record");
     }
-    let (tx, mut rx) = mpsc::channel::<(ControllerFrame, Option<oneshot::Sender<()>>)>(1024);
+    // Debug builds only: when the file `ACPMUX_TEST_BEFORE_RESUME_FILE` names says "arm", it is
+    // renamed to `<file>.fired` here, after the host's hello and before `Resume`, and the connect
+    // waits 1 s, so a harness that waits for that name reports meanwhile: its host numbers an entry
+    // after its hello. The first entry numbered after the hello then reaches this link 1.5 s late,
+    // as from a busy host (review 3 of #26057). Release builds have no seam.
+    #[cfg(debug_assertions)]
+    let mut late = None;
+    #[cfg(debug_assertions)]
+    if let Some(file) = std::env::var_os("ACPMUX_TEST_BEFORE_RESUME_FILE")
+        && std::fs::read_to_string(&file).is_ok_and(|s| s.trim() == "arm")
+    {
+        let mut fired = file.clone();
+        fired.push(".fired");
+        if std::fs::rename(&file, &fired).is_ok() {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            late = Some(adopted.last_h);
+        }
+    }
+    let (tx, mut rx) = mpsc::channel::<Outgoing>(1024);
     let (entries_tx, entries_rx) = mpsc::channel::<(u64, Entry)>(4096);
     let (detach_tx, detach_rx) = oneshot::channel();
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let queries: Queries = Arc::default();
+    // A host from protocol 2 says when the harness has a fenced line (`WRITTEN_METHOD`); an
+    // older one says nothing, and its line stays unsettled until its host ends or its request
+    // is answered (review 83 of #23322).
+    let receipted = adopted.version >= RECEIPT_VERSION;
+    let host = record.clone();
     tokio::spawn(async move {
-        while let Some((frame, written)) = rx.recv().await {
+        while let Some((mut frame, written, fence)) = rx.recv().await {
+            if fence.as_ref().is_some_and(|f| !f.begin()) {
+                continue;
+            }
+            let mut receipt = None;
+            if let (Some(f), ControllerFrame::Line { receipt: asked, .. }) = (&fence, &mut frame) {
+                let r = await_receipt(&host, f);
+                if receipted {
+                    *asked = Some(r);
+                }
+                receipt = Some(r);
+            }
             if write_frame(&mut wr, &frame).await.is_err() {
+                if let Some(r) = receipt {
+                    RECEIPTS.lock_or_recover().remove(&r);
+                }
+                if let Some(f) = fence {
+                    f.failed();
+                }
                 break;
+            }
+            if let Some(f) = fence.filter(|_| receipt.is_none()) {
+                f.written();
             }
             // The frame is in the socket: a caller that must not outlive an
             // unsent frame (the Exit ack before the daemon exits) waits here.
@@ -234,15 +457,41 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                 let _ = written.send(());
             }
         }
+        // Never sent now: what it still queues is cut, so no holder waits on it.
+        rx.close();
+        while let Ok((_, _, fence)) = rx.try_recv() {
+            if let Some(f) = fence {
+                f.cut();
+            }
+        }
     });
+    let highest = Arc::new(std::sync::atomic::AtomicU64::new(0));
     {
         let closed = closed.clone();
         let queries = queries.clone();
+        let highest = highest.clone();
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
                 match read_frame::<_, HostFrame>(&mut rd).await {
                     Ok(Some(HostFrame::Entry { h, e })) => {
+                        #[cfg(debug_assertions)]
+                        if late.is_some_and(|last_h| h > last_h) {
+                            late = None;
+                            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        }
+                        // Before a query answer that comes behind it (`replay_end_within`).
+                        highest.fetch_max(h, std::sync::atomic::Ordering::SeqCst);
+                        // A line's receipt settles as it arrives: a fact of the host, true
+                        // whether or not the entry is logged (review 85). Its harness's end
+                        // does not: its host may still write a line to a descendant that kept
+                        // the harness's stdin; its host's own end does (review 87).
+                        if let Entry::Tap { dir: TapDir::Out, msg } = &e
+                            && msg["method"] == WRITTEN_METHOD
+                            && let Some(r) = msg["params"]["receipt"].as_u64()
+                        {
+                            settle_receipt(r, msg["params"]["written"] == true);
+                        }
                         if entries_tx.send((h, e)).await.is_err() {
                             break;
                         }
@@ -272,7 +521,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             queries.lock_or_recover().clear();
         });
     }
-    tx.send((ControllerFrame::Resume { after: resume_after }, None))
+    tx.send((ControllerFrame::Resume { after: resume_after }, None, None))
         .await
         .map_err(|_| anyhow!("agent host connection closed"))?;
     Ok(Connect::Ready(
@@ -284,6 +533,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             entries: Mutex::new(entries_rx),
             detach_ack: Mutex::new(Some(detach_rx)),
             closed,
+            highest,
         }),
         adopted,
     ))
@@ -297,12 +547,21 @@ async fn connect_inner(_record: HostRecord, _resume_after: u64) -> Result<Connec
 
 impl Link {
     async fn send(&self, frame: ControllerFrame) -> Result<()> {
-        self.tx.send((frame, None)).await.map_err(|_| anyhow!("agent host connection closed"))
+        self.tx.send((frame, None, None)).await.map_err(|_| anyhow!("agent host connection closed"))
     }
 
     /// Hand one ACP message to the harness.
     pub async fn line(&self, msg: Value) -> Result<()> {
-        self.send(ControllerFrame::Line { msg }).await
+        self.line_fenced(msg, None).await
+    }
+
+    /// [`Link::line`], `fence` held to its frame.
+    pub async fn line_fenced(&self, msg: Value, fence: Option<crate::agent::Fence>) -> Result<()> {
+        let frame = ControllerFrame::Line { msg, receipt: None };
+        self.tx
+            .send((frame, None, fence))
+            .await
+            .map_err(|_| anyhow!("agent host connection closed"))
     }
 
     /// Entries through `h` are in the session log.
@@ -318,7 +577,7 @@ impl Link {
         // fills the queue, so the send itself can wait.
         within("ack", budget, async {
             self.tx
-                .send((ControllerFrame::Ack { h }, Some(written)))
+                .send((ControllerFrame::Ack { h }, Some(written), None))
                 .await
                 .map_err(|_| anyhow!("agent host connection closed"))?;
             done.await
@@ -328,6 +587,13 @@ impl Link {
     }
 
     pub async fn terminate(&self, grace: std::time::Duration) -> Result<()> {
+        // Debug builds only: `ACPMUX_TEST_STALL_HOST_TERMINATE` makes the terminate wait forever,
+        // as one does on a host whose link stopped reading (its queue full), so the daemon's
+        // integration tests can drive that path. Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ACPMUX_TEST_STALL_HOST_TERMINATE").is_some() {
+            std::future::pending::<()>().await;
+        }
         self.send(ControllerFrame::Terminate { grace_ms: grace.as_millis() as u64 }).await
     }
 
@@ -361,6 +627,16 @@ impl Link {
                 Err(timeout.into())
             }
         }
+    }
+
+    /// The last entry the host numbered before it answers a query sent now. The host handles this
+    /// link's frames in order, the `Resume` sent at connect before this query, and sends its own in
+    /// order: every entry it numbered before it handled that `Resume` (its hello's `last_h`, and
+    /// any it numbered after the hello) reached this link before the answer. Once a reader logged
+    /// through it, all the host kept as this link resumed is in the log (review 3 of #26057).
+    pub async fn replay_end_within(&self, budget: std::time::Duration) -> Result<u64> {
+        self.query_within(budget).await?;
+        Ok(self.highest.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     pub fn is_closed(&self) -> bool {

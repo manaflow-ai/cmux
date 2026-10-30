@@ -3,7 +3,7 @@ import type { SlashCommand } from "./slashCommands";
 /** Commands owned by cmux and available in every harness chat. Their description is a pane string. */
 export type CmuxCommand = SlashCommand & {
   source: "cmux";
-  action: "import" | "continue" | "fork" | "btw" | "status";
+  action: "import" | "continue" | "fork" | "btw" | "side" | "status";
   descriptionKey?: NonNullable<SlashCommand["descriptionKey"]>;
 };
 
@@ -39,8 +39,16 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     action: "btw",
   },
   {
+    name: "side",
+    description: "",
+    descriptionKey: "composer.slashFork",
+    source: "cmux",
+    action: "side",
+  },
+  {
     name: "status",
-    description: "Show the effective harness session status.",
+    description: "",
+    descriptionKey: "composer.slashStatus",
     source: "cmux",
     action: "status",
   },

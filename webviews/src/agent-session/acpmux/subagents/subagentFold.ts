@@ -1,6 +1,13 @@
 import type { AcpmuxRow } from "../model";
+import { textFromContent } from "../direct";
+import {
+  markPullRequestActivityVersion,
+  markPullRequestCommandVersion,
+  markTranscriptSummaryVersion,
+} from "../summary/transcriptPullRequests";
 import { childRows, type ChildEntry } from "./childRows";
-import { hiddenCall, isPlumbingName } from "../hiddenTools";
+import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
+import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
   type AgentRun,
@@ -55,6 +62,8 @@ export type Subagent = {
   workflowAgents?: ReadonlyMap<number, WorkflowAgent>;
   /// A Claude workflow Claude Code paused: its agents stopped, and a resume by `runId` runs it again.
   paused?: boolean;
+  /// Monotonic event sequence for progress, including usage-only workflow updates.
+  progressVersion?: number;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
@@ -79,13 +88,25 @@ export type Subagent = {
   /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
   harness?: string;
   model?: string;
+  effort?: string;
   command?: string;
   session?: string;
   host?: string;
   result?: string;
+  lastMessage?: string;
   /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
   /// records (``reduceChild``) say its state and reply.
   child?: string;
+  /// The acpmux session that started this sub-session. This is session lineage, not pane nesting;
+  /// direct children keep `parent: null` so retry and automatic pane opening still apply.
+  startedBySession?: string;
+  /// acpmux's retry while one waits, whether acpmux can retry it, and the retry it gave up on
+  /// (retryState.ts).
+  retry?: RetryState;
+  retryable?: boolean;
+  retriedOut?: RetryState;
+  /// Why it failed, as acpmux recorded it (`error`): its end line says it.
+  error?: string;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -103,6 +124,7 @@ type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
 type Group = { id: string; at: number; version: number; ids: string[] };
+type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
 /// between two pieces of its own text draw as one group row where the first one started; their
@@ -120,6 +142,13 @@ export class SubagentFold {
   private open: Group | undefined;
   /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
   private readonly own = new Map<string, ChildEntry[]>();
+  private readonly viewRevisions = new Map<string, ViewRevisions>();
+  private readonly settledViews = new Map<string, { state: string; name: string }>();
+  private readonly viewTools = new Map<string, Map<string, boolean>>();
+  private readonly viewToolSummaries = new Map<string, Map<string, string>>();
+  private readonly pendingReplySummaries = new Set<string>();
+  /// The latest assistant message id per child, so a steer's new stream settles the prior reply.
+  private readonly replyMessageIds = new Map<string, string>();
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
@@ -324,6 +353,7 @@ export class SubagentFold {
       command,
       ...(run.harness && { harness: run.harness }),
       ...(model && { model }),
+      ...(run.effort && { effort: run.effort }),
       ...(run.session && { session: run.session }),
       ...(run.host && { host: run.host }),
       ...(update.rawInput.run_in_background === true && { background: true }),
@@ -347,16 +377,34 @@ export class SubagentFold {
   /// with acpmux's harness, model and effort; each `turn_ended` says its state and its reply. A
   /// child the `start_session` tool started has its card already (SubsessionCallCard.tsx). Returns
   /// the call whose row the run now stands for.
+  /// A `subagent_retry` record (retryState.ts ``applyRetryStep``): whether acpmux gave up on one.
+  reduceRetryStep(record: any): void {
+    const agent = typeof record?.subagentId === "string" ? this.agents.get(record.subagentId) : undefined;
+    if (agent && applyRetryStep(agent, record)) this.touch(agent);
+  }
+
   reduceChild(event: Event, record: any): string | undefined {
     const child = text(record?.childSessionId);
     if (!child) return undefined;
     if (record.event === "started") return this.startChild(record, child);
     const agent = record.event === "turn_ended" ? this.agents.get(this.children.get(child) ?? "") : undefined;
     if (!agent) return undefined;
+    // Each turn repeats the child's current model and effort. Keep the previous value when the
+    // producer omits a field, but honor an explicit null as acpmux's deletion signal.
+    for (const key of ["model", "effort"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      if (record[key] === null) delete agent[key];
+      else if (typeof record[key] === "string") agent[key] = record[key];
+    }
     // Each turn's end says the whole of it: a turn that said nothing has no reply, not the last one's.
     const said = text(record.result?.reply) ?? text(record.result?.error);
-    if (said) agent.result = said;
-    else delete agent.result;
+    if (said) {
+      agent.result = said;
+      agent.lastMessage = said;
+    } else {
+      delete agent.result;
+      delete agent.lastMessage;
+    }
     this.recorded.add(agent.id);
     agent.state = record.state === "done" ? "completed" : record.state === "cancelled" ? "cancelled" : "failed";
     agent.endedAt = event.at;
@@ -398,6 +446,8 @@ export class SubagentFold {
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
+    const startedBy = text(record.startedBy);
+    if (startedBy) agent.startedBySession = startedBy;
     if (!promptTitle(prompt)) agent.name = text(record.title) ?? agent.name;
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
@@ -417,7 +467,10 @@ export class SubagentFold {
       } else {
         const reply = runReply(output);
         // What acpmux recorded it said is its reply, not what the shell printed of it.
-        if (reply && !this.recorded.has(agent.id)) agent.result = reply;
+        if (reply && !this.recorded.has(agent.id)) {
+          agent.result = reply;
+          agent.lastMessage = reply;
+        }
         this.endRun(agent, status === "failed" ? "failed" : "completed", event.at);
         return;
       }
@@ -459,6 +512,7 @@ export class SubagentFold {
     const reply = runReply(withoutLineNumbers(outputOf(update)));
     if (reply && reply !== agent.result && !this.recorded.has(agent.id)) {
       agent.result = reply;
+      agent.lastMessage = reply;
       this.touch(agent);
     }
     // Read once the run ended, its file says nothing more.
@@ -525,6 +579,16 @@ export class SubagentFold {
         drawn = { version, rows: childRows(id, entries, this.agents, version) };
         this.drawn.set(id, drawn);
       }
+      // Publish revisions from the first chunk, avoiding the unversioned O(rows) fallback.
+      const revisions = this.viewRevisions.get(id) ?? {
+        activity: Symbol(),
+        command: Symbol(),
+        summary: {},
+      };
+      this.viewRevisions.set(id, revisions);
+      markPullRequestActivityVersion(drawn.rows, revisions.activity);
+      markPullRequestCommandVersion(drawn.rows, revisions.command);
+      markTranscriptSummaryVersion(drawn.rows, revisions.summary);
       views[id] = drawn.rows;
     }
     return views;
@@ -534,7 +598,96 @@ export class SubagentFold {
     const entries = this.own.get(id) ?? [];
     entries.push(entry);
     this.own.set(id, entries);
+    const update = entry.update;
+    const state = this.agents.get(id)?.state;
+    const active = state === undefined || state === "running";
+    let streaming =
+      active && (update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk");
+    let replySettled = false;
+    const messageId = typeof update?.messageId === "string" ? update.messageId : undefined;
+    const messageChanged =
+      update?.sessionUpdate === "agent_message_chunk" &&
+      !!messageId &&
+      this.replyMessageIds.has(id) &&
+      this.replyMessageIds.get(id) !== messageId;
+    if (messageChanged && textFromContent(update?.content)) {
+      this.pendingReplySummaries.delete(id);
+      this.bumpViewRevision(id);
+    }
+    if (streaming && textFromContent(update?.content)) {
+      if (update?.sessionUpdate === "agent_message_chunk") {
+        this.pendingReplySummaries.add(id);
+        if (messageId) this.replyMessageIds.set(id, messageId);
+      }
+      // The first thought can settle a reply; subsequent thought deltas keep its summary cached.
+      if (update?.sessionUpdate === "agent_thought_chunk" && this.pendingReplySummaries.delete(id)) streaming = false;
+    }
+    if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
+      const call = String(update.toolCallId ?? `tool-${entry.event.seq}`);
+      // ToolSearch is hidden from the child view, so it cannot settle the visible reply. Keep
+      // the marker until a rendered tool or thought actually follows it.
+      const hidden = hiddenCall(this.hiddenCalls, `${id}\u0000${call}`, update);
+      const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
+      const summaries = this.viewToolSummaries.get(id) ?? new Map<string, string>();
+      const summaryKey = JSON.stringify({
+        title: update.title,
+        name: update.name,
+        description: update.description ?? update.rawInput?.description,
+        command: update.command ?? update.rawInput?.command,
+        inputSummary: update.inputSummary,
+        kind: update.kind,
+        status: update.status,
+        exitCode: update.exitCode,
+        startedAt: update.startedAt,
+        background: update.background ?? update.rawInput?.run_in_background,
+        rawInput: update.rawInput,
+      });
+      const metadataChanged = summaries.has(call) && summaries.get(call) !== summaryKey;
+      summaries.set(call, summaryKey);
+      this.viewToolSummaries.set(id, summaries);
+      // A page opened after a ToolSearch started has only its title-less result. Treat a result
+      // with no renderable content as hidden too, matching direct transcript folding.
+      const unknownHiddenResult =
+        update?.sessionUpdate === "tool_call_update" && !tools.has(call) && (!update.title || showsNothing(update));
+      replySettled = !hidden && !unknownHiddenResult && this.pendingReplySummaries.delete(id);
+      if (hidden || unknownHiddenResult) {
+        this.bump(id);
+        return;
+      }
+      const settled =
+        update.status === undefined ? tools.get(call) : update.status === "completed" || update.status === "failed";
+      // New tools and every update of a settled tool change the summary, even without a status.
+      // A running-tool update can arrive immediately after the reply was settled; keep the
+      // reply's settled state authoritative so the child summary revision is published.
+      streaming = tools.has(call) && !settled && !replySettled;
+      tools.set(call, settled ?? false);
+      this.viewTools.set(id, tools);
+      if (metadataChanged) this.bumpViewRevision(id);
+    }
+    if (replySettled) streaming = false;
+    if (!streaming) this.bumpViewRevision(id);
     this.bump(id);
+  }
+
+  private bumpViewRevision(id: string): void {
+    this.viewRevisions.set(id, { activity: Symbol(), command: Symbol(), summary: {} });
+  }
+
+  private settleView(agent: Subagent): boolean {
+    const previous = this.settledViews.get(agent.id);
+    if (previous?.state === agent.state && previous.name === agent.name) return false;
+    this.settledViews.set(agent.id, { state: agent.state, name: agent.name });
+    const last = this.own.get(agent.id)?.at(-1);
+    // Completion can precede the final reply chunk. Preserve that completed tail
+    // before a resume makes new chunks stream again.
+    if (last && previous && previous.state !== "running" && agent.state === "running") last.settled = true;
+    if (agent.state !== "running") {
+      this.pendingReplySummaries.delete(agent.id);
+      this.replyMessageIds.delete(agent.id);
+    }
+    this.bumpViewRevision(agent.id);
+    this.bump(agent.id);
+    return true;
   }
 
   private bump(id: string): void {
@@ -599,6 +752,16 @@ export class SubagentFold {
     }
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    // Optional orchestration fields may be removed explicitly when a resumed harness no longer
+    // reports them. Keep omitted fields unchanged, but do not leave stale values after `null`.
+    for (const key of ["model", "effort", "lastMessage"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(change, key)) continue;
+      if (change[key] === null) delete agent[key];
+      else {
+        const value = text(change[key]);
+        if (value !== undefined) agent[key] = value;
+      }
+    }
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
@@ -616,7 +779,9 @@ export class SubagentFold {
       change.workflowAgents,
       change.workflowAgentsFull === true,
     );
+    if (!spawn) agent.progressVersion = event.seq;
     if (change.reason === "paused") agent.paused = true;
+    applyRetry(agent, change);
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.
@@ -627,6 +792,8 @@ export class SubagentFold {
       agent.endedAt = state === "running" ? undefined : event.at;
       this.settleReason(agent);
     }
+    // A subagent that runs again, or finished, gave nothing up.
+    if (agent.state === "running" || agent.state === "completed") delete agent.retriedOut;
     this.touch(agent);
   }
 
@@ -686,11 +853,22 @@ export class SubagentFold {
   }
 
   private touch(agent: Subagent): void {
-    if (agent.parent !== null) this.bump(agent.parent);
+    const summaryChanged = this.settleView(agent);
+    if (agent.parent !== null) {
+      if (summaryChanged) this.bumpParentViews(agent.parent);
+      else this.bump(agent.parent);
+    }
     const group = this.groupOf.get(agent.id);
     if (!group) return;
     group.version += 1;
     this.changed.add(group);
+  }
+
+  private bumpParentViews(id: string): void {
+    this.bumpViewRevision(id);
+    this.bump(id);
+    const parent = this.agents.get(id)?.parent;
+    if (parent !== null && parent !== undefined) this.bumpParentViews(parent);
   }
 }
 

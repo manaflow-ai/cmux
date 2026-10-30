@@ -33,7 +33,7 @@ area actions 'Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/Cm
 # (defaults_guard.py source-stamp), never committed.
 area settings 'Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py'
 # The docs shortcuts read the catalog export and the action string catalogs.
-area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts'
+area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|web/scripts/export-next-docs\.ts'
 # The app-host generated files read the operation catalogs, the action export and the apps' fragments.
 area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-operations\.json|plans/cmux-next/action-surfaces\.json|first-party-apps/|cmux-tui/crates/cmux-app-host/(tools|generated)/'
 # The namespace lint reads the package and iOS app sources.
