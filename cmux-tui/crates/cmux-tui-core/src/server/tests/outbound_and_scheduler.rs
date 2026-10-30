@@ -262,19 +262,27 @@ fn resize_stream_serialization_reserves_budget_before_queueing() {
     assert_eq!(service.outbound_budget.retained_bytes.load(Ordering::Acquire), 0);
 }
 
+/// The session socket's budget in the tests below.
+const LANE: usize = 64;
+
+fn lane_stats() -> Arc<crate::diagnostics::ConnectionStats> {
+    Arc::new(crate::diagnostics::ConnectionStats::with_budget(
+        crate::diagnostics::ConnectionBudget::for_test(LANE as u64),
+    ))
+}
+
 #[test]
 fn server_connection_permits_enforce_and_release_the_cap() {
-    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
-    let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
-        .map(|_| claim_connection(&connections).expect("slot below the cap"))
-        .collect();
+    let connections = lane_stats();
+    let permits: Vec<ConnectionPermit> =
+        (0..LANE).map(|_| claim_connection(&connections).expect("slot below the cap")).collect();
     assert!(claim_connection(&connections).is_none());
-    assert_eq!(connections.active(), MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(connections.active(), LANE as u64);
     drop(permits);
     assert_eq!(connections.active(), 0);
-    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    let snapshot = connections.snapshot();
     assert_eq!(snapshot.refused, 1);
-    assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.peak, LANE as u64);
 }
 
 /// #27669: connection threads parked on the registry lock outlived their CLI
@@ -285,34 +293,51 @@ fn server_connection_permits_enforce_and_release_the_cap() {
 #[test]
 fn hung_up_local_clients_give_their_slots_to_the_next_connection() {
     use std::os::unix::net::UnixStream;
-    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let connections = lane_stats();
     let mut clients = Vec::new();
-    let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+    let permits: Vec<ConnectionPermit> = (0..LANE)
         .map(|_| {
             let (daemon_side, client) = UnixStream::pair().unwrap();
             clients.push(client);
-            claim_watched_connection(&connections, &daemon_side).expect("slot below the cap")
+            claim_watched_connection(
+                &connections,
+                crate::diagnostics::ConnectionLane::Shared,
+                None,
+                &daemon_side,
+            )
+            .expect("slot below the cap")
         })
         .collect();
     let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
     assert!(
-        claim_watched_connection(&connections, &live_daemon_side).is_none(),
+        claim_watched_connection(
+            &connections,
+            crate::diagnostics::ConnectionLane::Shared,
+            None,
+            &live_daemon_side
+        )
+        .is_none(),
         "every client is still connected: the limit holds"
     );
 
     // The clients give up; their connection threads are still parked.
-    clients.truncate(MAX_SERVER_CONNECTIONS - 2);
-    let app = claim_watched_connection(&connections, &live_daemon_side)
-        .expect("a slot of a client that hung up serves the next connection");
-    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
-    assert_eq!(snapshot.active, MAX_SERVER_CONNECTIONS as u64 - 1);
+    clients.truncate(LANE - 2);
+    let app = claim_watched_connection(
+        &connections,
+        crate::diagnostics::ConnectionLane::Shared,
+        None,
+        &live_daemon_side,
+    )
+    .expect("a slot of a client that hung up serves the next connection");
+    let snapshot = connections.snapshot();
+    assert_eq!(snapshot.active, LANE as u64 - 1);
     assert_eq!(snapshot.hung_up, 2);
     assert_eq!(snapshot.reclaimed, 2);
     assert_eq!(snapshot.refused, 1);
 
     // A parked thread ending frees its place in the pool, not a live slot.
     drop(permits);
-    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    let snapshot = connections.snapshot();
     assert_eq!((snapshot.active, snapshot.hung_up), (1, 0));
     drop(app);
     assert_eq!(connections.active(), 0);
@@ -324,21 +349,45 @@ fn hung_up_local_clients_give_their_slots_to_the_next_connection() {
 #[test]
 fn hung_up_pool_is_bounded_by_the_connection_limit() {
     use std::os::unix::net::UnixStream;
-    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let connections = lane_stats();
     let mut parked = Vec::new();
-    for _ in 0..MAX_SERVER_CONNECTIONS * 2 {
+    for _ in 0..LANE * 2 {
         let (daemon_side, client) = UnixStream::pair().unwrap();
-        parked.push(claim_watched_connection(&connections, &daemon_side).expect("slot"));
+        parked.push(
+            claim_watched_connection(
+                &connections,
+                crate::diagnostics::ConnectionLane::Shared,
+                None,
+                &daemon_side,
+            )
+            .expect("slot"),
+        );
         drop(client);
     }
     let (daemon_side, _client) = UnixStream::pair().unwrap();
-    assert!(claim_watched_connection(&connections, &daemon_side).is_none());
-    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
-    assert_eq!(snapshot.active, MAX_SERVER_CONNECTIONS as u64);
-    assert_eq!(snapshot.hung_up, MAX_SERVER_CONNECTIONS as u64);
+    assert!(
+        claim_watched_connection(
+            &connections,
+            crate::diagnostics::ConnectionLane::Shared,
+            None,
+            &daemon_side
+        )
+        .is_none()
+    );
+    let snapshot = connections.snapshot();
+    assert_eq!(snapshot.active, LANE as u64);
+    assert_eq!(snapshot.hung_up, LANE as u64);
     // One parked thread ends: its pool place takes the next hung-up slot.
     parked.remove(0);
-    assert!(claim_watched_connection(&connections, &daemon_side).is_some());
+    assert!(
+        claim_watched_connection(
+            &connections,
+            crate::diagnostics::ConnectionLane::Shared,
+            None,
+            &daemon_side
+        )
+        .is_some()
+    );
 }
 
 #[test]
@@ -366,7 +415,9 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let lock = &stats["registry_lock"];
     assert!(lock["hold_us"]["count"].as_u64().unwrap() >= 1, "{lock}");
     assert!(lock["holder"].is_null(), "{lock}");
-    assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
+    // The budget follows the open-file limit (connection_lanes.rs tests the derivation).
+    assert_eq!(stats["connections"]["limit"].as_u64(), Some(mux.connection_stats().limit()));
+    assert!(mux.connection_stats().limit() >= 2);
     assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
 
     let error = handle_command(

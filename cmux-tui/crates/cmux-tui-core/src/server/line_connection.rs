@@ -32,9 +32,8 @@ pub(super) fn serve_line_connection(
 ) {
     let Ok(mut write_half) = stream.try_clone_box() else { return };
     let Ok(control) = write_half.try_clone_box() else { return };
-    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
-        return;
-    }
+    // No write deadline: a client that reads late keeps its connection; one
+    // whose replies overflow the bounded queue is ended (`QueuedSink`).
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },

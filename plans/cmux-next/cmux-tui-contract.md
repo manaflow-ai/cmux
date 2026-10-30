@@ -198,8 +198,8 @@ Recommended Swift launch path:
 - Limits: inbound 16 MiB per line. Server-to-client up to 32 MiB (VT replay)
   (`transports.md:149-157`).
 - Commands start serially per connection (`transports.md:294`). A slow reader
-  loses streams: a 4,096-event subscriber mailbox, then `overflow`. A 2 s
-  write deadline on the control reserve closes the connection
+  loses streams: a 4,096-event subscriber mailbox, then `overflow`. An
+  overflow of the control reserve closes the connection (no write deadline, #27698)
   (`transports.md:302`). The socket reader must never block on the main actor.
 - One shared connection allows at most one subscription and one attach per
   surface. There is no stream id or cancel in v12 (`transports.md:300`,
@@ -541,7 +541,7 @@ Rules:
 - **One connection per attached terminal view** (`TerminalStream`). The reason:
   v12 has no stream cancel, commands are serial per connection
   (`transports.md:294-300`), and a heavy `output` stream must not delay tree
-  mutations or trip the 2 s write deadline on the control connection. Base64
+  mutations or overflow the control connection's bounded queue. Base64
   decode and `process_output` run on the stream's serial queue. Only a
   "presented" signal hops to the main actor.
 - **Startup barrier**: `identify` → `set-client-info` → `subscribe{deltas}`

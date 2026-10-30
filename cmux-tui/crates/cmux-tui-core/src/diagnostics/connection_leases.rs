@@ -5,7 +5,7 @@
 //! maintenance pass or a commit on a loaded Mac) outlives its client: the CLI
 //! gave up, the slot stayed taken, and once dead clients held every slot the
 //! app's own reconnects were refused `server.busy` (#27669). At the limit,
-//! `ConnectionStats::try_claim` asks each watched connection whether its client
+//! `ConnectionStats::try_claim_in` asks each watched connection whether its client
 //! closed; one that did moves to a hung-up pool and its slot serves the next
 //! client. The pool is bounded by the same limit, so connection threads stay
 //! bounded at twice it. The thread itself is untouched: it finishes its request
@@ -19,7 +19,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, Weak};
 
-use super::ConnectionStats;
+use super::{ConnectionSlot, ConnectionStats};
 
 /// Whether the client at the other end closed its socket. Polled without
 /// blocking, from the accept loop.
@@ -29,16 +29,22 @@ pub type PeerClosed = Box<dyn Fn() -> bool + Send + Sync>;
 /// the hung-up pool once the slot was taken back.
 pub struct ConnectionLease {
     stats: Arc<ConnectionStats>,
+    slot: ConnectionSlot,
     hung_up: AtomicBool,
     peer_closed: Option<PeerClosed>,
 }
 
 impl ConnectionLease {
-    /// The lease of a slot `stats.try_claim` just gave. With `peer_closed`, the
-    /// slot is taken back when the client hangs up before the connection ends.
-    pub fn new(stats: Arc<ConnectionStats>, peer_closed: Option<PeerClosed>) -> Arc<Self> {
+    /// The lease of `slot`, which `stats.try_claim_in` just gave. With
+    /// `peer_closed`, the slot is taken back when the client hangs up before
+    /// the connection ends.
+    pub fn new(
+        stats: Arc<ConnectionStats>,
+        slot: ConnectionSlot,
+        peer_closed: Option<PeerClosed>,
+    ) -> Arc<Self> {
         let watched = peer_closed.is_some();
-        let lease = Arc::new(Self { stats, hung_up: AtomicBool::new(false), peer_closed });
+        let lease = Arc::new(Self { stats, slot, hung_up: AtomicBool::new(false), peer_closed });
         if watched {
             let mut leases = lease.stats.leases.lock().unwrap_or_else(PoisonError::into_inner);
             leases.retain(|lease| lease.strong_count() > 0);
@@ -58,7 +64,7 @@ impl Drop for ConnectionLease {
         if *self.hung_up.get_mut() {
             self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
         } else {
-            self.stats.release();
+            self.stats.release_slot(self.slot);
         }
     }
 }
@@ -94,7 +100,7 @@ impl ConnectionStats {
                 self.hung_up.fetch_sub(1, Ordering::AcqRel);
                 continue;
             }
-            self.release();
+            self.release_slot(lease.slot);
             freed += 1;
         }
         self.reclaimed.fetch_add(freed, Ordering::Relaxed);

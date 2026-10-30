@@ -1,6 +1,6 @@
 //! `server-stats`: where the daemon spends its time.
 
-use super::{MAX_SERVER_CONNECTIONS, Mux};
+use super::Mux;
 use crate::diagnostics::{SERVER_STATS_SCHEMA, ServerStatsSnapshot};
 
 /// The optional section that reports resource projection spans.
@@ -17,7 +17,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
         registry_lock: mux.registry_lock_stats(),
         journal_writer: mux.journal_writer_stats(),
-        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
+        connections: mux.connection_stats().snapshot(),
         resource_projection: wants(RESOURCE_PROJECTION).then(|| mux.resource_projection_stats()),
         write_path: wants(WRITE_PATH).then(|| mux.write_path_stats()),
     }

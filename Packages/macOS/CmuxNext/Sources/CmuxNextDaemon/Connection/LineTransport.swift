@@ -19,7 +19,7 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// any actor: responses resume their waiter by `id` (FIFO fallback for the
 /// id-less `bad request` envelope, which is safe because commands start
 /// serially per connection), and events go to `onEvent` on the reader thread.
-/// The server drops slow readers (4,096-event mailbox, 2 s write deadline),
+/// The server ends a reader only when its bounded queues overflow (no write deadline),
 /// so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
     /// `index` counts events on this transport from 1, in wire order.
@@ -106,11 +106,25 @@ final class LineTransport: Sendable {
             fd = opened.fd
             child = opened.child
         } else {
-            fd = try Self.connect(path)
+            fd = try Self.connectPreferringAppLane(path)
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+    }
+
+    /// The app's own socket next to a session socket (cmux-tui `app_lane_socket_path`). The daemon admits
+    /// connections there from a budget of their own, so terminals, agents, hooks and the CLI, which use the
+    /// session socket, can never take the app's connections (#27698: about 80 agents held all 64 of them and
+    /// the app was refused with them). Chromium keeps the browser's own channels apart from renderer
+    /// connections the same way.
+    static func appLanePath(_ sessionSocket: String) -> String { sessionSocket + ".app" }
+
+    /// Connects on the app's socket when the daemon has one, else on `path`: an older daemon, an app socket
+    /// left by a crashed one (refused at once), or a path too long for `sun_path`.
+    private static func connectPreferringAppLane(_ path: String) throws(DaemonError) -> Int32 {
+        if let fd = try? connect(appLanePath(path)) { return fd }
+        return try connect(path)
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
