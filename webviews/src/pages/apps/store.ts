@@ -466,9 +466,11 @@ export class AppsStore {
         const asset = app.icon?.asset ?? "";
         try {
           const wire = await client.call<WireAsset>(AppsOps.assetGet, { app: app.id, path: asset });
+          if (generation !== this.generation) return;
           this.icons.set(`${app.id}\u0000${asset}`, wire.data_url.startsWith("data:image/") ? wire.data_url : "");
         } catch {
           // No icon is not an error: the generic glyph stays.
+          if (generation !== this.generation) return;
           this.icons.set(`${app.id}\u0000${asset}`, "");
         }
       }),
@@ -536,11 +538,12 @@ export class AppsStore {
     }
     try {
       await this.client.call(op, key ? { ...params, idempotency_key: key } : params);
-      this.pendingKeys.delete(action);
+      if (key && this.pendingKeys.get(action) === key) this.pendingKeys.delete(action);
       if (lifetime !== this.lifetime) return;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
-      if (!(isPageError(error) && error.retryable)) this.pendingKeys.delete(action);
+      if (!(isPageError(error) && error.retryable) && (!key || this.pendingKeys.get(action) === key))
+        this.pendingKeys.delete(action);
       if (lifetime !== this.lifetime) return;
       if (!(isPageError(error) && error.code === CANCELLED)) this.set(failure(error));
       return;
