@@ -266,9 +266,19 @@ async function runCliAgent(sample, testCase, surface) {
   for (const k of Object.keys(env)) if (/^(ACPMUX|MUX)_/.test(k) || k === "CMUX_AGENT_SESSION") delete env[k];
   const prompt = testCase.context ? `${testCase.context}\n\n${testCase.prompt}` : testCase.prompt;
   const common = { model: CLI_AGENT[2], prompt, cwd: session.work, mcp, env, own: dir, effort: EFFORT, timeoutMs: CLI_TIMEOUT_S * 1000, allTools: surface === "all" };
-  const out = CLI_AGENT[1] === "claude"
-    ? await runClaudeSdk({ ...common, home: join(dir, "claude-home") })
-    : await runCodexAppServer({ ...common, home: join(dir, "codex-home") });
+  // A model route that is out of capacity (a 429, "no non-exhausted accounts", a dropped
+  // stream) is not a cmux result: wait and try the same sample again, up to 4 times. Only a
+  // turn that never reached the model is retried, so no cmux call runs twice.
+  let out;
+  for (let attempt = 0; ; attempt++) {
+    out = CLI_AGENT[1] === "claude"
+      ? await runClaudeSdk({ ...common, home: join(dir, "claude-home") })
+      : await runCodexAppServer({ ...common, home: join(dir, "codex-home") });
+    const capacity = /\b(429|503)\b|non-exhausted|rate limit|Reconnecting|responseStreamDisconnected|overloaded/i.test(out.error ?? "");
+    const untouched = !existsSync(mcpLog) || !readFileSync(mcpLog, "utf8").includes('"tools/call"');
+    if (!capacity || !untouched || attempt >= 4) break;
+    await new Promise((r) => setTimeout(r, 30_000 * (attempt + 1) + Math.random() * 15_000));
+  }
   sample.text = out.text;
   sample.steps = out.steps;
   Object.assign(sample.usage, out.usage);
@@ -529,8 +539,12 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   const baseline = arg("baseline", null) ? readLines(arg("baseline")) : [];
   const jobs = [];
-  for (const c of cases) for (const surface of SURFACES) if (!c.surfaces || c.surfaces.includes(surface)) for (let i = 0; i < SAMPLES; i++) jobs.push([c, surface, i]);
-  const rows = [];
+  // `--rerun-errors`: keep the rows of an earlier run in --out and run again only the
+  // samples whose agent or harness failed (a capacity outage), never a graded cmux result.
+  const kept = flag("rerun-errors") ? readLines(join(OUT, "results.jsonl")).filter((r) => !["agent_error", "harness_error"].includes(r.category)) : [];
+  const done = new Set(kept.map((r) => `${r.case}|${r.surface}|${r.sample}`));
+  for (const c of cases) for (const surface of SURFACES) if (!c.surfaces || c.surfaces.includes(surface)) for (let i = 0; i < SAMPLES; i++) if (!done.has(`${c.id}|${surface}|${i}`)) jobs.push([c, surface, i]);
+  const rows = [...kept];
   let next = 0;
   const worker = async () => {
     while (next < jobs.length) {
