@@ -45,6 +45,9 @@ struct Model {
     agent: ureq::Agent,
     url: String,
     key: String,
+    /// The gateway session this model's calls name (`X-Subrouter-Session`):
+    /// one per case run, so its turns stay on one account and keep its cache.
+    session: Option<String>,
 }
 
 impl Model {
@@ -56,7 +59,13 @@ impl Model {
                 .build(),
             url: format!("{}/v1/messages", base_url.trim_end_matches('/')),
             key,
+            session: None,
         }
+    }
+
+    fn in_session(mut self, session: String) -> Model {
+        self.session = Some(session);
+        self
     }
 
     /// One call; Err((message, retry)).
@@ -69,6 +78,13 @@ impl Model {
             .set("x-api-key", &self.key)
             .set("anthropic-version", "2023-06-01")
             .set("user-agent", "claude-cli/2.1.300 (external, cli)")
+            .set(
+                optchat_host::SESSION_HEADER,
+                &self
+                    .session
+                    .clone()
+                    .unwrap_or_else(|| optchat_host::session_key("eval", &body, false)),
+            )
             .send_json(&body)
         {
             Ok(r) => r.into_json::<Value>().map_err(|e| (e.to_string(), true)),
@@ -1036,7 +1052,11 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         dir: dir.clone(),
         chat: chat.clone(),
         system,
-        model: Model::new(&opts.base_url, opts.key.clone()),
+        model: Model::new(&opts.base_url, opts.key.clone()).in_session(format!(
+            "optchat-eval-{}-{}",
+            std::process::id(),
+            case.id
+        )),
         spawned: Mutex::new(0),
         running: Mutex::new(Vec::new()),
         frozen: Mutex::new(None),
