@@ -736,6 +736,80 @@ async fn a_daemon_whose_home_is_replaced_stops() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Moving a parent changes no entry inside the home itself. It must still stop an idle daemon.
+#[tokio::test]
+async fn a_daemon_whose_home_ancestor_is_renamed_stops() {
+    let dir = scratch("ancestor");
+    let parent = dir.join("parent");
+    let home = parent.join("h");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut child = ready_daemon(&dir, &home, &home.join("s.sock")).await;
+    std::fs::rename(&parent, dir.join("moved")).unwrap();
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    assert!(status.expect("ancestor rename left the daemon running").success());
+    assert!(!parent.exists(), "shutdown recreated the renamed ancestor");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Replacing a symlink outside the original socket directory produces no event inside it.
+#[tokio::test]
+async fn a_daemon_whose_socket_ancestor_is_retargeted_stops() {
+    let dir = scratch("retarget");
+    let home = dir.join("h");
+    let first = dir.join("first");
+    let second = dir.join("second");
+    for path in [&home, &first, &second] {
+        std::fs::create_dir(path).unwrap();
+    }
+    let link = dir.join("link");
+    std::os::unix::fs::symlink(&first, &link).unwrap();
+    let mut child = ready_daemon(&dir, &home, &link.join("s.sock")).await;
+    let replacement = dir.join("replacement");
+    std::os::unix::fs::symlink(&second, &replacement).unwrap();
+    std::fs::rename(replacement, &link).unwrap();
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    assert!(status.expect("retargeting a socket ancestor left the daemon running").success());
+    assert_eq!(std::fs::read_dir(second).unwrap().count(), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The acquired identity is a startup boundary: replacement must not receive config/store writes.
+#[tokio::test]
+async fn a_home_replaced_after_lock_acquisition_receives_no_startup_writes() {
+    let dir = scratch("startup-swap");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .env("ACPMUX_HOME", &home)
+        .env("ACPMUX_SOCKET", home.join("s.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("ACPMUX_TEST_HOLD_AFTER_LOCK", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let replacement_home = home.clone();
+    let old_home = dir.join("old");
+    let replaced = tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if line == "acpmux-test-lock-held" {
+                std::fs::rename(&replacement_home, old_home).unwrap();
+                std::fs::create_dir(&replacement_home).unwrap();
+                return true;
+            }
+        }
+        false
+    });
+    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
+    assert!(replaced.await.unwrap(), "startup seam was not reached");
+    assert!(!status.expect("startup did not stop").success());
+    assert_eq!(std::fs::read_dir(&home).unwrap().count(), 0, "startup wrote into the replacement");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A command whose `ACPMUX_SOCKET` is not the socket its home's running daemon serves fails at
 /// once, naming the one it serves, instead of starting a daemon that waits out the handover
 /// budget on the lock that daemon holds.
