@@ -3,7 +3,11 @@
 // easing in, ticking and leaving beside a received message. What each step puts in the tray, read
 // through the tray's own lists (subagents/runningTray.ts) as App.tsx reads them between turns.
 import { expect, test } from "bun:test";
-import { SUBAGENT_FIXTURE_MAX, SUBAGENT_TRAY_STEPS, subagentTrayRows } from "../src/agent-session/acpmux/subagentsFixture";
+import {
+  SUBAGENT_FIXTURE_MAX,
+  SUBAGENT_TRAY_STEPS,
+  subagentTrayRows,
+} from "../src/agent-session/acpmux/subagentsFixture";
 import { finishedTrayItems, trayItems } from "../src/agent-session/acpmux/subagents/runningTray";
 import { subagentsIn } from "../src/agent-session/acpmux/subagents/subagentRows";
 

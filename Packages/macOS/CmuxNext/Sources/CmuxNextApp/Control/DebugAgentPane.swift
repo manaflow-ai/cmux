@@ -37,7 +37,9 @@ import WebKit
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
 /// `readiness` (page body, transcript and composer metrics), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
-/// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
+/// or `text`: a native click on that element, DebugAgentPaneClick), `open_subagent` (`index`, from 1, and `focus`, default
+/// false: the `subagents` fixture's subagent at `index` opens in its own pane as a tray click's `chat.subagentPane` opens
+/// it, DebugAgentPaneSubagent), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on), or `inspector` (`open` sets its visibility;
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
@@ -207,8 +209,13 @@ enum DebugAgentPane {
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
+        if action == "open_subagent" {
+            return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {
+                (try? await view.callPageScript(DebugAgentPaneSubagent.pageSessionScript)) as? String
+            }
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, composer_focused, click, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])

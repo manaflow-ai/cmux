@@ -66,88 +66,48 @@
    "wait": 2
   },
   {
-   "title": "Open subagent 1 (its tray line)",
+   "title": "Open subagent 1's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
-     "action": "click",
-     "selector": ".acpmux-running-tray__list > :nth-child(1) .acpmux-agent-line__button"
+     "action": "open_subagent",
+     "index": 1
     }
    },
    "wait": 4
   },
   {
-   "title": "Back to the chat after subagent 1",
-   "cmux": [
-    "action",
-    "run",
-    "focusLeft"
-   ],
-   "shot": false,
-   "wait": 1
-  },
-  {
-   "title": "Open subagent 2 (its tray line)",
+   "title": "Open subagent 2's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
-     "action": "click",
-     "selector": ".acpmux-running-tray__list > :nth-child(2) .acpmux-agent-line__button"
+     "action": "open_subagent",
+     "index": 2
     }
    },
    "wait": 4
   },
   {
-   "title": "Back to the chat after subagent 2",
-   "cmux": [
-    "action",
-    "run",
-    "focusLeft"
-   ],
-   "shot": false,
-   "wait": 1
-  },
-  {
-   "title": "Open subagent 3 (its tray line)",
+   "title": "Open subagent 3's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
-     "action": "click",
-     "selector": ".acpmux-running-tray__list > :nth-child(3) .acpmux-agent-line__button"
+     "action": "open_subagent",
+     "index": 3
     }
    },
    "wait": 4
   },
   {
-   "title": "Back to the chat after subagent 3",
-   "cmux": [
-    "action",
-    "run",
-    "focusLeft"
-   ],
-   "shot": false,
-   "wait": 1
-  },
-  {
-   "title": "Open subagent 4 (its tray line)",
+   "title": "Open subagent 4's pane as its tray line does (debug open_subagent, unfocused: the chat keeps focus)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
-     "action": "click",
-     "selector": ".acpmux-running-tray__list > :nth-child(4) .acpmux-agent-line__button"
+     "action": "open_subagent",
+     "index": 4
     }
    },
    "wait": 4
-  },
-  {
-   "title": "Back to the chat after subagent 4",
-   "cmux": [
-    "action",
-    "run",
-    "focusLeft"
-   ],
-   "shot": false,
-   "wait": 1
   },
   {
    "title": "Where the four subagents landed",
