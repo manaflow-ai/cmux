@@ -638,4 +638,97 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         await #expect(throws: ConversationBackendError.self) { try await directory.createConversation([.handle("nobody")]) }
     }
 }
+/// New Message (or Forward) addressed to one agent sends the whole message as
+/// that agent's prompt: its text and every image, bytes and order kept. Images
+/// were dropped (an image-only message sent nothing).
+@Suite @MainActor struct ChiefComposeAgentRouteTests {
+    final class Recorder: AgentSessionSource {
+        let summary: AgentSessionSummary
+        var sent: [AgentClientIntent] = []
+        init(summary: AgentSessionSummary) { self.summary = summary }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) { sent.append(intent) }
+    }
+
+    static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 1])
+    static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 0x4A, 0x46, 0x49, 0x46, 0, 1, 2])
+
+    /// Routes `message` to a one-agent conversation; returns the prompts the agent's source got.
+    func route(_ message: ConversationComposeMessage) -> [(text: String, attachments: [AgentAttachment])] {
+        let suffix = UUID().uuidString
+        let tabID = "t-\(suffix)", workspaceID = "ws-\(suffix)", macID = "m-\(suffix)"
+        let tab = WorkspaceTab(id: tabID, kind: .agent, title: "Claude", harness: "claude")
+        let workspace = Workspace(id: workspaceID, macID: macID, title: "cmux", directory: "~", tabs: [tab], lastActivityAt: Date())
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [workspace], feed: [])
+        let agents = AgentSessionDirectory.shared
+        let previous = agents.makeSource
+        var recorder: Recorder?
+        agents.makeSource = { summary in
+            let made = Recorder(summary: summary)
+            recorder = made
+            return made
+        }
+        defer {
+            agents.makeSource = previous
+            agents.invalidate(id: tabID, macID: macID)
+        }
+        let agent = ChiefRecipient(
+            contact: ConversationContact(id: "tab:\(tabID)", name: "Claude · cmux", initials: "CL", colorHex: "#636366", handles: []),
+            route: .agent(AgentChatDestination(workspaceID: workspaceID, tabID: tabID))
+        )
+        let directory = ChiefDirectory(recipients: [agent])
+        var opened: [HomeConversationRoute] = []
+        let composer = ChiefComposer(store: store) { opened.append($0) }
+        let creation = ConversationCreation(
+            info: ConversationInfo(id: "tab:\(tabID)", title: "Claude · cmux", kind: .direct,
+                                   participants: [ConversationParticipant(id: "tab:\(tabID)", name: "Claude · cmux", initials: "CL", colorHex: "#636366", isMe: false)]),
+            created: false, service: .iMessage
+        )
+        composer.route(creation, message: message, directory: directory)
+        #expect(opened == [.agent(AgentChatDestination(workspaceID: workspaceID, tabID: tabID))])
+        return (recorder?.sent ?? []).compactMap { intent in
+            guard case let .prompt(text, attachments, _, _, _) = intent else { return nil }
+            return (text, attachments)
+        }
+    }
+
+    @Test func textAndImagesReachTheAgentInOrder() throws {
+        let prompts = route(ConversationComposeMessage(text: "look at these", images: [
+            ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
+            ConversationComposeImage(data: Self.jpeg, width: 2, height: 2, mimeType: "image/jpeg"),
+        ]))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "look at these")
+        #expect(prompt.attachments.map(\.kind) == [.image, .image])
+        #expect(prompt.attachments.map(\.data) == [Self.png, Self.jpeg])
+        #expect(prompt.attachments.map(\.imageMIMEType) == ["image/png", "image/jpeg"])
+        try #require(prompt.attachments.count == 2)
+        #expect(prompt.attachments[0].name.hasSuffix(".png"))
+        #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
+        #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func anImageOnlyMessageStillSends() throws {
+        let prompts = route(ConversationComposeMessage(text: "", images: [
+            ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/png"),
+        ]))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "")
+        #expect(prompt.attachments.map(\.data) == [Self.png])
+    }
+
+    @Test func aTextOnlyMessageSendsNoAttachments() throws {
+        let prompts = route(ConversationComposeMessage(text: "run the tests"))
+        let prompt = try #require(prompts.first)
+        #expect(prompts.count == 1)
+        #expect(prompt.text == "run the tests")
+        #expect(prompt.attachments.isEmpty)
+    }
+
+    @Test func anEmptyMessageSendsNothing() {
+        #expect(route(ConversationComposeMessage(text: "  ")).isEmpty)
+    }
+}
 #endif
