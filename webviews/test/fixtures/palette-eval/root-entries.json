@@ -13399,7 +13399,17 @@
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": false,
-        "keywords": ["scroll", "scrollbar", "column", "visible range", "overview", "layout.stripScrollbar", "General", "Columns", "setting"],
+        "keywords": [
+          "scroll",
+          "scrollbar",
+          "column",
+          "visible range",
+          "overview",
+          "layout.stripScrollbar",
+          "General",
+          "Columns",
+          "setting"
+        ],
         "rankBias": 0,
         "sectionIndex": 15,
         "subtitle": "Columns",
