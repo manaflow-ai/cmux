@@ -464,3 +464,23 @@ async fn a_digest_steered_past_the_cap_waits_for_the_next_turn() {
     tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
     tokio::time::timeout(WAIT, steered).await.unwrap().unwrap().unwrap();
 }
+
+/// A turn that started before its timer was armed (one a restart adopts, `hosts.rs`,
+/// `carried_turn.rs` `recover_carried`): its cap counts from its own start, not from the arming.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_adopted_turns_timer_counts_from_the_turns_start() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    let (queued, _) = f.send("report from lane a", Some("lane-a"), false, false).await;
+    assert_eq!(queued.unwrap()["queued"], true);
+    // Past its cap when it is adopted: the timer wakes at once, not a whole cap later.
+    f.age_turn(cap);
+    f.hub.arm_turn_cap(&f.session, &turn_id);
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    assert_eq!(f.notices(), [turn_id]);
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}

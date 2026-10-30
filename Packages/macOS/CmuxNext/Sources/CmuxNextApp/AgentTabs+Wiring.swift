@@ -112,6 +112,33 @@ extension AgentTabStore {
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
+        tabs.machineTargets = { [weak services] in
+            // Only the machines of the account signed in now, from a list loaded for it (as the
+            // Cloud machine picker, AgentPaneCloudMachines+App.swift): never a previous account's or
+            // a stale inventory's. The dispatch checks the id against this same list again.
+            guard let services, Self.offersMoveTargets(signedIn: services.cloud.isSignedIn,
+                                                       loadedCurrent: services.cloud.hasLoadedCurrentMachines) else { return [] }
+            // CloudMove can route only to a Cloud session. Paused machines remain eligible because
+            // the existing transfer path resumes them; failed and destroyed records are omitted.
+            return services.machines.cloud.compactMap { machine in
+                // The app-server link is a single app-owned socket. CloudMove's transfer path
+                // requires a second CLI daemon connection and explicitly rejects app-linked targets.
+                guard machine.appLink == nil else { return nil }
+                switch machine.machine.status {
+                case .running, .provisioning, .paused:
+                    return AgentPaneMoveTarget(id: machine.machineID, label: machine.machine.title,
+                                               status: machine.machine.status.rawValue)
+                case .failed, .destroyed, .unknown:
+                    return nil
+                }
+            }
+        }
+        tabs.moveAgentToMachine = { [weak tabs] tab, machine in
+            guard let tabs, let registry = tabs.actionRegistry else { return false }
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab),
+                                               arguments: ["machine": .string(machine)], origin: .user)
+            return registry.perform("cloudMove", invocation: invocation)
+        }
         tabs.launchImages = services.launchImages
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         tabs.chiefFace = { [weak services, weak tabs] chief in
@@ -221,6 +248,15 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
+        tabs.paneWidth = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            return services.paneController(for: pane)?.view.bounds.width
+        }
+        tabs.selectInPane = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key) else { return }
+            // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
+            services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
+        }
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
             guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
                   let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
@@ -292,8 +328,9 @@ extension AgentTabStore {
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
+            host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
-                services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
+                AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
@@ -435,6 +472,6 @@ extension AgentTabStore {
         }
     }
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        linkSource == .legacy && isSignedIn
+        isSignedIn // on either link: CloudService.machineAPI serves a legacy and a Worker machine
     }
 }

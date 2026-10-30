@@ -46,7 +46,7 @@ pub(super) fn stopped_before_prompt() -> RpcError {
 
 /// Whether `e` is [`stopped_before_prompt`]: the turn it ends is the Stop's, cancelled, not failed.
 fn is_stopped_before_prompt(e: &RpcError) -> bool {
-    e.data.as_ref().is_some_and(|d| d["reason"] == "stopped")
+    e.data.as_ref().is_some_and(|d| d.get("reason").and_then(Value::as_str) == Some("stopped"))
 }
 
 /// What a turn a Stop ended before its prompt reached the agent answers in its `turn_result`.
@@ -389,12 +389,21 @@ impl Hub {
             && running.is_some()
             && super::inbox::is_notice(opts.provenance.as_ref())
             && super::inbox::notice_held(session);
+        // A review box's turn takes no other agent's steer: its message waits behind the review,
+        // as the inbox leaves it (`inbox.rs`). The person's own steer and Send now still go in.
+        // Read with or without a running turn: one that starts before this reaches the queue is
+        // stopped by no agent's interrupt either.
+        let review_held = from_agent && super::inbox::review_box(session);
         let steer_now = steer
             && session.steering.load(Ordering::SeqCst)
             && running.is_some()
             && !capped
-            && !notice_held;
+            && !notice_held
+            && !review_held;
         if steer && opts.steer_only && !steer_now {
+            if review_held && running.is_some() {
+                return Err(super::inbox::review_box_steer_refused());
+            }
             return Err(super::turn_cap::steer_unavailable(capped));
         }
         if !live {
@@ -428,8 +437,9 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`).
-            interrupt: opts.interrupt && !capped,
+            // Held past the cap, it waits: it stops no turn (`turn_cap.rs`); nor does another
+            // agent's message stop a review box's review (`inbox.rs`).
+            interrupt: opts.interrupt && !capped && !review_held,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
@@ -1355,7 +1365,7 @@ impl Hub {
         self.requeue_joined(session, joined, false);
         let stopped_early = is_stopped_before_prompt(e);
         if stopped_early || was_stopping {
-            let stop = stopped_answer()["stopReason"].clone();
+            let stop = stopped_answer().get("stopReason").cloned().unwrap_or_default();
             self.append(
                 session,
                 "mux",
