@@ -27,6 +27,7 @@ export default {
         "latency-picker": "test/latency/picker.html",
         "latency-agent-pane": "test/latency/agent-pane.html",
         "latency-settings": "test/latency/settings.html",
+        "latency-thread-rail": "test/latency/thread-rail.html",
       },
     },
   },

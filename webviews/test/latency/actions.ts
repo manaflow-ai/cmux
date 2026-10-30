@@ -622,6 +622,86 @@ export const AGENT_PANE_PAGE: LatencyPageSpec = {
   actions: agentPaneActions,
 };
 
+// The chat's prompt rail (test/latency/thread-rail.html: the transcript and rail with 120 turns).
+// Leo, 2026-10-29: "giving it faster scrttoll/hover over"; the rulebook holds the rail to "ultra
+// fast ultra responsive". "hover card" is the pointer arriving on a tick, to the first painted frame
+// with its preview card; "click jump" is a click on a tick far up the chat, to the first painted
+// frame with that prompt landed at the top of the view (35 px down, within 2 px).
+const railTarget = new WeakMap<Page, number>();
+/** A tick shown in the rail's list, a different one each run among the first shown (the farthest up
+ *  the chat while the transcript is at its end), with the center of its hit row. */
+async function railPoint(page: Page): Promise<{ index: number; x: number; y: number }> {
+  const run = (railTarget.get(page) ?? -1) + 1;
+  railTarget.set(page, run);
+  return page.evaluate((offset) => {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!.getBoundingClientRect();
+    const shown = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")].filter((tick) => {
+      const box = tick.getBoundingClientRect();
+      return box.top >= list.top + 48 && box.bottom <= list.bottom - 48;
+    });
+    const tick = shown[Math.min(offset, shown.length - 1)]!;
+    const box = tick.getBoundingClientRect();
+    return { index: Number(tick.dataset.tick), x: box.left + 6, y: box.top + box.height / 2 };
+  }, (run % 4) * 3);
+}
+/** Puts the pointer off the rail and the transcript at its end, then waits for a still page. */
+async function railRest(page: Page): Promise<void> {
+  await page.mouse.move(900, 400);
+  await page.evaluate(() => {
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    scroller.scrollTop = scroller.scrollHeight;
+  });
+  await page.waitForFunction(() => document.querySelector(".acpmux-minimap__card") === null);
+  await quiet(page);
+}
+const railLanded = (index: number) =>
+  `(() => { const view = document.querySelector(".acpmux-scroll")?.getBoundingClientRect(); ` +
+  `const row = document.querySelector('.acpmux-row[data-row-id="t${index}-user"]'); ` +
+  `return !!view && !!row && Math.abs(row.getBoundingClientRect().top - view.top - 35) <= 2; })()`;
+
+const railActions: LatencyAction[] = [
+  {
+    name: "hover card",
+    async prepare(page) {
+      await railRest(page);
+      const point = await railPoint(page);
+      // Off the rail, level with the tick, so the input is one move onto it.
+      await page.mouse.move(point.x + 400, point.y);
+      await quiet(page);
+      targets.set(page, js(point));
+      return `document.querySelector(".acpmux-minimap__card") !== null`;
+    },
+    async input(page) {
+      const point = JSON.parse(targetOf(page)) as { x: number; y: number };
+      await page.mouse.move(point.x, point.y);
+    },
+    settle: railRest,
+  },
+  {
+    name: "click jump",
+    async prepare(page) {
+      await railRest(page);
+      const point = await railPoint(page);
+      // A pointer resting on the tick first, as a person's does before a click (not measured).
+      await page.mouse.move(point.x, point.y);
+      await quiet(page);
+      return railLanded(point.index);
+    },
+    async input(page) {
+      await page.mouse.down();
+      await page.mouse.up();
+    },
+    settle: railRest,
+  },
+];
+
+export const THREAD_RAIL_PAGE: LatencyPageSpec = {
+  name: "thread rail",
+  path: "/test/latency/thread-rail.html",
+  ready: `document.querySelectorAll(".acpmux-minimap__tick").length >= 20`,
+  actions: railActions,
+};
+
 // Settings (test/latency/settings.html, host delay 40 ms): a sidebar section switch, from the input
 // to the first painted frame that shows the new section complete (its title and the host-read
 // buttons at its end). Two sections with host reads alternate. "click" is a pointer that lands and
@@ -686,4 +766,5 @@ export const PAGES: LatencyPageSpec[] = [
   EMPTY_PAGE,
   AGENT_PANE_PAGE,
   SETTINGS_PAGE,
+  THREAD_RAIL_PAGE,
 ];
