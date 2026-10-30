@@ -303,6 +303,28 @@ try {
     expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("what is this");
   });
 
+  test("inline: a placed prompt keeps its unplaced strip image in the band, not in the text", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    await render({
+      ...prompt("mixed", "look here", [
+        { kind: "text", text: "look" },
+        { kind: "image", id: "placed-shot", mimeType: "image/png", name: "placed-shot.png", placed: true },
+        { kind: "text", text: "here" },
+        { kind: "image", id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" },
+      ]),
+      images: [
+        { id: "placed-shot", mimeType: "image/png", name: "placed-shot.png" },
+        { id: "strip-shot", mimeType: "image/png", name: "strip-shot.png" },
+      ],
+    });
+    expect(inlineShape()).toEqual(["look", "image:placed-shot.png", "here"]);
+    expect(
+      [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
+    ).toEqual(["strip-shot.png"]);
+  });
+
   // A placed prompt that is a text file alone, with nothing typed: its body went as a text block,
   // so the bubble shows its chip, which opens to the file's text, in both views.
   for (const attachmentView of ["inline", "strip"] as const)

@@ -413,3 +413,19 @@ test("a recorded part keeps acpmux's placed marker, and only a true one", async 
     undefined,
   ]);
 });
+
+// A mixed draft: one attachment placed in the text, one left in the strip. Only the placed one is
+// `placed`; the strip's goes after the text unmarked, so the bubble keeps it in its band.
+test("a mixed draft marks only the attachment it placed in the text", async () => {
+  const { inlinePrompt } = await import("./inlinePrompt");
+  const built = inlinePrompt(`look${inlineToken("one")} here`, [image("one"), { ...image("two"), name: "two.png" }])!;
+  const media = built.parts.filter((part) => part.kind !== "text");
+  expect(media.map((part) => [part.name, part.placed])).toEqual([
+    ["one.png", true],
+    ["two.png", undefined],
+  ]);
+  expect(built.display.map((part) => [part.name, part.placed])).toEqual([
+    ["one.png", true],
+    ["two.png", undefined],
+  ]);
+});
