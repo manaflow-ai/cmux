@@ -158,47 +158,62 @@ fn scp_failed(host: &str, stderr: &str) -> anyhow::Error {
 
 /// Runs `cmd` with no stdin and its stdout dropped: Ok when it exits 0
 /// within `bound`, else why not, its last stderr line or that it gave no
-/// answer in time (it is killed then). Its stderr is read on a thread and
-/// given up a moment after the exit: a ProxyCommand ssh started may still
-/// hold the pipe.
+/// answer in time. It runs in a process group of its own, which is killed
+/// whole when it ends (so a ProxyCommand ssh started dies with it, at the
+/// bound or after an exit), and its stderr reader is joined before this
+/// returns: nothing it started outlives the call.
 pub(crate) fn bounded_ok(
     cmd: &mut Command,
     bound: std::time::Duration,
 ) -> std::result::Result<(), String> {
     use std::io::Read;
     use wait_timeout::ChildExt;
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(cmd, 0);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    if let Some(mut pipe) = child.stderr.take() {
+    let reader = child.stderr.take().map(|mut pipe| {
         std::thread::spawn(move || {
             let mut text = String::new();
             let _ = pipe.read_to_string(&mut text);
-            let _ = tx.send(text);
-        });
-    }
-    let status = match child.wait_timeout(bound) {
+            text
+        })
+    });
+    let status = child.wait_timeout(bound);
+    // The group goes whatever happened: a timed-out ssh and its ProxyCommand,
+    // or a ProxyCommand left holding the stderr pipe after ssh exited. With
+    // every writer gone, the reader ends and is joined.
+    end_group(&mut child);
+    let said = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+    let status = match status {
         Ok(Some(status)) => status,
-        Ok(None) | Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!("no answer within {} s", bound.as_secs()));
-        }
+        Ok(None) | Err(_) => return Err(format!("no answer within {} s", bound.as_secs())),
     };
     if status.success() {
         return Ok(());
     }
-    let said = rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap_or_default();
     Err(said
         .lines()
         .rev()
         .find(|l| !l.trim().is_empty())
         .map(|l| l.trim().to_owned())
         .unwrap_or_else(|| format!("it exited with {status}")))
+}
+
+/// Ends `child` (already reaped or not) and everything in its process group.
+fn end_group(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = libc::pid_t::try_from(child.id()) {
+        // SAFETY: signals the group `bounded_ok` made for the child; its id
+        // stays reserved for the group while any member lives.
+        unsafe { libc::killpg(pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// A plain absolute or home path: safe in a remote shell script unquoted
@@ -965,6 +980,41 @@ mod tests {
         slow.args(["-c", "sleep 30"]);
         let why = bounded_ok(&mut slow, std::time::Duration::from_secs(1)).unwrap_err();
         assert_eq!(why, "no answer within 1 s");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    /// Review of #27696: the timeout ends what the command started too (a
+    /// ProxyCommand), not only the command, and nothing holds the call after.
+    #[test]
+    #[cfg(unix)]
+    fn a_timeout_leaves_nothing_the_command_started_running() {
+        let dir = std::env::temp_dir().join(format!("acpmux-bounded-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let pid_file = dir.join("pid");
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", &format!("sleep 60 >&2 & echo $! > {}; wait", pid_file.display())]);
+        let started = std::time::Instant::now();
+        let why = bounded_ok(&mut cmd, std::time::Duration::from_secs(1)).unwrap_err();
+        assert_eq!(why, "no answer within 1 s");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        let pid: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+        // SAFETY: signal 0 only asks whether the process exists.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        assert!(!alive, "the command's child {pid} outlived the timeout");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A command that exits while something it started still holds its
+    /// stderr returns at once, and that something is ended.
+    #[test]
+    #[cfg(unix)]
+    fn an_exit_ends_what_still_holds_the_output() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "sleep 60 >&2 & echo 'ssh: gone' >&2; exit 255"]);
+        let started = std::time::Instant::now();
+        let why = bounded_ok(&mut cmd, std::time::Duration::from_secs(30)).unwrap_err();
+        assert_eq!(why, "ssh: gone");
         assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
