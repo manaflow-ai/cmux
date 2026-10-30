@@ -21,7 +21,7 @@ enum AgentPanePageHost {
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview
-    /// features, the in-session status toggle, the New Tab page's chats and closed items, the
+    /// features, the in-session status toggle, the chat's machine link, the New Tab page's chats and closed items, the
     /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
@@ -30,15 +30,18 @@ enum AgentPanePageHost {
         events.append(.preview(view.previewFeatures))
         events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
+        if let link = view.model.machineLink { events.append(link.event(for: view)) }
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(view.recentlyClosed.event)
         events.append(AgentPaneNowPlaying.shared.event(for: view))
+        if let readAloud = view.model.readAloud { events.append(readAloud.event(for: view)) }
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))
         events.append(.diffColors(view.model.diffColors))
         events.append(.display(view.model.display))
         events.append(.toolCards(view.model.toolCards))
+        events.append(.computerUsePreview(view.model.computerUsePreview))
         events.append(view.model.tabRow.event)
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events

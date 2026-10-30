@@ -7,6 +7,7 @@
 use super::*;
 
 use crate::{route_account, routes};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// A new chat's named route exists and serves its harness family.
@@ -364,7 +365,7 @@ impl Hub {
         });
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
         if let Some(next) = next {
-            out["fallback"] = json!({"routeId": next.id, "name": next.name()});
+            out.set("fallback", json!({"routeId": next.id, "name": next.name()}));
             if route.file.auto_fallback
                 && routes::set_binding(&state, &format!("chat:{}", session.id), Some(&next.id))
                     .is_ok()
@@ -376,7 +377,7 @@ impl Hub {
                     json!({"from": id, "to": next.id, "when": "after-turn", "reason": "fallback"}),
                 );
                 session.route_switch.store(true, Ordering::SeqCst);
-                out["fallback"]["applied"] = json!(true);
+                out.set_path(&["fallback", "applied"], json!(true));
             }
         }
         Some(out)

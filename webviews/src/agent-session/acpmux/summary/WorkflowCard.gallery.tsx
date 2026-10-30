@@ -5,8 +5,13 @@
 // Background tasks (inspector/WorkflowTasks.tsx), whose gallery is agent-pane.chat-inspector.
 import { componentEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
-import { configureWorkflowCardOpen, WorkflowCard, type WorkflowCardPresentation } from "./WorkflowCard";
 import { realWorkflowFixture } from "../realWorkflowFixture";
+import {
+  configureWorkflowCardOpen,
+  configureWorkflowCardSideTab,
+  WorkflowCard,
+  type WorkflowCardPresentation,
+} from "./WorkflowCard";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
 type Props = {
@@ -17,6 +22,7 @@ type Props = {
 
 /// The gallery's cards open nothing, but draw as the chat's do: a button.
 configureWorkflowCardOpen(() => undefined);
+configureWorkflowCardSideTab(() => undefined);
 
 function GalleryWorkflowCard({ stage, presentation, replay }: Props) {
   const nodes = (replay ?? workflowFixture(stage)).filter((node) => node.kind === "workflow");

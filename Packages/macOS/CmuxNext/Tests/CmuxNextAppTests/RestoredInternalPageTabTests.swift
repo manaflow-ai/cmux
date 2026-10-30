@@ -58,8 +58,9 @@ struct RestoredInternalPageTabTests {
         #expect(TabTitleResolver(pages: pages).title(tab) == ChangelogPageStrings.title)
     }
 
-    @Test(arguments: [InternalPageID.appStore, .changelog])
-    func restoredPreviewPagesWaitForThePreviewSetting(_ page: InternalPageID) throws {
+    /// Only the App Store is a Labs preview page; What's New is not (next test).
+    @Test func restoredPreviewPagesWaitForThePreviewSetting() throws {
+        let page = InternalPageID.appStore
         let pages = InternalPageTabStore()
         let provider = Page(page)
         pages.register(provider)
@@ -69,6 +70,22 @@ struct RestoredInternalPageTabTests {
         #expect(pages.view(for: key) == nil)
         #expect(provider.made == 0)
         #expect(provider.restored.isEmpty)
+    }
+
+    /// A restored What's New tab restores with Labs off: an update's See What's New opens it
+    /// (user 13935, Leo 2026-10-29), so the page is not held back like the App Store.
+    @Test func aRestoredWhatsNewTabRestoresWithLabsOff() throws {
+        let pages = InternalPageTabStore()
+        let provider = Page(.changelog)
+        pages.register(provider)
+        let (store, tab) = try Self.restoredTab(.changelog, route: "saved-route")
+        // No window: no settings, so Labs reads off.
+        let view = try #require(pages.view(forStoreTab: tab, in: store, local: true, window: nil))
+        #expect(view.page == .changelog)
+        #expect(provider.restored.first?.route == "saved-route")
+        let key = pages.open(.changelog, in: "preview-pane", of: store)
+        #expect(pages.view(for: key) != nil)
+        #expect(provider.made == 2)
     }
 
     @Test func lateRegistrationRefreshesTheStripAndRestoresTheViewOnlyOnce() throws {
