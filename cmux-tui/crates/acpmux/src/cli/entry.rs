@@ -149,7 +149,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let mut grammar = Cli::command().name(name).bin_name(name);
+    let mut grammar = crate::cli::help_examples::attach(Cli::command()).name(name).bin_name(name);
     let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
     let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
         Ok(matches) => matches,
