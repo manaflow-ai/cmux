@@ -2,7 +2,8 @@ public import CmuxNextDesign
 
 /// `workspaceColors.indicatorStyle` (#25653): the key classic reads for the same choice, so one
 /// cmux.json colors rows the same way in both apps (classic's `solidFill` reads as `fill`).
-public nonisolated enum WorkspaceColorsSetting {
+public nonisolated struct WorkspaceColorsSetting {
+    public nonisolated init() {}
     public static let indicatorStylePath = ["workspaceColors", "indicatorStyle"]
 
     static func indicatorStyleDescriptor(group: SettingText) -> SettingDescriptor {
