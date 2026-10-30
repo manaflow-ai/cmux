@@ -214,6 +214,7 @@ use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// True when a permission request is an agent's question (`questions.rs`): what tells the
@@ -1407,9 +1408,9 @@ impl Hub {
             "messageId": message_id,
         });
         if let Some(target) = target_scope {
-            msg["_acpmuxTarget"] = json!(target);
+            msg.set("_acpmuxTarget", json!(target));
             if let Some(peer) = target_peer {
-                msg["_acpmuxTargetPeer"] = json!(peer);
+                msg.set("_acpmuxTargetPeer", json!(peer));
             }
         }
         tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);

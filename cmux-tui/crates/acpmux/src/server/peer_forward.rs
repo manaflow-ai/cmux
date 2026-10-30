@@ -116,7 +116,7 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         },
     });
     if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
-        meta["fromAgent"] = json!(hub.session_name(caller));
+        meta.set("fromAgent", json!(hub.session_name(caller)));
     }
     // Always replace a client-provided sender identity with the session proven by
     // this connection.  `fromAgent` remains caller-declared for display, but it
