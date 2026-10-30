@@ -27,7 +27,7 @@ final class FeedTableRowView: NSTableRowView {
         if case let .row(content) = entry {
             setAccessibilityLabel(content.accessibilityLabel)
             setAccessibilityIdentifier("cmux.feed.row")
-            toolTip = nil
+            themedToolTip = nil
         } else {
             setAccessibilityLabel(nil)
         }
@@ -148,9 +148,9 @@ final class FeedRowCell: NSTableCellView {
         headline.stringValue = content.headline
         headline.font = .systemFont(ofSize: TypeScale.body, weight: content.isUnread ? TypeScale.emphasis : TypeScale.regular)
         headline.textColor = content.isUnread || content.isOpenRequest ? colors.primary : colors.secondary
-        headline.toolTip = content.headline
+        headline.themedToolTip = content.headline
         time.stringValue = times.string(content.createdAt, now: now)
-        time.toolTip = content.whenFull
+        time.themedToolTip = content.whenFull
         time.textColor = colors.tertiary
         detail.stringValue = content.detail
         detail.font = content.detailIsCode
@@ -168,7 +168,7 @@ final class FeedRowCell: NSTableCellView {
         meta.textColor = colors.tertiary
         local.isHidden = !content.isLocal
         local.contentTintColor = colors.tertiary
-        local.toolTip = FeedStrings.thisMac
+        local.themedToolTip = FeedStrings.thisMac
         if icon != content.icon {
             icon = content.icon
             glyph.image = NSImage.icon(content.icon, size: .iconRowSize(forLabelPointSize: TypeScale.body))
