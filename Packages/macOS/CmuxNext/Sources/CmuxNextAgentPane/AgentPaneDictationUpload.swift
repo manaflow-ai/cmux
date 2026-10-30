@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextDictation
 import Darwin
 import Foundation
 
@@ -26,7 +27,7 @@ struct AgentPaneDictationUpload {
         guard let stager = model.onUploadStage?(), let session = model.sessionId else {
             return AgentPaneModel.unsupported("dictation.recording.upload")
         }
-        guard let file = model.onDictationRecording?(path, session) else {
+        guard let recording = model.onDictationRecording?(path, session) else {
             return AgentPaneReply.failure(code: "dictation.not_a_recording", message: "Not a recording this pane made.")
         }
         model.dictationUploads.running.insert(path)
@@ -34,9 +35,9 @@ struct AgentPaneDictationUpload {
             model.dictationUploads.running.remove(path)
             model.dictationUploads.cancelled.remove(path)
         }
-        let reply = await send(file, through: stager, session: session) { model.dictationUploads.cancelled.contains(path) }
+        let reply = await send(recording, through: stager, session: session) { model.dictationUploads.cancelled.contains(path) }
         // A failed upload gives the recording back, so the chip's Retry can send it again.
-        if reply["ok"] as? Bool != true { model.onDictationRecordingUnsent?(file, session) }
+        if reply["ok"] as? Bool != true { model.onDictationRecordingUnsent?(recording, session) }
         return reply
     }
 
@@ -47,23 +48,24 @@ struct AgentPaneDictationUpload {
         return AgentPaneReply.success()
     }
 
-    /// Streams `file` through `stager` for chat `session`: `{path}` on the chat's machine, or the
-    /// stager's failure (a stage it began is cancelled, so it drops what it staged). The file is
-    /// opened once, and every chunk is read from that descriptor: a link swapped in at its path
-    /// afterwards is never followed. `cancelled` (the chip's ×) is checked before each chunk and
-    /// before the finish.
+    /// Streams `recording` through `stager` for chat `session`: `{path}` on the chat's machine, or
+    /// the stager's failure (a stage it began is cancelled, so it drops what it staged). The file
+    /// is opened once, and only when it is still the file the recording wrote (its identity; not a
+    /// link, nor a file put at that path since); every chunk is read from that descriptor.
+    /// `cancelled` (the chip's ×) is checked before each chunk and before the finish.
     static func send(
-        _ file: URL,
+        _ recording: AgentPaneIssuedRecording,
         through stager: AgentPaneUploadStager,
         session: String,
         cancelled: () -> Bool = { false }
     ) async -> [String: Any] {
         let failed = AgentPaneReply.failure(code: "upload_failed", message: "The recording could not be sent.")
-        guard let recording = await Task.detached(priority: .userInitiated, operation: { Recording.open(file) }).value else { return failed }
-        defer { recording.close() }
-        let size = recording.size
-        let begun = await stager(.begin(name: file.lastPathComponent, size: size, batchToken: nil, batch: nil), session)
+        guard let opened = await Task.detached(priority: .userInitiated, operation: { Recording.open(recording) }).value else { return failed }
+        defer { opened.close() }
+        let size = opened.size
+        let begun = await stager(.begin(name: recording.file.lastPathComponent, size: size, batchToken: nil, batch: nil), session)
         guard let started = value(begun) else { return begun }
+        // A begin that names no token gives nothing to cancel by; the stagers expire a stage left behind.
         guard let token = started["token"] as? String else { return failed }
         guard let offered = started["chunkSize"] as? Int, offered > 0 else {
             _ = await stager(.cancel(token: token), session)
@@ -78,7 +80,7 @@ struct AgentPaneDictationUpload {
             }
             let at = offset, count = min(chunk, size - offset)
             let answer: [String: Any]
-            if let bytes = await Task.detached(priority: .userInitiated, operation: { recording.read(at: at, count: count) }).value, bytes.count == count {
+            if let bytes = await Task.detached(priority: .userInitiated, operation: { opened.read(at: at, count: count) }).value, bytes.count == count {
                 answer = await stager(.chunk(token: token, offset: at, data: bytes), session)
             } else {
                 answer = failed
@@ -94,8 +96,11 @@ struct AgentPaneDictationUpload {
             return AgentPaneReply.failure(code: "cancelled", message: "The recording was not sent.")
         }
         let finished = await stager(.finish(token: token), session)
-        guard let reply = value(finished) else { return finished }
-        guard let path = remotePath(reply) else { return failed }
+        // A finish that failed, or answered no one path, may leave the stage behind: it is dropped.
+        guard let path = value(finished).flatMap(remotePath) else {
+            _ = await stager(.cancel(token: token), session)
+            return value(finished) == nil ? finished : failed
+        }
         return AgentPaneReply.success(["path": path])
     }
 
@@ -112,17 +117,19 @@ struct AgentPaneDictationUpload {
         return path
     }
 
-    /// A recording opened once for its upload: a regular file (not a link, not a FIFO), read
-    /// through this one descriptor, so its path can't be swapped for another file between chunks.
+    /// A recording opened once for its upload: the regular file the recording wrote (not a link,
+    /// not a FIFO, not another file put at its path), read through this one descriptor, so its path
+    /// can't be swapped for another file between chunks either.
     nonisolated struct Recording: Sendable {
         let size: Int
         private let handle: FileHandle
 
-        static func open(_ file: URL) -> Self? {
-            let descriptor = Darwin.open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        static func open(_ recording: AgentPaneIssuedRecording) -> Self? {
+            let descriptor = Darwin.open(recording.file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
             guard descriptor >= 0 else { return nil }
             var info = stat()
-            guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
+            guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+                  DictationFileIdentity.of(descriptor: descriptor) == recording.identity else {
                 Darwin.close(descriptor)
                 return nil
             }
@@ -143,6 +150,13 @@ struct AgentPaneDictationUpload {
             try? handle.close()
         }
     }
+}
+
+/// A long recording the pane's dictation handed the page: its file, and which file that was when
+/// the recording closed it (``DictationAudio/fileIdentity``).
+nonisolated struct AgentPaneIssuedRecording: Equatable, Sendable {
+    let file: URL
+    let identity: DictationFileIdentity
 }
 
 /// The recording uploads a pane runs now, by path, and the ones its page cancelled

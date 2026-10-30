@@ -1,3 +1,4 @@
+import Darwin
 @testable import CmuxNextDictation
 import Foundation
 import Testing
@@ -17,8 +18,17 @@ struct AgentPaneDictationUploadTests {
 
     /// The recordings a failed upload gave back to the pane's dictation, with their chats.
     private final class GivenBack {
-        var recordings: [(file: URL, session: String)] = []
+        var recordings: [(recording: AgentPaneIssuedRecording, session: String)] = []
     }
+
+    /// `file` as the recording issued it: the file at its path now.
+    private func issued(_ file: URL) throws -> AgentPaneIssuedRecording {
+        let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        defer { if descriptor >= 0 { close(descriptor) } }
+        return AgentPaneIssuedRecording(file: file, identity: try #require(DictationFileIdentity.of(descriptor: descriptor)))
+    }
+
+    private static let someFile = DictationFileIdentity(device: 1, inode: 42)
 
     /// A chat's stager as the App's peer and Cloud stagers answer: a token and the chunk size on
     /// begin, the offset on each chunk, where the file went on finish. It keeps what it was sent.
@@ -96,26 +106,30 @@ struct AgentPaneDictationUploadTests {
         var chat: String? = "chat-a"
         dictation.chatSession = { chat }
         let file = URL(filePath: "/tmp/cmux-dictation/one/Recording.wav")
-        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044)), recordedIn: "chat-a")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044, fileIdentity: Self.someFile)), recordedIn: "chat-a")
         dictation.deliver(DictationUpdate(phase: .idle, text: "short", audio: DictationAudio(byteCount: 4, data: Data("RIFF".utf8))), recordedIn: "chat-a")
+        // A file with no identity (the writer could not read it) is never handed out.
+        let unknown = URL(filePath: "/tmp/cmux-dictation/two/Recording.wav")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "", audio: DictationAudio(file: unknown, byteCount: 9_600_044)), recordedIn: "chat-a")
         chat = "chat-b"
         #expect(dictation.takeRecording("/etc/passwd", session: "chat-a") == nil)
+        #expect(dictation.takeRecording(unknown.path, session: "chat-a") == nil)
         #expect(dictation.takeRecording(file.path, session: "chat-b") == nil, "another chat's recording")
-        #expect(dictation.takeRecording(file.path, session: "chat-a") == file)
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == AgentPaneIssuedRecording(file: file, identity: Self.someFile))
         #expect(dictation.takeRecording(file.path, session: "chat-a") == nil, "taken once")
     }
 
     /// A recording whose upload failed is given back for its chat, so the chip's Retry can send it
     /// again; it is still taken only once per try.
-    @Test func aRecordingWhoseUploadFailedCanBeTakenAgain() {
+    @Test func aRecordingWhoseUploadFailedCanBeTakenAgain() throws {
         let dictation = AgentPaneDictation(send: { _ in }, microphone: DictationMicrophone())
         dictation.chatSession = { "chat-a" }
         let file = URL(filePath: "/tmp/cmux-dictation/one/Recording.wav")
-        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044)), recordedIn: "chat-a")
-        #expect(dictation.takeRecording(file.path, session: "chat-a") == file)
-        dictation.giveBackRecording(file, session: "chat-a")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044, fileIdentity: Self.someFile)), recordedIn: "chat-a")
+        let recording = try #require(dictation.takeRecording(file.path, session: "chat-a"))
+        dictation.giveBackRecording(recording, session: "chat-a")
         #expect(dictation.takeRecording(file.path, session: "chat-b") == nil, "given back for its own chat only")
-        #expect(dictation.takeRecording(file.path, session: "chat-a") == file)
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == recording)
         #expect(dictation.takeRecording(file.path, session: "chat-a") == nil, "taken once per try")
     }
 
@@ -125,10 +139,10 @@ struct AgentPaneDictationUploadTests {
         dictation.chatSession = { "chat-a" }
         let files = (0..<(AgentPaneDictation.issuedRecordingLimit + 1)).map { URL(filePath: "/tmp/cmux-dictation/\($0)/Recording.wav") }
         for file in files {
-            dictation.deliver(DictationUpdate(phase: .idle, text: "", audio: DictationAudio(file: file, byteCount: 5_000_000)), recordedIn: "chat-a")
+            dictation.deliver(DictationUpdate(phase: .idle, text: "", audio: DictationAudio(file: file, byteCount: 5_000_000, fileIdentity: Self.someFile)), recordedIn: "chat-a")
         }
         #expect(dictation.takeRecording(files[0].path, session: "chat-a") == nil, "the oldest is forgotten")
-        #expect(dictation.takeRecording(files[files.count - 1].path, session: "chat-a") == files[files.count - 1])
+        #expect(dictation.takeRecording(files[files.count - 1].path, session: "chat-a")?.file == files[files.count - 1])
     }
 
     /// The file streams from disk through the chat's own stager, one bounded chunk at a time, with
@@ -140,9 +154,10 @@ struct AgentPaneDictationUploadTests {
         let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
         let stager = Stager()
         model.onUploadStage = { stager.stage }
-        model.onDictationRecording = { path, session in path == file.path && session == "chat-a" ? file : nil }
+        let recording = try issued(file)
+        model.onDictationRecording = { path, session in path == file.path && session == "chat-a" ? recording : nil }
         let givenBack = GivenBack()
-        model.onDictationRecordingUnsent = { file, session in givenBack.recordings.append((file, session)) }
+        model.onDictationRecordingUnsent = { recording, session in givenBack.recordings.append((recording, session)) }
         let reply = await upload(file.path, in: model)
         #expect(reply["ok"] as? Bool == true)
         #expect(givenBack.recordings.isEmpty, "a sent recording is not given back")
@@ -167,7 +182,8 @@ struct AgentPaneDictationUploadTests {
         let stager = Stager()
         stager.finish = AgentPaneReply.success(["uploads": [["name": "Recording.wav", "path": "/root/work/Recording.wav"]]])
         model.onUploadStage = { stager.stage }
-        model.onDictationRecording = { _, _ in file }
+        let recording = try issued(file)
+        model.onDictationRecording = { _, _ in recording }
         let reply = await upload(file.path, in: model)
         #expect((reply["value"] as? [String: Any])?["path"] as? String == "/root/work/Recording.wav")
     }
@@ -183,7 +199,7 @@ struct AgentPaneDictationUploadTests {
         #expect(stager.requests.isEmpty)
         // A chat with no stager (a local chat, or none at all) takes no upload either.
         let local = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
-        local.onDictationRecording = { _, _ in URL(filePath: "/tmp/x.wav") }
+        local.onDictationRecording = { _, _ in AgentPaneIssuedRecording(file: URL(filePath: "/tmp/x.wav"), identity: Self.someFile) }
         #expect(Self.errorCode(await upload("/tmp/x.wav", in: local)) == "unsupported")
     }
 
@@ -195,13 +211,14 @@ struct AgentPaneDictationUploadTests {
         let stager = Stager()
         stager.failsAtChunk = 1
         model.onUploadStage = { stager.stage }
-        model.onDictationRecording = { _, _ in file }
+        let recording = try issued(file)
+        model.onDictationRecording = { _, _ in recording }
         let givenBack = GivenBack()
-        model.onDictationRecordingUnsent = { file, session in givenBack.recordings.append((file, session)) }
+        model.onDictationRecordingUnsent = { recording, session in givenBack.recordings.append((recording, session)) }
         let reply = await upload(file.path, in: model)
         #expect(Self.errorCode(reply) == "upload_failed")
         // Given back for its chat, so the page's Retry can send it again.
-        #expect(givenBack.recordings.map(\.file) == [file])
+        #expect(givenBack.recordings.map(\.recording) == [recording])
         #expect(givenBack.recordings.map(\.session) == ["chat-a"])
         #expect(stager.requests.last == .cancel(token: "t1"))
         #expect(!stager.requests.contains(.finish(token: "t1")))
@@ -219,7 +236,8 @@ struct AgentPaneDictationUploadTests {
             _ = await model.respond(to: AgentPaneRequest(body: ["method": "dictation.recording.cancel", "params": ["path": file.path]]))
         }
         model.onUploadStage = { stager.stage }
-        model.onDictationRecording = { _, _ in file }
+        let recording = try issued(file)
+        model.onDictationRecording = { _, _ in recording }
         let reply = await upload(file.path, in: model)
         #expect(Self.errorCode(reply) == "cancelled")
         let chunks = stager.requests.filter { if case .chunk = $0 { true } else { false } }
@@ -244,7 +262,8 @@ struct AgentPaneDictationUploadTests {
         let link = folder.appending(path: "Link.wav")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
         let refused = Stager()
-        #expect(Self.errorCode(await AgentPaneDictationUpload.send(link, through: refused.stage, session: "chat-a")) == "upload_failed")
+        let linked = AgentPaneIssuedRecording(file: link, identity: try issued(secret).identity)
+        #expect(Self.errorCode(await AgentPaneDictationUpload.send(linked, through: refused.stage, session: "chat-a")) == "upload_failed")
         #expect(refused.requests.isEmpty)
         // Swapped for a link after it was opened: the bytes are still the recording's.
         let stager = Stager()
@@ -253,8 +272,40 @@ struct AgentPaneDictationUploadTests {
             try? FileManager.default.removeItem(at: file)
             try? FileManager.default.createSymbolicLink(at: file, withDestinationURL: secret)
         }
-        let reply = await AgentPaneDictationUpload.send(file, through: stager.stage, session: "chat-a")
+        let reply = await AgentPaneDictationUpload.send(try issued(file), through: stager.stage, session: "chat-a")
         #expect(reply["ok"] as? Bool == true)
         #expect(stager.received == data)
+    }
+
+    /// Review of #26953 at ae1fbc05: the host checked only the path it issued, so another regular
+    /// file (or a hard link to one) put there before the upload went out. Only the file the
+    /// recording wrote goes: one put at its path since is refused before anything is staged.
+    @Test func aFilePutAtTheRecordingsPathSinceIsRefused() async throws {
+        let (file, _) = try recordingFile(bytes: 1_000)
+        let folder = file.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let recording = try issued(file)
+        let secret = folder.appending(path: "secret.txt")
+        try Data("secret".utf8).write(to: secret)
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.linkItem(at: secret, to: file)
+        let stager = Stager()
+        #expect(Self.errorCode(await AgentPaneDictationUpload.send(recording, through: stager.stage, session: "chat-a")) == "upload_failed")
+        #expect(stager.requests.isEmpty)
+    }
+
+    /// Review of #26953 at ae1fbc05: a finish that failed, or answered no usable path, left the
+    /// stage behind. It is cancelled.
+    @Test(arguments: [false, true])
+    func aFinishWithNoPathCancelsTheStage(fails: Bool) async throws {
+        let (file, _) = try recordingFile(bytes: 1_000)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let stager = Stager()
+        stager.finish = fails
+            ? AgentPaneReply.failure(code: "upload_failed", message: "Couldn't send the file to huge-blue.")
+            : AgentPaneReply.success(["path": "relative.wav"])
+        let reply = await AgentPaneDictationUpload.send(try issued(file), through: stager.stage, session: "chat-a")
+        #expect(Self.errorCode(reply) == "upload_failed")
+        #expect(stager.requests.last == .cancel(token: "t1"))
     }
 }

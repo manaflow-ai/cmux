@@ -250,7 +250,7 @@ public final class AgentPaneView: NSView {
         // else at the top; the App's launch sweep removes either after 30 days.
         dictation.chatSession = { [weak model] in model?.sessionId }
         model.onDictationRecording = { [weak self] path, session in self?.dictation.takeRecording(path, session: session) }
-        model.onDictationRecordingUnsent = { [weak self] file, session in self?.dictation.giveBackRecording(file, session: session) }
+        model.onDictationRecordingUnsent = { [weak self] recording, session in self?.dictation.giveBackRecording(recording, session: session) }
         dictation.recordingFolder = { [weak model] in
             model.flatMap { ChatUploadFolders.standard?.freshUpload(session: $0.onLocalPaths?() == true ? $0.sessionId : nil) }
         }

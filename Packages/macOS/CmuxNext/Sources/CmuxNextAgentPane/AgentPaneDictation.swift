@@ -61,9 +61,10 @@ final class AgentPaneDictation {
     var chatSession: () -> String? = { nil }
     private var recordingChat = ""
     /// The long recordings this pane's sessions wrote and handed the page, newest last, each with
-    /// the chat it was made in: the only files ``takeRecording(_:session:)`` gives out, so the page
-    /// can never have the host send any other file.
-    private var issued: [(file: URL, session: String)] = []
+    /// the chat it was made in and the file the writer left there: the only files
+    /// ``takeRecording(_:session:)`` gives out, so the page can never have the host send any other
+    /// file (not even one put at that path since).
+    private var issued: [(recording: AgentPaneIssuedRecording, session: String)] = []
     /// How many recordings ``issued`` keeps: the page asks for one as its session ends.
     static let issuedRecordingLimit = 8
     /// Opens a URL (System Settings).
@@ -240,19 +241,19 @@ final class AgentPaneDictation {
 
     /// Long recording `path`, when this pane's dictation wrote it in chat `session` and handed it to
     /// the page; taken once (`dictation.recording.upload`, ``AgentPaneDictationUpload``).
-    func takeRecording(_ path: String, session: String) -> URL? {
-        guard let index = issued.firstIndex(where: { $0.file.path == path && $0.session == session }) else { return nil }
-        return issued.remove(at: index).file
+    func takeRecording(_ path: String, session: String) -> AgentPaneIssuedRecording? {
+        guard let index = issued.firstIndex(where: { $0.recording.file.path == path && $0.session == session }) else { return nil }
+        return issued.remove(at: index).recording
     }
 
-    /// Gives back long recording `file` of chat `session` whose upload failed, so the page's Retry
+    /// Gives back long `recording` of chat `session` whose upload failed, so the page's Retry
     /// can take it again (``takeRecording(_:session:)``, still once per try).
-    func giveBackRecording(_ file: URL, session: String) {
-        issue(file, session: session)
+    func giveBackRecording(_ recording: AgentPaneIssuedRecording, session: String) {
+        issue(recording, session: session)
     }
 
-    private func issue(_ file: URL, session: String) {
-        issued.append((file, session))
+    private func issue(_ recording: AgentPaneIssuedRecording, session: String) {
+        issued.append((recording, session))
         if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }
     }
 
@@ -262,7 +263,9 @@ final class AgentPaneDictation {
     func deliver(_ update: DictationUpdate, recordedIn chat: String) {
         var update = update
         update.chat = chat
-        if let file = update.audio?.file { issue(file, session: chat) }
+        if let file = update.audio?.file, let identity = update.audio?.fileIdentity {
+            issue(AgentPaneIssuedRecording(file: file, identity: identity), session: chat)
+        }
         if update.phase.isStartable {
             endHold()
             endSleepWatch()

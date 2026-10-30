@@ -105,10 +105,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
-    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> URL?)?
+    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
     /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
     /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
-    @ObservationIgnored var onDictationRecordingUnsent: ((_ file: URL, _ session: String) -> Void)?
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ recording: AgentPaneIssuedRecording, _ session: String) -> Void)?
     /// The long recordings uploading now, and the ones whose chip's × stopped them.
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
