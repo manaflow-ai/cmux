@@ -55,7 +55,8 @@ struct WorkspaceSpawner {
         guard daemon.connection != nil else { return { throw DaemonError.notConnected } }
         let key = WorkspaceKey.generate()
         let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        var rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        if !spawn.placesFromCurrent, rule?.placement != .afterCurrent { rule?.current = nil }
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })

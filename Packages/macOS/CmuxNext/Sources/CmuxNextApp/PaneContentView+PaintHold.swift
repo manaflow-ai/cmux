@@ -61,6 +61,7 @@ extension PaneContentView {
             let keptStrip = holdKeepsStrip
             holdKeepsStrip = false
             refreshContentFrame()
+            refreshNativeToolOwner()
             guard keptStrip else { return }
             needsLayout = true
             layoutSubtreeIfNeeded()

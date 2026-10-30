@@ -56,6 +56,12 @@ pub(super) fn is_notice(provenance: Option<&Value>) -> bool {
     provenance.and_then(|p| p.get("kind")).and_then(Value::as_str) == Some(NOTICE_KIND)
 }
 
+/// Whether the running turn is past its cap now: it takes no other agent's message, an inbox
+/// digest of them included (`inbox_digest.rs`).
+pub(super) fn past_cap(session: &Session) -> bool {
+    capped_turn(session, now_ms()).is_some()
+}
+
 /// Whether a steer with `provenance` may go into turn `turn_id`: anything but the notice, and the
 /// notice only into the turn it names while that turn still runs. A notice for a turn that ended
 /// never reaches the next one: checked here before it is logged, and again as it is written

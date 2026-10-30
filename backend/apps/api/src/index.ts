@@ -57,6 +57,7 @@ export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
 import { CLIENT_SESSION_PATH, handleCloudClientSession } from "./cloud-client-session.ts"
+import { GUEST_PATH, handleCloudMachineGuest } from "./cloud-machine-guest.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
@@ -209,6 +210,9 @@ export default {
     // A scoped provider token for one of the caller's machines (cloud-client-session.ts): outside the op path, never logged.
     const clientSession = url.pathname.match(CLIENT_SESSION_PATH)
     if (clientSession) return handleCloudClientSession(request, env, clientSession[1]!)
+    // Exec and files on a Cloud machine in classic /api/vm's shapes (cloud-machine-guest.ts): outside the op path, never logged.
+    const guest = url.pathname.match(GUEST_PATH)
+    if (guest) return handleCloudMachineGuest(request, env, guest[1]!, guest[2] as Parameters<typeof handleCloudMachineGuest>[3])
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
