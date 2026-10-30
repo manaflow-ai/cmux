@@ -47,6 +47,7 @@ pub mod run;
 pub(crate) mod send_relay;
 pub mod sender;
 pub mod session_folder;
+pub mod session_inbox;
 pub mod session_limits;
 pub mod session_turn_cap;
 pub mod shutdown;

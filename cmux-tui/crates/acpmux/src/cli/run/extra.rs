@@ -85,6 +85,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
         }
+        Command::SessionInboxCmd { session, thread, unread } => {
+            let client = connect(true).await?;
+            crate::cli::session_inbox::run(&client, &session, thread.as_deref(), unread, json_out)
+                .await
+        }
         Command::TurnCapCmd { session, minutes, off, clear } => {
             use crate::cli::session_turn_cap::Change;
             let change = match (minutes, off, clear) {

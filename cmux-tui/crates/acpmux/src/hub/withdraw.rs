@@ -13,6 +13,9 @@
 //!   record {promptId, msgId, turnId, via, noticePromptId} is written; a notice that is not
 //!   recorded within `NOTICE_WAIT` (refused, or the chat began a move) writes nothing and answers
 //!   `withdraw.notice_failed`, so the sender may withdraw again.
+//! - An inbox item (`inbox.rs`, a plain send from another agent): `unsent` while no notice carried
+//!   it (an `inbox_removed` record, `reason: "withdrawn"`); once one did, `retracted` with
+//!   `via: "inbox"`: the notice goes into its thread in the chat's inbox.
 //! - `too_late`: its turn ended (`turn_result`, `turn_end`, `turn_error` or `prompt_refused`);
 //!   nothing changes. The prompt is followed by its `promptId`: a send-now steers it into the
 //!   running turn, and a steer that found no turn runs it as the next one, each under that turn.
@@ -53,6 +56,9 @@ struct Found {
     /// The person edited it while it waited (`queue_updated`).
     edited: bool,
     retracted: Option<Value>,
+    /// An inbox item (`inbox.rs`), and its thread: no turn of its own; a notice carried it once
+    /// an `inbox_noticed` record names it.
+    inbox: Option<String>,
 }
 
 impl Found {
@@ -64,6 +70,22 @@ impl Found {
     /// Follows one later record of the session's log.
     fn follow(&mut self, e: &EventRecord) {
         let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or_default();
+        if self.inbox.is_some() {
+            let names = |k: &str| {
+                e.msg.get(k).and_then(Value::as_array).is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(self.prompt_id.as_str()))
+                })
+            };
+            match e.kind.as_str() {
+                "inbox_noticed" if names("promptIds") => self.started = true,
+                "inbox_removed" if field("promptId") == self.prompt_id => self.removed = true,
+                "prompt_retracted" if field("promptId") == self.prompt_id => {
+                    self.retracted = Some(e.msg.clone());
+                }
+                _ => {}
+            }
+            return;
+        }
         // A send-now steer, or a steer run as the next turn: the prompt moved to that turn.
         if matches!(e.kind.as_str(), "user_message" | "turn_started")
             && field("promptId") == self.prompt_id
@@ -243,9 +265,14 @@ impl Hub {
             Decision::Reply(reply) => return Ok(reply),
             Decision::Retract(found) => found,
         };
-        let steer = session.steering.load(Ordering::SeqCst)
+        let steer = found.inbox.is_none()
+            && session.steering.load(Ordering::SeqCst)
             && session.turn().is_some_and(|t| t.turn_id == found.turn_id);
-        let via = if steer { "steer" } else { "queued" };
+        let via = match (&found.inbox, steer) {
+            (Some(_), _) => "inbox",
+            (None, true) => "steer",
+            (None, false) => "queued",
+        };
         // One id per attempt: a notice that failed leaves its id in the prompt ledger.
         let notice_id = format!("{}.withdrawn.{}", found.prompt_id, uuid::Uuid::now_v7());
         if !self.send_notice(session, &found, steer, &notice_id).await {
@@ -281,6 +308,17 @@ impl Hub {
         if found.edited {
             let message = "the person edited this message, so it is no longer the sender's";
             return Err(refusal(-32602, "withdraw.edited", message));
+        }
+        // An inbox item no notice carried yet leaves the inbox; one a notice carried is retracted
+        // with a notice into its thread.
+        if found.inbox.is_some() && !found.removed && found.retracted.is_none() {
+            match self.inbox_unsend(session, &found.prompt_id) {
+                super::super::inbox::Unsend::Unsent => {
+                    return Ok(Decision::Reply(outcome(session, &found, "unsent")));
+                }
+                super::super::inbox::Unsend::Noticed => found.started = true,
+                super::super::inbox::Unsend::Gone => {}
+            }
         }
         if session.queue().iter().any(|q| q.prompt_id == found.prompt_id) {
             if self.remove_queued_because(session, &found.prompt_id, Some("withdrawn")) {
@@ -322,12 +360,13 @@ impl Hub {
             } else {
                 field("promptId") == id
             };
-            if hit && matches!(e.kind.as_str(), "queued" | "user_message") {
+            if hit && matches!(e.kind.as_str(), "queued" | "user_message" | "inbox") {
                 found = Some(Found {
                     prompt_id: field("promptId").to_owned(),
                     turn_id: field("turnId").to_owned(),
                     provenance: e.msg.pointer("/_meta/provenance").cloned(),
                     started: e.kind == "user_message",
+                    inbox: (e.kind == "inbox").then(|| field("threadId").to_owned()),
                     ..Found::default()
                 });
             }
@@ -363,6 +402,7 @@ impl Hub {
             let duplicate = accepted.get("duplicate") == Some(&json!(true));
             if !duplicate
                 && accepted.get("queued") == Some(&json!(true))
+                && accepted.get("inbox") != Some(&json!(true))
                 && let Some(id) = accepted.get("promptId").and_then(Value::as_str)
             {
                 let _ = hub.move_queued(&queued_in, id, 0, None);
@@ -373,6 +413,9 @@ impl Hub {
             prompt_id: Some(notice_id.to_owned()),
             on_accepted: Some(on_accepted),
             provenance,
+            // An inbox item's notice goes into its thread, never a turn of its own.
+            thread: found.inbox.clone(),
+            inbox: found.inbox.is_some(),
             ..PromptOptions::default()
         };
         let (hub, chat) = (self.clone(), session.clone());

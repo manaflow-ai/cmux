@@ -49,9 +49,14 @@ impl PromptClass {
         }
     }
 
-    /// The class `s` names, `None` for anything else.
+    /// The class `s` names, `None` for anything else. `blocker` is a block and `action` a result
+    /// (the inbox's names, `hub/inbox.rs`).
     pub fn parse(s: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|c| c.as_str() == s)
+        match s {
+            "blocker" => Some(Self::Block),
+            "action" => Some(Self::Result),
+            s => Self::ALL.into_iter().find(|c| c.as_str() == s),
+        }
     }
 
     /// Whether a message of this class needs the receiver now: a block or a question.
@@ -67,7 +72,7 @@ impl std::fmt::Display for PromptClass {
 }
 
 /// The values `_meta.acpmux.class` takes, for a refusal and `--class`'s help.
-pub const VALUES: &str = "block, question, result or fyi";
+pub const VALUES: &str = "block, question, result, fyi, blocker (a block) or action (a result)";
 
 /// `_meta.acpmux.class` of a `session/prompt`: `None` when absent or null, refused
 /// (`class.value_refused`) when it is not one of the four classes.

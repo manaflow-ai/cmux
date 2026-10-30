@@ -94,16 +94,26 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let id = new_session(&mut c, "coord").await;
     let gate = fifo("gate");
-    let turn = c.send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None)).await;
+    let turn = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let running = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
 
     // The first message goes in as a notice at once; the agent reads it at its next tool step.
-    let first = c.send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", json!({}))).await;
+    let first = c
+        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", json!({})))
+        .await;
     until(&hub, &id, "the first notice", |p| p.iter().any(|m| m["steer"] == true)).await;
     let mut sent = vec![first];
     for i in 1..=300 {
-        let msg = from_agent(&id, &format!("m-{i}"), &format!("lane-{i}"), &format!("result {i}"), json!({}));
+        let msg = from_agent(
+            &id,
+            &format!("m-{i}"),
+            &format!("lane-{i}"),
+            &format!("result {i}"),
+            json!({}),
+        );
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
     // Each is in the inbox at once (its acceptance says so), none steered in by itself.
@@ -126,7 +136,11 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
     let notices = notices(&hub, &id);
     assert_eq!(carried(&notices[0]), ["m-first"]);
     assert_eq!(carried(&notices[1]).len(), 300);
-    assert!(notices[1]["text"].as_str().unwrap().starts_with("[inbox] New messages"), "{}", notices[1]);
+    assert!(
+        notices[1]["text"].as_str().unwrap().starts_with("[inbox] New messages"),
+        "{}",
+        notices[1]
+    );
     open(&step).await;
 
     // Every sender is answered by the turn its notice went into; no turn of its own.
@@ -166,7 +180,8 @@ async fn an_idle_chat_wakes_for_a_blocker_and_for_its_first_work_only() {
     assert_eq!(carried(&notice[0]), ["t-1"]);
 
     // Idle again: an action and an FYI from another lane wait.
-    let action = c.send(method::SESSION_PROMPT, from_agent(&id, "a-1", "lane-b", "merged", json!({}))).await;
+    let action =
+        c.send(method::SESSION_PROMPT, from_agent(&id, "a-1", "lane-b", "merged", json!({}))).await;
     let fyi = from_agent(&id, "f-1", "lane-c", "CI is slow", json!({"class": "fyi"}));
     let fyi = c.send(method::SESSION_PROMPT, fyi).await;
     tokio::time::sleep(Duration::from_millis(3_000)).await;
@@ -182,7 +197,10 @@ async fn an_idle_chat_wakes_for_a_blocker_and_for_its_first_work_only() {
     ids.sort();
     assert_eq!(ids, ["a-1", "b-1", "f-1"]);
     let text = notices[1]["text"].as_str().unwrap();
-    assert!(text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"), "blockers first: {text}");
+    assert!(
+        text.contains("\n- [blocker] 1 new in #12 from lane-d: blocked on #12"),
+        "blockers first: {text}"
+    );
     for answer in answered.values() {
         assert_eq!(answer["_meta"]["acpmux"]["turnId"], notices[1]["turnId"], "{answer}");
     }
@@ -197,15 +215,19 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let id = new_session(&mut c, "coord").await;
     let gate = fifo("gate");
-    let turn = c.send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None)).await;
+    let turn = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let next = fifo("next");
     let text = format!("gate: {}", next.display());
     let mine = c.send(method::SESSION_PROMPT, prompt(&id, &text, Some("p-me"))).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-me" && p["queued"] == true).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-me" && p["queued"] == true)
+        .await;
     let mut sent = Vec::new();
     for i in 0..5 {
-        let msg = from_agent(&id, &format!("m-{i}"), "lane-a", &format!("step {i} of #9"), json!({}));
+        let msg =
+            from_agent(&id, &format!("m-{i}"), "lane-a", &format!("step {i} of #9"), json!({}));
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -232,4 +254,115 @@ async fn a_queued_prompt_never_waits_behind_agent_messages() {
     for path in [gate, next] {
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// A connection that proved it runs in chat `id`: its agent's tools.
+async fn agent_of(hub: &Arc<Hub>, id: &str) -> TestClient {
+    let (tx, in_rx) = mpsc::channel(64);
+    let (out_tx, rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx, rx, next: 0 };
+    let token = acpmux::hub::person::caller_token(id);
+    let caller = json!({"callerSession": {"sessionId": id, "token": token}});
+    c.request("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}}))
+        .await
+        .unwrap();
+    c
+}
+
+/// Threads: by the PR its sender named, the PR its first line names, else its sender. The chat's
+/// agent reads one whole (marked read) and answers in it: the answer lands in the sender's inbox
+/// under the same thread, never a turn. Another session reads no inbox but its own.
+#[tokio::test]
+async fn threads_are_read_whole_and_answered_into_the_senders_inbox() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "coord").await;
+    let lane = new_session(&mut c, "lane-a").await;
+    // Each has run a turn, so no message wakes either.
+    for s in [&id, &lane] {
+        c.request(method::SESSION_PROMPT, prompt(s, "hello", None)).await.unwrap();
+    }
+    let mut lane_agent = agent_of(&hub, &lane).await;
+    for (pid, text, mux) in [
+        ("m-1", "landed", json!({"pr": 27133})),
+        ("m-2", "#27133 is green now", json!({})),
+        ("m-3", "starting the next piece", json!({"topic": "plan"})),
+    ] {
+        let mut p = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": pid}}});
+        for (k, v) in mux.as_object().cloned().unwrap() {
+            p["_meta"]["acpmux"][k] = v;
+        }
+        lane_agent.send(method::SESSION_PROMPT, p).await;
+        lane_agent.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid).await;
+        // Newest first, by the millisecond.
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    let rows = threads["threads"].as_array().unwrap();
+    let keys: Vec<&str> = rows.iter().map(|t| t["threadId"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["topic:plan", "from:lane-a/pr:27133", "pr:27133"], "{threads}");
+    assert_eq!(rows[0]["from"], json!(["lane-a"]));
+    assert_eq!(rows[0]["unread"], 1);
+    assert_eq!(rows[0]["class"], "action");
+    assert_eq!(rows[0]["newestPreview"], "starting the next piece");
+
+    // Another session's agent reads no other chat's inbox.
+    let refused = lane_agent.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await;
+    assert!(refused.is_err_and(|e| e.contains("inbox.other_session")));
+
+    // The chat's own agent reads a thread, marked read, and answers in it.
+    let mut coord_agent = agent_of(&hub, &id).await;
+    let read = json!({"sessionId": id, "threadId": "pr:27133", "markRead": true});
+    let thread = coord_agent.request(method::MUX_INBOX_THREAD, read).await.unwrap();
+    assert_eq!(thread["messages"][0]["text"], "landed", "{thread}");
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(threads["threads"][2]["unread"], 0, "{threads}");
+    let reply = json!({"sessionId": id, "threadId": "pr:27133", "text": "thanks, merging"});
+    let sent = coord_agent.request(method::MUX_INBOX_REPLY, reply).await.unwrap();
+    assert_eq!(sent["sessionId"], lane, "{sent}");
+    let theirs = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": lane})).await.unwrap();
+    assert_eq!(theirs["threads"][0]["threadId"], "pr:27133", "{theirs}");
+    assert_eq!(theirs["threads"][0]["from"], json!(["coord"]));
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert!(notices(&hub, &lane).is_empty(), "an answer is no turn of theirs");
+}
+
+/// Withdraw (`withdraw.rs`, "unsend") of an inbox item: one no notice carried yet leaves the inbox
+/// and its waiting send answers withdrawn; once a notice carried it, a retraction goes into its
+/// thread in the inbox, never a turn.
+#[tokio::test]
+async fn an_inbox_message_is_unsent_until_a_notice_carries_it_then_retracted_in_its_thread() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "coord").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    let waiting =
+        c.send(method::SESSION_PROMPT, from_agent(&id, "a-1", "lane-b", "merged", json!({}))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "a-1").await;
+    let unsent = json!({"sessionId": id, "promptId": "a-1"});
+    let unsent = c.request("_acpmux/prompt_withdraw", unsent).await.unwrap();
+    assert_eq!(unsent["outcome"], "unsent", "{unsent}");
+    let answered = answers(&mut c, &[waiting]).await;
+    assert_eq!(answered[&waiting]["_meta"]["acpmux"]["withdrawn"], true, "{answered:?}");
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(threads["threads"], json!([]), "{threads}");
+
+    // A blocker wakes the chat; once its notice carried it, a withdraw retracts it in its thread.
+    let blocker = from_agent(&id, "b-1", "lane-d", "blocked on #12", json!({"class": "blocker"}));
+    let blocker = c.send(method::SESSION_PROMPT, blocker).await;
+    answers(&mut c, &[blocker]).await;
+    let retract = json!({"sessionId": id, "promptId": "b-1"});
+    let retracted = c.request("_acpmux/prompt_withdraw", retract).await.unwrap();
+    assert_eq!(retracted["outcome"], "retracted", "{retracted}");
+    assert_eq!(retracted["via"], "inbox", "{retracted}");
+    let thread = json!({"sessionId": id, "threadId": "from:lane-d/pr:12"});
+    let thread = c.request(method::MUX_INBOX_THREAD, thread).await.unwrap();
+    let texts: Vec<&str> =
+        thread["messages"].as_array().unwrap().iter().filter_map(|m| m["text"].as_str()).collect();
+    assert_eq!(texts.len(), 2, "{thread}");
+    assert!(texts[0].contains("was withdrawn by its sender"), "{thread}");
+    let again = json!({"sessionId": id, "promptId": "b-1"});
+    let again = c.request("_acpmux/prompt_withdraw", again).await.unwrap();
+    assert_eq!(again["already"], true, "{again}");
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(notices(&hub, &id).len(), 1, "a retraction is no turn: {:?}", prompts(&hub, &id));
 }

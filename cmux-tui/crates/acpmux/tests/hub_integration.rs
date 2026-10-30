@@ -21,10 +21,10 @@ use tokio::sync::mpsc;
 #[path = "hub_integration/idle_census.rs"]
 mod idle_census;
 
-#[path = "hub_integration/agent_inbox.rs"]
-mod agent_inbox;
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
+#[path = "hub_integration/agent_inbox.rs"]
+mod agent_inbox;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
@@ -162,6 +162,21 @@ async fn setup_defaults_env(
     env: BTreeMap<String, String>,
     defaults_env: BTreeMap<String, String>,
 ) -> (Arc<Hub>, TestClient) {
+    setup_inbox(policy, env, defaults_env, true).await
+}
+
+/// `setup` with `agentInbox` off: another agent's plain send queues or steers as before the
+/// inbox (`hub/inbox.rs`), for the tests of that path (still every non-plain agent message's).
+async fn setup_queue(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_inbox(policy, BTreeMap::new(), BTreeMap::new(), false).await
+}
+
+async fn setup_inbox(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+    inbox: bool,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -183,6 +198,7 @@ async fn setup_defaults_env(
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
+    cfg.agent_inbox = Some(inbox);
     if !defaults_env.is_empty() {
         let defaults = acpmux::config::SessionDefaults { env: defaults_env, ..Default::default() };
         cfg.defaults.insert("fake".into(), defaults);

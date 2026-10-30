@@ -303,6 +303,7 @@ acpmux session deny NAME                                      # an allow is the 
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
 acpmux session turn-cap NAME [--minutes N | --off | --clear]  # past it, other agents' messages wait for the next turn
+acpmux session inbox NAME [--thread T]                      # other agents' messages, in threads; they never take a turn of its own
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
@@ -370,6 +371,11 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+
+`agentInbox` (default true): another agent's plain send (`acpmux send`, the MCP `send` tool) goes
+into the receiving chat's inbox, in a thread, and the agent hears of it as one notice at its next
+tool step; it is never a turn or a steer of its own. false puts plain sends back on the queue.
+
 `silentTurnMs` (default 90000; 0 turns it off): a turn whose model shows no sign of work
 (no message, thought, tool call, plan, compaction or request, and no harness line only a
 responding model produces, such as Claude's stream and thinking or Codex's moderation

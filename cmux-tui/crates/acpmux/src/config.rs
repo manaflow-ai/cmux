@@ -936,6 +936,11 @@ pub struct Config {
     /// (`recovery.rs`; 1 GiB when unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_low_bytes: Option<u64>,
+    /// `agentInbox` (default true): another agent's plain send goes into the chat's inbox, never
+    /// a turn or a steer of its own (`hub/inbox.rs`). false puts it back on the queue as before:
+    /// a switch to roll the inbox back without a new build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_inbox: Option<bool>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -1123,6 +1128,11 @@ impl Config {
             })?),
         };
         Ok(())
+    }
+
+    /// `agentInbox`, or its default: on.
+    pub fn agent_inbox(&self) -> bool {
+        self.agent_inbox.unwrap_or(true)
     }
 
     /// `agentStartTimeoutMs`, or its 90 s default.

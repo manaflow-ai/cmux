@@ -111,6 +111,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -361,6 +362,13 @@ pub struct PromptOptions {
     /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
     /// turn's cap (`turn_cap.rs`).
     pub send_now: bool,
+    /// The thread another agent's message goes in (`inbox.rs` `explicit_thread`): `pr:N` or
+    /// `topic:T`; `None` derives it.
+    pub thread: Option<String>,
+    /// A plain send from another agent on this host (`session/prompt`, `inbox::plain_send`): the
+    /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
+    /// release, a peer's or the mesh relay's forward) keeps the queue.
+    pub inbox: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -1097,6 +1105,7 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
+            inbox: StdMutex::new(inbox::Inbox::default()),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),

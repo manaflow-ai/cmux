@@ -228,12 +228,21 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
-        /// What your message asks of the receiver: block (you cannot go on until it acts),
-        /// question (you wait for its answer), result (work you finished; the default for an
-        /// agent's message) or fyi. A coordinator is woken by blocks and questions only; results
-        /// and FYIs wait for its next turn's inbox digest.
-        #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi"])]
+        /// What your message asks of the receiver: block or blocker (you cannot go on until it
+        /// acts), question (you wait for its answer), result or action (work you finished, or
+        /// work for it; the default for an agent's message) or fyi. Another agent's message goes
+        /// into the receiver's inbox, never a turn of its own: blockers wake an idle receiver,
+        /// actions only from the session that started it or gave it its first work, FYIs never.
+        #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi", "blocker", "action"])]
         class: Option<String>,
+        /// The pull request your message is about: the receiver's inbox threads it with the
+        /// others about it.
+        #[arg(long, value_name = "N")]
+        pr: Option<u64>,
+        /// The inbox thread your message goes in: a topic, or a threadId the receiver's inbox
+        /// named (default: your messages about the PR its first line names, else all yours).
+        #[arg(long, value_name = "THREAD", conflicts_with = "pr")]
+        thread: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -439,6 +448,8 @@ pub enum Command {
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
     TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    #[command(hide = true)]
+    SessionInboxCmd { session: String, thread: Option<String>, unread: bool },
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -908,6 +919,17 @@ pub enum SessionCmd {
         #[arg(long)]
         clear: bool,
     },
+    /// The chat's inbox: other agents' messages, in threads, which take no turn of its own.
+    /// With --thread, that thread's messages whole, newest first; without it, every thread.
+    Inbox {
+        session: String,
+        /// A threadId, as the list names it.
+        #[arg(long, value_name = "THREAD")]
+        thread: Option<String>,
+        /// With --thread: mark its messages read, as the agent's inbox_read does.
+        #[arg(long, requires = "thread")]
+        mark_read: bool,
+    },
     /// One line per turn.
     History {
         session: String,
@@ -1189,6 +1211,9 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::TurnCap { session, minutes, off, clear } => {
                 Command::TurnCapCmd { session, minutes, off, clear }
+            }
+            SessionCmd::Inbox { session, thread, mark_read } => {
+                Command::SessionInboxCmd { session, thread, unread: mark_read }
             }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }

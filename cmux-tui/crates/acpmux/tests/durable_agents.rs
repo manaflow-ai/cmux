@@ -1914,6 +1914,14 @@ async fn attach_and_prompts_survive_a_failed_log_load() {
 #[tokio::test]
 async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     let mut daemon = Daemon::new("qprov", "approve-all");
+    // The queue path before the inbox (`hub/inbox.rs`): an agent message that still queues.
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "agentInbox": false}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
     let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
     let provenance = json!({"kind": "agent_message", "from": "acp:sender-1", "to": format!("acp:{session}"),
                             "msgId": "msg-1", "threadId": "thread-1"});

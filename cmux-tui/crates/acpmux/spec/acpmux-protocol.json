@@ -948,6 +948,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_threads",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_thread",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_enroll",
       "params": true,
       "result": true

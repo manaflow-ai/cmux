@@ -1230,6 +1230,8 @@ async fn dispatch_request(
             let declared = crate::hub::declared_sender(&params)?;
             // What another agent's message asks of this chat (`prompt_class.rs`).
             let class = crate::prompt_class::declared(&params)?;
+            // The inbox thread its sender named (`hub/inbox.rs`).
+            let thread = crate::hub::inbox::explicit_thread(mux_meta(&params))?;
             // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
             // forwarding its own session's prompt): that agent's message,
             // so the transcript never shows it as the person's. Not a note a session here sends
@@ -1258,6 +1260,8 @@ async fn dispatch_request(
             // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
+            let supersede_set = supersede.is_some();
+            let inbox_on = hub.config.read().await.agent_inbox();
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -1332,6 +1336,14 @@ async fn dispatch_request(
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
                 no_queue: false,
                 send_now: false,
+                thread,
+                inbox: inbox_on
+                    && crate::hub::inbox::plain_send(
+                        conn.origin == super::Origin::Peer,
+                        flag("teamMessage") == Some(true),
+                        supersede_set,
+                        flag("steerOnly") == Some(true),
+                    ),
             };
             let agent_message = opts.provenance.is_some() && !person_message;
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -1847,6 +1859,34 @@ async fn dispatch_request(
             }
             hub.set_rules(&s, rules);
             Ok(hub.session_summary(&s))
+        }
+        method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
+            let s = hub.resolve(session_key(&params)?)?;
+            // The person's, or the chat's own agent's: no other session reads or answers for it.
+            let agent = conn.caller().is_some() || conn.unproven_caller.get().is_some();
+            let person = conn.is_person() || (conn.origin == Origin::Local && !agent);
+            if !person && conn.caller() != Some(s.id.as_str()) {
+                return Err(RpcError::invalid_params(
+                    "inbox.other_session: only the person or the chat's own agent reads its inbox",
+                )
+                .with_data(json!({"reason": "inbox.other_session"})));
+            }
+            let text_of = |k: &str| params.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+            let thread = || {
+                text_of("threadId").ok_or_else(|| RpcError::invalid_params("threadId is required"))
+            };
+            match m {
+                method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
+                method::MUX_INBOX_THREAD => {
+                    let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
+                    Ok(hub.inbox_thread(&s, thread()?, mark))
+                }
+                _ => {
+                    let text = text_of("text")
+                        .ok_or_else(|| RpcError::invalid_params("text is required"))?;
+                    hub.inbox_reply(&s, thread()?, text).await
+                }
+            }
         }
         method::MUX_SET_TURN_CAP => {
             let s = hub.resolve(session_key(&params)?)?;

@@ -83,7 +83,7 @@ async fn echoes_until(c: &mut TestClient, last: &str) -> Vec<String> {
 
 #[tokio::test]
 async fn the_persons_prompt_goes_ahead_of_agent_messages_waiting() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
@@ -96,7 +96,7 @@ async fn the_persons_prompt_goes_ahead_of_agent_messages_waiting() {
 
 #[tokio::test]
 async fn agent_messages_waiting_go_in_together_as_one_turn_after_the_persons() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let id = busy(&mut c).await;
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "first from a")).await;
@@ -159,7 +159,7 @@ async fn agent_messages_waiting_go_in_together_as_one_turn_after_the_persons() {
 
 #[tokio::test]
 async fn one_agent_message_waiting_runs_as_it_was_sent() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "only one")).await;
     c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
@@ -168,7 +168,7 @@ async fn one_agent_message_waiting_runs_as_it_was_sent() {
 
 #[tokio::test]
 async fn a_persons_prompt_between_agent_messages_ends_their_turn() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
@@ -192,7 +192,7 @@ async fn a_persons_prompt_between_agent_messages_ends_their_turn() {
 
 #[tokio::test]
 async fn from_agent_must_be_one_short_line() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let refused =
@@ -205,7 +205,7 @@ async fn from_agent_must_be_one_short_line() {
 /// closed", 2026-10-21, behind every newer message).
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
@@ -241,7 +241,7 @@ async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn()
 /// none is lost to a turn the agent may never have read. The next completed turn releases them.
 #[tokio::test]
 async fn a_failed_turn_of_agent_messages_puts_the_joined_ones_back() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let id = busy(&mut c).await;
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
@@ -281,7 +281,7 @@ async fn a_failed_turn_of_agent_messages_puts_the_joined_ones_back() {
 /// (`_meta.cmux.pasted`), as when it was first queued.
 #[tokio::test]
 async fn a_message_a_failed_turn_put_back_keeps_its_pasted_ranges() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let id = busy(&mut c).await;
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
@@ -318,7 +318,7 @@ async fn a_message_a_failed_turn_put_back_keeps_its_pasted_ranges() {
 /// them and goes in with them, in the order sent: it never overtakes them.
 #[tokio::test]
 async fn a_new_agent_message_goes_in_behind_the_ones_a_failed_turn_put_back() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let mut agents = connect(&hub).await;
     let id = busy(&mut c).await;
     let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
@@ -354,7 +354,7 @@ async fn a_new_agent_message_goes_in_behind_the_ones_a_failed_turn_put_back() {
 /// other agents' messages, as it answers one that went in alone.
 #[tokio::test]
 async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let sender = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await;
     let sender = sender.unwrap()["sessionId"].as_str().unwrap().to_owned();
     let id = busy(&mut c).await;
@@ -390,7 +390,7 @@ async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
 /// and the agent messages around it go in together before and after it.
 #[tokio::test]
 async fn an_agent_slash_command_goes_in_alone() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (_hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     let id = busy(&mut c).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
@@ -409,7 +409,7 @@ async fn an_agent_slash_command_goes_in_alone() {
 /// `autoResumeDelaysMs` wait, with no Resume. The person's held prompt still waits for them.
 #[tokio::test]
 async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
     let id = busy(&mut c).await;
     queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;

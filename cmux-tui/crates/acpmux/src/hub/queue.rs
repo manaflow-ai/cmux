@@ -800,6 +800,8 @@ impl Hub {
         if session.meta().status == SessionStatus::Closed {
             return;
         }
+        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`).
+        self.restore_inbox(session);
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
@@ -969,6 +971,10 @@ impl Hub {
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
             let provenance = e.msg.pointer("/_meta/provenance").filter(|p| p.is_object()).cloned();
+            // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
+            if super::inbox::is_notice(provenance.as_ref()) {
+                continue;
+            }
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
@@ -1033,6 +1039,14 @@ impl Hub {
     /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
         for session in sessions {
+            // What the restored inbox holds new goes in as it may (`inbox.rs`).
+            {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    hub.wait_startup().await;
+                    hub.inbox_review(&session);
+                });
+            }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
