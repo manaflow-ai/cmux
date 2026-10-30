@@ -11,6 +11,9 @@ impl Hub {
         if !still_cut(session, turn) || session.status() == SessionStatus::Closed {
             return;
         }
+        // Serialize the durable scan with Stop's in-memory cancellation claim. Otherwise Stop
+        // can append a settled marker after this scan but before restoration installs `Ending`.
+        let mut pending = self.auto_resumes.lock();
         let mut scheduled = None;
         let mut settled = false;
         let skip = |_: &[u8], _: &[u8]| false;
@@ -47,13 +50,11 @@ impl Hub {
         let from = saved["from"].as_str().map(str::to_owned);
         let prompt = prompt.to_owned();
         let turn = turn.to_owned();
-        {
-            let mut pending = self.auto_resumes.lock();
-            if pending.contains_key(&session.id) {
-                return;
-            }
-            pending.insert(session.id.clone(), Mark::Ending(turn.to_owned()));
+        if pending.contains_key(&session.id) {
+            return;
         }
+        pending.insert(session.id.clone(), Mark::Ending(turn.to_owned()));
+        drop(pending);
         let hub = self.clone();
         let session = session.clone();
         tokio::spawn(async move {
