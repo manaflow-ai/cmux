@@ -24,6 +24,8 @@ cmux-tailnet = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
 cmux-json.workspace = true
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true

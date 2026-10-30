@@ -709,7 +709,7 @@ while True:
                 open(late, "w").close()
                 os._exit(0)
             os.waitpid(first, 0)
-            said = "You've hit your usage limit"
+            said = "Not logged in" if os.environ.get("FAKE_CLAUDE_AUTH_FAIL") == "1" else "You've hit your usage limit"
             send({"type": "assistant", "error": "rate_limit", "message": {"model": "<synthetic>",
                   "content": [{"type": "text", "text": said}]}})
             send({"type": "result", "subtype": "success", "is_error": True, "result": said, "num_turns": 1,

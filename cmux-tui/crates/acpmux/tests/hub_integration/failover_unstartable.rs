@@ -1,5 +1,5 @@
 //! A failover never moves a chat onto a fallback profile that cannot start, and never leaves it
-//! on one (`hub/fallback_start.rs`). A Claude chat's limit error moved it onto the automatic
+//! on one (`hub/fallback_start.rs`). A Claude chat's authentication error moved it onto the automatic
 //! `cmux` fallback, whose local CodeRouter was not running there; from then on every turn failed
 //! in its first second with "the local CodeRouter is not running", for good, while the chat
 //! looked idle.
@@ -49,7 +49,10 @@ async fn setup(
         },
     };
     let agents = BTreeMap::from([
-        ("primary".to_owned(), profile(vec![die], Some("direct"))),
+        (
+            "primary".to_owned(),
+            profile(vec![die, ("FAKE_CLAUDE_AUTH_FAIL", "1".to_owned())], Some("direct")),
+        ),
         ("direct".to_owned(), direct),
     ]);
     let mut cfg =
@@ -127,7 +130,7 @@ async fn a_failover_never_moves_a_chat_onto_a_fallback_that_cannot_start() {
     assert!(err.contains("CodeRouter is not running"), "{err}");
     // The dead primary's own last stderr line still comes first: the note is added after the
     // turn's end reads the error as a dead process's.
-    let reason = err.find("proxy down").expect(&err);
+    let reason = err.find("Not logged in").expect(&err);
     assert!(reason < err.find("the fallback profile").unwrap(), "{err}");
     let skipped = records(&hub, &id, "failover_skipped");
     assert_eq!(skipped.len(), 1, "{skipped:?}");
