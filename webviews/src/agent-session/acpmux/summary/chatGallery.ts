@@ -2,6 +2,8 @@
 import { chatImages, type ChatImage } from "../conversation/chatImages";
 import { renderCall, type RenderCall } from "../conversation/renderCall";
 import { toolImages } from "../toolImages";
+import { loadedImageSrc } from "../chips/ReplyImage";
+import { mediaKind } from "../chips/mediaKind";
 import type { AcpmuxRow } from "../model";
 
 export type GalleryItem =
@@ -81,3 +83,35 @@ export function chatGallery(rows: readonly AcpmuxRow[]): GalleryItem[] {
 
 export const galleryItems = (items: readonly GalleryItem[], filter: GalleryFilter): readonly GalleryItem[] =>
   filter === "all" ? items : items.filter((item) => item.kind === filter);
+
+/// The image viewer's images when `src` opens (`path`: the file it was read from, when it has one):
+/// the gallery's images in order. The viewer draws data URLs only (the page loads no file itself),
+/// so a tool file steps in once its tile loaded it, and the one just opened always does; a tool's
+/// audio and video are not images.
+export function viewerImages(
+  rows: readonly AcpmuxRow[],
+  src: string,
+  alt: string,
+  path?: string,
+): { images: ChatImage[]; index: number } {
+  const images: (ChatImage & { open: boolean })[] = [];
+  for (const item of chatGallery(rows)) {
+    if (item.kind === "image") images.push({ src: item.src, alt: item.alt, open: item.src === src });
+    else if (item.kind === "tool") {
+      if (item.source.startsWith("data:")) images.push({ src: item.source, alt: "", open: item.source === src });
+      else if (!mediaKind(item.source)) {
+        const loaded = loadedImageSrc(item.source);
+        const open = item.source === path || (loaded !== undefined && loaded === src);
+        if (loaded || open) images.push({ src: loaded ?? src, alt: "", path: item.source, open });
+      }
+    }
+  }
+  const index = images.findIndex((image) => image.open);
+  if (index < 0) return { images: [{ src, alt, path }], index: 0 };
+  return {
+    images: images.map(({ open: _open, ...image }, i) =>
+      i === index ? { ...image, src, alt: alt || image.alt, ...(path ? { path } : {}) } : image,
+    ),
+    index,
+  };
+}

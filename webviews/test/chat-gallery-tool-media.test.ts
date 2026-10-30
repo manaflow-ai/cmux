@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { activity, assistant, summary, tool, user } from "../src/gallery/fixtures/acpmux";
 import { renderTool } from "../src/gallery/fixtures/renders";
-import { chatGallery, galleryItems } from "../src/agent-session/acpmux/summary/chatGallery";
+import { chatGallery, galleryItems, viewerImages } from "../src/agent-session/acpmux/summary/chatGallery";
 
 const png = "data:image/png;base64,aW1hZ2U=";
 const screenshot = (status = "completed") =>
@@ -77,4 +77,29 @@ test("filters preserve tool media and render ordering", () => {
   expect(galleryItems(items, "tool").map((item) => item.kind)).toEqual(["tool"]);
   expect(galleryItems(items, "image")).toEqual([]);
   expect(galleryItems(items, "render").map((item) => item.kind)).toEqual(["render"]);
+});
+
+test("the image viewer steps through reply and tool data images, skipping files it cannot draw", () => {
+  const other = "data:image/png;base64,b3RoZXI=";
+  const rows = [
+    user("Outputs", 3),
+    activity([tool("Shot", "read", "completed", { images: [png] }), tool("Files", "read", "completed", {
+      locations: [{ path: "/project/chart.png" }, { path: "/project/demo.mp4" }],
+    })], 2),
+    assistant(`![Other](${other})`, 1),
+    summary(1),
+  ];
+  const opened = viewerImages(rows, png, "");
+  expect(opened.images.map((image) => image.src)).toEqual([png, other]);
+  expect(opened.index).toBe(0);
+  expect(viewerImages(rows, other, "Other").index).toBe(1);
+  // A file not loaded yet joins only when it is the one opened; its path is kept for Show in Finder.
+  const file = viewerImages(rows, "data:image/png;base64,ZmlsZQ==", "", "/project/chart.png");
+  expect(file.images.map((image) => image.path)).toEqual([undefined, "/project/chart.png", undefined]);
+  expect(file.images[file.index]!.src).toBe("data:image/png;base64,ZmlsZQ==");
+  // An image the chat does not hold opens alone.
+  expect(viewerImages(rows, "data:image/png;base64,eA==", "x")).toEqual({
+    images: [{ src: "data:image/png;base64,eA==", alt: "x", path: undefined }],
+    index: 0,
+  });
 });

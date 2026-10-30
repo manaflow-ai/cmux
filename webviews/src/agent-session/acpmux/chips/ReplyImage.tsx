@@ -62,6 +62,9 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
 
+/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
+export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
+
 /// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
 /// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
 /// no gesture, and the image then waits for its Load image instead of drawing as unavailable.
