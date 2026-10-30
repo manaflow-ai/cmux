@@ -36,6 +36,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     bound: bool,
     fence: Option<&crate::agent::Fence>,
     confirm_written: bool,
+    held: Option<&(dyn Fn() -> bool + Send + Sync)>,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
@@ -80,6 +81,11 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
             return settled(answer);
         }
         if bound && session.turn().is_none_or(|t| t.turn_id != turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
+        }
+        // A steer that may not go in now (an inbox notice behind a waiting prompt or past the
+        // turn's cap, `inbox.rs`), checked while it holds the handoff no prompt is written past.
+        if held.is_some_and(|held| held()) {
             return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
         }
         delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -223,16 +229,25 @@ impl Hub {
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // The turn cap's notice goes into the turn it names or nowhere (`turn_cap.rs`).
         let bound = super::turn_cap::is_notice(opts.provenance.as_ref());
+        // An inbox notice (`inbox.rs`): only while no prompt waits and the turn is under its cap,
+        // and in once the agent's writer took it.
+        let inbox_notice = super::inbox::is_notice(opts.provenance.as_ref());
+        let held = || super::inbox::notice_held(session);
         let answer = agent_prompt_hook(
             session,
             &child,
             params,
             turn_id,
             true,
-            bound,
+            bound || inbox_notice,
             fence.as_ref(),
-            false,
-            || {},
+            inbox_notice,
+            inbox_notice.then_some(&held as &(dyn Fn() -> bool + Send + Sync)),
+            || {
+                if inbox_notice {
+                    self.inbox_prompt_written(session, &prompt_id);
+                }
+            },
         )
         .await;
         // Read in a turn its agent ran on after the one it was steered into ended: it went into
