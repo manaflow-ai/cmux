@@ -9,7 +9,7 @@ impl Transport for Enrollment {
         Ok(json!({"environment":"test"}))
     }
     fn begin(&self, _: &str, body: &Value) -> cmux_server::Result<Value> {
-        Ok(json!({"code":"7KQ4M2XD","expires_at":1_000_000,
+        Ok(json!({"code":"7KQ4M2XD","expires_at":cmux_server::host::now_ms() + 60_000,
             "thumbprint":cmux_server_core::pairing::enrollment::jwk_thumbprint(&body["public_jwk"]).unwrap(),
             "collect_secret":"AAAAAAAAAAAAAAAAAAAAAA.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "verification_uri":"https://example.test/pair"}))
