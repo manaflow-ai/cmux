@@ -61,14 +61,17 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         guard let options = (request["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
               !options.isEmpty else { throw .question }
         // The allow-once option the question card answers with (webviews question/model.ts
-        // `answerOption`: the first allow_once among options with a non-empty string id), and the
-        // one acpmux takes it for (check_reply: the first option with that id, of an allow kind).
-        // Any other option, a lasting one or a later allow-once, is refused.
-        let named = options.filter { ($0["optionId"] as? String).map { !$0.isEmpty } == true }
-        guard let once = named.first(where: { $0["kind"] as? String == "allow_once" })?["optionId"] as? String,
+        // `answerOption`: the first allow_once among options whose id is a string that is not
+        // blank, trimmed), and the one acpmux takes it for (check_reply: the first option with
+        // exactly that id, of an allow kind). Any other option is refused.
+        let trimmedID = { (entry: [String: Any]) -> String? in
+            (entry["optionId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let once = options.first(where: { trimmedID($0).map { !$0.isEmpty } == true
+                  && $0["kind"] as? String == "allow_once" }).flatMap(trimmedID),
               Self.equalBytes(once, option),
-              options.first(where: { ($0["optionId"] as? String).map { Self.equalBytes($0, option) } == true })?["kind"]
-                as? String == "allow_once" else { throw .option }
+              (options.first(where: { ($0["optionId"] as? String).map { Self.equalBytes($0, option) } == true })?["kind"]
+                as? String)?.hasPrefix("allow") == true else { throw .option }
         guard let answers = reply["answers"] as? [String: Any],
               Self.validAnswers(answers, items: items, codex: harness == "codex") else { throw .answers }
         if let annotations = reply["annotations"],
@@ -90,7 +93,8 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
         for item in items {
             guard let allowsOther = boolean(item["allowsOther"], default: true),
                   let multiSelect = boolean(item["multiSelect"], default: false) else { return false }
-            guard let key = item[codex ? "id" : "prompt"] as? String, !key.isEmpty,
+            // A Claude prompt may be empty: the card keys its answer by it as given, as acpmux reads it.
+            guard let key = item[codex ? "id" : "prompt"] as? String, !codex || !key.isEmpty,
                   key.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes, seen.insert(Data(key.utf8)).inserted,
                   let value = answers.first(where: { equalBytes($0.key, key) })?.value else { return false }
             let labels: [String]

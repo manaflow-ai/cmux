@@ -201,6 +201,14 @@ struct AgentPaneQuestionReplyTests {
         request["options"] = [["optionId": 7, "kind": "allow_once"], ["optionId": "yes", "kind": "allow_once"]]
         #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
                                  question: try Self.fixture(["request": request])) == nil)
+        // A blank id is skipped as the card skips it.
+        request["options"] = [["optionId": "  ", "kind": "allow_once"], ["optionId": "yes", "kind": "allow_once"]]
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
+                                 question: try Self.fixture(["request": request])) == nil)
+        // acpmux takes the first option with the id when it is of an allow kind.
+        request["options"] = [["optionId": "yes", "kind": "allow_always"], ["optionId": "yes", "kind": "allow_once"]]
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
+                                 question: try Self.fixture(["request": request])) == nil)
         // acpmux reads the first option with the id: a reject_once of the same id refuses it there.
         request["options"] = [["optionId": "yes", "kind": "reject_once"], ["optionId": "yes", "kind": "allow_once"]]
         #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
