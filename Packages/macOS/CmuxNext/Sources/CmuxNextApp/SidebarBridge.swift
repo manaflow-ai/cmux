@@ -34,6 +34,8 @@ final class SidebarBridge {
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
     private var seed = SidebarSeed()
+    /// Holds one list's "Connecting…" labels for the startup deadline (the store's drop grace too).
+    private lazy var connectingLabels = SidebarPlaceholderGrace(wait: DaemonStartup.shared.defaultDeadline).rerunning(sameTurn)
     /// The one writer of the rows: live rows plus pending edits (cx-odqn).
     lazy var rows = SidebarRows(model: model)
     lazy var selectionHold = SidebarSelectionHold(model: model)
@@ -243,7 +245,7 @@ final class SidebarBridge {
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
                       creating: [PendingWorkspaceRows.Row] = []) {
-        var sections = seed.merge(live, launching: launching, failed: failed)
+        var sections = connectingLabels.holdingConnectingLabels(seed.merge(live, launching: launching, failed: failed))
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil

@@ -562,3 +562,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
+
+## One list's "Connecting…" waits out the startup deadline (2026-10-30)
+
+- Leo, verbatim: "STOP SHOWING FUCKING BULLSHIT ON LOAD". In one list (machines not grouped), another machine's workspace rows named "Connecting…" from the first frame of every launch. `SidebarPlaceholderGrace.holdingConnectingLabels` (the bridge's own instance, waiting `DaemonStartup.defaultDeadline`, 10 s) marks a machine connecting for less than that `SidebarMachine.holdsStatusLabel`, and `SidebarModel.listOptions` names no label for it; a connect that lasts still says "Connecting…". Header dot, tone and every other status unchanged. Test: `DaemonStartupFailureStateTests.theConnectingLabelWaitsOutTheGrace`.

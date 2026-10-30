@@ -35,7 +35,18 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var savedOpenGroups: Set<TabGroupID> = []
     /// Sidebar flattening, recomputed only when order, membership, or groups change.
     public internal(set) var sidebarSections: [SidebarSection] = []
-    public internal(set) var connectionState: DaemonConnectionState = .connecting
+    public internal(set) var connectionState: DaemonConnectionState = .connecting {
+        didSet { noteConnectionState(from: oldValue) }
+    }
+    /// True for `dropGrace` after a connection that was up drops, until it is up again
+    /// (`DaemonStore+DropGrace`): a restart or a version handoff reconnects within it, so
+    /// surfaces keep saying connecting instead of flashing "Unreachable" or "offline".
+    public internal(set) var isInDropGrace = false
+    /// How long a drop reads as reconnecting: the startup deadline the window waits too.
+    @ObservationIgnored public var dropGrace: Duration = DaemonStartup.shared.defaultDeadline
+    /// Clock of `dropGrace` (tests inject one that does not wait).
+    @ObservationIgnored public var dropGraceClock: any Clock<Duration> = ContinuousClock()
+    @ObservationIgnored var dropGraceTimer: DemandTimer?
     /// Counts connection changes (connected, disconnected, shut down), so a
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
@@ -365,7 +376,8 @@ public final class DaemonStore: StateResourceQueries {
         if self.identity != identity { self.identity = identity }
     }
 
-    /// Marks the connection permanently failed (incompatible daemon).
+    /// Marks the connection failed: a failure retrying cannot fix (incompatible daemon, a
+    /// refused handshake) or one that outlived the startup deadline (`DaemonService`).
     public func markFailed(_ message: String) {
         connectionState = .failed(message)
     }
