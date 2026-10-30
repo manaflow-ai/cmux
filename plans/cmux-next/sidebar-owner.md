@@ -1,5 +1,10 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
+  pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
+  tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
+  tile keeps its active fill. Nothing else about the tiles changes. Regression: `SidebarShiftClickPinnedTests`.
+
 - 2026-10-29: the tab tuck and additive geometry springs hold their starting values until their
   explicit begin times. Display-rate frames at nightly source `316bd521` showed an initial flash;
   opacity-only backwards fill exposed the destination frame, so geometry needs the same fill.
