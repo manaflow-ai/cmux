@@ -293,7 +293,6 @@ export class SubagentFold {
         (reporter === undefined || this.rootThreads.has(reporter));
       // A spawnAgent's sender is the parent of the threads it lists (Rust's spawn_authoritative),
       // so its parent moves an agent already recorded under a stale or missing one.
-      const authoritative = rootRepair || sender !== undefined;
       const normalized =
         sender === undefined
           ? rootRepair
@@ -302,7 +301,7 @@ export class SubagentFold {
               typeof change.parent === "string" && this.rootThreads.has(change.parent)
               ? { ...change, parent: null }
               : change
-          : { ...change, parent: this.parentFor(sender, change.parent), ...(authoritative ? { __reparent: true } : {}) };
+          : { ...change, parent: this.parentFor(sender, change.parent), __reparent: true };
       this.apply(normalized, event, spawn);
     }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
