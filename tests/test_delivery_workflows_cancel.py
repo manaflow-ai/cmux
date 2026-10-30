@@ -335,7 +335,8 @@ class DeliveryRunTests(unittest.TestCase):
             self.assertTrue(dw.delivers(self.CANARY, event))
 
     def test_the_dev_build_counts_by_run_name_and_ordinary_workflows_never_do(self):
-        self.assertTrue(dw.delivers(".github/workflows/cmux-next.yml", "workflow_dispatch", "cmux NEXT DEV daily · abc"))
+        dev = "cmux NEXT DEV daily · abc"
+        self.assertTrue(dw.delivers(".github/workflows/cmux-next.yml", "workflow_dispatch", dev))
         self.assertFalse(dw.delivers(".github/workflows/cmux-next.yml", "workflow_dispatch", "cmux-next"))
         self.assertFalse(dw.delivers(".github/workflows/ci.yml", "schedule"))
 

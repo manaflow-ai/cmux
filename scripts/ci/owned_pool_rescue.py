@@ -404,6 +404,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import (  # noqa: E402
     MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, nightly_dedicated, parse_queue_rounds, persistent)
+from delivery_workflows import is_delivery_event, is_delivery_run  # noqa: E402
 import owned_pool_sources  # noqa: E402
 import pr_runner_pool  # noqa: E402
 import simple_pool_picker  # noqa: E402
@@ -2234,6 +2235,9 @@ class Target:
     # cmux-next's bot attempt 3 (REFUSAL_RESCUE_ATTEMPT): still on the minis, so a
     # refusal there goes to Blacksmith as attempt 4; a long queue is not moved.
     refusals_only: bool = False
+    # The run's event (pull_request, push, schedule, ...); "" when unread, which never_fails_over() treats as a
+    # delivery event.
+    event: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -2293,20 +2297,21 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
-                      path=str(path), attempt_started_at=attempt_started)
+                      path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
-                      attempt_started_at=attempt_started)
+                      attempt_started_at=attempt_started, event=str(run.get("event") or ""))
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
         push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started, push_branch=push_branch)
+                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started)
+                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started,
+                  event=str(run.get("event") or ""))
 
 
 def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
@@ -2341,7 +2346,7 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True, push_branch=str(run["head_branch"]))
+                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""))
 
 
 def marker_name(target: Target) -> str:
@@ -3228,8 +3233,10 @@ PLACEMENT_JOBS = frozenset({
 })
 
 
-# The workflows the open-head failover never touches, named explicitly (dep-fleet's ruling): nightly, DEV and
-# promote builds and their sign, verify and publish runs. A path with "nightly" in it is excluded as well.
+# The workflows whose delivery runs the open-head failover never touches, named explicitly (dep-fleet's ruling):
+# nightly, DEV and promote builds and their sign, verify, publish and rollback runs. Every delivery workflow
+# (delivery_workflows.is_delivery_run()) is excluded as well. The ruling covers delivery runs only: a pull request's
+# test run of one of these (nightly-next-canary.yml, nightly-next-launch-smoke.yml) is an ordinary pull request run.
 NEVER_FAILOVER_PATHS = frozenset({
     NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH,
     ".github/workflows/cmux-next-dev-daily-dispatch.yml", ".github/workflows/release.yml",
@@ -3240,9 +3247,11 @@ NEVER_FAILOVER_PATHS = frozenset({
 })
 
 
-def never_fails_over(path: str) -> bool:
-    """A nightly, DEV or promote workflow (NEVER_FAILOVER_PATHS, or any path naming nightly)."""
-    return path in NEVER_FAILOVER_PATHS or "nightly" in path.rsplit("/", 1)[-1]
+def never_fails_over(path: str, event: str | None) -> bool:
+    """A delivery run: a nightly, DEV, promote, release, sign or rollback workflow's (NEVER_FAILOVER_PATHS, or
+    delivery_workflows.is_delivery_run()) from an event that can deliver (delivery_workflows.is_delivery_event(): any
+    event but a pull request's; an unread one counts)."""
+    return is_delivery_event(event) and (path in NEVER_FAILOVER_PATHS or is_delivery_run(path))
 
 
 def job_started(job: Mapping[str, Any]) -> bool:
@@ -3489,7 +3498,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     compile queued on glaeda-std-xcode-26.6 for over four hours while that label ran nothing.
     """
     if not target.pr_number or target.nightly or target.main or target.e2e or target.push_branch \
-            or target.path in FEED_TIMEOUT_PATHS or never_fails_over(target.path):
+            or target.path in FEED_TIMEOUT_PATHS or never_fails_over(target.path, target.event):
         return NO_FAILOVER
     reader = getattr(api, "pool_snapshot", None)
     if reader is None:

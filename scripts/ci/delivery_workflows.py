@@ -72,6 +72,27 @@ def is_delivery_run(path: str | None, *names: str | None) -> bool:
     return any(str(name or "").startswith(prefix) for name in names for prefix in prefixes)
 
 
+# A delivery workflow's run from one of these events only tests a change to it: nightly-next-canary.yml and
+# nightly-next-launch-smoke.yml run for the pull requests that edit them, and that run publishes, signs, rolls back
+# and files nothing. dep-fleet's ruling (#27521) protects started nightly, DEV and promote builds, never these, so a
+# pull request run of a delivery workflow is an ordinary pull request run to the rescue's open-head failover and the
+# queue janitor.
+TEST_ONLY_EVENTS = frozenset({"pull_request", "pull_request_target", "merge_group"})
+
+
+def is_delivery_event(event: str | None) -> bool:
+    """Whether a run's event can deliver: any event but a pull request's (TEST_ONLY_EVENTS). An unread event counts,
+    so a run whose event is unknown keeps its protection."""
+    return str(event or "") not in TEST_ONLY_EVENTS
+
+
+def delivers(path: str | None, event: str | None, *names: str | None) -> bool:
+    """Whether a run is a delivery run: a delivery workflow's (is_delivery_run(), the same titles) from an event that
+    can deliver (is_delivery_event()): a schedule, a dispatch, a push, a workflow_run. A pull request run of
+    nightly-next-canary.yml is not one; its scheduled run, or a dispatch on the nightly branch, is."""
+    return is_delivery_event(event) and is_delivery_run(path, *names)
+
+
 # --- skipping a stale run for the tip ----------------------------------------
 # The rule (sr2, 2026-10-28): "count a nightly, dev or promote run as stale,
 # and so cancellable, only when all of these hold: 1. every job except light
