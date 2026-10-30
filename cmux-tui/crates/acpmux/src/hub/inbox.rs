@@ -17,9 +17,11 @@
 //! sends a chat that never ran a turn, with none running and nothing waiting (`lane-place
 //! --prompt-file`, `acpmux new` with a prompt), runs as that prompt, and its sender is the chat's
 //! delegator once its turn starts. The prompt holds the first work while it runs
-//! ([`FirstWork`]), so of two that come at once only one is it; a refused one lets go. Messages after it, and any to a chat that ran a turn, go to the inbox. A lane's
-//! brief came to it as a notice of its brief (2026-10-30), so the lane read a thread where it
-//! should have read its task.
+//! ([`FirstWork`]), so of two that come at once only one is it; a refused one lets go. No notice
+//! goes ahead of it while it holds the chat (`inbox_review`); a person's prompt may, and its
+//! sender is the delegator still. Messages after it, and any to a chat that ran a turn, go to the
+//! inbox. A lane's brief came to it as a notice of its brief (2026-10-30), so the lane read a
+//! thread where it should have read its task.
 //!
 //! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
@@ -716,6 +718,12 @@ impl Hub {
                             } else {
                                 Next::Steer
                             }
+                        }
+                        // A first work holds the chat and has no turn yet: no notice goes ahead
+                        // of it. Looked at again after the debounce, until its turn takes the
+                        // notice or its hold is let go.
+                        None if inbox.first.is_some() => {
+                            Next::WakeAt(now.saturating_add(WAKE_DEBOUNCE_MS))
                         }
                         None => {
                             // A waking message after the debounce; anything after the flush, so no

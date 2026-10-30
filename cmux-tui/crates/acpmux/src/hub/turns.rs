@@ -371,7 +371,7 @@ impl Hub {
             opts.inbox,
         );
         // Held until this prompt ends: its turn, or its refusal (`inbox.rs`).
-        let _first_work = match route {
+        let first_work = match route {
             super::inbox::Route::First(first) => Some(first),
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
@@ -390,7 +390,7 @@ impl Hub {
             }
         };
         #[cfg(test)]
-        if _first_work.is_some() {
+        if first_work.is_some() {
             let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((arrived, release)) = seam {
                 let _ = arrived.send(());
@@ -604,8 +604,9 @@ impl Hub {
             // The sender of a chat's first turn is its delegator (`inbox.rs`): named once the
             // turn starts, so a prompt refused before it names none, and over one a message the
             // inbox took while this first work waited to start named. Its own sender, not a
-            // digest's: messages that joined its turn (`digest.rs`) name none.
-            if m.turn_count == 0
+            // digest's: messages that joined its turn (`digest.rs`) name none. A first work a
+            // person's prompt went ahead of still names it.
+            if (m.turn_count == 0 || first_work.is_some())
                 && let Some(from) = super::inbox::sender_session(run.provenance.as_ref())
                 && from != m.id
             {
