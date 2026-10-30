@@ -265,18 +265,23 @@ extension CaptureSceneRegistry {
                                   windowID: String) async -> CmuxNextSettings.JSONValue {
         for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
         let added = addAgentCloudMachines()
+        // Every machine's header draws (a header stays without rows), and every workspace a window took
+        // draws its row: anything else is a fixture that never reached the sidebar.
         let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
             let rows = agentMachineRows(windowID: windowID)
-            return Set(rows.filed).isSubset(of: rows.drawn)
+            return rows.headers.count == Self.agentMachineIDs.count && Set(rows.filed).isSubset(of: rows.drawn)
         }
         let rows = agentMachineRows(windowID: windowID)
+        let summary = "headers \(rows.headers.count)/\(Self.agentMachineIDs.count), in a window \(rows.filed.count), drawn \(rows.drawn.count)"
         let report: CmuxNextSettings.JSONValue = .object([
-            "machines": added, "in_a_window": .array(rows.filed.map { .string($0) }), "drawn": .array(rows.drawn.map { .string($0) }),
+            "machines": added, "headers": .array(rows.headers.map { .string($0) }),
+            "in_a_window": .array(rows.filed.map { .string($0) }), "drawn": .array(rows.drawn.map { .string($0) }),
+            "summary": .string(summary),
         ])
         guard shown else {
             for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
             services.windows.reconcileMembership()
-            return .object(["error": .string("a machine workspace a window took never drew in its sidebar"),
+            return .object(["error": .string("the Cloud machines never reached the sidebar (\(summary))"),
                             "scene": .string(definition.name), "scene_action": report])
         }
         // One more frame for the rows' layout.
@@ -297,11 +302,14 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// The machines' workspaces a window took, and those `windowID`'s sidebar draws.
-    func agentMachineRows(windowID: String) -> (filed: [String], drawn: [String]) {
+    /// The machines whose header `windowID`'s sidebar draws, their workspaces a window took, and those it draws.
+    func agentMachineRows(windowID: String) -> (headers: [String], filed: [String], drawn: [String]) {
         let workspaces = Self.agentMachineIDs.map { "ws-\($0)" }
-        let rows = Set(services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).map(\.id.rawValue) ?? [])
-        return (workspaces.filter { services.windows.registry.value.owner(of: $0) != nil }, workspaces.filter(rows.contains))
+        let sections = services.windows.controller(for: windowID)?.sidebar.model.sections ?? []
+        let rows = Set(sections.flatMap(\.workspaces).map(\.id.rawValue))
+        let machines = Set(sections.compactMap(\.machine?.id.rawValue))
+        return (Self.agentMachineIDs.filter(machines.contains), workspaces.filter { services.windows.registry.value.owner(of: $0) != nil },
+                workspaces.filter(rows.contains))
     }
 
     func addAgentCloudMachines() -> CmuxNextSettings.JSONValue {
@@ -313,6 +321,9 @@ extension CaptureSceneRegistry {
             let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name), link: link,
                                               mainWork: services.mainWork)
             services.machines.add(session)
+            // Connected, as the account's list leaves a running machine: a connecting one draws no rows.
+            _ = session.daemon.store.apply(.connected(DaemonIdentity(registryID: "s-\(id)", generation: "capture"),
+                                                      generationChanged: false))
             session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: [
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(id)"), name: "workspace-1"),
             ]))
