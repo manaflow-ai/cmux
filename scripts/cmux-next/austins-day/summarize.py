@@ -5,8 +5,17 @@
 
 arm.json (written by austins-day.sh): {"arm": "base"|"head"|"run", "sha", "job", "round", "host"}.
 Every metric is over the load phase. Distributions are {n, p50, p95, p99, max} (nearest rank);
-counts are plain numbers. Per arm, each metric is listed per run and as the median over runs. An
-A/B is evidence only when both arms ran on the same host (the summary says so per round).
+counts are plain numbers. Per arm, each metric is listed per run and as the median over runs.
+
+An A/B (base and head arms) gives a verdict per metric: a paired percentile bootstrap 95 % confidence
+interval of mean(head - base) over the rounds (each round is one base and one head run on one host),
+10,000 resamples with a fixed seed. Every metric is lower-is-better: `better` when the whole interval is
+below 0, `worse` when it is above 0, else `no difference`. No verdict at all ("invalid: ...") when:
+- any base run showed none of Austin's failures ("invalid: base did not reproduce"): the scenario did not
+  load that base the way Austin's day did, so a difference proves nothing (cmux-ad 2026-10-30);
+- the head commit changes scripts/cmux-next/austins-day/ ("invalid: head edits the harness"): the
+  harness is held out; only its owner changes it, in its own PR;
+- a run has no results.
 
 `austin_failure` per run names which of Austin's failures the run showed: refused daemon
 connections, app requests with no reply in time, registry lock waits over 1 s at p99, acpmux
@@ -15,8 +24,10 @@ restarts, cmux main-thread stalls over 100 ms. A run that shows none did not rep
 import json
 import math
 import os
+import random
 import re
 import statistics
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -118,6 +129,20 @@ def stat(snapshot, *path):
     return value
 
 
+def slope_per_hour(samples, key):
+    """Least-squares slope of `key` over time, per hour (memory and fd growth over a run); None with fewer
+    than 3 samples. One process's pid change (a restart) resets nothing: a restart shows as a step."""
+    points = [(s["t"], s[key]) for s in samples if isinstance(s.get(key), (int, float)) and isinstance(s.get("t"), (int, float))]
+    if len(points) < 3:
+        return None
+    mean_t = sum(t for t, _ in points) / len(points)
+    mean_v = sum(v for _, v in points) / len(points)
+    var = sum((t - mean_t) ** 2 for t, _ in points)
+    if var == 0:
+        return None
+    return round(sum((t - mean_t) * (v - mean_v) for t, v in points) / var * 3600, 2)
+
+
 def run_metrics(run):
     series = run["series"]
     load = lambda rows: [r for r in rows if r.get("phase") == "load"]
@@ -180,6 +205,9 @@ def run_metrics(run):
         "swap_used_mb": dist(s.get("swap_used_mb") for s in load_samples),
         "memory_level_min": min((s.get("memory_level") for s in load_samples if s.get("memory_level") is not None), default=None),
         "memory": memory,
+        "fds": {proc: dist(s.get(f"{proc}_fds") for s in samples) for proc in ("app", "daemon", "acpmux")},
+        "growth_per_hour": {proc: {key: slope_per_hour(samples, f"{proc}_{key}") for key in ("rss_mb", "footprint_mb", "fds")}
+                            for proc in ("app", "daemon", "acpmux")},
         "stalls_over_100ms_cmux": sum(1 for s in run["stalls"] if s.get("cmux_frame")),
         "stalls_over_100ms_all": len(run["stalls"]),
         "stall_sites": stall_sites(run["stalls"]),
@@ -214,6 +242,11 @@ KEY = [  # (label, path in metrics) for the text summary
     ("load1 max", ("load1", "max")),
     ("swap used max MB", ("swap_used_mb", "max")),
     ("cmux stalls >100 ms", ("stalls_over_100ms_cmux",)),
+    ("app fds max", ("fds", "app", "max")),
+    ("daemon fds max", ("fds", "daemon", "max")),
+    ("app RSS growth MB/h", ("growth_per_hour", "app", "rss_mb")),
+    ("daemon RSS growth MB/h", ("growth_per_hour", "daemon", "rss_mb")),
+    ("acpmux RSS growth MB/h", ("growth_per_hour", "acpmux", "rss_mb")),
 ]
 
 
@@ -224,25 +257,110 @@ def pick(metrics, path):
     return value
 
 
+HARNESS_DIR = "scripts/cmux-next/austins-day"
+BOOTSTRAP_RESAMPLES = 10000
+CONFIDENCE = 0.95
+
+
+def head_edits_harness(base_sha, head_sha, repo=REPO):
+    """True when the head commit's tree differs from the base's under the harness folder; None when git
+    cannot tell (a commit missing from the checkout: fetch it)."""
+    if not base_sha or not head_sha:
+        return None
+    try:
+        done = subprocess.run(["git", "-C", repo, "diff", "--quiet", base_sha, head_sha, "--", HARNESS_DIR],
+                              capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {0: False, 1: True}.get(done.returncode)
+
+
+def paired_bootstrap(pairs, seed=27698):
+    """Percentile bootstrap 95 % CI of mean(head - base) over the rounds' paired differences; (mean, low, high).
+    Deterministic (fixed seed), so the same runs always give the same verdict."""
+    diffs = [h - b for b, h in pairs]
+    if len(diffs) < 2:
+        return (diffs[0] if diffs else None), None, None
+    rng = random.Random(seed)
+    means = sorted(sum(rng.choice(diffs) for _ in diffs) / len(diffs) for _ in range(BOOTSTRAP_RESAMPLES))
+    tail = (1 - CONFIDENCE) / 2
+    low = means[int(tail * BOOTSTRAP_RESAMPLES)]
+    high = means[min(BOOTSTRAP_RESAMPLES - 1, int((1 - tail) * BOOTSTRAP_RESAMPLES))]
+    return sum(diffs) / len(diffs), low, high
+
+
+def verdict(low, high):
+    """Every KEY metric is lower-is-better. `better`/`worse` only when the interval excludes 0."""
+    if low is None or high is None:
+        return "no interval"
+    if high < 0:
+        return "better"
+    if low > 0:
+        return "worse"
+    return "no difference"
+
+
+def compare(runs):
+    """The A/B verdict per metric over rounds that have both a base and a head run on one host."""
+    by_round = {}
+    for r in runs:
+        if "metrics" in r and r.get("arm") in ("base", "head"):
+            by_round.setdefault(r.get("round"), {})[r["arm"]] = r
+    rounds = [v for _, v in sorted(by_round.items(), key=lambda kv: str(kv[0]))
+              if "base" in v and "head" in v and v["base"].get("host") == v["head"].get("host")]
+    out = {"method": f"paired percentile bootstrap, {int(CONFIDENCE * 100)} % CI of mean(head - base) over rounds, "
+                     f"{BOOTSTRAP_RESAMPLES} resamples, seed 27698; lower is better for every metric",
+           "rounds": len(rounds), "metrics": {}}
+    for label, path in KEY:
+        pairs = [(pick(v["base"]["metrics"], path), pick(v["head"]["metrics"], path)) for v in rounds]
+        pairs = [(b, h) for b, h in pairs if isinstance(b, (int, float)) and isinstance(h, (int, float))]
+        mean, low, high = paired_bootstrap(pairs)
+        out["metrics"][label] = {"pairs": len(pairs), "mean_diff": mean, "ci_low": low, "ci_high": high,
+                                 "verdict": verdict(low, high)}
+    return out
+
+
+def validity(runs):
+    """Why this A/B gives no verdict, or None. A run counts only when the base reproduced Austin's day
+    (cmux-ad 2026-10-30): any base run that showed none of Austin's failures makes the whole A/B invalid. A
+    head whose commit changes the harness folder is refused too (the harness is held out)."""
+    base = [r for r in runs if r.get("arm") == "base"]
+    head = [r for r in runs if r.get("arm") == "head"]
+    if not base or not head:
+        return None
+    missing = [r["dir"] for r in base + head if "metrics" not in r]
+    if missing:
+        return f"invalid: runs without results: {', '.join(missing)}"
+    quiet = [f"round {r.get('round')}" for r in base if not any(r["metrics"]["austin_failure"].values())]
+    if quiet:
+        return f"invalid: base did not reproduce ({', '.join(quiet)} showed none of Austin's failures)"
+    edits = head_edits_harness(base[0].get("sha"), head[0].get("sha"))
+    if edits is None:
+        return "invalid: cannot check the head for harness edits (fetch both commits into this checkout)"
+    if edits:
+        return f"invalid: head edits the harness ({HARNESS_DIR} differs between base and head)"
+    return None
+
+
 def main():
     out_path, run_dirs = sys.argv[1], sys.argv[2:]
     runs = []
     for d in run_dirs:
         try:
-            run = json.load(open(os.path.join(d, "run.json")))
-        except (OSError, ValueError) as error:
-            runs.append({"dir": d, "error": f"no run.json: {error}"})
-            continue
-        try:
             arm = json.load(open(os.path.join(d, "arm.json")))
         except (OSError, ValueError):
             arm = {"arm": "run"}
+        try:
+            run = json.load(open(os.path.join(d, "run.json")))
+        except (OSError, ValueError) as error:
+            runs.append({"dir": d, **arm, "error": f"no run.json: {error}"})
+            continue
         runs.append({"dir": d, **arm, "host": arm.get("host") or run.get("host"), "metrics": run_metrics(run)})
     arms = {}
     for r in runs:
         if "metrics" in r:
             arms.setdefault(r["arm"], []).append(r)
-    summary = {"schema": 1, "runs": runs, "arms": {}}
+    summary = {"schema": 2, "runs": runs, "arms": {}}
     for name, members in arms.items():
         medians = {}
         for label, path in KEY:
@@ -255,15 +373,31 @@ def main():
     for r in runs:
         rounds.setdefault(r.get("round"), set()).add(r.get("host"))
     summary["same_host_per_round"] = {str(k): len(v) == 1 for k, v in rounds.items()}
+    summary["invalid"] = validity(runs)
+    if "base" in arms and "head" in arms and not summary["invalid"]:
+        summary["comparison"] = compare(runs)
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=1, default=str)
     names = list(summary["arms"])
     lines = [f"Austin's day: {len(runs)} runs; arms {', '.join(f'{n} ({summary['arms'][n]['sha'] or '?'}, {summary['arms'][n]['runs']} runs)' for n in names)}"]
     lines.append(f"same host per round: {summary['same_host_per_round']}")
+    if summary["invalid"]:
+        lines.append(f"{summary['invalid']} -- NO VERDICT")
     width = max(len(label) for label, _ in KEY)
-    lines.append(" " * width + "  " + "  ".join(f"{n:>12}" for n in names))
+    comparison = summary.get("comparison")
+    header = " " * width + "  " + "  ".join(f"{n:>12}" for n in names)
+    if comparison:
+        header += f"  {'head-base [95% CI]':>34}  verdict"
+    lines.append(header)
     for label, _ in KEY:
-        lines.append(f"{label:<{width}}  " + "  ".join(f"{str(summary['arms'][n]['median'][label]):>12}" for n in names))
+        line = f"{label:<{width}}  " + "  ".join(f"{str(summary['arms'][n]['median'][label]):>12}" for n in names)
+        if comparison:
+            c = comparison["metrics"][label]
+            fmt = lambda v: "?" if v is None else f"{v:.4g}"
+            line += f"  {fmt(c['mean_diff']) + ' [' + fmt(c['ci_low']) + ', ' + fmt(c['ci_high']) + ']':>34}  {c['verdict']}"
+        lines.append(line)
+    if comparison:
+        lines.append(f"({comparison['method']}; {comparison['rounds']} rounds)")
     for r in runs:
         if "metrics" not in r:
             lines.append(f"{r['dir']}: {r['error']}")

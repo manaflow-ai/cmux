@@ -126,6 +126,89 @@ class Summary(unittest.TestCase):
             self.assertTrue(all(m["austin_failure"].values()), m["austin_failure"])
 
 
+def write_run(root, name, arm, sha, round_, quiet=False, scale=1.0):
+    d = os.path.join(root, name)
+    os.makedirs(d)
+    run_ = synthetic_run()
+    if quiet:  # a base that shows none of Austin's failures
+        last = run_["series"]["server_stats"][-1]["stats"]
+        last["connections"]["refused"] = 0
+        last["registry_lock"]["wait_us"]["p99"] = 1000
+        run_["series"]["person_cli"] = [{"phase": "load", "ms": 5.0, "code": None}]
+        run_["series"]["acpmux_pids"] = [{"pid": 1}]
+        run_["app_log"]["no_reply_within"] = 0
+        run_["app_probe"]["end"]["timeouts"] = 0
+        run_["stalls"] = []
+    for p in run_["series"]["person_cli"]:
+        p["ms"] *= scale
+    with open(os.path.join(d, "run.json"), "w") as f:
+        json.dump(run_, f)
+    with open(os.path.join(d, "arm.json"), "w") as f:
+        json.dump({"arm": arm, "sha": sha, "round": round_, "host": "h"}, f)
+    return d
+
+
+def summarize(out, dirs):
+    done = run(sys.executable, "-I", os.path.join(HERE, "summarize.py"), out, *dirs)
+    assert done.returncode == 0, done.stderr
+    with open(out) as f:
+        return json.load(f)
+
+
+REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+
+
+def harness_commits():
+    """(a commit, its parent) where the parent changes nothing in the harness folder: the latest commit
+    that does not touch it, and one that does (its first commit)."""
+    touching = run("git", "-C", REPO, "log", "--format=%H", "--", "scripts/cmux-next/austins-day").stdout.split()
+    first = touching[-1]
+    return first + "~1", first
+
+
+class Validity(unittest.TestCase):
+    def test_a_base_that_did_not_reproduce_gives_no_verdict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+            dirs = [write_run(tmp, "base-1", "base", head, 1, quiet=True), write_run(tmp, "head-1", "head", head, 1),
+                    write_run(tmp, "base-2", "base", head, 2), write_run(tmp, "head-2", "head", head, 2)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertTrue(summary["invalid"].startswith("invalid: base did not reproduce"), summary["invalid"])
+            self.assertNotIn("comparison", summary)
+            with open(os.path.join(tmp, "s.txt")) as f:
+                self.assertIn("NO VERDICT", f.read())
+
+    def test_a_head_that_edits_the_harness_gives_no_verdict(self):
+        before, after = harness_commits()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = [write_run(tmp, "base-1", "base", before, 1), write_run(tmp, "head-1", "head", after, 1)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertEqual(summary["invalid"], "invalid: head edits the harness (scripts/cmux-next/austins-day differs between base and head)")
+
+
+class Verdicts(unittest.TestCase):
+    def test_better_only_outside_the_interval(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            # Five rounds: the head's person CLI times are a third of the base's every round: better.
+            for r in range(1, 6):
+                dirs += [write_run(tmp, f"base-{r}", "base", head, r), write_run(tmp, f"head-{r}", "head", head, r, scale=1 / 3)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertIsNone(summary["invalid"])
+            metrics = summary["comparison"]["metrics"]
+            self.assertEqual(metrics["person CLI p99 ms"]["verdict"], "better")
+            self.assertLess(metrics["person CLI p99 ms"]["ci_high"], 0)
+            # Identical in every round: the interval is [0, 0], which is not outside 0.
+            self.assertEqual(metrics["daemon refused"]["verdict"], "no difference")
+        with tempfile.TemporaryDirectory() as tmp:
+            # Two rounds that disagree (one better, one worse): no difference.
+            dirs = [write_run(tmp, "base-1", "base", head, 1), write_run(tmp, "head-1", "head", head, 1, scale=0.5),
+                    write_run(tmp, "base-2", "base", head, 2), write_run(tmp, "head-2", "head", head, 2, scale=2.0)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertEqual(summary["comparison"]["metrics"]["person CLI p99 ms"]["verdict"], "no difference")
+
+
 class Hog(unittest.TestCase):
     def test_hog_ends_at_its_deadline(self):
         with tempfile.TemporaryDirectory() as tmp:

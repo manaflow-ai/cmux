@@ -276,6 +276,14 @@ def footprints(pids):
     return result
 
 
+def open_fds(pid):
+    """Open file descriptors of `pid` (`lsof -p`, one line per fd after the header); None when unknown."""
+    rc, out, _ = sh(["lsof", "-n", "-P", "-p", str(pid)], timeout=30)
+    if rc not in (0, 1) or not out:
+        return None
+    return sum(1 for line in out.splitlines()[1:] if re.match(r"^\S+\s+\d+\s+\S+\s+\d+", line))
+
+
 def sampler():
     tick = 0
     while not STOP.is_set():
@@ -294,6 +302,7 @@ def sampler():
             fp = footprints([p for p in watched.values() if p])
             for name, pid in watched.items():
                 sample[f"{name}_footprint_mb"] = fp.get(pid) if pid else None
+                sample[f"{name}_fds"] = open_fds(pid) if pid else None
         record("samples", sample)
         if tick % 3 == 0:
             record("server_stats", {**server_stats(), "phase": PHASE["name"]})
