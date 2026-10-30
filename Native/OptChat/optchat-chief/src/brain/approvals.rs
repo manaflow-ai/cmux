@@ -239,6 +239,11 @@ impl Brain {
             "mcp__optchat__tell" => {}
             // Another person's words never become the owner's preference.
             "mcp__optchat__remember" => return false,
+            // Nor a task that later runs as the Chief's own note: an ask
+            // turn may only list the automations.
+            "mcp__optchat__automation" => {
+                return field("action").is_none_or(|a| a == "list");
+            }
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.

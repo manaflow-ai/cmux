@@ -209,6 +209,14 @@
       "scope": "calendar:read",
       "class": "read"
     },
+    "chief.automation.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.automation.update": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
     "chief.create": {
       "scope": "chief:write",
       "class": "mutation"

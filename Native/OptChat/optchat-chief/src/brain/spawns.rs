@@ -638,6 +638,7 @@ impl Brain {
                     .map(|(conversation, _)| conversation.clone())
                     .or_else(|| self.state.conversation.clone()),
             },
+            by_automation: self.turn_from_automation,
             answers: match self.state.turn.as_ref() {
                 Some(turn) => turn.answers.clone(),
                 None => self.state.last_answers.clone(),
@@ -1006,6 +1007,32 @@ impl Brain {
         }
         self.mark_workspace(id, true);
         self.deliver(&spawn);
+        // A run whose report reaches the Chief is an `agent_done` event
+        // (automations.rs); a quiet or held one is not done yet. Never for a
+        // subagent another person's turn started (its report runs under the
+        // ask floor, an automation's note would not), nor for one an
+        // automation's own turn started (it would fire itself again).
+        let (title, ask, by_automation) = self.state.sub(id).map_or_else(
+            || (String::new(), true, true),
+            |(spawn, s)| {
+                (
+                    s.title.clone(),
+                    report_requires_approval(s.policy.as_deref()),
+                    self.state
+                        .spawns
+                        .get(spawn)
+                        .is_some_and(|r| r.by_automation),
+                )
+            },
+        );
+        if !held && !stopped && !ask && !by_automation {
+            self.automation_event(crate::automations::Event::AgentDone {
+                id: id.to_owned(),
+                title,
+                run_ms,
+                report: report.clone(),
+            });
+        }
         // A tell that could not reach its run goes as its next prompt.
         self.flush_inbox(id);
         self.start_queued();

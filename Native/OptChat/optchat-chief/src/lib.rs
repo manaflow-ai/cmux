@@ -15,6 +15,7 @@ pub mod agent_memory;
 pub mod agents;
 pub mod approval;
 pub mod auto_resume;
+pub mod automations;
 pub mod backup;
 pub mod brain;
 pub mod browse;

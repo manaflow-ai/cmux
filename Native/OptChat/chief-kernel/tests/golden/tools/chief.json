@@ -431,6 +431,62 @@
     "name": "watch"
   },
   {
+    "name": "automation",
+    "description": "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; a GitHub event such as CI failing is not one). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. A run missed while this computer slept or cmux was closed runs once as soon as it is back; a job that must run on time while it sleeps goes to the Cloud Chief (chief-auto).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "add",
+            "list",
+            "pause",
+            "resume",
+            "delete",
+            "run"
+          ],
+          "description": "add: make one; list: see them all; pause, resume, delete, run (now): one by id."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "pause, resume, delete, run: the automation (au<N>)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "add: a short name the person sees in Chief settings, e.g. \"Morning PR summary\"."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "add: the whole task you do at each fire, standing alone (you will not see this turn then)."
+        },
+        "cron": {
+          "type": "string",
+          "minLength": 1,
+          "description": "add, a schedule: five fields in this Mac's time zone (minute hour day-of-month month day-of-week), e.g. \"0 9 * * *\" every day at 9, \"0 9 * * 1-5\" weekdays; or @hourly, @daily, @weekly."
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "agent_done"
+          ],
+          "description": "add, an event instead of cron: agent_done (one of your subagents finished). Each event fires it once."
+        },
+        "match": {
+          "type": "string",
+          "minLength": 1,
+          "description": "agent_done: only subagents whose title has this text."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "description": "Keep a lasting preference or correction of the user in their profile (optchat/person.md), dated, as one short rule: it holds from now on and in every later turn. Call it at once when the user says how they want things done from now on; a rule the profile already holds is a noop. Never a secret or a one-off task.",
     "inputSchema": {
       "additionalProperties": false,

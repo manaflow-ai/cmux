@@ -45,7 +45,7 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 12] = [
+const TURN_GATED: [&str; 13] = [
     "send",
     "reply",
     "react",
@@ -57,6 +57,7 @@ const TURN_GATED: [&str; 12] = [
     "control",
     "profile",
     "remember",
+    "automation",
     "cloud_workspace",
 ];
 
@@ -153,6 +154,12 @@ pub trait Orchestrator: Send + Sync {
     fn sleep(&self, call: SleepCall) -> Result<String, String> {
         let _ = call;
         Err("this Chief host cannot sleep".into())
+    }
+    /// `automation(action, ...)` (automations.rs): the person's scheduled
+    /// and event-triggered tasks.
+    fn automation(&self, call: crate::automations::AutomationCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host runs no automations".into())
     }
     /// `watch(command, until, timeout_seconds, note)`, or `cancel`, or the
     /// list (brain/watches.rs): the host runs the command off the turn and
@@ -526,6 +533,18 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             }
             Call::parse("sleep", &v)
         }
+        ("automation", []) => Call::parse("automation", &serde_json::json!({"action": "list"})),
+        ("automation", [action @ ("pause" | "resume" | "delete" | "run"), id]) => Call::parse(
+            "automation",
+            &serde_json::json!({"action": action, "id": id}),
+        ),
+        ("automation", [args]) => match serde_json::from_str::<Value>(args) {
+            Ok(v @ Value::Object(_)) => Call::parse("automation", &v),
+            _ if *args == "list" => {
+                Call::parse("automation", &serde_json::json!({"action": "list"}))
+            }
+            _ => return Ok(Command::Usage(usage(tool))),
+        },
         ("watch", []) => Call::parse("watch", &serde_json::json!({})),
         ("watch", ["--cancel", id]) => Call::parse("watch", &serde_json::json!({"cancel": id})),
         ("watch", [args]) if args.trim_start().starts_with('{') => {
@@ -609,6 +628,8 @@ pub fn usage(tool: &str) -> String {
             "watch" =>
                 "['{\"command\": \"...\", \"until\": \"REGEX\", \"timeout_seconds\": 1800, \"note\": \"...\"}'] | --cancel ID|all",
             "remember" => "\"the preference, one short line\"",
+            "automation" =>
+                "[list] | pause|resume|delete|run ID | '{\"action\": \"add\", \"name\": \"...\", \"prompt\": \"...\", \"cron\": \"0 9 * * *\"}' | '{\"action\": \"add\", \"prompt\": \"...\", \"event\": \"agent_done\"}'",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
             "peers" => "",
@@ -779,6 +800,9 @@ pub enum Call {
     },
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
+    /// `automation` (brain/automations.rs): scheduled and event-triggered
+    /// tasks.
+    Automation(crate::automations::AutomationCall),
     /// `cloud_workspace` (cloud_workspace.rs): a Cloud machine and its
     /// workspace for a task.
     CloudWorkspace(crate::cloud_workspace::Request),
@@ -954,6 +978,7 @@ impl Call {
                 crate::remember::clean(text).map(|text| Call::Remember { text })
             }
             "control" => ControlCall::parse(args).map(Call::Control),
+            "automation" => crate::automations::AutomationCall::parse(args).map(Call::Automation),
             "cloud_workspace" => {
                 let text = |key: &str| {
                     args.get(key)
@@ -1044,6 +1069,7 @@ impl Call {
             | Call::Watch(_)
             | Call::Remember { .. }
             | Call::Control(_)
+            | Call::Automation(_)
             | Call::CloudWorkspace(_)
             | Call::Peers
             | Call::ZoomAgent { .. }
@@ -1114,6 +1140,7 @@ impl Call {
             Call::Watch(c) => c.to_json(),
             Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
+            Call::Automation(c) => c.to_json(),
             Call::CloudWorkspace(r) => {
                 let mut v = json!({"tool": "cloud_workspace", "title": r.title});
                 if let Some(size) = &r.size {
@@ -1186,6 +1213,9 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// chief.automation.list / chief.automation.update: answers the
+    /// brain's JSON value.
+    Automations(crate::brain::AutomationsRequest),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1297,6 +1327,7 @@ fn connection(conn: UnixStream, served: &Served) {
                         | "inspect"
                         | "grant"
                         | "browse"
+                        | "automations"
                 ) && role() == crate::turn_caller::Role::Subagent
                 {
                     if writeln!(
@@ -1306,6 +1337,44 @@ fn connection(conn: UnixStream, served: &Served) {
                     )
                     .is_err()
                     {
+                        return;
+                    }
+                    continue;
+                }
+                // chief.automation.list / chief.automation.update: the
+                // owner's list, pause, resume and delete from Home, through
+                // the daemon's owner-gated chief-control.
+                if tool == "automations" {
+                    let ask = match (
+                        req.get("action").and_then(Value::as_str),
+                        req.get("automation").and_then(Value::as_str),
+                    ) {
+                        (None | Some("list"), _) => Some(crate::brain::AutomationsRequest::List),
+                        (Some(action), Some(id)) => {
+                            Some(crate::brain::AutomationsRequest::Update {
+                                id: id.to_owned(),
+                                action: action.to_owned(),
+                            })
+                        }
+                        (Some(_), None) => None,
+                    };
+                    let answer = match (ask, control) {
+                        (None, _) => {
+                            json!({"error": {"code": "bad_request", "message": "an update names its automation"}})
+                        }
+                        (Some(_), None) => {
+                            json!({"error": {"code": "unavailable", "message": "automations are not served here"}})
+                        }
+                        (Some(ask), Some(control)) => {
+                            match control(ControlRequest::Automations(ask)) {
+                                Ok(text) => serde_json::from_str(&text).unwrap_or_else(
+                                    |_| json!({"error": {"code": "internal", "message": text}}),
+                                ),
+                                Err(e) => json!({"error": {"code": "unavailable", "message": e}}),
+                            }
+                        }
+                    };
+                    if writeln!(out, "{answer}").is_err() {
                         return;
                     }
                     continue;
@@ -1494,11 +1563,12 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Watch(_)
                         | Call::Remember { .. }
                         | Call::Control(_)
+                        | Call::Automation(_)
                         | Call::CloudWorkspace(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, watch, remember, control, profile or chiefs"
+                        "subagents have no spawn, cloud_workspace, react, reply, send, transcript, stop, sleep, watch, remember, control, automation, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
@@ -1603,6 +1673,10 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),
                         None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::Automation(call)) => match &served.orchestrator {
+                        Some(o) => o.automation(call),
+                        None => Err("this Chief host runs no automations".to_owned()),
                     },
                     Ok(Call::CloudWorkspace(request)) => match &served.orchestrator {
                         Some(o) => o.cloud_workspace(&request),

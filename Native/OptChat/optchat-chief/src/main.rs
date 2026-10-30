@@ -178,7 +178,7 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
+            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control" | "automation"
             | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
             | "cloud_workspace"),
         ) => {

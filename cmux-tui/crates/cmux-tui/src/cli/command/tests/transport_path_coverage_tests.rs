@@ -345,6 +345,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        // Home's Chief settings lists, pauses and deletes
+                        // the Chief's automations; the Chief has its own
+                        // `automation` tool (optchat-chief automations.rs).
+                        | "chief.automation.list"
+                        | "chief.automation.update"
                         // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"

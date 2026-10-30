@@ -16552,6 +16552,126 @@
         "validation.invalid"
       ]
     },
+    "chief.automation.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "JsonValue"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's automations (optchat-chief automations.rs, issue 25573), owned by the brain and passed through unchanged: {automations: [{id, name, prompt, trigger: {type: schedule|agent_done, cron?, matches?, summary}, paused, created_ms, next_ms, last_fired_ms, runs}]}, oldest first."
+      ]
+    },
+    "chief.automation.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          },
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            },
+            "description": "The automation's id (au<N>) in the brain's list."
+          },
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pause",
+                "resume",
+                "delete",
+                "run"
+              ]
+            },
+            "description": "pause: it never fires until resumed; resume: it fires again from now (a schedule's next time after now); delete: it is gone; run: it fires once now."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
+        "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
+        "The brain's answer after the change, passed through unchanged: {automations: [...] as chief.automation.list, outcome: done|noop}. An automation the brain does not have: operation.failed details.reason not_found; an action it does not take: bad_request."
+      ]
+    },
     "chief.engine.get": {
       "class": "read",
       "idempotency": "forbidden",
