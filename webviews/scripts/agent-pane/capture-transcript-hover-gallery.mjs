@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
+import { preview } from "vite";
 
 const out = path.resolve(process.argv[2] ?? "transcript-hover-gallery-captures");
 const scheme = process.argv[3] === "light" ? "light" : "dark";
@@ -15,27 +16,18 @@ await new Promise((resolve, reject) => {
   build.once("error", reject);
   build.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`gallery build exited ${code}`))));
 });
-const server = spawn(
-  "bun",
-  ["x", "vp", "preview", "--config", "vite.config.gallery.ts", "--host", "127.0.0.1", "--port", "0"],
-  { cwd: root, stdio: ["ignore", "pipe", "pipe"] },
-);
-server.stderr.pipe(process.stderr);
-const stop = () => server.kill("SIGTERM");
-process.on("exit", stop);
+const server = await preview({
+  root,
+  configFile: path.join(root, "vite.config.gallery.ts"),
+  preview: { host: "127.0.0.1", port: 0 },
+});
+const address = server.httpServer.address();
+if (!address || typeof address === "string") {
+  server.httpServer.close();
+  throw new Error("gallery preview did not bind a TCP port");
+}
+const baseUrl = `http://127.0.0.1:${address.port}`;
 try {
-  const baseUrl = await new Promise((resolve, reject) => {
-    const onData = (chunk) => {
-      const match = chunk.toString().match(/Local:\s+(https?:\/\/\S+)/);
-      if (match) {
-        server.stdout.off("data", onData);
-        resolve(match[1].replace(/\/$/, ""));
-      }
-    };
-    server.stdout.on("data", onData);
-    server.once("error", reject);
-    server.once("exit", (code) => reject(new Error(`gallery preview exited ${code ?? "unknown"}`)));
-  });
   const browser = await chromium.launch();
   try {
     const context = await browser.newContext({
@@ -100,5 +92,5 @@ try {
     await browser.close();
   }
 } finally {
-  stop();
+  await new Promise((resolve, reject) => server.httpServer.close((error) => (error ? reject(error) : resolve())));
 }
