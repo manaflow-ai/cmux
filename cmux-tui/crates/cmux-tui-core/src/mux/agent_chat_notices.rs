@@ -148,23 +148,73 @@ impl Mux {
     }
 }
 
-/// The notices thread's wake. The socket watch hints through the mux, never
-/// with a sender of its own, so the only sender is here: dropping the mux, or
-/// [`Mux::stop_agent_chat_notices`] at shutdown, disconnects the channel and
-/// ends a thread that waits for the socket to appear.
+/// The notices thread's wakes, so it ends with its mux. The socket watch
+/// hints through the mux, never with a sender of its own, so the only sender
+/// is `hint`: taking it disconnects the channel and ends a thread that waits
+/// for the socket to appear. `connection` is a clone of the live acpmux
+/// connection: shutting it down ends a thread that waits on acpmux's next
+/// push. [`Mux::stop_agent_chat_notices`] does both at shutdown, and so does
+/// dropping the mux.
 #[derive(Default)]
-pub(super) struct AgentChatNoticesWake(Mutex<Option<mpsc::Sender<()>>>);
+pub(super) struct AgentChatNoticesWake(Mutex<NoticesWakes>);
+
+#[derive(Default)]
+pub(super) struct NoticesWakes {
+    hint: Option<mpsc::Sender<()>>,
+    connection: Option<UnixStream>,
+    stopped: bool,
+}
+
+impl NoticesWakes {
+    fn stop(&mut self) {
+        self.stopped = true;
+        self.hint = None;
+        if let Some(connection) = self.connection.take() {
+            // Shuts the socket, not this one descriptor: the thread's own
+            // read returns at once.
+            let _ = connection.shutdown(std::net::Shutdown::Both);
+        }
+    }
+}
+
+impl AgentChatNoticesWake {
+    fn lock(&self) -> std::sync::MutexGuard<'_, NoticesWakes> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl Drop for AgentChatNoticesWake {
+    fn drop(&mut self) {
+        self.lock().stop();
+    }
+}
 
 impl Mux {
     fn hint_agent_chat_notices(&self) {
-        if let Some(hint) = &*self.agent_chat_notices.0.lock().unwrap_or_else(|e| e.into_inner()) {
+        if let Some(hint) = &self.agent_chat_notices.lock().hint {
             let _ = hint.send(());
         }
     }
 
-    /// Ends the notices thread's wait for a socket change (shutdown).
+    /// Ends the notices thread, whether it waits for the socket to appear or
+    /// for acpmux's next push (shutdown).
     pub(super) fn stop_agent_chat_notices(&self) {
-        self.agent_chat_notices.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+        self.agent_chat_notices.lock().stop();
+    }
+
+    /// Keeps a clone of the live connection so a stop can end its read;
+    /// false when the notices already stopped (the connection is not used).
+    fn hold_agent_chat_connection(&self, stream: &UnixStream) -> bool {
+        let mut wakes = self.agent_chat_notices.lock();
+        if wakes.stopped {
+            return false;
+        }
+        wakes.connection = stream.try_clone().ok();
+        true
+    }
+
+    fn release_agent_chat_connection(&self) {
+        self.agent_chat_notices.lock().connection = None;
     }
 }
 
@@ -190,7 +240,11 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
     let (hint, hints) = mpsc::channel::<()>();
     {
         let Some(live) = mux.upgrade() else { return };
-        *live.agent_chat_notices.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(hint);
+        let mut wakes = live.agent_chat_notices.lock();
+        if wakes.stopped {
+            return;
+        }
+        wakes.hint = Some(hint);
     }
     // Shutdown marks the mux before it takes the sender: checked after the
     // sender is in place, a shutdown that came first is never missed.
@@ -310,11 +364,19 @@ fn connect_and_follow(
         Err(error) if no_listener(&error) => return Connection::Refused,
         Err(_) => return Connection::Failed,
     };
-    if let Some(live) = mux.upgrade() {
+    {
+        let Some(live) = mux.upgrade() else { return Connection::Ended { stayed_up: false } };
+        if !live.hold_agent_chat_connection(&stream) {
+            return Connection::Ended { stayed_up: false };
+        }
         // acpmux is back: what waited for it goes out now.
         live.wake_agent_message_pump();
     }
-    Connection::Ended { stayed_up: follow(mux, stream, chats).is_ok() }
+    let stayed_up = follow(mux, stream, chats).is_ok();
+    if let Some(live) = mux.upgrade() {
+        live.release_agent_chat_connection();
+    }
+    Connection::Ended { stayed_up }
 }
 
 /// One connection: the watch's list sets what each chat is doing, and every
@@ -762,7 +824,7 @@ mod tests {
         let weak = Arc::downgrade(mux);
         let thread = std::thread::spawn(move || watch(&weak, &socket));
         let deadline = Instant::now() + Duration::from_secs(5);
-        while mux.agent_chat_notices.0.lock().unwrap().is_none() {
+        while mux.agent_chat_notices.lock().hint.is_none() {
             assert!(Instant::now() < deadline, "the watch never armed");
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -800,6 +862,49 @@ mod tests {
         let thread = waiting_watch(&mux, "cmux-notices-drop");
         drop(mux);
         assert!(ends_within(&thread, Duration::from_secs(5)), "the watch outlived its mux");
+    }
+
+    /// Starts `watch` on a socket a silent acpmux listens on, and returns once
+    /// the thread is connected and waits for acpmux's reply. The listener is
+    /// returned too: dropping it would end the connection on its own.
+    fn connected_watch(
+        mux: &Arc<Mux>,
+        name: &str,
+    ) -> (std::thread::JoinHandle<()>, std::os::unix::net::UnixListener, UnixStream) {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a test folder");
+        let socket = dir.join("acpmux.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).expect("a listener");
+        let weak = Arc::downgrade(mux);
+        let thread = std::thread::spawn(move || watch(&weak, &socket));
+        let (accepted, _) = listener.accept().expect("the watch connects");
+        accepted.set_read_timeout(Some(Duration::from_secs(5))).expect("a read timeout");
+        let mut first = String::new();
+        BufReader::new(accepted.try_clone().expect("a clone"))
+            .read_line(&mut first)
+            .expect("the initialize request");
+        assert!(first.contains("initialize"), "{first}");
+        (thread, listener, accepted)
+    }
+
+    #[test]
+    fn shutdown_ends_a_watch_connected_to_a_silent_acpmux() {
+        // Connected, the thread blocks reading acpmux's next line with no
+        // timeout: shutdown must end that read too.
+        let mux = test_mux("notices-connected-shutdown");
+        let (thread, _listener, _acpmux) = connected_watch(&mux, "cmux-notices-conn-shutdown");
+        mux.shutting_down.store(true, std::sync::atomic::Ordering::Release);
+        mux.stop_agent_chat_notices();
+        assert!(ends_within(&thread, Duration::from_secs(5)), "the read outlived shutdown");
+    }
+
+    #[test]
+    fn dropping_the_mux_ends_a_watch_connected_to_a_silent_acpmux() {
+        let mux = test_mux("notices-connected-drop");
+        let (thread, _listener, _acpmux) = connected_watch(&mux, "cmux-notices-conn-drop");
+        drop(mux);
+        assert!(ends_within(&thread, Duration::from_secs(5)), "the read outlived its mux");
     }
 
     #[test]
