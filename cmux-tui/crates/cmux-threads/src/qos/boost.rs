@@ -65,7 +65,7 @@ mod sys {
 
     /// A registered thread.
     pub(crate) fn target_of(thread: &NativeThread) -> Target {
-        Target { pthread: thread.pthread() as usize }
+        Target { pthread: thread.pthread() }
     }
 
     /// Raises `target` to at least `qos`; `None` when the kernel refused.

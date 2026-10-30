@@ -133,9 +133,7 @@ extension PageWebView {
 
     /// WebKit's next presentation update (the layer tree the window shows), then `body`.
     private static func afterPresentationUpdate(of webView: WKWebView, _ body: @escaping () -> Void) {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_doAfterNextPresentationUpdate:")
-        guard webView.responds(to: selector) else { return body() }
+        guard let selector = webView.webKitSPI("_doAfterNextPresentationUpdate:") else { return body() }
         typealias Action = @convention(block) () -> Void
         // WebKit keeps the block until the update: it must be an escaping one.
         let action: Action = { body() }

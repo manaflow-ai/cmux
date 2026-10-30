@@ -1,7 +1,6 @@
 //! Orchestrator tags on a chat, each with an optional expiry.
 
 use super::*;
-use crate::no_panic::LockExt;
 
 impl Hub {
     /// Orchestrator tags with optional expiry.
@@ -12,9 +11,8 @@ impl Hub {
         remove: &[String],
         ttl_seconds: Option<u64>,
     ) {
-        {
-            let mut m = session.meta.lock_or_recover();
-            let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
+        let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
+        self.change_logged(session, "tags", |m| {
             if let Some(set) = set {
                 for (k, v) in set {
                     let value = match v {
@@ -27,8 +25,15 @@ impl Hub {
             for k in remove {
                 m.tags.remove(k);
             }
-        }
+            // With each tag's expiry, so a restart rebuilds the tags from this record
+            // (`meta_replay.rs`).
+            let expires: serde_json::Map<String, Value> = m
+                .tags
+                .iter()
+                .filter_map(|(k, t)| t.expires_at.map(|at| (k.clone(), json!(at))))
+                .collect();
+            Some(json!({"tags": live_tags(m), "expires": expires}))
+        });
         self.save_meta(session);
-        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
     }
 }

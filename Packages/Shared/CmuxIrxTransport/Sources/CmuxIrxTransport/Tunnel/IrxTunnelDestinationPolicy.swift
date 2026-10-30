@@ -58,6 +58,11 @@ public enum IrxTunnelIPAddress: Hashable, Sendable {
 
     /// Network-order bytes of `host`, parsed strictly by inet_pton.
     private static func parse(_ host: String, ipv6: Bool) -> [UInt8]? {
+        // Darwin's inet_pton takes a `%zone` suffix and writes the interface index
+        // into a link-local address's bytes (`fe80::1%en0` becomes fe80:7::1), so a
+        // scoped literal would be judged and dialed as a different address. Refuse
+        // it, as glibc does; the policy then denies it as a non-name (see `evaluate`).
+        guard !host.utf8.contains(UInt8(ascii: "%")) else { return nil }
         var bytes = [UInt8](repeating: 0, count: ipv6 ? 16 : 4)
         // SAFETY: inet_pton writes sizeof(struct in6_addr) (16) bytes for AF_INET6 and
         // sizeof(struct in_addr) (4) for AF_INET, exactly bytes.count. It reads the

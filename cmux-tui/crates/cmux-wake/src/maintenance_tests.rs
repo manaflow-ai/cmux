@@ -423,7 +423,7 @@ fn the_armed_kevent_carries_the_leeway() {
 #[cfg(target_os = "macos")]
 #[test]
 fn a_real_kqueue_accepts_and_fires_the_wall_clock_timer() {
-    let (_commands, receiver) = std::sync::mpsc::channel();
+    let (_commands, receiver) = mpsc::channel();
     let (waiter, _trigger) = platform::waiter(receiver).expect("a kqueue");
     let until = SystemTime::now() + Duration::from_millis(50);
     let change = platform::timer_event(until, Duration::from_millis(1));

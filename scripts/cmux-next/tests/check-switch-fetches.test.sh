@@ -42,7 +42,7 @@ fail "$ACPMUX/conversation/Fixture.tsx" "a layout effect read" $'useLayoutEffect
 
 pass "$ACPMUX/direct.ts" "a listed listener" 'document.addEventListener("visibilitychange", this.showChanged);'
 pass "$ACPMUX/direct.ts" "a listed lifecycle observer" 'this.stop = onPageLifecycleChange(this.showChanged);'
-pass "$ACPMUX/subagents/SubagentGroup.tsx" "a listed clock that catches up on show" 'usePageInterval(tick, 1000, { catchUpOnShow: true });'
+pass "$ACPMUX/clock.ts" "a listed clock that catches up on show" 'usePageInterval(tick, 1000, { catchUpOnShow: true });'
 pass "$VIEW" "an interval that does not catch up" 'usePageInterval(tick, 1000, { catchUpOnShow: false });'
 pass "$VIEW" "a marked mount read" $'// mount-read: the spare\'s model is wired only now\nuseEffect(() => {\n  void callNative("project.list");\n}, []);'
 pass "$VIEW" "a read keyed by its data" $'useEffect(() => {\n  void callNative("chat.read", { id });\n}, [id]);'

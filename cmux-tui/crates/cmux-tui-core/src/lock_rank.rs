@@ -70,7 +70,8 @@ pub(crate) enum LockRank {
     /// update reads the last attach colors.
     AttachTaps,
     /// Locks that never take another ranked lock while held (render hub,
-    /// title, mouse encoders, attach colors, `Mux::default_colors`).
+    /// title, mouse encoders, attach colors, `Mux::default_colors`,
+    /// `Mux::surface_options`).
     Leaf,
 }
 

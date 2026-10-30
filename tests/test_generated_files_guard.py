@@ -174,6 +174,21 @@ class GuardTests(unittest.TestCase):
                           "new/x.generated.ts": "x\n"}, "new to the baseline")
         self.assertPasses({guard.BASELINE: "", "legacy/old.generated.ts": None})
 
+    def test_a_baselined_file_that_moves_takes_its_line_along(self):
+        # A package split moves the file; its baseline line moves with it, and the baseline does not grow.
+        self.assertPasses({guard.BASELINE: "# baseline\nmoved/old.generated.ts\n",
+                           "legacy/old.generated.ts": None, "moved/old.generated.ts": "x\n"})
+        # A new generated file beside the move is still refused.
+        self.assertFails({guard.BASELINE: "# baseline\nmoved/old.generated.ts\nnew/x.generated.ts\n",
+                          "legacy/old.generated.ts": None, "moved/old.generated.ts": "x\n",
+                          "new/x.generated.ts": "y\n"}, "new/x.generated.ts")
+        # A look-alike under another name is a different generated file, not a move.
+        self.assertFails({guard.BASELINE: "# baseline\nmoved/renamed.generated.ts\n",
+                          "legacy/old.generated.ts": None, "moved/renamed.generated.ts": "x\n"}, "new to the baseline")
+        # Keeping the old line too is a new line, not a move.
+        self.assertFails({guard.BASELINE: "# baseline\nlegacy/old.generated.ts\nmoved/copy.generated.ts\n",
+                          "moved/copy.generated.ts": "x\n"}, "new to the baseline")
+
     def test_dropping_a_baseline_line_while_the_file_stays_fails(self):
         self.assertFails({guard.BASELINE: ""}, "legacy/old.generated.ts: tracked and generated")
 

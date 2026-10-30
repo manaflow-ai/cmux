@@ -120,6 +120,7 @@ impl Conn {
             ephemeral: StdMutex::new(Some(Vec::new())),
             media: crate::hub::media_handles::Handles::default(),
             memory_vote: std::sync::OnceLock::new(),
+            fanout_progress: std::sync::OnceLock::new(),
         }
     }
 }

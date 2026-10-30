@@ -243,8 +243,8 @@ test("Minimal keeps the old greeting's room over the composer, except for a gree
   expect(newTabHost({ newTab: {} })?.headlineOff).toBeUndefined();
   const slots = () => host.querySelectorAll(".nt-headline-slot").length;
   for (const [widgets, headlineOff, expected] of [
-    [undefined, false, 0],
-    [[], false, 0],
+    [undefined, false, 1],
+    [[], false, 1],
     [[], true, 0],
     [["greeting"], false, 1],
     // Turned on again in place (edit mode) before the host's next context: the headline has its room.

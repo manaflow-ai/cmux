@@ -121,8 +121,15 @@ public final class OverlayTopLayerView: NSView {
         return super.performKeyEquivalent(with: event)
     }
 
+    /// Escape in the window's top layer. Elsewhere (the overlay panel) it goes on up the responder chain to
+    /// the panel's own `cancelOperation`. Never `super`: NSView does not implement `cancelOperation:` (an
+    /// optional NSStandardKeyBindingResponding method), so a `super` call raises "unrecognized selector".
     override public func cancelOperation(_ sender: Any?) {
-        if isWindowTopLayer, let onCancel { onCancel() } else { super.cancelOperation(sender) }
+        if isWindowTopLayer, let onCancel {
+            onCancel()
+        } else {
+            _ = nextResponder?.tryToPerform(#selector(NSResponder.cancelOperation(_:)), with: sender)
+        }
     }
 }
 

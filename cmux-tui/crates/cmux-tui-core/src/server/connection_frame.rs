@@ -97,6 +97,101 @@ pub(super) fn handle_connection_frame_at(
     scheduler: &Arc<ConnectionSurfaceScheduler>,
     arrived: Instant,
 ) -> bool {
+    serve_frame(mux, client, transport, message, None, writer, scheduler, arrived)
+}
+
+/// The method a REQUEST frame's header named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FramedMethod {
+    /// A v12 `Command`, by its row (`Command::method_id`).
+    Command(u16),
+    /// A v2 operation the router answers at once (not one the connection
+    /// owns: attaches, streams and waits answer on their own paths).
+    Resource(ResourceOperation),
+}
+
+/// A REQUEST frame's body that is not a request of its header's method.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FramedBodyMismatch;
+
+/// A REQUEST frame's body, decoded once as a request of its header's
+/// method ([`decode_framed_request`]).
+pub(super) enum FramedRequest<'a> {
+    /// The `Command` of the header's row (boxed: a `Request` is large).
+    Command(Box<Request>),
+    /// A body of the header's `Command` whose parameters do not decode: it
+    /// fails as its line fails.
+    BadCommand(RequestHead<'a>, serde_json::Error),
+    /// A `cmux.protocol/2` request naming the header's operation; its
+    /// handler decodes the envelope, as a line's does, so bad parameters
+    /// fail as its line fails.
+    Resource(RequestHead<'a>),
+}
+
+/// Decodes a REQUEST frame's body as a request of `method` (p05-ipc.md
+/// section 3.2): the header routes it, so no line sniffing runs. A body of
+/// another method is a bad message, refused before anything runs.
+pub(super) fn decode_framed_request(
+    body: &str,
+    method: FramedMethod,
+) -> Result<FramedRequest<'_>, FramedBodyMismatch> {
+    match method {
+        FramedMethod::Command(row) => match crate::line_parses::parse::<Request>(body) {
+            Ok(request) if request.cmd.method_id() == row => {
+                Ok(FramedRequest::Command(Box::new(request)))
+            }
+            Ok(_) => Err(FramedBodyMismatch),
+            Err(error) => {
+                // Only a failed decode reads the body a second time.
+                let head = RequestHead::parse(body);
+                let named = head.cmd().and_then(Command::method_of_wire).map(|(id, _)| id);
+                if head.is_resource() || named != Some(row) {
+                    return Err(FramedBodyMismatch);
+                }
+                Ok(FramedRequest::BadCommand(head, error))
+            }
+        },
+        FramedMethod::Resource(operation) => {
+            let head = RequestHead::parse(body);
+            if !head.is_resource() || head.operation() != Some(operation.wire_name()) {
+                return Err(FramedBodyMismatch);
+            }
+            Ok(FramedRequest::Resource(head))
+        }
+    }
+}
+
+/// A REQUEST frame's decoded body: it joins the connection's control
+/// sequence for its method's handler, the one its line runs, with the
+/// request context a line gets. No revision upgrade: frames are granted
+/// only at this daemon's revision.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn handle_framed_request_at(
+    mux: &Arc<Mux>,
+    client: u64,
+    transport: ClientTransport,
+    body: &str,
+    request: FramedRequest<'_>,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    arrived: Instant,
+) -> bool {
+    serve_frame(mux, client, transport, body, Some(request), writer, scheduler, arrived)
+}
+
+/// One line, or one REQUEST frame's decoded body (`framed`), from its
+/// arrival to its handler.
+#[allow(clippy::too_many_arguments)]
+fn serve_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    transport: ClientTransport,
+    message: &str,
+    framed: Option<FramedRequest<'_>>,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+    arrived: Instant,
+) -> bool {
     // The release hang watch: one scope per frame, at the deadline of the
     // request it reaches from then (server/request_hang_watch.rs). A line
     // the reader sequences opens its own scope where it runs.
@@ -151,6 +246,45 @@ pub(super) fn handle_connection_frame_at(
     if mux.daemon_handoff_in_progress() {
         let _cause = enter_cause();
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
+    }
+    if let Some(framed) = framed {
+        let line = LineFrame {
+            mux,
+            client,
+            message,
+            writer,
+            scheduler,
+            arrival: RequestArrival::parsed_now(arrived),
+            watched: watched.as_ref(),
+        };
+        // The body's one decode on the reader (frame_dispatch.rs) is its
+        // line's head parse: no revision upgrade and no line sniffing, as
+        // frames are granted only at this daemon's revision.
+        let parses = crate::line_parses::LineParses::resume(1);
+        return match framed {
+            FramedRequest::Command(request) => {
+                let _cause = enter_cause();
+                let _request_path = request_path();
+                let keep_open = sequence_command(&line, *request);
+                cmux_trace::trace_instant!(
+                    daemon,
+                    "daemon.frame.json_parses",
+                    u64::from(parses.count())
+                );
+                keep_open
+            }
+            // A body of the header's `Command` whose parameters do not
+            // decode fails on the sequence, as its line does.
+            FramedRequest::BadCommand(head, error) => {
+                let _cause = crate::event_cause::EventCauseScope::enter(cause);
+                sequence_line(&line, LineWork::BadRequest(head.into_owned(), error))
+            }
+            // A v2 request is answered on the sequence, as its line is.
+            FramedRequest::Resource(head) => {
+                let _cause = crate::event_cause::EventCauseScope::enter(cause);
+                sequence_line(&line, LineWork::Line(head.into_owned()))
+            }
+        };
     }
     // An older client's line, upgraded to this daemon's API revision before
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise,
@@ -229,7 +363,7 @@ pub(super) enum Dispatched {
 /// is parsed and sequenced as its `Command`; every other line is sequenced
 /// with its head, and [`answer_line`] answers it there.
 pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> Dispatched {
-    let LineFrame { mux, client, message, writer, scheduler, arrival, .. } = *line;
+    let message = line.message;
     if head.is_resource() || !head.is_command() {
         return Dispatched::Sequenced(sequence_line(line, LineWork::Line(head.into_owned())));
     }
@@ -241,14 +375,20 @@ pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> Disp
             return Dispatched::Sequenced(sequence_line(line, work));
         }
     };
+    Dispatched::Answered(sequence_command(line, request))
+}
+
+/// A decoded `Command`, from a line or a REQUEST frame, joins its
+/// connection's control sequence; it never runs on the reader. A framed
+/// one keeps its frame call, so its own CANCEL ends it there.
+fn sequence_command(line: &LineFrame<'_>, request: Request) -> bool {
+    let LineFrame { mux, client, message, writer, scheduler, arrival, .. } = *line;
     line.watch(WatchedMethod::command(&request.cmd));
     let arrival = RequestArrival::parsed_now(arrival.arrived);
-    // The `Command` joins the same sequence; it never runs here.
     let mut pending = Some(request);
-    let keep_open = scheduler
+    scheduler
         .dispatch_at(mux.clone(), client, &mut pending, arrival, message.len(), writer.clone())
-        .unwrap_or(true);
-    Dispatched::Answered(keep_open)
+        .unwrap_or(true)
 }
 
 /// What the sequence does with a line the reader left there.

@@ -9,8 +9,11 @@ import Foundation
 struct DaemonRequestExecutor: Sendable {
     let transport: LineTransport
 
-    func perform<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
-        let response = try await transport.request(cmd: R.commandName, timeout: timeout, framed: true) { id in
+    /// `opening`: the stream `request` opens (`attach-surface {stream}`); framed, its header names it.
+    func perform<R: DaemonRequest>(_ request: R, timeout: Duration?,
+                                   opening: AttachStreamHandle? = nil) async throws -> R.Response {
+        let response = try await transport.request(cmd: R.commandName, timeout: timeout, framed: true,
+                                                   opening: opening) { id in
             try WireCoding.encodeRequest(request, id: id)
         }
         return try WireCoding.decodeResponse(R.Response.self, from: response)

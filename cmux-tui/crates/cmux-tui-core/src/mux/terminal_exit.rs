@@ -61,13 +61,7 @@ impl Mux {
     /// with the sender's name and parent. Best effort.
     #[cfg(unix)]
     pub fn record_daemon_signal(&self, signal: i32, sender_pid: i32, sender_uid: Option<u32>) {
-        let root = self
-            .surface_options
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .terminal_host_root
-            .clone();
-        if let Some(root) = root {
+        if let Some(root) = self.terminal_host_paths().root {
             crate::terminal_loss_log::record_daemon_signal(
                 &root,
                 signal,
@@ -160,21 +154,10 @@ impl Mux {
             crate::terminal_host_runtime::acknowledge_terminal_host_exit_record(
                 &path,
                 &expected,
-                self.host_panic_log().as_ref(),
+                self.terminal_host_paths().panic_log.as_ref(),
             )?;
         }
         Ok(())
-    }
-
-    /// The terminal-host record directory and the owner's panic log for its
-    /// hosts' crash sidecars; `None` without host records.
-    #[cfg(any(unix, windows))]
-    fn terminal_host_paths(
-        &self,
-    ) -> Option<(std::path::PathBuf, Option<crate::terminal_host_runtime::HostPanicLog>)> {
-        let options = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
-        let root = options.terminal_host_root.clone()?;
-        Some((root, options.host_panic_log.clone()))
     }
 
     /// Commit terminal lifecycle, topology detach, and exactly one public
@@ -211,7 +194,9 @@ impl Mux {
         // visible: an owner stopped right then still names it after its
         // restart (the dead tab's cause comes back from the log).
         #[cfg(any(unix, windows))]
-        let host_loss = self.terminal_host_paths().map(|(root, panic_log)| {
+        let TerminalHostPaths { root: host_root, panic_log } = self.terminal_host_paths();
+        #[cfg(any(unix, windows))]
+        let host_loss = host_root.map(|root| {
             let mut loss = crate::terminal_loss_log::HostLoss::read(
                 &root.join(format!("{terminal_id}.json")),
                 terminal_id,

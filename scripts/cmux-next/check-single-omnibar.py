@@ -34,6 +34,8 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 # The omnibar's own types (CmuxNextBrowser/UI and CmuxNextDesign).
 ALLOWED_TYPES = {
     "AddressBarView",
+    # AddressBarView's frame layout (the pill, chip, field and badges rects); it draws nothing.
+    "AddressBarLayout",
     "AddressField",
     "AddressFieldCell",
     "AddressBarSurface",

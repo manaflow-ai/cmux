@@ -72,11 +72,20 @@ final class BlockingViolationTable: Sendable {
     /// Writes a main-thread trap's one fault, after the flush and before the stop (``logFault(_:)`` outside tests).
     let trapFault: @Sendable (_ message: String) -> Void
 
-    // Main thread only: written and read after `pthread_main_np()` (the checks, allowBlocking, the observer).
-    nonisolated(unsafe) private var index = BlockingSiteIndex(capacity: BlockingViolationTable.siteLimit) // crash-allow: main thread only (every caller checks pthread_main_np() first)
-    nonisolated(unsafe) private var allowance: BlockingAllowance? // crash-allow: main thread only (every caller checks pthread_main_np() first)
-    nonisolated(unsafe) private var nesting = BlockingRunLoopNesting() // crash-allow: main thread only (allowBlocking and the main run loop's observer, which runs on it)
-    nonisolated(unsafe) private var timedCallOpen = false // crash-allow: main thread only (every caller checks pthread_main_np() first)
+    /// The table's main-thread state: written and read only after `pthread_main_np()` (the checks,
+    /// allowBlocking, and the main run loop's observer, which runs on it).
+    private struct MainState {
+        /// The main thread's call sites.
+        var index = BlockingSiteIndex(capacity: BlockingViolationTable.siteLimit)
+        /// The open ``allowBlocking(_:_:)`` reason, nil outside one (or while a nested run holds it back).
+        var allowance: BlockingAllowance?
+        /// The nested runs of the main run loop inside an open allowance.
+        var nesting = BlockingRunLoopNesting()
+        /// A timed main-thread call is running (``mainThreadBlockingCall(_:fileID:line:_:)``).
+        var timedCallOpen = false
+    }
+
+    nonisolated(unsafe) private var mainOnly = MainState() // crash-allow: main thread only (every caller checks pthread_main_np() first; the run loop observer runs on main)
     private let mainCounters = BlockingSiteCounters(capacity: BlockingViolationTable.siteLimit)
     private let ring: BlockingPendingRing
     private let mainOverflow = UnsafeAtomic<Int>.create(0)
@@ -194,15 +203,15 @@ final class BlockingViolationTable: Sendable {
     ) throws(Failure) -> Result {
         let table = active
         guard let site = table.recordedSite(kind, fileID: fileID, line: line) else { return try body() }
-        guard !table.timedCallOpen else {
+        guard !table.mainOnly.timedCallOpen else {
             defer { table.mainCounters.add(site: site, nanos: nil) }
             return try body()
         }
-        table.timedCallOpen = true
+        table.mainOnly.timedCallOpen = true
         let start = table.uptimeNanos()
         defer {
             let nanos = table.uptimeNanos() &- start
-            table.timedCallOpen = false
+            table.mainOnly.timedCallOpen = false
             table.mainCounters.add(site: site, nanos: nanos)
         }
         return try body()
@@ -215,14 +224,14 @@ final class BlockingViolationTable: Sendable {
     @inline(never)
     func mainThreadWaitedForLock(fileID: StaticString, line: UInt, nanos: UInt64) {
         guard let site = recordedSite(.lockWait, fileID: fileID, line: line) else { return }
-        mainCounters.add(site: site, nanos: timedCallOpen ? nil : nanos)
+        mainCounters.add(site: site, nanos: mainOnly.timedCallOpen ? nil : nanos)
     }
 
     /// Checks the call and returns its site id, or nil when it is allowed or not recorded (the table or the
     /// ring was full). The caller counts the call when it ends (``BlockingSiteCounters/add(site:nanos:)``). In trap
     /// mode a violation that is not record-only is recorded first, then stops the process (``trapOnMain(_:fileID:line:)``).
     private func recordedSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
-        guard allowance == nil else { return nil }
+        guard mainOnly.allowance == nil else { return nil }
         let site = newOrKnownSite(kind, fileID: fileID, line: line)
         if mode == .trap && !kind.isRecordOnly { trapOnMain(kind, fileID: fileID, line: line) }
         return site
@@ -232,8 +241,8 @@ final class BlockingViolationTable: Sendable {
     /// when the table or the ring was full.
     private func newOrKnownSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
         let key = BlockingSiteKey(fileID: fileID, line: line)
-        if let id = index.find(key) { return id }
-        guard let id = index.nextID else {
+        if let id = mainOnly.index.find(key) { return id }
+        guard let id = mainOnly.index.nextID else {
             mainOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
@@ -243,7 +252,7 @@ final class BlockingViolationTable: Sendable {
             mainOverflow.wrappingIncrement(ordering: .relaxed)
             return nil
         }
-        index.insert(key)
+        mainOnly.index.insert(key)
         wake.add(data: 1)
         return id
     }
@@ -377,17 +386,17 @@ final class BlockingViolationTable: Sendable {
     /// ``leaveAllowance(_:)``.
     @usableFromInline
     func enterAllowance(_ reason: BlockingAllowance) -> BlockingAllowanceToken {
-        let token = BlockingAllowanceToken(previous: allowance, wasOpen: nesting.isOpen)
-        allowance = reason
-        nesting.enter { [weak self] nested in self?.runLoopNested(nested) }
+        let token = BlockingAllowanceToken(previous: mainOnly.allowance, wasOpen: mainOnly.nesting.isOpen)
+        mainOnly.allowance = reason
+        mainOnly.nesting.enter { [weak self] nested in self?.runLoopNested(nested) }
         return token
     }
 
     /// Closes the allowance ``enterAllowance(_:)`` opened.
     @usableFromInline
     func leaveAllowance(_ token: BlockingAllowanceToken) {
-        nesting.leave(wasOpen: token.wasOpen)
-        allowance = token.previous
+        mainOnly.nesting.leave(wasOpen: token.wasOpen)
+        mainOnly.allowance = token.previous
     }
 
     /// The main run loop entered (`true`) or left (`false`) a nested run inside an open allowance: a nested
@@ -395,10 +404,11 @@ final class BlockingViolationTable: Sendable {
     /// allowance's reason does not cover, so the allowance is held back until the nested run returns.
     private func runLoopNested(_ nested: Bool) {
         if nested {
-            nesting.held.append(allowance)
-            allowance = nil
-        } else if let held = nesting.held.popLast() {
-            allowance = held
+            let open = mainOnly.allowance
+            mainOnly.nesting.held.append(open)
+            mainOnly.allowance = nil
+        } else if let held = mainOnly.nesting.held.popLast() {
+            mainOnly.allowance = held
         }
     }
 

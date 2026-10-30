@@ -52,9 +52,9 @@ public nonisolated struct ShadowOutline: Equatable, Sendable {
 }
 
 extension CALayer {
-    /// The key under which a layer keeps the values its `shadowPath` was built from (CALayer is a
-    /// key-value coding container: it stores values for keys it does not declare).
-    static let shadowPathKey = "cmuxShadowPathKey"
+    /// The values a layer's `shadowPath` was built from, kept on the layer as a typed associated object
+    /// (no key-value coding by a string key, which raises for a key the object does not take).
+    private static let shadowPathInputs = ObjectAssociation<[CGFloat]>()
     /// The keyframes of a shadow path that follows the layer's moving size.
     public static let shadowPathFollowKey = "cmux.shadowPath.follow"
 
@@ -68,12 +68,12 @@ extension CALayer {
     /// keeps them costs one comparison. A nil path casts nothing (an empty path, never a shadow derived
     /// from content). Set the layer's `shadowPath` only through here or ``castFromContent()``.
     public func cast(shadowPathFor key: [CGFloat], _ build: () -> CGPath?) {
-        if shadowPath != nil, (value(forKey: Self.shadowPathKey) as? [CGFloat]) == key { return }
+        if shadowPath != nil, Self.shadowPathInputs.value(on: self) == key { return }
         let path: CGPath = build() ?? CGMutablePath()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         shadowPath = path
-        setValue(key, forKey: Self.shadowPathKey)
+        Self.shadowPathInputs.set(key, on: self)
         CATransaction.commit()
     }
 
@@ -120,7 +120,7 @@ extension CALayer {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         shadowPath = nil
-        setValue(nil, forKey: Self.shadowPathKey)
+        Self.shadowPathInputs.set(nil, on: self)
         CATransaction.commit()
     }
 

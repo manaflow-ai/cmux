@@ -510,7 +510,9 @@ async fn daemon_serves_the_subsession_and_secret_tools(
 /// phys_footprint, Linux private dirty pages), against 4.6 to 4.7 MB for each
 /// stdio server it replaces.
 async fn relay_carries_the_tools_in_under_a_megabyte(hub: &Arc<Hub>, session: &str, root: &Path) {
-    let socket = PathBuf::from(format!("/tmp/acpmux-relay-{}.sock", std::process::id()));
+    // A private directory under the short `/tmp`: the daemon binds only there.
+    let socket_dir = cmux_unix_socket::short_test_dir("amx-rely");
+    let socket = socket_dir.path().join("a.sock");
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
     let served = tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
     let scratch = root.join("relay");
@@ -518,7 +520,6 @@ async fn relay_carries_the_tools_in_under_a_megabyte(hub: &Arc<Hub>, session: &s
     let small = relay_round_trip(daemon_env::relay(&scratch), session, &socket).await;
     assert!(small <= 1 << 20, "acpmux-mcp-relay uses {small} bytes, over 1 MB");
     served.abort();
-    let _ = std::fs::remove_file(&socket);
 }
 
 /// `relay` as `session`'s sub-session server on `socket`: initialize, list and

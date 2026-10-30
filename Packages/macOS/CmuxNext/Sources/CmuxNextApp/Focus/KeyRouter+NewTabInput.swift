@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFocusUI
+import CmuxNextInput
 import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
@@ -288,19 +289,22 @@ final class NewTabInputCoordinator {
     /// never saw it (the router took it before AppKit's dispatch; `NSWindow.sendEvent` runs no
     /// monitor), so the agent pane that gets it judges the person's original key (`held`) here: a
     /// Return typed before the New Tab field was ready still runs its terminal line (cx-hnpxh).
+    /// The hold is recorded in the seam (``HeldKeyReplay``, held_by `newTab`).
     static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter) {
-        router.dispatchingSynthetic(event) {
-            guard !router.interceptKeyDown(event, in: window) else { return }
-            // A page in Chromium has the keys in its own window, a child of this one: the key window,
-            // or (the app not active yet) the shown agent page's window.
-            if let page = Self.chromiumPageWindow(in: window) {
-                Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
-                return page.sendEvent(event)
+        router.heldKeys.replay(held, heldBy: .newTab, keyWindow: window) { send in
+            router.dispatchingSynthetic(event) {
+                guard !router.interceptKeyDown(event, in: window) else { return }
+                // A page in Chromium has the keys in its own window, a child of this one: the key window,
+                // or (the app not active yet) the shown agent page's window.
+                if let page = Self.chromiumPageWindow(in: window) {
+                    Self.chromiumAgentPane(under: page, in: window)?.judge(held, eventWindow: page)
+                    return send.window(page, event)
+                }
+                var view = window.firstResponder as? NSView
+                while let current = view, !(current is AgentPaneView) { view = current.superview }
+                (view as? AgentPaneView)?.judge(held, eventWindow: window)
+                send.window(window, event)
             }
-            var view = window.firstResponder as? NSView
-            while let current = view, !(current is AgentPaneView) { view = current.superview }
-            (view as? AgentPaneView)?.judge(held, eventWindow: window)
-            window.sendEvent(event)
         }
     }
 

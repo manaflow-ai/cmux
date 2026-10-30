@@ -47,43 +47,39 @@ nonisolated struct ChromiumHostLaunchPlan: Sendable, Equatable {
 nonisolated struct ChromiumHostLaneSpawner: ChromiumHostSpawning {
     let work: BackgroundWork
     let mainWork: MainWorkScheduler
-    let fencesResizes: Bool
     /// What each spawn starts; read on the lane (it checks the disk).
     let plan: @Sendable () -> ChromiumHostLaunchPlan?
     /// Exit watching, reaping and kills (the spawn is ``ChromiumHostLauncher/spawnControlled(executable:arguments:priority:)``).
     private let processes = ChromiumHostLauncher(exitQueue: DispatchQueue(label: "com.cmuxterm.chromium-host.supervisor", qos: .utility))
 
-    init(work: BackgroundWork, mainWork: MainWorkScheduler, fencesResizes: Bool,
+    init(work: BackgroundWork, mainWork: MainWorkScheduler,
          plan: @escaping @Sendable () -> ChromiumHostLaunchPlan?) {
         self.work = work
         self.mainWork = mainWork
-        self.fencesResizes = fencesResizes
         self.plan = plan
     }
 
     func spawn() async throws(ChromiumHostAttachError) -> ChromiumHostSpawn {
-        let (plan, fencesResizes) = (plan, fencesResizes)
+        let plan = plan
         let started: Result<ChromiumHostSpawn, ChromiumHostAttachError>
         do {
             // userBlocking: the first Chromium tab waits for this host.
-            started = try await work.run(.userBlocking, mayBlock: .system) { Self.start(plan(), fencesResizes: fencesResizes) }
+            started = try await work.run(.userBlocking, mayBlock: .system) { Self.start(plan()) }
         } catch {
             throw .cannotStart("the start was dropped (\(error))")
         }
         return try started.get()
     }
 
-    /// One spawn, on the lane: the plan's host with its control channel on fd 3, and a resize fence inbox name
-    /// when `fencesResizes`.
-    static func start(_ plan: ChromiumHostLaunchPlan?, fencesResizes: Bool) -> Result<ChromiumHostSpawn, ChromiumHostAttachError> {
+    /// One spawn, on the lane: the plan's host with its control channel on fd 3.
+    static func start(_ plan: ChromiumHostLaunchPlan?) -> Result<ChromiumHostSpawn, ChromiumHostAttachError> {
         guard let plan else { return .failure(.cannotStart("this build has no Chromium Host")) }
-        let fence = fencesResizes ? ChromiumHostResizeFenceChannel.make() : nil
         do throws(ChromiumHostLauncher.LaunchError) {
             let (pid, controlFD) = try ChromiumHostLauncher.spawnControlled(
-                executable: plan.configuration.executable, arguments: plan.configuration.arguments + (fence?.arguments ?? []),
+                executable: plan.configuration.executable, arguments: plan.configuration.arguments,
                 priority: ChromiumHostLauncher.priority)
             let attachment = ChromiumHostAttachment(controlFD: controlFD, remoteShim: plan.remoteShim,
-                                                    frameworkLocales: plan.frameworkLocales, resizeFence: fence?.name)
+                                                    frameworkLocales: plan.frameworkLocales)
             return .success(ChromiumHostSpawn(pid: pid, attachment: attachment,
                                               logFile: plan.configuration.logFile.map { URL(filePath: $0) },
                                               cefVersion: plan.cefVersion))

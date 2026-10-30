@@ -20,7 +20,7 @@ use super::super::{
     BoundedOutbound, ClientTransport, Command, ConnectionSurfaceScheduler, MessageWriter,
     QueuedSink, Request, serve_websocket,
 };
-use super::spawn_request_thread;
+use super::spawn_connection_thread;
 
 /// The declared QoS of every live thread named `name`, waiting (bounded)
 /// until there is one. Tests running in parallel may start threads of the
@@ -57,21 +57,28 @@ fn site_count(path: &str, kind: BlockingKind) -> u64 {
         .sum()
 }
 
-/// A request thread declares UserInitiated and disallows blocking for its
-/// life: a checked blocking call on it lands in the site table (the
-/// `server.blocking` list) in record mode and panics in panic mode.
+/// A connection thread declares UserInitiated; it may block while it admits
+/// its connection, and once admitted (its requests run inside
+/// `with_blocking_disallowed`, as websocket_listener.rs serves them) a
+/// checked blocking call lands in the site table (the `server.blocking`
+/// list) in record mode and panics in panic mode.
 #[test]
-fn a_request_thread_disallows_blocking_and_records_the_site() {
+fn an_admitted_connection_thread_disallows_blocking_and_records_the_site() {
     const NAME: &str = "mux-test-request-thread";
-    let (disallowed, rows) = spawn_request_thread(NAME, || {
-        // Panic mode panics after recording; record mode returns.
-        let _ = std::panic::catch_unwind(|| cmux_threads::checked::sync::sleep(Duration::ZERO));
-        (cmux_threads::blocking::is_blocking_disallowed(), declared(NAME))
+    let (admitting, disallowed, rows) = spawn_connection_thread(NAME, || {
+        let admitting = cmux_threads::blocking::is_blocking_disallowed();
+        let (disallowed, rows) = cmux_threads::blocking::with_blocking_disallowed(|| {
+            // Panic mode panics after recording; record mode returns.
+            let _ = std::panic::catch_unwind(|| cmux_threads::checked::sync::sleep(Duration::ZERO));
+            (cmux_threads::blocking::is_blocking_disallowed(), declared(NAME))
+        });
+        (admitting, disallowed, rows)
     })
-    .expect("start the request thread")
+    .expect("start the connection thread")
     .join()
-    .expect("the request thread returns");
-    assert!(disallowed, "a request thread disallows blocking");
+    .expect("the connection thread returns");
+    assert!(!admitting, "a connection thread may block while it admits its connection");
+    assert!(disallowed, "an admitted connection disallows blocking");
     assert_eq!(rows, [ThreadQos::UserInitiated]);
     // This file's only checked blocking call is the sleep above.
     let sites = cmux_threads::blocking::snapshot().sites;

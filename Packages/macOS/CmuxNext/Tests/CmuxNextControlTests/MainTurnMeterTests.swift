@@ -327,8 +327,14 @@ import Testing
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
         // Warm up: the first turns fill the top-turn slots.
         for _ in 0..<16 { oneTurn(turns, clock: clock, read: read) }
+        // An index loop: a `for` over a range allocates in a Debug build (its iterator's read
+        // coroutine frame), which would be counted against the meter.
         let measured = try #require(TurnMallocProbe.allocations {
-            for _ in 0..<1_000 { oneTurn(turns, clock: clock, read: read) }
+            var turn = 0
+            while turn < 1_000 {
+                oneTurn(turns, clock: clock, read: read)
+                turn += 1
+            }
         })
         #expect(measured == 0)
         #expect(turns.snapshot().turns > 3_000)
@@ -343,7 +349,11 @@ import Testing
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
         for _ in 0..<16 { stallTurn(turns, clock: clock) }
         let measured = try #require(TurnMallocProbe.allocations {
-            for _ in 0..<500 { stallTurn(turns, clock: clock) }
+            var turn = 0  // an index loop, as in aTurnAllocatesNothing
+            while turn < 500 {
+                stallTurn(turns, clock: clock)
+                turn += 1
+            }
         })
         #expect(measured == 0)
         #expect(turns.snapshot().turnsOverStall == 516)
@@ -388,10 +398,14 @@ import Testing
         budget.turns.loopWillWait()
         budget.turns.loopDidRender()
         let report = try #require(budget.report.objectValue)
+        // The budget's own fields: the input-response stats and the budgeted batch's placement and turns
+        // came with the scheduler's input-response cap and the after-commit batch turn.
         let existing: Set<String> = ["frames", "classes", "pending_input", "input_checks", "max_input_check_ms", "render_passes",
-                                     "max_render_pass_ms"]
+                                     "max_render_pass_ms", "input_response_cap_hits", "max_input_response_ms", "placement",
+                                     "budget_turns"]
         #expect(existing.isSubset(of: Set(report.keys)))
-        #expect(Set(report.keys).subtracting(existing) == ["turn_ms", "task_ms", "unattributed_share", "top_unattributed_turns"])
+        #expect(Set(report.keys).subtracting(existing) == ["turn_ms", "tick_turn_ms", "budget_turn_ms", "task_ms", "unattributed_share",
+                                                           "top_unattributed_turns"])
         #expect(report["unattributed_share"]?.doubleValue.map { abs($0 - 0.4) < 1e-9 } == true)
         #expect(report["turn_ms"]?["count"]?.intValue == 1)
         #expect(report["turn_ms"]?["max"]?.doubleValue == 5)

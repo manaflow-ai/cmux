@@ -1,7 +1,7 @@
 use std::panic::Location;
 use std::time::Duration;
 
-use cmux_threads::blocking::{self, BlockingKind};
+use cmux_threads::blocking::{self, BlockingKind, BlockingMode};
 
 use super::*;
 
@@ -25,10 +25,14 @@ fn echo_thread_is_user_interactive_and_disallows_blocking() {
 
 #[test]
 fn a_blocking_call_on_an_echo_thread_is_a_recorded_site() {
+    // Record mode on this thread: the recorded site is what this test checks,
+    // and a Debug build panics at it otherwise (`CMUX_DAEMON_BLOCKING`).
     let site = spawn("echo-thread-test-site", || {
-        let site = Location::caller();
-        cmux_threads::checked::sync::sleep(Duration::ZERO);
-        site
+        blocking::with_mode(BlockingMode::Record, || {
+            let site = Location::caller();
+            cmux_threads::checked::sync::sleep(Duration::ZERO);
+            site
+        })
     })
     .unwrap()
     .join()

@@ -79,7 +79,9 @@ extension TerminalAttachment {
         streamed.stream = handle.id
         let response: AttachSurfaceRequest.Response
         do {
-            response = try await DaemonConnection.perform(streamed, on: transport, timeout: timeout)
+            // Framed, the opener's header names the stream, so the view's keys may go as INPUT frames on it.
+            response = try await DaemonRequestExecutor(transport: transport).perform(streamed, timeout: timeout,
+                                                                                     opening: handle)
         } catch {
             owner.abandon(after: error)
             throw error
@@ -199,6 +201,8 @@ extension TerminalAttachment {
             }
             guard let decoded = TerminalAttachment.decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)
             else { return }
+            // The router ends the channel on a `closed` line; input closes with it (``InputPath/closed``).
+            if case .closed = decoded.event { closeInput() }
             // A key echo's daemon stages go to its latency slot as it is decoded, before the router
             // hands the output to the lane or the stream.
             if let keyStamps, let flow = decoded.flow, let stamps = decoded.keyStamps {
@@ -221,9 +225,13 @@ extension TerminalAttachment {
             switch item {
             case .event(let name, let line):
                 deliver(name: name, line: line)
-                if queue.endedAfterOverflow { owner.cancel() }
+                if queue.endedAfterOverflow {
+                    // Input closes before the cancel goes out, so no key follows it.
+                    closeInput()
+                    owner.cancel()
+                }
             case .end(let line):
-                router.finish(.closed(Self.endReason(line, decoder: decoder)))
+                finish(.closed(Self.endReason(line, decoder: decoder)))
             case .lost(.closedByClient):
                 // The app closed the control connection, not this view: it reattaches on the next one.
                 close(.lost("control connection closed"))
@@ -235,10 +243,21 @@ extension TerminalAttachment {
         /// The view's connection or stream ended.
         func close(_ reason: TransportCloseReason) {
             switch reason {
-            case .closedByClient: router.finish(.closed(.detachedByClient))
-            case .daemonShutdown: router.finish(.closed(.connectionLost("daemon shut down")))
-            case .lost(let detail): router.finish(.closed(.connectionLost(detail)))
+            case .closedByClient: finish(.closed(.detachedByClient))
+            case .daemonShutdown: finish(.closed(.connectionLost("daemon shut down")))
+            case .lost(let detail): finish(.closed(.connectionLost(detail)))
             }
+        }
+
+        /// Ends the view's channel after `last`, and its input with it (``InputPath/closed``): a key typed from
+        /// now on is dropped, never sent on another path.
+        private func finish(_ last: TerminalChannelEvent) {
+            closeInput()
+            router.finish(last)
+        }
+
+        private func closeInput() {
+            control.value.withLock { $0.input = .closed }
         }
 
         /// Passes `state` on with this view's participant, newest generation only. The participant is

@@ -36,9 +36,6 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
     let allowed = [
         // Compares the daemon's own directory; starts nothing.
         ("chief_builtin_presets.rs", "std::fs::canonicalize(daemon_env::bin())"),
-        // The agent host launcher: its stand-in child gets the hermetic
-        // `SpawnSpec.env` (the host process itself only runs that child).
-        ("agent_host.rs", "HostLauncher { exe: daemon_env::bin().into()"),
         // Every start goes through `acpmux(exe, home)`, which calls `apply`.
         ("windows_daemon.rs", "daemon_env::bin().to_path_buf()"),
     ];

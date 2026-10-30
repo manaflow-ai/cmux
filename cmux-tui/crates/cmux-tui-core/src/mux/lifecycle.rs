@@ -365,6 +365,8 @@ impl Mux {
     }
 
     /// Update options used for future surface/browser launches.
+    /// The closure runs under the `surface_options` guard and must not take a
+    /// lock; a ranked lock panics in debug.
     pub fn update_surface_options(&self, update: impl FnOnce(&mut SurfaceOptions)) {
         let mut options = self.surface_options.lock().recover_poison();
         update(&mut options);

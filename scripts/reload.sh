@@ -1698,13 +1698,11 @@ if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
 
-# CmuxNextWireGenPlugin is a build-tool plugin; headless xcodebuild cannot answer Xcode's trust prompt.
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
   -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
-  -skipPackagePluginValidation
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")

@@ -235,10 +235,13 @@ struct FeatureRemoteTests {
         await #expect(throws: FeatureRemoteStore.WriteError.rejected(.missingSerial)) {
             try await harness.store.store(Self.copy(#"{"version": 1, "default": {}, "cohorts": {}}"#))
         }
-        #expect(try await harness.store.store(Self.copy(#"{"version": 1, "default": {"FeaturesSerial": 6}, "cohorts": {}}"#)) == FeatureRemoteOverrides.none)
+        // No value and no study is left; the overrides still name the document they came from (its serial
+        // is what reports and `cmux settings feature-flags` show), so they are not `.none`, which is no document.
+        let ended = FeatureRemoteOverrides(serial: 6, values: [:], studies: [], ignored: [])
+        #expect(try await harness.store.store(Self.copy(#"{"version": 1, "default": {"FeaturesSerial": 6}, "cohorts": {}}"#)) == ended)
         let launch = await harness.store.load()
         #expect(launch.last?.document.serial == 6)
-        #expect(harness.store.overrides(of: launch.last) == FeatureRemoteOverrides.none)
+        #expect(harness.store.overrides(of: launch.last) == ended)
     }
 
     // MARK: Order

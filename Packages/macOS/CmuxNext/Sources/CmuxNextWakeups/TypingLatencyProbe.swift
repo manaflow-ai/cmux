@@ -25,7 +25,7 @@ import CmuxNextTrace
 ///   order, so a write goes to its surface's oldest unwritten press (``inputWritten(on:)``) and a send to
 ///   the oldest written, unsent press (``openFlow``), never to whichever key was pressed last.
 /// - The send carries that press's flow, and the daemon's `output` event names the press it echoes,
-///  so the decode marks that press (``outputDecoded(flow:)``) and the attach
+///   so the decode marks that press (``outputDecoded(flow:)``) and the attach
 ///   stream carries the flow with the chunk to the session and the lane (``mark(_:flow:)``). The surface's
 ///   frame then marks the presses on it whose echo was parsed (``mark(_:surface:)``).
 /// - A daemon without exact flows names no press: the newest press sent takes the decode and older

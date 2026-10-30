@@ -444,7 +444,10 @@ mod prompt_redraw_tests;
 #[cfg(all(test, target_os = "macos"))]
 mod fork_watch;
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "linux"))]
+mod fork_watch_linux;
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod fork_count_tests;
 
 #[cfg(test)]

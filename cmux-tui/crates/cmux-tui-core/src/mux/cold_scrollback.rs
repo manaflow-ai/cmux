@@ -402,7 +402,7 @@ pub(crate) fn kernel_pressure() -> MemoryPressure {
     #[cfg(target_os = "macos")]
     {
         let mut level: libc::c_int = 0;
-        let mut size = std::mem::size_of::<libc::c_int>();
+        let mut size = size_of::<libc::c_int>();
         // SAFETY: the name is NUL-terminated, `level` and `size` are valid
         // for writes and `size` is the size of `level`; no new value is set.
         let read = unsafe {

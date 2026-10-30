@@ -44,8 +44,11 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
 }
 private extension CmxManualPairingEntry {
     /// Whether `host` is a strict numeric IP literal (dotted-quad IPv4 or any
-    /// IPv6 spelling). Used only as a preference signal, not a trust boundary.
+    /// IPv6 spelling, with or without a `%zone` suffix, as the raw Darwin
+    /// inet_pton call here took it). Used only as a preference signal, not a
+    /// trust boundary.
     static func isIPLiteral(_ host: String) -> Bool {
-        CmxIPLiteral(host, family: .ipv4) != nil || CmxIPLiteral(host, family: .ipv6) != nil
+        CmxIPLiteral(host, family: .ipv4) != nil
+            || CmxIPLiteral(String(host.prefix { $0 != "%" }), family: .ipv6) != nil
     }
 }

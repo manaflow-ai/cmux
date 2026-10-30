@@ -195,6 +195,17 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_composition_bounds_watch(int browser_id,
   return 0;
 }
 
+// The host pushes no page state yet (task 093 adds the push: the client then
+// keeps fn per browser and calls it on main for each push). 0, as when the
+// fork lacks the call (API below 31): fn never runs.
+CMUX_SHIM_EXPORT int cmux_shim_tab_page_state_watch(int browser_id, void (*fn)(void* context, int browser_id, int index),
+                                                   void* context) {
+  (void)browser_id;
+  (void)fn;
+  (void)context;
+  return 0;
+}
+
 CMUX_SHIM_EXPORT void cmux_shim_set_drag_source_handler(void (*fn)(void* context, int browser_id, const void* drag),
                                                         void* context) {
   cmux_remote::AssertMainThread();

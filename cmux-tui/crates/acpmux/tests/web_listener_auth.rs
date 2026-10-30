@@ -327,7 +327,7 @@ async fn a_frame_past_sixteen_mib_is_read() {
 }
 
 /// A client that stops halfway through its upgrade request is closed after the handshake
-/// deadline (5 s, as the request head's peek): it never holds its connection task and
+/// deadline (5 s, the whole request head's read): it never holds its connection task and
 /// descriptor without end (acpmux-audit.md finding 15).
 #[tokio::test]
 async fn a_websocket_upgrade_that_stalls_midway_is_closed() {

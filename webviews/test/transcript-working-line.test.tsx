@@ -193,11 +193,13 @@ test("no dots loop on the running line; only the word Thinking shimmers, in the 
   ).text();
   expect(css).not.toContain("cv-thinking-sweep");
   expect(css).not.toMatch(/cv-working-mark|cv-working-dot|cv-activity__dots|cv-activity-dot/);
-  // The sweep runs only with motion allowed and the status look not static, on the shared clock's
-  // keyframes (two transform loops, ShimmerText.tsx), its lit words mixed from the theme accent
-  // (never a literal color). working-loops-compositor.test.tsx checks the loops in the engines.
-  const rule = (selector: string) =>
-    css.match(new RegExp(`:root:not\\(\\[data-status-indicators="static"\\]\\) \\${selector} \\{([^}]*)\\}`));
+  // The sweep runs only with motion allowed, the status look not static, Energy Saver off and
+  // animations on (p14-energy-063, 55deec269c98), on the shared clock's keyframes (two transform
+  // loops, ShimmerText.tsx), its lit words mixed from the theme accent (never a literal color).
+  // working-loops-compositor.test.tsx checks the loops in the engines.
+  const gate = ':root:not([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"])';
+  const escaped = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = (selector: string) => css.match(new RegExp(`${escaped(`${gate} ${selector}`)} \\{([^}]*)\\}`));
   const band = rule(".cv-shimmer__band");
   const lit = rule(".cv-shimmer__lit");
   expect(band![1]).toContain("animation: cmux-shimmer-band");

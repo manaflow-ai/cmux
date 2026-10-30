@@ -52,6 +52,9 @@ import Testing
         view.projection.refresh()
         view.controller.host.layoutSubtreeIfNeeded()
         CATransaction.flush()
+        // The app's WindowLayoutPasses call windowDidLayout after each layout pass; the rig's setup pass
+        // above is one, so the rows read their settled place here, as in the app, before a test counts.
+        view.windowDidLayout()
         return Rig(store: store, window: window, pane: pane, view: view)
     }
 

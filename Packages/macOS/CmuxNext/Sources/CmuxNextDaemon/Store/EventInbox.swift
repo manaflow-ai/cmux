@@ -80,7 +80,7 @@ final class EventInbox: Sendable {
             let key = CoalesceKey(envelope.event).map(EventSlot.field)
             if state.collapsed {
                 keep(envelope, in: &state)
-            } else if let key, state.latest[key] != nil {
+            } else if let key, state.newest(key) != nil {
                 // The newest value of the same field of the same surface: the older one never applies.
                 state.coalesced += 1
                 state.append(envelope, slot: key)
@@ -145,12 +145,12 @@ final class EventInbox: Sendable {
     /// Holds a survivor of the collapse. A full ``Retention/upToLimit`` buffer takes only one that
     /// replaces a held event of its slot, or the newest of each lifecycle event; it drops the rest.
     private func admit(_ envelope: DaemonEventEnvelope, slot: EventSlot?, in state: inout State) {
-        guard case .upToLimit = retention, state.live >= limit, slot.flatMap({ state.latest[$0] }) == nil else {
+        guard case .upToLimit = retention, state.live >= limit, slot.flatMap({ state.newest($0) }) == nil else {
             state.append(envelope, slot: slot)
             return
         }
         if let lifecycle = EventSlot(lifecycle: envelope.event) {
-            let held = state.latest[lifecycle].flatMap { index in state.events[checked: index].flatMap { $0 } }
+            let held = state.newest(lifecycle).flatMap { index in state.events[checked: index].flatMap { $0 } }
             state.append(Self.keepingGenerationChange(envelope, over: held), slot: lifecycle)
             return
         }
@@ -217,6 +217,9 @@ extension EventInbox.State {
     /// Holes allowed past the live count before a compaction: a flood of one slot compacts once
     /// per this many events, not on each.
     static let holeSlack = 64
+
+    /// The index in `events` of the newest event held for `slot`, if one is.
+    func newest(_ slot: EventSlot) -> Int? { latest[slot] }
 
     /// Appends a live event. With a `slot`, it replaces the one held for that slot in O(1), with the
     /// higher cause of the two: the replaced entry becomes a hole, and the holes are compacted away

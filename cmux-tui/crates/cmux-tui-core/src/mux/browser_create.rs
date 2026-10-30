@@ -77,6 +77,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        registry_event: None,
                         transaction: transaction.take(),
                     },
                     true,
@@ -127,6 +128,7 @@ impl Mux {
                         index: Some(0),
                         entity,
                         workspace_revision: None,
+                        registry_event: None,
                         transaction: None,
                     },
                     false,
@@ -251,6 +253,7 @@ impl Mux {
                             index: Some(index),
                             entity,
                             workspace_revision: None,
+                            registry_event: None,
                             transaction: None,
                         })
                     })();

@@ -74,10 +74,11 @@ p12-perf-process-091) and `cmux-features` (task 095).
   `defaults` is `FeatureDefaults(dev:nightly:release:)`. A param is
   `FeatureParamSpec(name:description:value:)` with `value` one of `.int(default:min:max:)`,
   `.double(default:min:max:)`, `.duration(default:min:max:)` (seconds) or `.bool(default:)`.
-- Rust: one `pub const <SCREAMING_NAME>: crate::Feature` per daemon-side feature and
-  `pub static REGISTERED: &[crate::Feature]`. The fields are the Swift ones in snake case
-  except `chromiumFeature` (the daemon has no Chromium features), with `expires: Option<&'static str>`, `params: &'static [crate::FeatureParamSpec]` and
-  `crate::FeatureParamValue::{Int, Double, Duration, Bool}`.
+- Rust: `pub(crate) const TABLE: &[crate::FeatureDef]`, one
+  `FeatureDef { name, defaults: crate::Defaults { dev, nightly, release }, kind: crate::Kind::{PerfPath, KillSwitch, Labs}, process: crate::Process::{Daemon, Both} }`
+  per daemon-side feature in registry order, and `pub mod feature` with one
+  `feature_handles!(super::TABLE; <SCREAMING_NAME> = "<name>", ...)` handle per entry. The daemon reads a
+  feature as `snapshot.is_enabled(cmux_features::feature::<SCREAMING_NAME>)`.
 
 Indices follow the sorted names and change when a feature is added; names are the only key
 that crosses a process or a build.

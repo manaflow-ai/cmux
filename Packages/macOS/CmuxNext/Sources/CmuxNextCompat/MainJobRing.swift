@@ -20,8 +20,19 @@ import Dispatch
 /// Bounded: the first ``capacity`` jobs are kept; later ones, and every job after ``freeze()``, take the runtime's
 /// own path and count as dropped. Debug and bench-hooks builds only, and only in a launch that armed the census.
 ///
+/// Continuous (``init(capacity:continuous:clock:)`` with `continuous`, the census's input window,
+/// sequence-manager-DESIGN.md 2.7): slots are reused. A claim takes slot `claim % capacity` only when that slot is free
+/// (an atomic exchange; a busy one sends the job the runtime's way and counts it in ``busyDrops``), and the main
+/// thread frees it after the job ran, once its record is copied into a main-thread ring of the ``recentLimit`` newest
+/// runs. ``noteInputDispatch(eventNanos:dispatchNanos:)`` copies the runs that overlap the wait between an event's
+/// arrival and its dispatch into the input window, which ``readInputWindow()`` returns.
+///
+/// This file is the one owner of `swift_task_enqueueMainExecutor_hook` (guardrail `executor-hook`): the hook only
+/// records and forwards each job to the main queue in its order; nothing in the app reorders main-actor jobs.
+///
 /// Memory safety: each buffer is one allocation of `capacity` initialized slots (frames: `capacity * depth`) made
-/// by init and never freed, because the hook may call in for the life of the process. A slot index comes only from
+/// by init and never freed, because the hook may call in for the life of the process. The input window's storage (main thread
+/// only) is one more such allocation. A slot index comes only from
 /// ``recordEnqueue(_:priority:label:)``, which returns indices under `capacity`, or is checked against it.
 ///
 /// ```swift
@@ -32,7 +43,7 @@ import Dispatch
 /// let (jobs, pending, dropped) = ring.read()
 /// ```
 @safe
-public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's enqueue fields are written once, by the thread that claimed it, before that thread queues the job on the main dispatch queue or run loop (which publishes them to the main thread); a label is written only on the main thread; the run fields, the running label and the tally are read and written on the main thread only
+public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's enqueue fields are written only by the thread that claimed it, before that thread queues the job on the main dispatch queue or run loop (which publishes them to the main thread); a continuous ring reuses a slot only after the main thread copied its last job and freed it with a release store that the next claim's exchange acquires; a label is written only on the main thread; the run fields, the running label and the tally are read and written on the main thread only
     typealias Original = @convention(thin) (UnownedJob) -> Void
     typealias Hook = @convention(thin) (UnownedJob, Original) -> Void
 
@@ -117,9 +128,16 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     public static let enqueueRuntimeSymbolPrefixes = ["$sScT", "$sScM"]
 
     public let capacity: Int
+    /// Slots are reused (the input window); false: the first ``capacity`` jobs are kept.
+    public let continuous: Bool
     private let clock: @Sendable () -> UInt64
     private let claims = Atomic<Int>(0)
     private let frozen = Atomic<Bool>(false)
+    /// Continuous only: 1 while a slot's job has not run (written by the claiming thread, freed by the main thread).
+    private let busy: UnsafeMutablePointer<UInt64>
+    private let busyDropCount = Atomic<Int>(0)
+    /// Continuous only, main thread only: the newest runs and the input window (MainJobRing+InputWindow.swift).
+    let window: UnsafeMutablePointer<InputWindowStore>
     // Written by the claiming thread before it queues the job.
     private let kinds: UnsafeMutablePointer<UInt8>
     private let enqueued: UnsafeMutablePointer<UInt64>
@@ -137,18 +155,22 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
 
     /// A ring on the `CLOCK_UPTIME_RAW` clock.
     ///
-    /// - Parameter capacity: The jobs kept (one slot each, about 170 bytes).
-    public convenience init(capacity: Int) {
+    /// - Parameters:
+    ///   - capacity: The jobs kept (one slot each, about 170 bytes).
+    ///   - continuous: Reuse slots and keep the input window (the census's input mode).
+    public convenience init(capacity: Int, continuous: Bool = false) {
         // Darwin is an internal import, so the clock cannot be a public default argument value.
-        self.init(capacity: capacity) { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+        self.init(capacity: capacity, continuous: continuous) { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
     }
 
     /// - Parameters:
-    ///   - capacity: The jobs kept (one slot each, about 170 bytes).
+    ///   - capacity: The jobs kept (one slot each, about 170 bytes); continuous: the jobs queued and not run yet.
+    ///   - continuous: Reuse slots and keep the input window (the census's input mode).
     ///   - clock: `CLOCK_UPTIME_RAW` nanoseconds (tests pass their own).
-    public init(capacity: Int, clock: @escaping @Sendable () -> UInt64) {
+    public init(capacity: Int, continuous: Bool = false, clock: @escaping @Sendable () -> UInt64) {
         let count = max(capacity, 1)
         self.capacity = count
+        self.continuous = continuous
         self.clock = clock
         // SAFETY: fresh allocations, each initialized here at its full size and never freed (the type's note).
         unsafe kinds = .allocate(capacity: count)
@@ -173,6 +195,10 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         unsafe tally.initialize(to: Tally())
         unsafe runningLabel = .allocate(capacity: 1)
         unsafe runningLabel.initialize(to: nil)
+        unsafe busy = .allocate(capacity: continuous ? count : 1)
+        unsafe busy.initialize(repeating: 0, count: continuous ? count : 1)
+        unsafe window = .allocate(capacity: 1)
+        unsafe window.initialize(to: InputWindowStore(sized: continuous))
     }
 
     /// `CLOCK_UPTIME_RAW` nanoseconds now, on the ring's clock.
@@ -187,8 +213,8 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
     @inline(never)
     public func recordEnqueue(_ kind: Kind, priority: UInt8, label: String? = nil) -> Int? {
         guard !frozen.load(ordering: .relaxed) else { return nil }
-        let slot = claims.add(1, ordering: .relaxed).oldValue
-        guard slot < capacity else { return nil }
+        let claim = claims.add(1, ordering: .relaxed).oldValue
+        guard let slot = claimSlot(claim) else { return nil }
         // SAFETY: slot < capacity (the claim above), and only this thread writes these fields of the slot.
         unsafe kinds[slot] = kind.rawValue
         unsafe enqueued[slot] = clock()
@@ -218,7 +244,38 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
         let nanos = clock() &- start
         unsafe runningLabel.pointee = outer
         recordRun(slot: slot, startNanos: start, nanos: nanos)
+        if continuous { keepRun(slot: slot, startNanos: start, nanos: nanos) }
     }
+
+    /// The slot of claim number `claim`, or nil (full, or the slot's last job has not run: continuous).
+    private func claimSlot(_ claim: Int) -> Int? {
+        guard continuous else { return claim < capacity ? claim : nil }
+        let slot = claim % capacity
+        // SAFETY: slot < capacity, and `busy` holds `capacity` aligned words in continuous mode (init). Acquiring: the
+        // main thread's copy of the slot's last job (keepRun) is done before this thread writes the slot again.
+        guard unsafe AtomicPointerSlot(busy + slot).exchange(1, ordering: .acquiringAndReleasing) == 0 else {
+            busyDropCount.add(1, ordering: .relaxed)
+            return nil
+        }
+        return slot
+    }
+
+    /// Main thread, continuous: copies the slot's run into the newest runs, then frees the slot for a later claim.
+    private func keepRun(slot: Int, startNanos: UInt64, nanos: UInt64) {
+        let base = slot * Self.depth
+        let count = unsafe Int(max(0, min(frameCounts[slot], Int32(Self.depth))))
+        // SAFETY: slot < capacity (run checked it); the slot's enqueue fields were published to the main thread by the
+        // queue that ran the job, and stay unchanged until the release store below frees the slot.
+        let run = unsafe InputWindowStore.Run(kind: kinds[slot], priority: priorities[slot], frameCount: count,
+                                              enqueuedNanos: enqueued[slot], startNanos: startNanos, nanos: nanos, label: labels[slot])
+        unsafe window.pointee.keep(run, frames: frames + base)
+        unsafe labels[slot] = nil
+        // SAFETY: as in claimSlot. Releasing: the copy above happens before the next claim of this slot.
+        unsafe AtomicPointerSlot(busy + slot).store(0, ordering: .releasing)
+    }
+
+    /// Continuous: jobs that took the runtime's way because their slot's last job had not run yet.
+    public var busyDrops: Int { busyDropCount.load(ordering: .relaxed) }
 
     /// Main thread: the job of `slot` started at `startNanos` and ran for `nanos`; it counts in the tally.
     public func recordRun(slot: Int, startNanos: UInt64, nanos: UInt64) {
@@ -270,8 +327,10 @@ public final class MainJobRing: @unchecked Sendable { // crash-allow: a slot's e
 
     // MARK: Reading
 
-    /// Main thread: the jobs that ran, in claim order; the jobs claimed and not run yet; the jobs dropped.
+    /// Main thread: the jobs that ran, in claim order; the jobs claimed and not run yet; the jobs dropped. Empty for a
+    /// continuous ring (its slots are reused: ``readInputWindow()``).
     public func read() -> (jobs: [Job], pending: Int, dropped: Int) {
+        guard !continuous else { return ([], 0, busyDrops) }
         let claimed = claims.load(ordering: .acquiring)
         let kept = min(claimed, capacity)
         var jobs: [Job] = []

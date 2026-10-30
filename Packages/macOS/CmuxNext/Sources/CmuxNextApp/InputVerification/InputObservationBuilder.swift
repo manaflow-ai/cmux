@@ -19,7 +19,8 @@ enum InputObservationBuilder {
             paletteOpen: context.contains(.paletteOpen),
             activeWindow: services.windows.active?.state.id,
             context: FocusState.Context(terminal: context.contains(.terminalFocused), browser: context.contains(.browserFocused),
-                                     agent: context.contains(.agentPaneFocused))
+                                     agent: context.contains(.agentPaneFocused)),
+            appActive: NSApp.isActive
         )
     }
 
@@ -45,7 +46,8 @@ enum InputObservationBuilder {
             childPage: controller.focusApplier.focusedChildWindowPageID.map { pageTabKeys[$0] ?? $0 },
             presented: presented,
             childWindowTabs: childWindowTabs.sorted(),
-            hasSheet: window?.attachedSheet != nil, topPage: controller.shownTopPage != nil
+            hasSheet: window?.attachedSheet != nil, topPage: controller.shownTopPage != nil,
+            visible: window?.isVisible ?? false
         )
     }
 

@@ -201,6 +201,9 @@ struct ForkApi {
   // No API number yet (the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (the fork train p07-memory-074 numbers it):
+  // BackForwardCache::Flush of a browser's tab.
+  int (*flush_back_forward_cache)(int) = nullptr;
   // No API number yet (the fork train numbers it): the
   // slice of the next CefDoMessageLoopWork call only, in microseconds.
   void (*set_message_loop_time_slice)(int64_t) = nullptr;

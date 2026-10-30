@@ -33,8 +33,9 @@ struct LoopbackInputTests {
         #expect(scroll.count == 200 * 6)
         let masks = stride(from: 0, to: scroll.count, by: 6).map { scroll[$0 + 1] }
         let wheelDown = VNCButtons.wheelDown.rawValue, wheelRight = VNCButtons.wheelRight.rawValue
-        #expect(masks == Array(repeating: [wheelDown, 0], count: 50).flatMap { $0 }
-            + Array(repeating: [wheelRight, 0], count: 50).flatMap { $0 })
+        let downClicks: [UInt8] = Array(repeating: [wheelDown, 0], count: 50).flatMap { $0 }
+        let rightClicks: [UInt8] = Array(repeating: [wheelRight, 0], count: 50).flatMap { $0 }
+        #expect(masks == downClicks + rightClicks)
     }
 
     @Test func aPointerMessageMapsToTheDisplaysPixels() {

@@ -15,7 +15,6 @@
 //! Recording is a relaxed atomic add, as `base/metrics/histogram_macros.h`
 //! records; nothing here allocates or locks.
 
-use std::cell::Cell;
 use std::io::{self, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -305,35 +304,29 @@ impl<W: Write + ?Sized> Write for CountedWrite<'_, W> {
     }
 }
 
-thread_local! {
-    /// JSON parses of the request message this thread is handling, while a
-    /// [`JsonParseScope`] is open on it; `None` outside one.
-    static JSON_PARSES: Cell<Option<u64>> = const { Cell::new(None) };
-}
-
 /// Count one JSON parse of a request message's bytes toward the request
-/// whose [`JsonParseScope`] is open on this thread. Outside a scope (a test
-/// that dispatches in process, the WebSocket authentication message) it
-/// counts nothing, so no parse carries over into a later request.
+/// whose [`JsonParseScope`] is open on this thread, at once: a reply that
+/// follows the parse finds it counted. Outside a scope (a test that
+/// dispatches in process, the WebSocket authentication message) it counts
+/// nothing, so no parse carries over into a later request.
 pub(crate) fn note_json_parse() {
-    JSON_PARSES.with(|parses| {
-        if let Some(count) = parses.get() {
-            parses.set(Some(count.wrapping_add(1)));
+    ACTIVE_COUNTER.with(|active| {
+        if let Some(counter) = active.borrow().as_ref() {
+            counter.json_parses.fetch_add(1, Ordering::Relaxed);
         }
     });
 }
 
 /// One request message from arrival to its answer or dispatch, entered by
-/// the connection loop that read it: when it ends it counts as one request
-/// of its transport, with the parses noted on this thread inside it.
+/// the connection loop that read it. It counts as one request of its
+/// transport when it opens, and each parse noted on this thread inside it
+/// as it happens, so `server-stats` has counted a request and its parses
+/// before its reply is out: a request handed to another thread (a stream's
+/// or the connection's request sequence) can be answered before the
+/// reader's scope ends.
 pub struct JsonParseScope<'a> {
-    counter: Arc<ParseCounter>,
-    /// The count of a scope this one is nested in, restored when it ends.
-    outer: Option<u64>,
-    /// The counter of that scope, restored when this one ends.
+    /// The counter of the scope this one is nested in, restored when it ends.
     outer_counter: Option<Arc<ParseCounter>>,
-    /// False for [`Self::resume`]: the request was counted where it began.
-    counts_request: bool,
     _stats: std::marker::PhantomData<&'a IpcStats>,
 }
 
@@ -353,11 +346,14 @@ impl<'a> JsonParseScope<'a> {
         Self::open(stats.parses(transport).clone(), true)
     }
 
+    /// `counts_request` is false for [`Self::resume`]: the request was
+    /// counted where it began.
     fn open(counter: Arc<ParseCounter>, counts_request: bool) -> Self {
-        let outer = JSON_PARSES.with(|parses| parses.replace(Some(0)));
-        let outer_counter =
-            ACTIVE_COUNTER.with(|active| active.borrow_mut().replace(counter.clone()));
-        Self { counter, outer, outer_counter, counts_request, _stats: std::marker::PhantomData }
+        if counts_request {
+            counter.requests.fetch_add(1, Ordering::Relaxed);
+        }
+        let outer_counter = ACTIVE_COUNTER.with(|active| active.borrow_mut().replace(counter));
+        Self { outer_counter, _stats: std::marker::PhantomData }
     }
 
     /// The request this thread's innermost scope counts, for the thread
@@ -379,13 +375,8 @@ impl JsonParseScope<'static> {
 
 impl Drop for JsonParseScope<'_> {
     fn drop(&mut self) {
-        let parses = JSON_PARSES.with(|parses| parses.replace(self.outer)).unwrap_or(0);
         let outer = self.outer_counter.take();
         let _ = ACTIVE_COUNTER.try_with(|active| *active.borrow_mut() = outer);
-        if self.counts_request {
-            self.counter.requests.fetch_add(1, Ordering::Relaxed);
-        }
-        self.counter.json_parses.fetch_add(parses, Ordering::Relaxed);
     }
 }
 

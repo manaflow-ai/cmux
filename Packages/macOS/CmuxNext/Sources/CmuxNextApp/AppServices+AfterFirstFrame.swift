@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextFeatures
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextPages
@@ -54,11 +55,10 @@ extension AppServices {
     /// (`hotKeys` false: an agent- or bench-launched build never takes the person's system-wide keys), the
     /// border and glass follows after the first frame; the rest after startup.
     func startPlatformServices(settings: SettingsController, on startup: StartupScheduler, hotKeys: Bool) {
-        seedGlass()
-        notifications.preferences = settings.snapshot.notifications
-        notifications.followChiefPet(settings)
-        updater.follow(settings, on: mainWork)
-        startHibernation(settings: settings)
+        LaunchStart.glass.runNow(on: startup) { seedGlass() }
+        LaunchStart.notificationPreferences.runNow(on: startup) { notifications.preferences = settings.snapshot.notifications; notifications.followChiefPet(settings) }
+        LaunchStart.updaterSettings.runNow(on: startup) { updater.follow(settings, on: mainWork) }
+        LaunchStart.hibernation.runNow(on: startup) { startHibernation(settings: settings) }
         // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
         // was too much for the type checker ("failed to produce diagnostic").
         typealias Start = @MainActor @Sendable () -> Void
@@ -90,5 +90,13 @@ extension AppServices {
                                     notifications: notificationsStart, macScreenSettings: macScreenSettingsStart, deviceHub: deviceHubStart,
                                     computerUseHelper: computerUseHelperStart, hibernationMeasurements: hibernationMeasurementsStart,
                                     apps: appsStart, macScreen: macScreenStart, updateFeed: updateFeedStart).post(on: startup)
+    }
+
+    /// Runs one launch start by its class (p06-scheduler-049, `LaunchStart`): a first-frame start now, in its launch-turn
+    /// signpost; another as an afterStartup post on ``launchStartup`` with feature `launchStartDeferral`, else now.
+    /// With no launch scheduler (a test's services) it runs now and reads no feature.
+    func runLaunchStart(_ start: LaunchStart, _ work: @escaping @MainActor @Sendable () -> Void) {
+        guard let launchStartup else { return work() }
+        start.run(on: launchStartup, deferring: start.startClass == .afterReveal && features.isEnabled(.launchStartDeferral), work)
     }
 }

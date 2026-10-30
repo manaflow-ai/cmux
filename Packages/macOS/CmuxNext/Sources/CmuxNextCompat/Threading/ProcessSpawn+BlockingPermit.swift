@@ -38,6 +38,9 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
         let clamped = unsafe posix_spawnattr_set_qos_class_np(attributes, ceiling)
         guard clamped == 0 else { return clamped }
     }
+    // No signal blocked and every signal at its default action in the child (the form without a permit says why).
+    let signals = unsafe spawnWithDefaultSignals(attributes)
+    guard signals == 0 else { return signals }
     // SAFETY: forwards the caller's pointers to posix_spawn unchanged, only for the call; the caller's own `unsafe`
     // states why they are valid for it.
     return blockingCall(.processSpawn, permit, fileID: fileID, line: line) { unsafe posix_spawn(pid, path, fileActions, attributes, argv, envp) }

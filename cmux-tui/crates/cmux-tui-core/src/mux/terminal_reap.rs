@@ -442,19 +442,13 @@ impl Mux {
         // record-cleanup retry thread, which dies when this daemon exits
         // after the handoff, so the host would outlive the call. Before
         // reporting success, prove every host of this session ended.
-        // The root is read in its own statement: an `if let` scrutinee's
-        // guard lives through the block (edition 2024), and host_panic_log
-        // locks surface_options again.
+        // The root and the panic log come from one surface_options snapshot
+        // whose guard ends inside terminal_host_paths. A guard in an `if let`
+        // scrutinee would live through the whole block (in every edition),
+        // and a re-lock of surface_options there deadlocked this call; the
+        // lock is ranked, so a re-lock now panics in debug and test builds.
         #[cfg(any(unix, windows))]
-        let host_root = self
-            .surface_options
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .terminal_host_root
-            .clone();
-        #[cfg(any(unix, windows))]
-        if let Some(root) = host_root {
-            let panic_log = self.host_panic_log();
+        if let TerminalHostPaths { root: Some(root), panic_log } = self.terminal_host_paths() {
             let survivors = end_surviving_terminal_hosts(
                 &root,
                 panic_log.as_ref(),

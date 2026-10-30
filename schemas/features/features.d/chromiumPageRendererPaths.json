@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumPageRendererPaths",
+  "owner": "PL-webui",
+  "description": "On fork API 29, cmux pages in Chromium talk to their host over the page channel with no DevTools session, so pages can share a renderer.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["home-idle"],
+  "sticky": false,
+  "runtimeMutable": false
+}

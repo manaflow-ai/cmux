@@ -1011,6 +1011,58 @@ impl ConversationEvent {
             self.assertTrue({"conversation-changed", "conversation-typing"}.issubset(names))
             self.assertNotIn("comment-only", names)
 
+    def test_event_discovery_skips_only_the_listed_log_records(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            source = tui / "crates/cmux-tui-core/src"
+            (source / "server").mkdir(parents=True)
+            (source / "server.rs").write_text(
+                'fn tree_delta_json() {\n    let _ = json!({"event": "tree-changed"});\n}\n'
+            )
+            (source / "mux.rs").write_text(
+                "impl TreeDeltaKind {\n    fn wire_name(&self) -> &str {\n"
+                '        match self { Self::WorkspaceAdded => "workspace-added" }\n    }\n}\n'
+            )
+            watchdog = source / "server/request_watchdog.rs"
+            # The hang log record is not a runtime event; a wire event beside it is.
+            watchdog.write_text(
+                'fn write_hang() { sink(json!({"event": "hang", "scope": "request"})); }\n'
+                'fn wire() { send(json!({"event": "watchdog-changed"})); }\n'
+            )
+            logs = {"request_watchdog": frozenset({"hang"})}
+            with patch.object(CHECKER, "TUI", tui), patch.object(CHECKER, "SERVER_LOG_RECORDS", logs):
+                names = CHECKER.event_names()
+            self.assertIn("watchdog-changed", names)
+            self.assertNotIn("hang", names)
+            # The same record in an unlisted module is a runtime event.
+            (source / "server/other.rs").write_text('fn f() { json!({"event": "hang"}); }\n')
+            with patch.object(CHECKER, "TUI", tui), patch.object(CHECKER, "SERVER_LOG_RECORDS", logs):
+                self.assertIn("hang", CHECKER.event_names())
+            (source / "server/other.rs").unlink()
+            # A listed record the module no longer writes is stale.
+            watchdog.write_text('fn wire() { send(json!({"event": "watchdog-changed"})); }\n')
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SERVER_LOG_RECORDS", logs),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.event_names()
+            self.assertIn("no longer writes log record hang", errors.getvalue())
+            # A listed module that is gone is stale too.
+            watchdog.unlink()
+            (source / "server/other.rs").write_text("fn f() {}\n")
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                patch.object(CHECKER, "SERVER_LOG_RECORDS", logs),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.event_names()
+            self.assertIn("names server/request_watchdog, which is gone", errors.getvalue())
+
     def test_event_discovery_ignores_event_shaped_comments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

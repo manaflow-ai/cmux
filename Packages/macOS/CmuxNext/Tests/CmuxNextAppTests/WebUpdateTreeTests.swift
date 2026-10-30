@@ -77,15 +77,26 @@ import Testing
         #expect(WebUpdateTree.sharedNames(in: Data(text.utf8)) == ["ui-1.css", "react-X.js"])
     }
 
-    @Test func theSharedRootIsTheScriptsSharedRoot() throws {
-        let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .appending(path: "../../../../../scripts/cmux-next/web-bundle-key.py").standardizedFileURL
-        let text = try String(contentsOf: script, encoding: .utf8)
-        #expect(text.contains("SHARED_ROOT = \"\(WebUpdateTree.sharedRoot)\""))
+    /// The script reads the shared files from the folder the app serves them from: a built tree with
+    /// React in ``WebUpdateTree/sharedRoot`` passes `--shared`, and one without it fails.
+    @Test func theSharedRootIsTheScriptsSharedRoot() async throws {
         #expect(WebUpdateTree.sharedRoot == WebUpdateTree.outputs[1] + "/_shared")
         // The overlay maps the pages (and so their _shared) and Agent Activity by these outputs.
         #expect(WebBundleOverlay.pagesOutput == WebUpdateTree.outputs[1])
         #expect(WebBundleOverlay.agentActivityOutput == WebUpdateTree.outputs[2])
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let built = root.appending(path: "built", directoryHint: .isDirectory)
+        try Self.write(Self.files, at: built)
+        let passes = try await WebUpdateStoreTests.bundleKey(built, "--shared")
+        #expect(passes.succeeded, "web-bundle-key.py --shared: \(String(decoding: passes.errorOutput, as: UTF8.self))")
+        #expect(passes.text.contains(Self.react), "the script names the one React: \(passes.text)")
+        var lacking = Self.files
+        lacking.removeValue(forKey: "\(Self.pages)/_shared/\(Self.react)")
+        let missing = root.appending(path: "missing", directoryHint: .isDirectory)
+        try Self.write(lacking, at: missing)
+        let fails = try await WebUpdateStoreTests.bundleKey(missing, "--shared")
+        #expect(fails.exited && fails.status == 1, "a tree without its React passed web-bundle-key.py --shared")
     }
 
     @Test func anInstallRefusesAnUpdateThatNamesASharedFileItLacks() async throws {

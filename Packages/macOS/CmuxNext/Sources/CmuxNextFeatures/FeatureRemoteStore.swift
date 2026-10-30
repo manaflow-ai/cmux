@@ -23,11 +23,12 @@ import os
 /// decides what this build gets, so a narrowed build range or a passed expiry
 /// takes an older document's overrides back. ``overrides(of:)`` filters.
 ///
-/// Every file read and write is posted to ``BackgroundWork``'s files lane at
-/// one fixed priority (``lanePriority``), never raised to the caller's. The
-/// files lane runs one item per priority in post order (`LaneScheduler`'s
-/// `perPriority` policy), so the rollback check and the write of one store
-/// never interleave with another store, a promotion or a load. The fetch
+/// Every file read and write is posted to one ``WorkSequence`` on
+/// ``BackgroundWork``'s files lane at one fixed priority (``lanePriority``),
+/// never raised to the caller's. The sequence runs its items in post order,
+/// one at a time (the files lane itself runs several items of one priority at
+/// once), so the rollback check and the write of one store never interleave
+/// with another store, a promotion or a load. The fetch
 /// hands verified bytes to ``store(_:)``; they
 /// apply at the next launch, where the composition root reads both copies
 /// with ``load()`` and safe mode (task 094) picks one.
@@ -96,7 +97,8 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     /// The directory of the copies: `<Application Support>/<app folder>/features`.
     public let directory: URL
     public let context: FeatureRemoteContext
-    private let work: BackgroundWork
+    /// Every file operation of the store, in post order and one at a time.
+    private let files: WorkSequence
     private let signatures: FeatureRemoteSignatureCheck
     private let now: @Sendable () -> Date
     private let report: @Sendable (String) -> Void
@@ -106,7 +108,7 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     /// - Parameters:
     ///   - directory: where the copies live; created on the first write.
     ///   - context: the registry, cohort and build every document is checked against.
-    ///   - work: the app's ``BackgroundWork``; every file operation runs on its files lane.
+    ///   - work: the app's ``BackgroundWork``; every file operation runs in order on its files lane.
     ///   - signatures: the trusted keys.
     ///   - now: the wall clock `FeaturesExpiresAt` is compared with.
     ///   - report: gets each refused document, each document not applied to this build and each
@@ -122,7 +124,7 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     ) {
         self.directory = directory
         self.context = context
-        self.work = work
+        files = work.sequence("features.remote-store")
         self.signatures = signatures
         self.now = now
         self.report = report
@@ -202,8 +204,8 @@ public nonisolated final class FeatureRemoteStore: Sendable {
         }
     }
 
-    /// Runs `body` on the files lane at ``lanePriority``, after every file
-    /// operation of the store posted before it; nil when shutdown dropped it.
+    /// Runs `body` on the store's sequence at ``lanePriority``, after every file
+    /// operation of the store posted before it has ended; nil when shutdown dropped it.
     private func inOrder<T: Sendable>(
         shutdown: ShutdownBehavior,
         fileID: StaticString = #fileID,
@@ -212,9 +214,8 @@ public nonisolated final class FeatureRemoteStore: Sendable {
     ) async -> T? {
         // A continuation dropped without a resume answers nil, as an abandoned lane item does.
         try? await withOnceContinuation { (continuation: OnceContinuation<T?, OnceContinuationError>) in
-            work.post(
+            files.post(
                 Self.lanePriority,
-                mayBlock: .files,
                 shutdown: shutdown,
                 fileID: fileID,
                 line: line,

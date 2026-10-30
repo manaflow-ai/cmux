@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Dispatch
@@ -65,18 +66,25 @@ import Testing
     /// frame reveals before the deadline's main hop runs: the stale deadline must not settle.
     @Test func aRevealDeadlineClaimedBeforeTheFirstFrameDoesNotSettle() async throws {
         let clock = ManualClock()
-        // The ledger records the fire right after the timer claims it: that is the claim signal.
-        let (claims, claimed) = AsyncStream.makeStream(of: Void.self)
-        let startup = StartupPhase(clock: clock, ledger: WakeupLedger(uptime: { claimed.yield(); return 0 }))
+        // The ledger reads its clock when it records the fire, on the timer's thread, right after the timer claimed
+        // it and before its hop to main. That read tells the test the fire is claimed and holds the timer's thread
+        // until the test has shown the first frame, so the hop comes after the frame whatever runs first on main.
+        // (Resuming a main-actor continuation from that thread did not order the two main jobs: fleet a2ab5dc2.)
+        let claim = Claim()
+        let startup = StartupPhase(clock: clock, ledger: WakeupLedger(uptime: { claim.claimedThenWaitForFrame(); return 0 }))
         var settledAt: Duration?
         startup.whenReached(.settled) { settledAt = clock.now.offset }
         startup.noteLaunch(.window)
         try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(1_500))
-        _ = await claims.first { @Sendable _ in true }
-        // Main resumes here before the claimed deadline's hop: the frame comes first.
+        await withCheckedContinuation { (claimed: CheckedContinuation<Void, Never>) in
+            claim.arm(claimed)
+            clock.advance(by: .milliseconds(1_500))
+        }
+        // The timer's thread waits in the ledger: the frame comes first.
         startup.noteFirstFrame()
+        claim.frameShown()
         #expect(startup.revealCause == .firstFrame)
+        #expect(!claim.timedOut, "the timer's thread waited 30 s for the frame and went on without it: the test did not order the frame first")
         // The failsafe sleeps; by then the stale deadline action has had its turn on main.
         try await clock.waitForSleeper()
         #expect(startup.phase == .revealed, "a stale reveal deadline settled startup")
@@ -369,4 +377,28 @@ private struct LaneSignal<Value: Sendable>: Sendable {
         for await value in stream { return value }
         return nil
     }
+}
+
+/// The first clock read after ``arm(_:)`` (the timer recording its claimed fire): resumes the test, then holds that
+/// thread until ``frameShown()``. Reads before the arm and after the frame return at once.
+private nonisolated final class Claim: Sendable {
+    private let waiting = Mutex<CheckedContinuation<Void, Never>?>(nil)
+    private let frame = DispatchSemaphore(value: 0)
+    private let gaveUp = Mutex(false)
+
+    /// The timer's thread stopped waiting at the bound: the test fails on this, never passes.
+    var timedOut: Bool { gaveUp.withLock { $0 } }
+
+    func arm(_ continuation: CheckedContinuation<Void, Never>) {
+        waiting.withLock { $0 = continuation }
+    }
+
+    func claimedThenWaitForFrame() {
+        guard let continuation = waiting.withLock({ $0.take() }) else { return }
+        continuation.resume()
+        // Bounded: a test that never shows the frame fails (``timedOut``) instead of hanging the run.
+        if frame.wait(timeout: .now() + 30) == .timedOut { gaveUp.withLock { $0 = true } }
+    }
+
+    func frameShown() { frame.signal() }
 }

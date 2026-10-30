@@ -124,7 +124,7 @@ impl SequencePriority {
     }
 
     /// Input and control workers are request threads: blocking is
-    /// disallowed for their life, as on `spawn_request_thread`'s threads.
+    /// disallowed for their life, as a connection thread once it is admitted.
     const fn is_request_class(self) -> bool {
         matches!(self, Self::Input | Self::Control)
     }

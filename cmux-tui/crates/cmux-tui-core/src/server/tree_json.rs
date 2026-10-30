@@ -11,7 +11,6 @@ use crate::SurfaceKind;
 use crate::panic_free::JsonFields;
 use crate::resource::ContentPublicId;
 
-use crate::Mux;
 use crate::PaneId;
 use crate::ScreenId;
 use crate::SurfaceId;
@@ -375,7 +374,7 @@ pub(crate) fn tree_entity_json(
     }
 }
 
-pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
+pub(super) fn tree_delta_json(delta: &TreeDelta) -> Value {
     let mut value = json!({
         "event": delta.kind.as_str(),
         "workspace": delta.workspace,
@@ -398,13 +397,16 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     }
     if let Some(revision) = delta.workspace_revision {
         value.insert("workspace_revision", json!(revision));
-        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value.insert("origin", json!(event.origin));
-            value.insert("mutation_id", json!(event.mutation_id));
+    }
+    // Stamped by the committer (`TreeDelta::registry_event`): this runs on a
+    // subscriber's turn, which reads no registry.
+    if let Some(stamp) = &delta.registry_event {
+        if let Some((origin, mutation_id)) = &stamp.mutation {
+            value.insert("origin", json!(origin));
+            value.insert("mutation_id", json!(mutation_id));
         }
-        let (registry_id, generation) = mux.registry_identity();
-        value.insert("registry_id", json!(registry_id));
-        value.insert("generation", json!(generation));
+        value.insert("registry_id", json!(stamp.registry_id));
+        value.insert("generation", json!(stamp.generation));
     }
     value
 }

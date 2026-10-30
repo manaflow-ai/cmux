@@ -19,6 +19,15 @@ N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
 page each, so a run is deterministic; `real`: 20 well-known public sites; or a
 comma list). Each count is sampled after --settle seconds.
 
+--navigate N (the navigate-N phase, p07-memory-101) follows: each local tab walks N same-site pages by itself
+(/nav/N to /nav/0), so N pages wait behind Back in Chromium's back-forward cache; a terminal workspace is then
+shown, so every tab is hidden, and the Chromium renderers' count and footprint are sampled hidden, after
+--navigate-freeze-wait seconds (0: no freeze sample) and --navigate-window seconds after the debug pressure
+override goes to warning (cleared at the end). --bfcache-flush on|off launches with feature
+memoryBackForwardCacheFlush set that way (a Labs local choice); the report names the state features.list gives.
+The deltas against the hidden sample, feature on against off, are what the flushes free. The flush needs a fork
+with cmux_flush_back_forward_cache.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -39,6 +48,8 @@ Usage:
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
+  bench_memory.py --app BUNDLE --tabs 20 --navigate 5 [--bfcache-flush on|off] [--navigate-freeze-wait 0]
+      [--navigate-window 10]
   bench_memory.py --app BUNDLE --hidden-workspaces 100 [--grace 960] [--mix terminal] [--terminal-host-model hosts|holder]
       [--gpu-release off|on] [--thread-window 10]
   bench_memory.py --app BUNDLE --hidden-slope [--engine chromium|webkit] [--slope-counts 10,60] [--slope-samples 3]
@@ -774,8 +785,18 @@ _LOCAL_PAGE = """<!doctype html><html><head><meta charset=utf-8><title>bench %(n
 <script>document.querySelectorAll('.card').forEach((c,i)=>c.dataset.i=i)</script></body></html>"""
 
 
-def local_sites(count: int) -> list[str]:
-    """`count` distinct sites (siteN.localhost, its own renderer under site isolation) served here."""
+# A navigate-N page goes on to the next one this long after its load event: a navigation after the load adds a history
+# entry (one before it replaces the current one), so the page it leaves can enter the back-forward cache.
+NAVIGATE_STEP_DELAY_MS = 300
+_NAVIGATE_SCRIPT = ("<script>addEventListener('load',()=>setTimeout(()=>{location.href='/nav/%(next)d'},"
+                    f"{NAVIGATE_STEP_DELAY_MS}))</script>")
+NAVIGATE_PATH = re.compile(r"^/nav/(\d+)$")
+
+
+def local_sites(count: int, navigate: int = 0, visits: set | None = None) -> list[str]:
+    """`count` distinct sites (siteN.localhost, its own renderer under site isolation) served here. With `navigate`
+    N > 0 each URL is `/nav/N`, whose page goes on by itself to `/nav/N-1` and so on to `/nav/0`: N same-site
+    navigations, and N pages behind Back. `visits` gets (site number, step) for each `/nav/` page served."""
     import http.server
     import threading
 
@@ -786,6 +807,13 @@ def local_sites(count: int) -> list[str]:
             host = (self.headers.get("Host") or "site0").split(".")[0]
             number = int(re.sub(r"\D", "", host) or 0)
             body = (_LOCAL_PAGE % {"n": number, "cards": cards}).encode()
+            step = NAVIGATE_PATH.match(self.path)
+            if step:
+                left = int(step.group(1))
+                if visits is not None:
+                    visits.add((number, left))
+                if left > 0:
+                    body = body.replace(b"</body>", (_NAVIGATE_SCRIPT % {"next": left - 1}).encode() + b"</body>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -798,12 +826,13 @@ def local_sites(count: int) -> list[str]:
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]
-    return [f"http://site{i}.localhost:{port}/" for i in range(count)]
+    path = f"nav/{navigate}" if navigate > 0 else ""
+    return [f"http://site{i}.localhost:{port}/{path}" for i in range(count)]
 
 
-def tab_urls(spec: str, count: int) -> list[str]:
+def tab_urls(spec: str, count: int, navigate: int = 0, visits: set | None = None) -> list[str]:
     if spec == "local":
-        return local_sites(count)
+        return local_sites(count, navigate, visits)
     urls = REAL_SITES if spec == "real" else [u for u in spec.split(",") if u]
     return [urls[i % len(urls)] for i in range(count)]
 
@@ -1366,6 +1395,88 @@ def pressure_phase(app: App, app_pid: int, level: str, window: float, interval: 
     return phase
 
 
+BFCACHE_FEATURE = "memoryBackForwardCacheFlush"
+# How long the tabs get to walk their navigation chains before the phase measures what it has.
+NAVIGATE_WAIT_S = 120
+NAVIGATE_POLL_S = 1
+
+
+def feature_state(app: App, name: str) -> str | None:
+    """Feature `name`'s state as features.list reports it (`on`, `off`, ...), None on a build without it."""
+    reply = app.call("features.list", timeout=30)
+    rows = reply.get("features") if isinstance(reply, dict) else None
+    row = next((f for f in rows or [] if isinstance(f, dict) and f.get("name") == name), None)
+    return row.get("state") if row else None
+
+
+def renderer_point(result: dict) -> dict:
+    """The Chromium renderers of a sample: their count and footprint, and the footprint of every process."""
+    kinds = result.get("kinds", {})
+    renderers = kinds.get(ENGINE_PAGE_KINDS["chromium"], {})
+    total = result.get("total_footprint_bytes")
+    if total is None:
+        total = sum(entry.get("footprint_bytes", 0) for entry in kinds.values())
+    return {"renderers": renderers.get("count", 0), "renderer_mb": round(renderers.get("footprint_bytes", 0) / MB, 1),
+            "total_mb": round(total / MB, 1)}
+
+
+def navigate_phase(app: App, steps: int, tabs: int, visits: set, hide, settle_and_sample, freeze_wait: float,
+                   window: float) -> dict:
+    """navigate-N (p07-memory-101): `tabs` tabs walk their chains of `steps` same-site pages (``local_sites``, so
+    each keeps `steps` pages behind Back), then `hide()` shows another workspace so every tab is hidden. It samples
+    the Chromium renderers' count and footprint hidden, after `freeze_wait` seconds (0: no freeze sample; the
+    freeze flush needs `browser.freezeSeconds` below it), and `window` seconds after the debug pressure override
+    goes to warning (cleared at the end, also after a failure). Run it with feature memoryBackForwardCacheFlush on
+    and off (--bfcache-flush): the deltas against the hidden sample are what the flushes free."""
+    phase: dict = {"steps": steps, "tabs": tabs, "bfcache_flush": feature_state(app, BFCACHE_FEATURE)}
+    deadline = time.monotonic() + NAVIGATE_WAIT_S
+    while True:
+        done = len({site for site, left in visits if left == 0})
+        if done >= tabs or time.monotonic() >= deadline:
+            break
+        time.sleep(NAVIGATE_POLL_S)  # test script: the pages walk their chains by themselves
+    phase["navigated"] = done
+    if done < tabs:
+        print(f"bench-memory: navigate-{steps}: {done} of {tabs} tabs reached the end of their chain in "
+              f"{NAVIGATE_WAIT_S} s", file=sys.stderr, flush=True)
+    if hide() is None:
+        phase["error"] = "no workspace to show, so the tabs never went hidden"
+        print(f"bench-memory: navigate-{steps}: {phase['error']}", file=sys.stderr, flush=True)
+        return phase
+    points = {"hidden": renderer_point(settle_and_sample(f"navigate-{steps}-hidden"))}
+    if freeze_wait > 0:
+        time.sleep(freeze_wait)  # test script: the hidden pages' freeze timer
+        points["frozen"] = renderer_point(settle_and_sample(f"navigate-{steps}-frozen"))
+    try:
+        state, error = set_pressure(app, "warning")
+        if state == "set":
+            time.sleep(window)  # test script: the flush and the renderers' release
+            points["warning"] = renderer_point(settle_and_sample(f"navigate-{steps}-warning"))
+        elif state == "missing":
+            phase["skipped"] = "no pressure override"
+        else:
+            phase["error"] = error
+    finally:
+        cleared, why = set_pressure(app, "none")
+        if cleared == "failed":
+            phase["clear_error"] = why
+    phase["points"] = points
+    base = points["hidden"]
+    phase["deltas"] = {label: {key: round(point[key] - base[key], 1) for key in base}
+                       for label, point in points.items() if label != "hidden"}
+    print(f"== navigate-{steps}: {tabs} tabs, {done} walked their chain, {BFCACHE_FEATURE} {phase['bfcache_flush']}")
+    for label, point in points.items():
+        delta = phase["deltas"].get(label)
+        change = (f" ({delta['renderers']:+.0f} renderers, {delta['renderer_mb']:+.1f} MB renderers, "
+                  f"{delta['total_mb']:+.1f} MB total)") if delta else ""
+        print(f"   {label:<8} renderers {point['renderers']:>3}  renderer footprint {point['renderer_mb']:>8.1f} MB  "
+              f"total {point['total_mb']:>8.1f} MB{change}")
+    if "error" in phase or "skipped" in phase:
+        print(f"   warning sample: {phase.get('error') or phase.get('skipped')}")
+    sys.stdout.flush()
+    return phase
+
+
 KERNEL_LEVELS = {"warn": 2, "critical": 4}
 MEMORY_PRESSURE = "/usr/bin/memory_pressure"
 
@@ -1623,6 +1734,12 @@ def check_args(parser: argparse.ArgumentParser, args) -> list[int]:
         parser.error("--grace needs --hidden-workspaces or --hidden-slope")
     if args.hidden_workspaces is not None and args.tabs:
         parser.error("--hidden-workspaces and --tabs are separate runs")
+    if args.navigate is not None and (args.navigate < 1 or not args.tabs or args.urls != "local"):
+        parser.error("--navigate N (N >= 1) walks the --tabs tabs through local pages (--urls local)")
+    if args.bfcache_flush and (args.socket or args.navigate is None):
+        parser.error(f"--bfcache-flush sets {BFCACHE_FEATURE} of an app this run launches, for --navigate")
+    if args.navigate_freeze_wait < 0 or args.navigate_window < 0:
+        parser.error("--navigate-freeze-wait and --navigate-window are seconds >= 0")
     if args.gpu_release and args.socket:
         parser.error(f"--gpu-release sets {GPU_RELEASE_TUNABLE} of an app this run launches, not of an attached one")
     if args.thread_window < 0:
@@ -1736,6 +1853,16 @@ def parse_args(argv=None):
     parser.add_argument("--tabs", help="browser-tab counts to sample, e.g. 1,10,20 (instead of --workspaces)")
     parser.add_argument("--urls", default="local",
                         help="--tabs and --hidden-slope: local, real or a comma list of URLs")
+    parser.add_argument("--navigate", type=int, metavar="N",
+                        help="navigate-N phase after --tabs (--urls local): each tab walks N same-site pages, the tabs "
+                             "go hidden, and the renderers' count and footprint are sampled hidden, after "
+                             "--navigate-freeze-wait and at the warning pressure override (p07-memory-101)")
+    parser.add_argument("--navigate-freeze-wait", type=float, default=0, metavar="S",
+                        help="--navigate: seconds hidden before the freeze sample (0: none)")
+    parser.add_argument("--navigate-window", type=float, default=10, metavar="S",
+                        help="--navigate: seconds at the warning override before its sample")
+    parser.add_argument("--bfcache-flush", choices=("on", "off"),
+                        help=f"launch, --navigate: feature {BFCACHE_FEATURE} as a Labs local choice; run on, then off")
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
@@ -1852,8 +1979,9 @@ def main(argv=None):
         if args.fake_agent:
             # The fake agent is a real ACP process: the bench env's agent-pane mock and launch denial would stop it.
             env.update({"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
+        local_features = {BFCACHE_FEATURE: args.bfcache_flush == "on"} if args.bfcache_flush else None
         bench = BenchApp(bundle, out=results_dir, env=env, config=config, build_config=args.build_config,
-                         perf_session=args.session)
+                         perf_session=args.session, local_features=local_features)
         note_child_launch()
         try:
             bench.launch()
@@ -1884,7 +2012,8 @@ def main(argv=None):
         settle_and_sample("idle-launch")
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
-            urls = tab_urls(args.urls, max(tab_counts))
+            visits: set = set()
+            urls = tab_urls(args.urls, max(tab_counts), args.navigate or 0, visits)
             report["tabs"] = tab_counts
             report["urls"] = args.urls
             made = 0
@@ -1894,6 +2023,15 @@ def main(argv=None):
                 result = settle_and_sample(f"tabs-{made}")
                 result["tabs"] = made
             counts = []
+            if args.navigate is not None:
+                def hide():
+                    workspace = open_workspace(app, "terminal", args.url, len(opened), chats)
+                    if workspace is not None:
+                        opened.append(workspace)
+                    return workspace
+
+                report["navigate"] = navigate_phase(app, args.navigate, made, visits, hide, settle_and_sample,
+                                                    args.navigate_freeze_wait, args.navigate_window)
         launch_threads = thread_times(app_pid) if counts else None
         launch_memory = MemoryReport.read(app) if counts else None
         launch_surfaces = launch_memory.terminal_surfaces() if launch_memory else None

@@ -244,6 +244,16 @@ impl Surface {
         mux.post_terminal_notifications_off_output(self.id, &pty.publications, notifications);
     }
 
+    /// Hands the attention mark a bell asked for to the work lane, in the
+    /// terminal's publication sequence (`Mux::post_bell_notification_off_output`):
+    /// it records a notification in the registry, which the output thread may
+    /// not do.
+    pub(crate) fn post_bell_notification(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let Some(mux) = pty.mux.upgrade() else { return };
+        mux.post_bell_notification_off_output(self.id, &pty.publications);
+    }
+
     /// The queued publication ([`Self::post_pending_publications`]), on the
     /// work lane: the next change queues another.
     pub(crate) fn publish_posted_publications(&self) {

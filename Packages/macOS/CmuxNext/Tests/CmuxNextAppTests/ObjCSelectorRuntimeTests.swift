@@ -33,6 +33,8 @@ struct ObjCSelectorRuntimeTests {
         "CmuxNextBrowser.AddressField.textView:menu:forEvent:atIndex:",
         // NSDraggingDestination's optional end (NSView has none): no super call.
         "CmuxNextBrowser.CEFHostView.draggingEnded:",
+        // Tells its drag destination the session left (ChromiumHostPageView+Drag.swift), no super call.
+        "CmuxNextBrowser.ChromiumHostPageView.draggingEnded:",
         "CmuxNextHome.HomeNativeTranscriptView.draggingEnded:",
         // Forwards to its drop target, no super call.
         "CmuxNextHome.HomeSidebarSplitView.draggingEnded:",
@@ -40,6 +42,8 @@ struct ObjCSelectorRuntimeTests {
         "CmuxNextPages.PageWKWebView.draggingEnded:",
         // NSStandardKeyBindingResponding's Escape: closes the modal, no super call.
         "CmuxNextUpdater.ShareCmuxMessageTextView.cancelOperation:",
+        // Escape in the window's top layer, else passed to the next responder (tryToPerform), no super call.
+        "CmuxNextDesign.OverlayTopLayerView.cancelOperation:",
     ]
 
     @Test func cmuxsApplicationAnswersWhatChromiumSendsToNSApp() throws {

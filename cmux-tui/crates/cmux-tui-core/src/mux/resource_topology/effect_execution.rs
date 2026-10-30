@@ -815,6 +815,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        registry_event: None,
                         transaction: None,
                     })
                 }
@@ -1074,6 +1075,7 @@ impl Mux {
                     index: Some(pane_index),
                     entity,
                     workspace_revision: None,
+                    registry_event: None,
                     transaction,
                 },
                 screen_id,

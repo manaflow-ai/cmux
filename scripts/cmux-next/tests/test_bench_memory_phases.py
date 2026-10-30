@@ -6,6 +6,7 @@ fakes. Local only: python3 -I scripts/cmux-next/tests/test_bench_memory_phases.p
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import plistlib
@@ -289,6 +290,100 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(phase["terminal_host_model"], "hosts")
         self.assertEqual(phase["terminal_host_model_requested"], "holder")
         self.assertIn("requested holder; the daemon started terminal hosts", out.getvalue())
+
+
+class NavigateTests(unittest.TestCase):
+    """navigate-N (p07-memory-101): the local pages chain N same-site navigations, and the phase samples the
+    renderers hidden, frozen and at the warning override, which it clears."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.saved = bm.time
+        bm.time = self.clock
+
+    def tearDown(self):
+        bm.time = self.saved
+
+    def test_a_local_navigate_page_goes_on_to_the_next_step_and_the_last_one_stops(self):
+        import urllib.request
+        visits = set()
+        urls = bm.local_sites(2, navigate=5, visits=visits)
+        self.assertTrue(urls[1].endswith("/nav/5"), urls)
+        port = urls[0].split(":")[2].split("/")[0]
+
+        def page(site, step):
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/nav/{step}", headers={"Host": f"site{site}.localhost"})
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                return reply.read().decode()
+
+        self.assertIn("location.href='/nav/4'", page(1, 5))
+        self.assertNotIn("location.href", page(1, 0))
+        self.assertEqual(visits, {(1, 5), (1, 0)})
+        self.assertTrue(bm.local_sites(1)[0].endswith("/"), "a plain local site gained a chain")
+
+    def run_phase(self, app, visits, tabs=2, freeze_wait=30.0, hidden=True):
+        renderers = iter([(tabs * 6, 600 * MB), (tabs * 6, 590 * MB), (tabs, 100 * MB)])
+
+        def settle_and_sample(label):
+            count, footprint = next(renderers)
+            return sample(label, {"app": (1, 200 * MB), "cef-renderer": (count, footprint)})
+
+        hides = []
+        with redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+            phase = bm.navigate_phase(app, 5, tabs, visits, lambda: hides.append(1) or ("ws_1" if hidden else None),
+                                      settle_and_sample, freeze_wait, 10.0)
+        return phase, hides, out.getvalue()
+
+    def test_the_phase_samples_hidden_frozen_and_at_warning_and_clears_the_override(self):
+        class Features(FakeApp):
+            def call(self, method, params=None, label=None, timeout=120):
+                if method == "features.list":
+                    return {"features": [{"name": bm.BFCACHE_FEATURE, "state": "on", "source": "local"}]}
+                return super().call(method, params, label, timeout)
+
+        app = Features()
+        phase, hides, out = self.run_phase(app, {(0, 0), (1, 0)})
+        self.assertEqual(hides, [1])
+        self.assertEqual(phase["bfcache_flush"], "on")
+        self.assertEqual(phase["navigated"], 2)
+        self.assertEqual(phase["points"]["hidden"], {"renderers": 12, "renderer_mb": 600.0, "total_mb": 800.0})
+        self.assertEqual(phase["deltas"]["frozen"]["renderer_mb"], -10.0)
+        self.assertEqual(phase["deltas"]["warning"], {"renderers": -10, "renderer_mb": -500.0, "total_mb": -500.0})
+        self.assertEqual(pressure_levels(app), ["warning", "none"])
+        self.assertEqual(self.clock.now, 40.0)
+        self.assertIn("navigate-5: 2 tabs, 2 walked their chain, memoryBackForwardCacheFlush on", out)
+
+    def test_tabs_that_never_finish_their_chain_are_waited_for_then_counted(self):
+        phase, _, _ = self.run_phase(FakeApp(), {(0, 0), (1, 3)}, freeze_wait=0)
+        self.assertEqual(phase["navigated"], 1)
+        self.assertIsNone(phase["bfcache_flush"])
+        self.assertNotIn("frozen", phase["points"])
+        self.assertGreaterEqual(self.clock.now, bm.NAVIGATE_WAIT_S)
+
+    def test_without_the_override_the_warning_sample_is_skipped(self):
+        app = FakeApp(override=False)
+        phase, _, _ = self.run_phase(app, {(0, 0), (1, 0)}, freeze_wait=0)
+        self.assertEqual(phase["skipped"], "no pressure override")
+        self.assertEqual(list(phase["points"]), ["hidden"])
+        self.assertEqual(pressure_levels(app), ["warning", "none"])
+
+    def test_no_workspace_to_show_is_an_error_and_sets_no_pressure(self):
+        app = FakeApp()
+        phase, _, _ = self.run_phase(app, {(0, 0), (1, 0)}, hidden=False)
+        self.assertIn("never went hidden", phase["error"])
+        self.assertEqual(pressure_levels(app), [])
+
+    def test_the_options_need_local_tabs_and_a_launch(self):
+        with redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            for argv in (["--navigate", "5"], ["--tabs", "20", "--navigate", "0"],
+                         ["--tabs", "20", "--navigate", "5", "--urls", "real"],
+                         ["--tabs", "20", "--bfcache-flush", "on"],
+                         ["--tabs", "20", "--navigate", "5", "--bfcache-flush", "on", "--socket", "/tmp/s",
+                          "--app-pid", "1"]):
+                with self.assertRaises(SystemExit, msg=argv):
+                    bm.parse_args(["--app", "/tmp/x.app", *argv])
+        args, _ = bm.parse_args(["--app", "/tmp/x.app", "--tabs", "20", "--navigate", "5", "--bfcache-flush", "off"])
+        self.assertEqual((args.navigate, args.bfcache_flush), (5, "off"))
 
 
 class LaunchTests(unittest.TestCase):

@@ -1145,7 +1145,6 @@ jobs:
           # engine is a prebuilt artifact the shipped build embeds itself.
           CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
-            -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
@@ -2195,7 +2194,6 @@ jobs:
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
             env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
-            -skipPackagePluginValidation \
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
@@ -3101,7 +3099,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.prepare-nightly-variant-primary.result == 'success' && 'ubuntu-24.04' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.prepare-nightly-variant-primary.result == 'success' && 'ubuntu-24.04' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false

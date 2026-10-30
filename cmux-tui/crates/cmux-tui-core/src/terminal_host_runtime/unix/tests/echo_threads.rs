@@ -86,8 +86,8 @@ fn the_parser_waits_for_its_next_command_on_an_echo_thread_without_a_violation()
         let host = host.clone();
         crate::echo_thread::spawn("terminal-host-parser-idle-test", move || {
             cmux_threads::blocking::with_mode(cmux_threads::BlockingMode::Panic, || {
-                run_host_parser(host, receiver, initial_colors, signals)
-            })
+                run_host_parser(host, receiver, initial_colors, signals);
+            });
         })
         .unwrap()
     };
@@ -121,7 +121,7 @@ fn a_client_commit_that_waits_for_the_parser_is_acknowledged_in_panic_mode() {
     let parser = {
         let host = host.clone();
         thread::spawn(move || {
-            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new())
+            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new());
         })
     };
     let (server_stream, mut client_stream) = UnixStream::pair().unwrap();

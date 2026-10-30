@@ -14,8 +14,11 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC = new URL("../src/", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: a checkout under a path with a space (a fleet worker's
+// "/Library/Application Support/...") reads as %20 in pathname, and every read then fails ENOENT.
+const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
 /// Each hover card: the component that renders it and the class that names its root.
 const CARDS = [

@@ -19,10 +19,12 @@
 //!   take over: every task of a current_thread runtime, and the block_on
 //!   future of a multi_thread one, makes no progress. [`runtime::block_on`]
 //!   disallows blocking for the call (`ScopedDisallowBlocking`), so the stall
-//!   is a policy violation; it is counted, the first at each site is written
-//!   to the installed [`RecordSink`] and logged once in debug builds, and it
-//!   panics only in this crate's own tests or with `CMUX_BLOCKING_STRICT=1`
-//!   (the lab). `block_in_place` is never called there: tokio panics on it
+//!   is a policy violation. In a Debug build the `cmux_threads` check panics
+//!   there first, unless `CMUX_DAEMON_BLOCKING=record`. Otherwise (Release,
+//!   or record mode) it is counted, the first at each site is written to the
+//!   installed [`RecordSink`] and logged once in debug builds, and it panics
+//!   only in this crate's own tests or with `CMUX_BLOCKING_STRICT=1` (the
+//!   lab). `block_in_place` is never called there: tokio panics on it
 //!   inside a `LocalSet` and does nothing useful outside one.
 //! - In [`spawn_blocking`] work the call may block and is counted as allowed.
 //! - Anywhere else (plain tokio runtimes, `#[tokio::test]`, std threads) the

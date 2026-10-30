@@ -162,11 +162,13 @@ struct KeyRouterModeTests {
         let harness = try Self.harness()
         defer { harness.close() }
         let input = harness.router.creationInputCoordinator
-        input.holdUntilShown(in: harness.shell)
+        // A creation waiting for its reply keeps every key.
+        let ticket = try #require(input.begin(in: harness.shell, generation: 1))
         #expect(harness.modes.contains(.creationCapture), "the creation hold left its mode off")
         #expect(Self.dispatch(try Self.plain(harness), in: harness), "the creation hold did not take the typing key")
-        // Past its limit the hold ends at the next key: its keys go on and the mode goes off.
-        input.holdLimit = .zero
+        // Its reply came and what it asked for holds (this window's focus names no terminal that waits): the hold ends
+        // at the next key, its keys go on and the mode goes off (first-keys-proof item 2: never wait for a settle).
+        input.resolve(ticket, landed: false, in: harness.shell)
         _ = Self.dispatch(try Self.plain(harness), in: harness)
         #expect(harness.modes.isNormal, "the creation hold's mode stayed on after it ended: \(harness.modes.active)")
     }

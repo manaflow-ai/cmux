@@ -488,9 +488,17 @@ pub(crate) struct TerminalMetadata {
     program_status: crate::program_status::SharedProgramStatus,
     /// The running shell command (`terminal-activity-v1`).
     pub(crate) activity: crate::terminal_activity::ShellActivity,
+    /// Whether output prints text (`last_output`), across reader chunks.
+    print_scan: crate::terminal_activity::PrintScan,
 }
 
 impl TerminalMetadata {
+    /// Whether `bytes`, the next output chunk, prints text
+    /// ([`crate::terminal_activity::PrintScan`]).
+    pub(crate) fn output_prints(&mut self, bytes: &[u8]) -> bool {
+        self.print_scan.printed(bytes)
+    }
+
     /// Observe raw child output. The fast path avoids the state machine for
     /// ordinary output, which is the common case for non-OSC terminals.
     pub(crate) fn observe_output(&mut self, bytes: &[u8]) {

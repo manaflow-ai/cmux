@@ -73,7 +73,7 @@ on:
       runner_class:
         description: "Blacksmith macOS runner class; rows are compared only within this class"
         required: false
-        default: "blacksmith-6vcpu-macos-26"
+        default: blacksmith-6vcpu-macos-26
       yield_mode:
         description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
         required: false
@@ -99,7 +99,7 @@ jobs:
   blacksmith-mac:
     name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
     permissions:
       contents: read
     timeout-minutes: 180
@@ -115,7 +115,7 @@ jobs:
         env:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
-          RUNNER_CLASS: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
         run: |
           set -euo pipefail
@@ -168,7 +168,7 @@ jobs:
 
       - name: Keep exact receipts and rows
         if: always()
-        uses: actions/upload-artifact@043fb46a1d93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/tipguard-blacksmith

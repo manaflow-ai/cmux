@@ -70,6 +70,11 @@ public protocol InvariantEventSink: Sendable {
 /// Invariant.dumpWillBeCheck(cache.isCoherent, "cache-coherent")           // allowlisted with its handler
 /// guard cache.isCoherent else { return cache.rebuild() }
 /// ```
+// concurrency-allow: what synchronizes it: `sites` and `words` are fixed allocations from init (freed only in deinit,
+// when no other reference exists); every read or write of a word after init is a C11 atomic (acquire-release
+// compare-exchange to claim a site or publish the installation, acquire load to read it, relaxed fetch-add for the
+// counters), so no word is ever touched non-atomically. The installation is published once by that compare-exchange and
+// retained (+1) until deinit, so a reader that acquired its address reads a live, fully built object.
 @safe
 public final class Invariant: @unchecked Sendable { // crash-allow: every word of `sites` and `words` is reached only through hardware atomic operations, and the installation `words[0]` names is retained by the invariant until its deinit and never written after the one compare-exchange that publishes it
     /// The process's invariant state, which the static calls use by default; its sink is installed by the

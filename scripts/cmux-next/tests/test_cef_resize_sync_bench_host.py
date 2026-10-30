@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""cef-resize-sync-bench.py's host modes (p01-process-052): a bench counts as a host mode run only when the app
-reported `debug.cef` host_resize at its end (null: Chromium ran in process), `hostfence` only with a fenced resize,
-and a host mode starts with the layer hosting and deadline tunables an in-process mode left removed.
+"""cef-resize-sync-bench.py's host mode (p01-process-052): a bench counts as a host mode run only when the app
+reported `debug.cef` host_resize at its end (null: Chromium ran in process), and a host mode starts with the layer
+hosting and deadline tunables an in-process mode left removed.
 
 Runs on any host (Linux included): the benches are faked; no app, no fleet.
 
@@ -32,10 +32,10 @@ def load_bench():
     return module
 
 
-def run(layout="1x2", action="split", fenced=None):
+def run(layout="1x2", action="split"):
     return {"layout": layout, "action": action, "round": 0, "commit_p95_ms": 4.0, "commit_max_ms": 6.0, "missed": 0,
             "frames_p95_ms": 8.3, "frames_p99_ms": 9.0, "frames_max_ms": 10.0, "layout_p95_ms": 1.0,
-            "refresh_ms": 8.3, "fence_resizes": fenced, "frame_intervals_ms": [8.3, 8.4]}
+            "refresh_ms": 8.3, "frame_intervals_ms": [8.3, 8.4]}
 
 
 class HostModes(unittest.TestCase):
@@ -52,9 +52,7 @@ class HostModes(unittest.TestCase):
             self.commands.append(command)
             out = command[command.index("--out") + 1]
             mode = Path(out).parent.name
-            fenced = (self.reports.get(mode) or {}).get("fenced")
-            report = {"runs": [run(fenced=fenced)], "summary": [run(fenced=fenced)],
-                      "host_resize": self.reports.get(mode)}
+            report = {"runs": [run()], "summary": [run()], "host_resize": self.reports.get(mode)}
             with open(command[command.index("--json") + 1], "w") as f:
                 json.dump(report, f)
             return 0
@@ -77,33 +75,21 @@ class HostModes(unittest.TestCase):
         return [list(s.samples) for s in self.recorded if s.metric == f"cef_resize_sync.{mode}.failed"]
 
     def test_in_process_chromium_is_not_a_host_run(self):
-        self.reports = {"host": None, "hostfence": None}
-        code, summary = self.main("host,hostfence")
+        self.reports = {"host": None}
+        code, summary = self.main("host")
         self.assertEqual(code, 1)
-        for mode in ("host", "hostfence"):
-            self.assertFalse(summary["validity"][mode]["ok"])
-            self.assertIn("in process", summary["validity"][mode]["benches"]["light"]["error"])
-            self.assertEqual(self.failed(mode), [[1], [1]])
+        self.assertFalse(summary["validity"]["host"]["ok"])
+        self.assertIn("in process", summary["validity"]["host"]["benches"]["light"]["error"])
+        self.assertEqual(self.failed("host"), [[1], [1]])
 
-    def test_hostfence_needs_a_fenced_resize(self):
-        counters = {"resizes": 12, "fenced": 0, "joined": 0, "late": 0, "cut": 0}
-        self.reports = {"host": dict(counters), "hostfence": dict(counters)}
-        code, summary = self.main("host,hostfence")
-        self.assertEqual(code, 1)
+    def test_a_host_run_is_valid_and_starts_with_its_features(self):
+        self.reports = {"host": {"resizes": 12}}
+        code, summary = self.main("host")
+        self.assertEqual(code, 0)
         self.assertTrue(summary["validity"]["host"]["ok"])
         self.assertEqual(self.failed("host"), [[0], [0]])
-        self.assertFalse(summary["validity"]["hostfence"]["ok"])
-        self.assertIn("no fenced resize", summary["validity"]["hostfence"]["benches"]["stress"]["error"])
-
-    def test_a_fenced_host_run_is_valid_and_its_rows_carry_fenced_resizes(self):
-        self.reports = {"hostfence": {"resizes": 12, "fenced": 9, "joined": 9, "late": 0, "cut": 1}}
-        code, summary = self.main("hostfence")
-        self.assertEqual(code, 0)
-        self.assertTrue(summary["validity"]["hostfence"]["ok"])
-        self.assertEqual(summary["modes"]["hostfence"]["light"]["rows"][0]["fence_resizes"], 9)
-        self.assertEqual(self.failed("hostfence"), [[0], [0]])
         # chromiumHostTabs: the bench's Chromium tabs run in the host.
-        self.assertTrue(all("cefHelperHost,chromiumHostResizeFence,chromiumHostTabs" in c for c in self.commands))
+        self.assertTrue(all("cefHelperHost,chromiumHostTabs" in c for c in self.commands))
 
     def test_a_host_mode_starts_without_the_tunables_an_in_process_mode_left(self):
         tunables = os.path.join(self.out, "debug-tunables.json")
@@ -124,7 +110,7 @@ class HostModes(unittest.TestCase):
 
         self.bench.check_mode = check_mode
         self.bench.subprocess.call = call
-        self.reports = {"host": {"resizes": 3, "fenced": 0}}
+        self.reports = {"host": {"resizes": 3}}
         code, summary = self.main("on0,host")
         self.assertEqual(code, 0)
         self.assertEqual(seen["on0"], {"other": 1, "browserResize.syncDeadline": 0.0})

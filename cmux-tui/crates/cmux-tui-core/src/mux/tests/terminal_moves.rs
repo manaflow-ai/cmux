@@ -55,9 +55,12 @@ fn create_move_during_launch_binds_only_latest_canonical_workspace() {
     .unwrap();
     assert_eq!(ready_revision, 3);
 
+    // Its own statement: the guard must end before the placeholder
+    // takes default_colors (both are leaf locks).
+    let options = mux.surface_options.lock().unwrap().clone();
     let surface = Surface::exited_terminal_placeholder(
         mux.next_id(),
-        mux.surface_options.lock().unwrap().clone(),
+        options,
         Arc::downgrade(&mux),
         TerminalHostIdentity { terminal_id: TERMINAL.into(), incarnation: INCARNATION.into() },
     )

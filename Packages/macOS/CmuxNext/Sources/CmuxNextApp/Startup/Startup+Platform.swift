@@ -50,7 +50,7 @@ extension AppDelegate {
     func registerTerminal(services: AppServices) {
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        LaunchStart.ghosttyKeybinds.runNow(on: order.startup) { ghosttyKeybinds.start() }
         let ghosttyConfigLiveReload = GhosttyConfigLiveReload(deadlines: services.mainDeadlines)
         self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
         ghosttyConfigLiveReload.startAfterStartup(on: order.startup)
@@ -58,7 +58,7 @@ extension AppDelegate {
         // pane can mount before the first frame, and its key-equivalent path reads these hooks on every key.
         TerminalHooks(services: services).install()
         // The terminal key path's input-source switch keys, read off main now and on each activation.
-        GhosttyRuntime.shared.inputSources.start(runner: services.work)
+        LaunchStart.inputSources.runNow(on: order.startup) { GhosttyRuntime.shared.inputSources.start(runner: services.work) }
         GhosttyRuntime.shared.traceHook.connect(on: services.mainWork, presents: FrameScheduler.appDisplays.presents)
         // Renderer-presented terminal frames pass through no `setContents:` hook: they count in the app's RenderStats.
         GhosttyRuntime.shared.traceHook.countPresentedFrames(in: control.renderStats.presentedFrames)
@@ -67,8 +67,9 @@ extension AppDelegate {
 
     /// Bookmarks, history, the first-party page schemes and the page host's statics.
     func registerBrowserData(services: AppServices, profilesDirectory: URL) {
-        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
-        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
+        LaunchStart.bookmarks.runNow(on: order.startup) { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) }
+        services.bookmarks.startSync()  // Chromium's bookmark models and the imports' migration: after startup with launchStartDeferral
+        LaunchStart.historyPages.runNow(on: order.startup) { services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) }
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
         // The shared chunks into memory on the files lane, so WebKit page views get them in one turn.

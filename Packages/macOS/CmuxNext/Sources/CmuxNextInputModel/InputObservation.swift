@@ -44,11 +44,14 @@ public nonisolated struct InputObservation: Hashable, Sendable, Codable {
         /// A top page (History, Settings, the App Store) covers the workspace: the model still
         /// names the parked workspace's pane, which nothing presents. Optional for old journals.
         public var topPage: Bool?
+        /// The window is on screen (`NSWindow.isVisible`; a minimized or ordered-out window is not). Optional
+        /// for old journals.
+        public var visible: Bool?
 
         public init(id: String, model: FocusState, responder: FocusEvent.Responder, responderClass: String? = nil,
                     isKey: Bool, layoutFocus: String? = nil, ghosttyFocused: [String], childPage: String? = nil,
                     presented: [String: String], childWindowTabs: [String] = [], hasSheet: Bool = false,
-                    topPage: Bool? = nil) {
+                    topPage: Bool? = nil, visible: Bool? = nil) {
             self.id = id
             self.model = model
             self.responder = responder
@@ -61,6 +64,7 @@ public nonisolated struct InputObservation: Hashable, Sendable, Codable {
             self.childWindowTabs = childWindowTabs
             self.hasSheet = hasSheet
             self.topPage = topPage
+            self.visible = visible
         }
     }
 
@@ -72,14 +76,17 @@ public nonisolated struct InputObservation: Hashable, Sendable, Codable {
     public var activeWindow: String?
     /// The published `terminalFocused` / `browserFocused` bits.
     public var context: FocusState.Context
+    /// cmux is the active app (`NSApp.isActive`); only then must a window be key (W10). Optional for old journals.
+    public var appActive: Bool?
 
     public init(windows: [Window], keyWindow: KeyWindow, paletteOpen: Bool, activeWindow: String? = nil,
-                context: FocusState.Context) {
+                context: FocusState.Context, appActive: Bool? = nil) {
         self.windows = windows
         self.keyWindow = keyWindow
         self.paletteOpen = paletteOpen
         self.activeWindow = activeWindow
         self.context = context
+        self.appActive = appActive
     }
 
     public func window(_ id: String) -> Window? { windows.first { $0.id == id } }
@@ -135,6 +142,9 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
     case contextMatches = "W7"
     case presentedMatchesSelection = "W8"
     case presentationSettles = "W9"
+    // Something takes the keys (plans/cmux-next/focus-invariant.md).
+    case keysHaveTarget = "W10"
+    case expectationLands = "W11"
     // Geometry (after settle).
     case chromiumGeometry = "G1"
     // Tab conservation (after settle, no drag in flight).
@@ -143,6 +153,10 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
     case mirrorSingleWriter = "M1"
     // Hover cards (plans/cmux-next/hovercards.md).
     case hoverCardSingle = "H1"
+
+    /// The rules of "something takes the keys" (plans/cmux-next/focus-invariant.md): a violation of one names the
+    /// action that ran last, the window, its first responder and the target expected.
+    public static let keysRules: Set<InputInvariant> = [.responderMatches, .keyWindowOwned, .keysHaveTarget, .expectationLands]
 
     public var summary: String {
         switch self {
@@ -173,6 +187,8 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
         case .contextMatches: "the window that owns the keyboard is active and its focus is the published context"
         case .presentedMatchesSelection: "every shown pane shows its selected tab, and that tab is in the pane"
         case .presentationSettles: "the focused pane presents the targeted tab within a settle"
+        case .keysHaveTarget: "while cmux is active and shows a window, a window is key and its model targets something that takes keys"
+        case .expectationLands: "a focus target that lands later lands or is dropped within the creation hold"
         case .chromiumGeometry: "every Chromium page window covers its pane in screen coordinates (ChildPageGeometry)"
         case .stripShowsPaneTabs: "with no tab drag in flight, every tab strip shows exactly its pane's tabs (tab conservation)"
         case .mirrorSingleWriter: "only daemon events, snapshots and the intent overlay write the mirror, and the overlay keeps every tab"

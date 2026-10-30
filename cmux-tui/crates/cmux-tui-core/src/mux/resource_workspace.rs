@@ -273,6 +273,7 @@ impl Mux {
             index: (kind == TreeDeltaKind::WorkspaceMoved).then_some(index),
             entity,
             workspace_revision,
+            registry_event: None,
             transaction: None,
         })
     }

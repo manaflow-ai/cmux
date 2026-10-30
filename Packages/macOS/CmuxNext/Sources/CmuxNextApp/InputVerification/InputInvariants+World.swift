@@ -26,6 +26,7 @@ nonisolated extension InputInvariants {
             }
         }
         out += keyWindow(observation)
+        out += keysHaveTarget(observation)
         out += overlays(observation)
         out += context(observation)
         return WorldResult(violations: out, unsettled: unsettled)

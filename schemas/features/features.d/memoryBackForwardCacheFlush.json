@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryBackForwardCacheFlush",
+  "owner": "PL-memory",
+  "description": "A hidden Chromium tab empties its back-forward cache when it freezes, and every hidden tab empties it when memory pressure reaches warning, as Chrome turns the cache off on low memory.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

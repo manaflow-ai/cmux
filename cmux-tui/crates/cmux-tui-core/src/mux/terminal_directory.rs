@@ -136,6 +136,29 @@ impl Mux {
         );
     }
 
+    /// Posts the attention mark a bell in terminal runtime `surface` asked
+    /// for (`Mux::post_bell_notification`) on the Files lane, in the
+    /// terminal's publication `sequence`, as its other notifications
+    /// ([`Self::post_terminal_notifications_off_output`]): the post commits a
+    /// notification to the registry, which the output thread may not do. A
+    /// refused item (shutdown) posts nothing.
+    pub(crate) fn post_bell_notification_off_output(
+        &self,
+        surface: SurfaceId,
+        sequence: &Arc<mux_work::Sequence>,
+    ) {
+        let _ = self.post_mux_work_sequenced(
+            sequence,
+            Priority::UserVisible,
+            Lane::Files,
+            move |mux| {
+                if let Some(mux) = mux.upgrade() {
+                    mux.post_bell_notification(surface);
+                }
+            },
+        );
+    }
+
     /// Publishes local terminal `surface`'s exit, if it is ready, on the
     /// Files lane: its reader may not commit to the registry itself
     /// (`exit_state::post_local_exit_if_ready`).

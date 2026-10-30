@@ -48,6 +48,7 @@ impl Mux {
                         index: Some(si),
                         entity,
                         workspace_revision: None,
+                        registry_event: None,
                         transaction: transaction.clone(),
                     })
                 })

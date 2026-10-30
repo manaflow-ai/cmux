@@ -11,6 +11,9 @@ internal import Musl
 /// The heap cell behind ``Mutex`` and ``PlatformLock``: the platform lock and the value it protects.
 /// The lock needs a stable address, so it lives in its own allocation, never inline in a value that
 /// can move.
+// concurrency-allow: what synchronizes it: `value` is read and written only between the platform lock's lock() and
+// unlock() (os_unfair_lock on Apple, a pthread mutex elsewhere: error-checking in Debug), whose acquire and release order every
+// access; the lock and the value live in their own allocations, so their addresses never move while a thread holds them.
 @usableFromInline
 final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow: `value` is reached only between lock() and unlock(), and the platform lock's operations are thread-safe
     @usableFromInline let value: UnsafeMutablePointer<Value>

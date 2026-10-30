@@ -183,11 +183,13 @@ extension TabContentCache {
     }
 
     /// The page at app page address `url` for `tab` (a hibernated one's wake too); nil for another address.
-    func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
+    /// `profile`: the page's profile when the caller knows it (a wake: `BrowserHibernation.wakeProfile`), else the
+    /// tab's (a first open).
+    func makeAppPage(_ url: URL?, for tab: TabModel, profile: BrowserProfileID? = nil) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-        let profile = browserProfile?(key) ?? .default
+        let profile = profile ?? browserProfile?(key) ?? .default
         // A machine's own record (cx-2cob), before the loopback dev record of the same host.
         if let record = url.flatMap(MachineBrowserRecord.init(url:)) {
             return MachineBrowserPages(cache: self).makePage(record, key: key, engine: engine, profile: profile)

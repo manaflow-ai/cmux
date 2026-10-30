@@ -38,16 +38,7 @@ impl Mux {
         &self,
         revision: u64,
     ) -> anyhow::Result<Option<crate::workspace_registry::RegistryEvent>> {
-        if revision == 0 {
-            return Ok(None);
-        }
-        Ok(self
-            .workspace_registry
-            .lock()
-            .recover_poison()
-            .events_after(revision - 1)?
-            .into_iter()
-            .find(|event| event.revision == revision))
+        self.workspace_registry.lock().recover_poison().workspace_event(revision)
     }
 
     #[track_caller]

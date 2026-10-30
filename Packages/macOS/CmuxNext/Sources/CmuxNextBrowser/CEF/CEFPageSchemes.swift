@@ -122,4 +122,26 @@ public struct CEFPageSchemes {
         case .failure: false
         }
     }
+
+    /// One document-start script of the page host for a cmux page's own world (fork API 29), from
+    /// CmuxNextPages `ChromiumPageHostBridge.rendererScript`: the App hands them to its ``CEFEngine``
+    /// (feature `chromiumPageRendererPaths`), and `CEFRuntime` installs them once for every browser
+    /// with every tab's document scripts (`CEFDocumentScripts.hostPage`), in cmux pages only. They
+    /// post by firing ``hostEvent``, which the runtime's page host relay sends on the page channel.
+    public struct HostScript: Equatable, Sendable {
+        /// The isolated world it runs in; "" for the page's own world.
+        public var world: String
+        public var source: String
+        /// Every frame; false for the main frame only.
+        public var allFrames: Bool
+        public init(world: String, source: String, allFrames: Bool) {
+            self.world = world
+            self.source = source
+            self.allFrames = allFrames
+        }
+    }
+
+    /// The DOM event a cmux page's own world fires to post to its host on the page channel
+    /// (`CEFDocumentScripts.pageHostEvent`): the page script of every ``HostScript`` fires it.
+    nonisolated public static let hostEvent = CEFDocumentScripts.pageHostEvent
 }

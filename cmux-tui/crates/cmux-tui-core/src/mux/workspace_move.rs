@@ -126,6 +126,7 @@ impl Mux {
                     index: Some(new_idx),
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    registry_event: None,
                     transaction: None,
                 },
                 workspace_mutation_result(&commit)?,

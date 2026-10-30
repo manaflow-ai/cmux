@@ -276,6 +276,7 @@ impl Mux {
                         index: Some(0),
                         entity,
                         workspace_revision: None,
+                        registry_event: None,
                         transaction: None,
                     }
                 };
@@ -379,6 +380,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(workspace_revision),
+                    registry_event: None,
                     transaction: None,
                 }
             };
@@ -464,6 +466,7 @@ impl Mux {
                         index: Some(index),
                         entity,
                         workspace_revision: None,
+                        registry_event: None,
                         transaction,
                     })
                 }

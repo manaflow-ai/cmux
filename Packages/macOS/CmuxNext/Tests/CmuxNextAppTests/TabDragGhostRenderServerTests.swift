@@ -9,12 +9,13 @@ import CmuxNextLayout
 import CmuxNextWakeups
 import QuartzCore
 import Testing
+import CmuxNextTestSupport
 
 /// The tab drag ghost on the render server (`motion.renderServer` on).
 /// Inside its source window the ghost is a view in that window's overlay, moved per pointer event with
 /// no window call; the drag panel shows it only outside the window. A jump is one `RenderSpring` group,
 /// the release's flight closes the ghost when it lands, and no `TabDrag.ghost` frame client steps it.
-@MainActor @Suite(.serialized) struct TabDragGhostRenderServerTests {
+@MainActor @Suite(.serialized, .renderHooks) struct TabDragGhostRenderServerTests {
     static let tabSize = CGSize(width: 160, height: 28)
 
     /// An ordered-in window at (200, 200), 1100 x 720 (the ghost fits only in a window on screen).

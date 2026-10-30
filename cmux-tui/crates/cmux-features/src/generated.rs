@@ -42,6 +42,12 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
+        name: "ipcFrames",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Both,
+    },
+    crate::FeatureDef {
         name: "leftoverDaemonIdleExit",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         kind: crate::Kind::PerfPath,
@@ -106,6 +112,8 @@ pub mod feature {
         HIDDEN_TERMINAL_QOS = "hiddenTerminalQos",
         /// Pooled acpmux agents run at background process priority until a session takes them, and the acpmux daemon does while no client is connected and no agent runs; each goes back to normal priority before it is used.
         IDLE_HELPER_BACKGROUND_PRIORITY = "idleHelperBackgroundPriority",
+        /// Framed IPC (ipc-frames-v2) to the local daemon: the daemon grants it to same-user local clients (REQUEST/CANCEL in, REPLY/ERROR out), and the app's connection asks for it, sends served typed commands as REQUEST frames and, with terminalStreams, keys as INPUT frames. Off keeps JSON lines.
+        IPC_FRAMES = "ipcFrames",
         /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
         LEFTOVER_DAEMON_IDLE_EXIT = "leftoverDaemonIdleExit",
         /// Every agent chat's cmux MCP server becomes a small stdio relay to one shared cmux MCP host per app build, which keeps the app's action catalog once instead of once per agent; the host exits 5 minutes after its last agent leaves.

@@ -278,7 +278,7 @@ impl Mux {
         !self.terminal_respawns.disabled
             && !self.shutting_down.load(Ordering::Acquire)
             && !self.session_shutdown.began()
-            && self.terminal_host_root().is_some()
+            && self.terminal_host_paths().root.is_some()
     }
 
     /// The checks that need no lock: a host loss with a respawnable reason,
@@ -413,7 +413,7 @@ impl Mux {
                 let new_incarnation =
                     surface.terminal_host_identity().map(|identity| identity.incarnation);
                 let prefilled = prefill.as_ref().map_or(Prefilled::None, |prefill| prefill.kind);
-                if let Some(root) = self.terminal_host_root() {
+                if let Some(root) = self.terminal_host_paths().root {
                     crate::terminal_loss_log::record_terminal_respawned(
                         &root,
                         &terminal_id,
@@ -447,12 +447,6 @@ impl Mux {
                 self.emit(MuxEvent::TreeChanged);
             }
         }
-    }
-
-    #[cfg(any(unix, windows))]
-    fn terminal_host_root(&self) -> Option<std::path::PathBuf> {
-        let options = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
-        options.terminal_host_root.clone()
     }
 
     /// Reopen the row, launch the new host and put it in the tabs. `None`
@@ -500,13 +494,13 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, revision);
             registry.terminal_record(&plan.terminal_id)?.map(|terminal| terminal.workspace_key)
         };
-        if let Some(root) = self.terminal_host_root() {
+        if let TerminalHostPaths { root: Some(root), panic_log } = self.terminal_host_paths() {
             // Only a Unix owner restarts a dead tab (`manual.rs`).
             #[cfg(unix)]
             if plan.user_restart {
                 wait_for_old_hosts(&root, &plan.terminal_id);
             }
-            remove_dead_host_records(&root, &plan.terminal_id, self.host_panic_log().as_ref());
+            remove_dead_host_records(&root, &plan.terminal_id, panic_log.as_ref());
             // Another thread (startup reconciliation, an adoption thread)
             // may be between removing the old record and its endpoint: the
             // launch below would refuse the endpoint, or that removal would

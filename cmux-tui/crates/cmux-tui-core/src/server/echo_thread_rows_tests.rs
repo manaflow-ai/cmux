@@ -1,7 +1,7 @@
 //! The daemon's echo path threads run at UserInteractive with blocking
 //! disallowed (p02-threads task 210): the read loop a local PTY surface
-//! reads on, the sequenced pool's input workers its attach views drain on
-//! and the frame producer are registered at that class. Its attach views
+//! reads on, the sequenced pool's input workers the person's attach views
+//! drain on and the frame producer are registered at that class. Its attach views
 //! hold no thread, and neither does a connection: the one
 //! `mux-io` loop reads and writes it.
 
@@ -11,6 +11,7 @@ use serde_json::json;
 
 use super::client_hello::tests::Client;
 use crate::echo_thread::ECHO_PATH_QOS;
+use crate::server::connection_scheduler::connection_qos::ConnectionClass;
 use crate::server::listen::ServedSession;
 use crate::server::*;
 
@@ -48,6 +49,12 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
     let local = crate::Surface::spawn(9_210, options, Arc::downgrade(&mux)).unwrap();
     let mut client = Client::connect(&mux, "echo-rows");
     assert_eq!(client.request(json!({"cmd": "ping"}))["ok"], true);
+    // The person's connection: its views drain at the echo class
+    // (`ConnectionClass::view_priority`); an automation one's at utility.
+    let [connection] = mux.control_clients.client_ids()[..] else {
+        panic!("one connection: {:?}", mux.control_clients.client_ids())
+    };
+    mux.control_clients.connection_class(connection).set(ConnectionClass::Person);
     let bytes = client.request(json!({"cmd": "attach-surface", "surface": attached.id}));
     assert_eq!(bytes["ok"], true, "{bytes}");
     let render =

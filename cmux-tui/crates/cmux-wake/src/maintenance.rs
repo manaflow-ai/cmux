@@ -27,7 +27,7 @@
 //!   leeway and it waits on its command channel.
 //! - On macOS the kqueue also waits on a [`PowerSource`]'s descriptor
 //!   ([`MaintenanceClock::follow_power`], the daemon's own power reading):
-//! a change of the power source wakes the thread like a
+//!   a change of the power source wakes the thread like a
 //!   command, with no timer of its own. Linux has no power source here.
 //! - With nothing registered the thread waits with no timeout.
 //! - A wake later than the leeway allows (the machine slept) runs each overdue

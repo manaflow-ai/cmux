@@ -83,15 +83,13 @@ const KEY_ENV: [&str; 8] = [
 ];
 /// A caller's identity, never part of the host's own environment: every
 /// request reads its client's (a read outside a client scope then finds
-/// none, instead of the agent that started the host).
-const CALLER_ENV: [&str; 12] = [
-    "CMUX_AGENT_SESSION",
+/// none, instead of the agent that started the host). With these, the
+/// caller ids no agent inherits (acpmux `INHERITED_CALLER_ENV`: its agent
+/// session and terminal).
+const CALLER_ENV: [&str; 8] = [
     "ACPMUX_SESSION_ID",
     acpmux::hub::person::CALLER_TOKEN_ENV,
     acpmux::hub::person::CALLER_SOCKET_ENV,
-    "CMUX_TUI_TERMINAL_ID",
-    "CMUX_SURFACE_ID",
-    "CMUX_PANEL_ID",
     "CMUX_CALLER_HOME_CHAT",
     "CMUX_CHIEF_OWNER_SOCKET",
     "CMUX_AGENT_PRINCIPAL",
@@ -236,7 +234,7 @@ fn start_host(socket: &Path) -> Result<bool, String> {
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::piped())
         .stderr(host_log(socket));
-    for key in CALLER_ENV {
+    for key in acpmux::agent_tools::INHERITED_CALLER_ENV.into_iter().chain(CALLER_ENV) {
         command.env_remove(key);
     }
     let mut starter =

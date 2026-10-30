@@ -35,9 +35,12 @@ fn hosted_terminal(mux: &Arc<Mux>, workspace_key: &str, index: u32) -> Arc<Surfa
     )
     .unwrap();
     drop(registry);
+    // Its own statement: the guard must end before the placeholder
+    // takes default_colors (both are leaf locks).
+    let options = mux.surface_options.lock().unwrap().clone();
     let surface = Surface::exited_terminal_placeholder(
         mux.next_id(),
-        mux.surface_options.lock().unwrap().clone(),
+        options,
         Arc::downgrade(mux),
         TerminalHostIdentity { terminal_id: terminal, incarnation },
     )
@@ -87,9 +90,12 @@ fn a_second_runtime_with_the_same_host_id_is_a_duplicate() {
     let workspace = mux.create_empty_workspace(None, Some(WORKSPACE.into()), None).unwrap();
     let first = hosted_terminal(&mux, &workspace.key, 1);
     let identity = first.terminal_host_identity().unwrap();
+    // Its own statement: the guard must end before the placeholder
+    // takes default_colors (both are leaf locks).
+    let options = mux.surface_options.lock().unwrap().clone();
     let second = Surface::exited_terminal_placeholder(
         mux.next_id(),
-        mux.surface_options.lock().unwrap().clone(),
+        options,
         Arc::downgrade(&mux),
         identity,
     )

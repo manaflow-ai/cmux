@@ -159,10 +159,13 @@
     },
     "cmux-next-media.yml#tour": "apple-gui",
     "cmux-next-perf-bench.yml#bench": "apple-gui",
+    "cmux-next-perf-budgets.yml#blacksmith-mac": "apple-gui",
+    "cmux-next-perf-budgets.yml#measure": "apple-gui",
     "cmux-next-pr-autofix.yml#action-exports": "apple-app-build",
     "cmux-next-shell-integration.yml#zsh-head-watch": "macos-runtime-tests",
     "cmux-next-source-archive.yml#archive": "apple-app-build",
     "cmux-next-ios-kit.yml#kit-tests": "apple-swift-tests",
+    "cmux-next-tip-test-compile.yml#compile": "apple-app-build",
     "cmux-next-terminal.yml#rust-terminal": {
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -171,6 +174,7 @@
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
+    "cmux-next.yml#app-compile-fleet": "apple-app-build",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#fast-tier": "apple-app-build",
@@ -190,6 +194,7 @@
       "class": "macos-runtime-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
+    "cmux-vnc.yml#swift-test": "apple-swift-tests",
     "coderouter-release.yml#build": "apple-signing-release",
     "dogfood-artifact-publish.yml#capture": "apple-gui",
     "ios-app-store.yml#upload-and-validate": "apple-ios",
@@ -213,7 +218,8 @@
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
-    "nightly.yml#prepare-nightly-variant": "apple-app-build",
+    "nightly.yml#prepare-nightly-variant-fallback": "apple-app-build",
+    "nightly.yml#prepare-nightly-variant-primary": "apple-app-build",
     "nightly.yml#publish-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
     "nightly.yml#refresh-compilation-cache": "apple-app-build",

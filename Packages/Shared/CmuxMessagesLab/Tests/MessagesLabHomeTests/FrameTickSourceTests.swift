@@ -72,7 +72,11 @@ import Testing
 
     @Test func workPostedInAFrameRunsAtTheNextOneOnTheSameStream() {
         let frames = ManualFrames()
-        let tick = FrameTick(view: NSView(), source: frames)
+        // FrameTick holds its view weakly and runs work at once for a view that is gone, so the
+        // test keeps the view alive to the end (an inline NSView() went at once: no stream at all).
+        let view = NSView()
+        defer { withExtendedLifetime(view) {} }
+        let tick = FrameTick(view: view, source: frames)
         var ran: [String] = []
 
         tick.next {

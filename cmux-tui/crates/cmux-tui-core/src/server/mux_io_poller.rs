@@ -31,6 +31,8 @@ pub(super) struct Interest {
 impl Interest {
     pub(super) const NONE: Interest = Interest { read: false, write: false };
 
+    /// The epoll backend's add/modify/delete choice; kqueue sets each filter on its own.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     fn is_none(self) -> bool {
         !self.read && !self.write
     }

@@ -644,8 +644,7 @@ mod socket_buffer_tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        CONNECTION_SOCKET_BUFFER, SocketBufferLog, SocketBuffers, bind_session_socket, full_grant,
-        size_connection_buffers,
+        SocketBufferLog, SocketBuffers, bind_session_socket, full_grant, size_connection_buffers,
     };
     use crate::platform::transport;
 
@@ -800,6 +799,7 @@ mod socket_buffer_tests {
         let line = SocketBufferLog::default().line(&Ok(capped)).unwrap();
         assert!(line.contains("800000 B send"), "{line}");
         assert!(line.contains("system limit"), "{line}");
-        assert!(line.contains(&format!("reads {} B", 2 * CONNECTION_SOCKET_BUFFER)), "{line}");
+        let twice = 2 * super::CONNECTION_SOCKET_BUFFER;
+        assert!(line.contains(&format!("reads {twice} B")), "{line}");
     }
 }

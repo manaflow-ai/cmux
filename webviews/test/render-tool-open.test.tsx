@@ -5,8 +5,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
-  url: "cmux-agent://pane/index.html",
+// The agent page on the page host's WebKit, the one page that frames renders (RenderCard.tsx canRender).
+const dom = new JSDOM('<!doctype html><html data-engine="webkit"><div id=root></div></html>', {
+  url: "cmux-page://cmux.agent/index.html",
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });

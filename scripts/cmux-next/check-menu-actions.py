@@ -25,8 +25,12 @@ import sys
 
 SOURCES = "Packages/macOS/CmuxNext/Sources"
 BASELINE = "scripts/cmux-next/check-menu-actions-baseline.txt"
-# The registry builds every action row; the demo app has no registry.
-EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextActions/", "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/")
+# The registry builds every action row; the demo app has no registry. A page's `<select>` popup
+# (ChromiumHostPopupMenu.swift) is no cmux menu: its rows are the page's own options, and the chosen
+# index goes back to the page, as Chrome's WebMenuRunner does (content/app_shim_remote_cocoa/
+# web_menu_runner_mac.mm); no palette, shortcut or CLI path runs them, so none can drift.
+EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextActions/", "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Demo/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostPopupMenu.swift")
 ROW = re.compile(r"(NSMenuItem\s*\(|addItem\s*\(\s*withTitle\s*:)[^;{}]*?action\s*:\s*#selector", re.S)
 
 

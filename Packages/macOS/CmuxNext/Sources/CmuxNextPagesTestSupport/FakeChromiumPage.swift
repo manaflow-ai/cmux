@@ -62,14 +62,17 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var devToolsFailure: (any Error)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// Whether the page is on the fork's renderer paths (no DevTools session).
+    public var usesRendererPaths: Bool
     /// Every script ``evaluate(_:)`` ran, in order, whichever path answered it.
     public private(set) var evaluations: [String] = []
     /// Runs after each evaluation (tests wait on it).
     public var onEvaluate: (() -> Void)?
     /// The renderer path (`tabEvaluate`, fork API 29): when set, ``evaluate(_:)`` answers with it,
     /// as `tabEvaluate`'s text (`CEFEvaluationResult`): the value as JSON, empty for undefined;
-    /// throw ``PageScriptError/exception(_:)`` for an exception. It makes no DevTools call. Nil: the
-    /// DevTools path, a `Runtime.evaluate` in ``calls`` answered as any call is (``answer``).
+    /// throw ``PageScriptError/exception(_:)`` for an exception. It makes no DevTools call. Nil: `null`
+    /// on renderer paths (``usesRendererPaths``), else the DevTools path, a `Runtime.evaluate` in
+    /// ``calls`` answered as any call is (``answer``).
     public var rendererEvaluate: ((_ script: String) throws -> String)?
     /// Awaited by ``evaluate(_:)`` after it records the script and before it answers: a test holds an
     /// answer back (a page call still in flight) until the gate returns. Nil: answers at once.
@@ -116,7 +119,20 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var onPush: (() -> Void)?
 
     /// Makes a page with no calls yet.
-    public init() {}
+    ///
+    /// - Parameter usesRendererPaths: The page is on the fork's renderer paths.
+    public init(usesRendererPaths: Bool = false) {
+        self.usesRendererPaths = usesRendererPaths
+    }
+
+    /// Posts `message` on the page channel from the page's main frame, as the page host relay does:
+    /// stamped with ``senderURL``, the URL of the document that sent it.
+    ///
+    /// - Parameter message: The page's text.
+    public func post(_ message: String) {
+        guard let sender = URL(string: senderURL) else { return }
+        onEvent?(.pageHostPost(message, sender: sender))
+    }
 
     /// ``pushChannel``.
     public var pushesToPage: Bool { pushChannel }
@@ -151,14 +167,15 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// Counts in ``selectionCopies``; makes no DevTools call.
     public func copySelection() { selectionCopies += 1 }
 
-    /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate``, or through
-    /// the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``) when that is nil.
+    /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate`` (`null` on renderer
+    /// paths without one), or through the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``).
     public func evaluate(_ script: String) async throws -> Any? {
         evaluations.append(script)
         defer { onEvaluate?() }
         if let evaluateGate { await evaluateGate() }
-        guard let rendererEvaluate else { return try await devToolsEvaluate(script) }
-        let text = try rendererEvaluate(script)
+        let renderer: ((String) throws -> String)? = rendererEvaluate ?? (usesRendererPaths ? { _ in "null" } : nil)
+        guard let renderer else { return try await devToolsEvaluate(script) }
+        let text = try renderer(script)
         guard !text.isEmpty else { return nil }
         guard let value = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]) else {
             throw PageScriptError.noResult

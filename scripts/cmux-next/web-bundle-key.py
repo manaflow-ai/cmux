@@ -77,12 +77,14 @@ REACT_FILE = re.compile(r"^react-[A-Za-z0-9]+\.js$")
 # leaves webviews/ (the agent pane imports web/data/model-catalog/snapshot.json,
 # the webviews app imports Resources/markdown-viewer/viewer-navigation.js) names
 # an input as real as webviews/ itself. Tests, benches, the dev server, the
-# acpmux dev preview (preview:dev / preview:build) and gallery entries
-# (`*.gallery.ts(x)`, `*.gallery.css`: read only by the dev server and gallery:build) never
-# reach a shipped bundle.
+# acpmux dev preview (preview:dev / preview:build), gallery entries
+# (`*.gallery.ts(x)`, `*.gallery.css`: read only by the dev server and gallery:build) and the
+# benches' result writer (scripts/perf-result.mjs: it runs scripts/perf-lab/bench_results.py, and
+# only benches and perf tests import it) never reach a shipped bundle.
 SCANNED_SUFFIXES = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".css", ".html")
 UNSCANNED = re.compile(
-    r"(^webviews/(test|bench|dev-server)/)|(^webviews/src/agent-session/acpmux-preview/)|(\.(test|spec|gallery)\.[a-z]+$)")
+    r"(^webviews/(test|bench|dev-server)/)|(^webviews/src/agent-session/acpmux-preview/)|(\.(test|spec|gallery)\.[a-z]+$)"
+    r"|(^webviews/scripts/perf-result\.mjs$)")
 SPECIFIER = re.compile(
     r"""(?:\bfrom|\bimport|\bimport\s*\(|@import|@source|\burl\(|\bnew\s+URL\()\s*["'`]?(\.{1,2}/[^"'`)\s]+)""")
 # import.meta.glob("a") and import.meta.glob(["a", "b"], ...), across lines.

@@ -121,7 +121,7 @@ final class QuietHandoffGate: Sendable {
         _ = try? await withOnceThrowingContinuation(cancellation: .cancellable) { (continuation: HeldRequest) in
             let parked = waits.withLock { waits -> Bool in
                 guard waits.hold != nil else { return false }
-                waits.held[key] = continuation
+                waits.held.updateValue(continuation, forKey: key)
                 return true
             }
             if parked {

@@ -56,6 +56,19 @@ public final class CEFAgentRelay {
         updateWatch()
     }
 
+    /// Hears only the browser's end: no DevTools event delivery (a cmux page on renderer paths).
+    public func set(onEnd: (() -> Void)?) {
+        sink = nil
+        self.onEnd = onEnd
+        updateWatch()
+    }
+
+    /// Every renderer has the cmux page host (``CEFPageSchemes/HostScript``): Chromium started on
+    /// renderer paths with the App's page host scripts, and the shim took them all with the page
+    /// host relay and its channel. A cmux page then talks to its host over the page channel and
+    /// opens no DevTools session; otherwise it sets its host up over DevTools.
+    public var pageHostInRenderer: Bool { tab?.runtime.pageHostInRenderer == true }
+
     /// Someone reads the tab's DevTools events.
     private var listens: Bool { sink != nil || mediaListens || designModeListens || firstPaintListens }
 

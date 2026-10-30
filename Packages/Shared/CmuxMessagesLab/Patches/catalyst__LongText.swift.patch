@@ -307,7 +307,14 @@
  
      static let measureQueue: OperationQueue = {
          let q = OperationQueue()
-@@ -431,34 +481,32 @@
+@@ -425,40 +475,38 @@
+         self.markdown = index.markdown && (markdown ?? true)
+         column = Metrics(width: width).maxTextWidth
+         let col = Float(column)
+-        var ex = [Bool](repeating: false, count: index.blockCount)
++        var ex = [Bool](repeating: false, count: max(0, index.blockCount)) // cmux: a count the trap-api guardrail sees is never negative
+         let k = LongTextIndex.refColumn / col
+         // built with map and checked reads.
          var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
              max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
          }
@@ -327,8 +334,9 @@
              }
              if let k = keep, k >= 0, k < index.blockCount {
 -                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? c.tree.values[checked: k] ?? 0 : 0 }
+-                v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // no index writes
 +                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? cValues[checked: k] ?? 0 : 0 }
-                 v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // no index writes
++                v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: max(0, v.count - k - 1))) // no index writes; cmux: max(0, …) (trap-api)
              }
 -            hint = c.hint
 -            c.lock.unlock()
@@ -661,7 +669,7 @@
      static let maxIndexes = 12
      static let syncBytes = 512 << 10
  
-@@ -843,65 +946,119 @@
+@@ -843,65 +946,123 @@
          let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
          let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
          let wk = md || !idx.markdown ? width : -width
@@ -708,6 +716,10 @@
      /// The lineage of a text if it is indexed.
      func lineage(_ text: String) -> Int? { index(for: text, create: false)?.lineage }
  
++    /// cmux: lineages this store issued, one per index built from a text's start (tests: unlike the
++    /// process-wide LongTextStats, other stores on other threads never move it).
++    var lineagesIssued: Int { state.withLock { $0.lineageSerial } }
++
      private static func print(_ p: UnsafeBufferPointer<UInt8>) -> Print {
          var h = Hasher(), t = Hasher()
 -        let n = p.count, k = min(n, 1024)
@@ -790,7 +802,8 @@
 +                    // prev.count - from bytes after from inside both.
 +                    guard let qb = unsafe q.baseAddress, let pb = unsafe p.baseAddress, unsafe from <= q.count else { return false }
 +                    return unsafe memcmp(qb + from, pb + from, prev.count - from) == 0
-+                }
+                 }
+-                if same {
 +                // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
 +                var keepAt: Int? = appended ? last : nil
 +                if keepAt == nil {
@@ -806,8 +819,7 @@
 +                        if shared { keepAt = k }
 +                        k -= 1
 +                    }
-                 }
--                if same {
++                }
 +                if let keep = keepAt {
                      let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
 -                    LongTextStats.streamExtends += 1
@@ -815,7 +827,7 @@
                      let old = layoutsOf(prev)
                      register(i, addr: addr, print: pr, head: hd, replacing: prev)
                      // Layouts carry the measured blocks. The tail keeps its previous line count (and
-@@ -911,7 +1068,10 @@
+@@ -911,7 +1072,10 @@
                      for o in old {
                          let tailOffMain = LongText.offMainTail
                          let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
@@ -827,7 +839,7 @@
                          if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
                          // The previous rule: the new tail is measured now (about 4 KB).
                          let reuse = BlockLayoutCache.shared.get(o.key(keep))
-@@ -921,10 +1081,9 @@
+@@ -921,19 +1085,20 @@
                      return i
                  }
              }
@@ -839,12 +851,16 @@
 +            LongTextStats.count(.indexBuilds)
 +            if unsafe p.count <= LongTextStore.syncBytes {
                  let i = LongTextIndex.build(t, lineage: lineage)
-                 register(i, addr: addr, print: pr, head: hd, replacing: nil)
-                 return i
-@@ -932,8 +1091,9 @@
+-                register(i, addr: addr, print: pr, head: hd, replacing: nil)
+-                return i
++                // cmux: another thread that indexed the same text first keeps its index (registerFirst).
++                return unsafe registerFirst(i, addr: addr, print: pr, head: hd, bytes: p)
+             }
              // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
              let ph = LongTextIndex.placeholder(t, lineage: lineage)
-             register(ph, addr: addr, print: pr, head: hd, replacing: nil)
+-            register(ph, addr: addr, print: pr, head: hd, replacing: nil)
++            let registered = unsafe registerFirst(ph, addr: addr, print: pr, head: hd, bytes: p)
++            guard registered === ph else { return registered } // cmux: that thread's scan replaces it
 +            let scanned = t // cmux: the scan takes a constant (a captured var is shared with this thread)
              DispatchQueue.global(qos: .userInitiated).async {
 -                let i = LongTextIndex.build(t, lineage: lineage)
@@ -852,7 +868,7 @@
                  LongTextCenter.scheduleReplace(lineage: lineage) {
                      self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                  }
-@@ -943,37 +1103,42 @@
+@@ -943,37 +1108,81 @@
      }
  
      private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
@@ -860,12 +876,55 @@
 -        return Array(layouts[ObjectIdentifier(i)]?.values ?? [:].values)
 +        let id = ObjectIdentifier(i)
 +        return state.withLock { s in Array(s.layouts[id]?.values ?? [:].values) }
++    }
++
++    /// cmux: registers a new index of the bytes `p` unless another thread registered an index of the same
++    /// bytes first, and returns the registered one. Threads that index one text at once each built an index
++    /// and each registered it, the last one winning: the others' callers laid out on an index no lookup
++    /// finds, so those layouts stayed measuring, never retired, and their entries were never evicted. The
++    /// byte compare runs outside the lock; the register happens only if the print still names what was
++    /// compared (else it compares again).
++    private func registerFirst(_ i: LongTextIndex, addr: Addr, print: Print, head: Int,
++                               bytes p: UnsafeBufferPointer<UInt8>) -> LongTextIndex {
++        for _ in 0..<8 { // a retry only follows another thread's register of this print; never 8 in a row
++            let seen = state.withLock { $0.byPrint[print] }
++            if let seen, unsafe LongTextStore.sameBytes(seen, p) {
++                // Taken only while still registered (a large text's scan may have replaced it meanwhile).
++                let kept = state.withLock { s -> Bool in
++                    guard s.byPrint[print] === seen else { return false }
++                    s.byAddr[addr] = seen
++                    return true
++                }
++                if kept { return seen }
++                continue
++            }
++            let dropped = state.withLock { s -> [LongTextLayout]? in
++                guard s.byPrint[print] === seen else { return nil }
++                return LongTextStore.insert(i, into: &s, addr: addr, print: print, head: head, replacing: nil)
++            }
++            guard let dropped else { continue }
++            dropped.forEach { $0.retired = true }
++            return i
++        }
++        register(i, addr: addr, print: print, head: head, replacing: nil)
++        return i
      }
  
      private func register(_ i: LongTextIndex, addr: Addr, print: Print, head: Int, replacing old: LongTextIndex?) {
 -        lock.lock(); defer { lock.unlock() }
--        if let old {
--            let oid = ObjectIdentifier(old)
++        let dropped = state.withLock { s in
++            LongTextStore.insert(i, into: &s, addr: addr, print: print, head: head, replacing: old)
++        }
++        dropped.forEach { $0.retired = true }
++    }
++
++    /// Registers `i` in the lock state (replacing `old`) and returns the layouts it dropped, for the caller
++    /// to retire once the lock is released.
++    private static func insert(_ i: LongTextIndex, into s: inout State, addr: Addr, print: Print, head: Int,
++                               replacing old: LongTextIndex?) -> [LongTextLayout] {
++        var dropped: [LongTextLayout] = []
+         if let old {
+             let oid = ObjectIdentifier(old)
 -            layouts[oid]?.values.forEach { $0.retired = true }
 -            layouts[oid] = nil
 -            recent.removeValue(forKey: oid) // dictionary write
@@ -877,42 +936,33 @@
 -        byHead[head] = i
 -        tick += 1
 -        recent.updateValue(tick, forKey: ObjectIdentifier(i)) // dictionary write
--        // Bounded: the least recently used indexes go (their texts with them).
++            dropped += s.layouts[oid].map { Array($0.values) } ?? []
++            s.layouts[oid] = nil
++            s.recent.removeValue(forKey: oid) // dictionary write
++            s.byAddr = s.byAddr.filter { $0.value !== old }
++            s.byPrint = s.byPrint.filter { $0.value !== old }
++        }
++        s.byAddr[addr] = i
++        s.byPrint[print] = i
++        s.byHead[head] = i
++        s.tick += 1
++        s.recent.updateValue(s.tick, forKey: ObjectIdentifier(i)) // dictionary write
+         // Bounded: the least recently used indexes go (their texts with them).
 -        let live = Set(byAddr.values.map { ObjectIdentifier($0) })
--        if live.count > LongTextStore.maxIndexes {
--            let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
++        let live = Set(s.byAddr.values.map { ObjectIdentifier($0) })
+         if live.count > LongTextStore.maxIndexes {
++            let recent = s.recent
+             let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
 -            byAddr = byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
 -            byPrint = byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
 -            byHead = byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
 -            for d in drop { layouts[d]?.values.forEach { $0.retired = true }; layouts[d] = nil; recent.removeValue(forKey: d) }
-+        let dropped = state.withLock { s -> [LongTextLayout] in
-+            var dropped: [LongTextLayout] = []
-+            if let old {
-+                let oid = ObjectIdentifier(old)
-+                dropped += s.layouts[oid].map { Array($0.values) } ?? []
-+                s.layouts[oid] = nil
-+                s.recent.removeValue(forKey: oid) // dictionary write
-+                s.byAddr = s.byAddr.filter { $0.value !== old }
-+                s.byPrint = s.byPrint.filter { $0.value !== old }
-+            }
-+            s.byAddr[addr] = i
-+            s.byPrint[print] = i
-+            s.byHead[head] = i
-+            s.tick += 1
-+            s.recent.updateValue(s.tick, forKey: ObjectIdentifier(i)) // dictionary write
-+            // Bounded: the least recently used indexes go (their texts with them).
-+            let live = Set(s.byAddr.values.map { ObjectIdentifier($0) })
-+            if live.count > LongTextStore.maxIndexes {
-+                let recent = s.recent
-+                let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
-+                s.byAddr = s.byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
-+                s.byPrint = s.byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
-+                s.byHead = s.byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
-+                for d in drop { dropped += s.layouts[d].map { Array($0.values) } ?? []; s.layouts[d] = nil; s.recent.removeValue(forKey: d) }
-+            }
-+            return dropped
++            s.byAddr = s.byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
++            s.byPrint = s.byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
++            s.byHead = s.byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
++            for d in drop { dropped += s.layouts[d].map { Array($0.values) } ?? []; s.layouts[d] = nil; s.recent.removeValue(forKey: d) }
          }
-+        dropped.forEach { $0.retired = true }
++        return dropped
      }
  
 -    var indexCount: Int { lock.lock(); defer { lock.unlock() }; return Set(byAddr.values.map { ObjectIdentifier($0) }).count }
@@ -920,7 +970,7 @@
  }
  
  /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
-@@ -982,6 +1147,11 @@
+@@ -982,6 +1191,11 @@
  /// fixed (80 lines and the band), so measurement never changes it.
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
@@ -932,7 +982,7 @@
      /// 3 screens (the 1041 pt window).
      static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
      static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
-@@ -992,15 +1162,16 @@
+@@ -992,15 +1206,16 @@
          if disabledByArgument { return false }
          return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
      }

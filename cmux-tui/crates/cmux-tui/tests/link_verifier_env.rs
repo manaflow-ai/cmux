@@ -148,6 +148,9 @@ fn terminal_env(daemon: &Daemon) -> (String, serde_json::Value) {
 fn no_terminal_or_terminal_host_inherits_the_verifier_variable() {
     let daemon = Daemon::start("child", "control_plane");
     let (env, created) = terminal_env(&daemon);
+    // Linux reads the PTY holder's environment below; other systems check the terminal only.
+    #[cfg(not(target_os = "linux"))]
+    let _ = created;
     assert!(!env.contains(VARIABLE), "the terminal inherited {VARIABLE}:\n{env}");
     // The own environment of the process that holds the PTY, the shell's
     // parent: the terminal host or the holder (Linux: its initial environ).

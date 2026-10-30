@@ -17,6 +17,13 @@ import Testing
 /// (the unfenced read and the owner-fenced read) and `agent-inventory-watch` (enable, conditional
 /// retire, enable with an admission receipt). Each golden is therefore keyed by its Swift type, and its
 /// capability is part of the golden: an older daemon must still receive none of these requests.
+///
+/// Known gap (this file and the Apps, Conversations and TerminalIO goldens): nothing requires a golden for a new
+/// request type. Swift cannot list the types that conform to `DaemonRequest` at run time, and the live registries
+/// list wire commands, not Swift types (`DaemonCommandName`'s generated hash table; `MethodTable.schema.methods`,
+/// grouped by family), so a second type of one command, or a type a family gains, has no runtime list to check
+/// against. A test that read the Swift sources for these types was removed: the repo's test policy forbids
+/// reading sources. A new request type adds its golden here by hand.
 struct AgentsRequestWireGoldenTests {
     /// One request's expected line (`id` and `cmd` included) and gating.
     struct Golden: Sendable, CustomTestStringConvertible {
@@ -150,30 +157,6 @@ struct AgentsRequestWireGoldenTests {
             let extra = Set(golden.line.keys).subtracting(["id", "cmd"]).subtracting(fields.keys)
             #expect(extra.isEmpty, "\(golden.name): not schema fields of \(golden.command): \(extra.sorted())")
         }
-    }
-
-    /// Every request type declared in Sources/CmuxNextDaemon/Requests/Agents has a golden. The list is read
-    /// from the source, so a type added there, or a second type of one wire command, needs one.
-    @Test func everyAgentsRequestTypeHasAGolden() throws {
-        let directory = try Self.repositoryRoot()
-            .appendingPathComponent("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Agents")
-        let declaration = try NSRegularExpression(
-            pattern: #"\bstruct\s+(\w+)\s*:[^{]*\b(?:DaemonRequest|TerminalSpawningRequest)\b"#
-        )
-        var declared: Set<String> = []
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        for file in files where file.pathExtension == "swift" {
-            let source = try String(contentsOf: file, encoding: .utf8)
-            for match in declaration.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-                if let name = Range(match.range(at: 1), in: source) { declared.insert(String(source[name])) }
-            }
-        }
-        // When the migration deletes these structs, this set must come from the generated Agents types
-        // instead: an empty directory does not pass as "every type has a golden".
-        try #require(!declared.isEmpty, "no DaemonRequest type in \(directory.path)")
-        let covered = Set(Self.goldens.map(\.type))
-        #expect(declared.subtracting(covered).isEmpty, "no golden: \(declared.subtracting(covered).sorted())")
-        #expect(covered.subtracting(declared).isEmpty, "not in the directory: \(covered.subtracting(declared).sorted())")
     }
 
     // Schema ----------------------------------------------------------------

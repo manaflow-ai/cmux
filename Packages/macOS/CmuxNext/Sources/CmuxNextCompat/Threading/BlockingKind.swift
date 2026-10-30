@@ -67,7 +67,7 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     case ffi
     /// A synchronous XPC send that waits for the reply (`xpc_connection_send_message_with_reply_sync`, through
     /// ``blockingXPCSendWithReply(_:_:fileID:line:)``): the thread waits for a daemon or an XPC service for as long as
-    /// it takes to answer. The blocking probe (scripts/measure/blocking-probe.sh) names the same call `xpc-reply`.
+    /// it takes to answer.
     /// Chrome makes no synchronous cross-process call on its UI thread: a sync Mojo call needs a
     /// `ScopedAllowBaseSyncPrimitivesOutsideBlockingScope`, whose friends are listed exceptions
     /// (base/threading/thread_restrictions.h).

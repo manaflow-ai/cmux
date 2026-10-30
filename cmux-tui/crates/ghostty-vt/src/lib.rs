@@ -23,8 +23,12 @@ mod key;
 mod kitty;
 mod kitty_replay;
 mod mouse;
+#[cfg(feature = "test-support")]
+mod ready_screen;
 mod render;
 mod snapshot;
+#[cfg(feature = "test-support")]
+pub use ready_screen::ReadyScreen;
 mod terminal;
 
 /// Raw bindings, re-exported for key/mode constants.

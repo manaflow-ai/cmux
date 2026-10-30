@@ -8,7 +8,10 @@ import os
 
 /// One cmux page in a CEF tab (``PageChromiumPage``). The page host runs its scripts through the
 /// tab's own evaluation (``evaluate(_:)``), takes pictures with its surface copy and clicks and moves with its
-/// native input; the rest goes through the DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
+/// native input. With the page host in every renderer (fork API 29, feature `chromiumPageRendererPaths`,
+/// ``usesRendererPaths``) the page opens no DevTools session at all: its posts come on the relay's page
+/// channel and its document events from the tab (`CEFPageTabEvents`). Otherwise the rest goes through the
+/// DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
 /// binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an agent's tab,
 /// so nothing else listens on its relay. The tab's own state reports a crash and, with a hang scheduler
 /// (feature `pageHangNotice`), a hang.
@@ -91,10 +94,13 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// while feature `pageHostChannel` is off.
     var pageHostEvent: String? { pageChannel ? tab.agentRelay.pageHostEvent : nil }
 
+    /// Chromium started with the page host in every renderer (the feature `chromiumPageRendererPaths`
+    /// on fork API 29); a runtime started without it keeps the page on DevTools.
+    var usesRendererPaths: Bool { tab.agentRelay.pageHostInRenderer }
+
     private func listen() {
         guard onEvent != nil, !closed else {
-            tab.pageFilesDragged = nil
-            tab.pageUserInput = nil
+            tab.pageEvents = nil
             tab.agentRelay.onPageHostPost = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
@@ -104,11 +110,19 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             hangReported = false
             return
         }
-        tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
-                           onEnd: { [weak self] in self?.renderEnded() })
+        var events = CEFPageTabEvents(filesDragged: { [weak self] urls in self?.onEvent?(.filesDragged(urls)) },
+                                      userInput: { [weak self] uptime in self?.onEvent?(.userInput(uptime)) })
+        if usesRendererPaths {
+            // No DevTools session: the browser's end, and the main frame's commit and load end from the tab.
+            tab.agentRelay.set(onEnd: { [weak self] in self?.renderEnded() })
+            events.committed = { [weak self] url in self?.onEvent?(.committed(url)) }
+            events.finished = { [weak self] in self?.onEvent?(.finished) }
+        } else {
+            tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
+                               onEnd: { [weak self] in self?.renderEnded() })
+        }
         tab.agentRelay.onPageHostPost = { [weak self] text, sender in self?.onEvent?(.pageHostPost(text, sender: sender)) }
-        tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
-        tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
+        tab.pageEvents = events
         let tab = tab
         if crashWatch == nil {
             // The page host reloads a crashed page (PageCrashReloads) whether or not it shows: a service
@@ -275,8 +289,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.agentRelay.onPageHostPost = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
         tab.pageResources = nil
-        tab.pageFilesDragged = nil
-        tab.pageUserInput = nil
+        tab.pageEvents = nil
         tab.delegate = nil
         tab.close()
     }

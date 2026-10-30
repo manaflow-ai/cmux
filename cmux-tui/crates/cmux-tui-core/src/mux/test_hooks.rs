@@ -113,9 +113,12 @@ impl Mux {
             Some(incarnation),
             None,
         )?;
+        // Its own statement: the guard must end before the placeholder
+        // takes default_colors (both are leaf locks).
+        let options = self.surface_options.lock().unwrap().clone();
         let surface = Surface::exited_terminal_placeholder(
             self.next_id(),
-            self.surface_options.lock().unwrap().clone(),
+            options,
             Arc::downgrade(self),
             TerminalHostIdentity {
                 terminal_id: terminal_id.to_string(),
@@ -144,5 +147,49 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
         self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)
+    }
+
+    /// Replaces the in-memory test runtime of terminal surface `id` (no
+    /// child) with a local PTY running `opts.command`, a real child process,
+    /// with the same id, resource identity, pane and catalog entry. The
+    /// caller holds no other reference to the old surface: its Kitty budget
+    /// reservation is released by the drop before the new one is made.
+    #[cfg(test)]
+    pub(crate) fn respawn_with_real_child_for_test(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        opts: SurfaceOptions,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let (old, catalog) = {
+            let mut state = self.state.lock().recover_poison();
+            let old = state
+                .surfaces
+                .remove(&id)
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))?;
+            let catalog = old
+                .terminal_public_id()
+                .cloned()
+                .filter(|terminal_id| state.remove_catalog_terminal(terminal_id).is_some());
+            (old, catalog)
+        };
+        let identity = old.resource_identity().cloned();
+        let cell_pixels = old.cell_pixel_size();
+        drop(old);
+        let surface = Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+            id,
+            opts,
+            Arc::downgrade(self),
+            crate::surface::HostLaunch::default(),
+            identity,
+            crate::surface::PtyLifetime::SessionOwned,
+            cell_pixels,
+        )?;
+        let mut state = self.state.lock().recover_poison();
+        state.surfaces.insert(id, surface.clone());
+        if let Some(terminal_id) = catalog {
+            state.insert_catalog_terminal(&terminal_id, &surface)?;
+            state.terminal_catalog_by_runtime.insert(id, terminal_id);
+        }
+        Ok(surface)
     }
 }

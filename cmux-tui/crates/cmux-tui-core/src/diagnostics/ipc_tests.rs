@@ -114,6 +114,31 @@ fn a_nested_scope_keeps_its_parses_apart_from_the_outer_one() {
     assert_eq!(inner_stats.snapshot().parses.frames.json_parses, 2);
 }
 
+/// A request and its parses are counted while its scope is still open: a
+/// request handed to a stream's sequence is answered while the reader's
+/// scope runs on, and `server-stats` read after that answer must already
+/// count it (input_frames_reach_the_terminal_in_order_with_no_reply_and_no_parse
+/// read a fence's request after the fence's reply, one time in many).
+#[test]
+fn a_request_and_its_parses_count_before_its_scope_ends() {
+    let stats = IpcStats::default();
+    let _scope = JsonParseScope::enter(&stats, IpcTransport::Frames);
+    note_json_parse();
+    let handoff = JsonParseScope::handoff();
+    std::thread::spawn(move || {
+        let _resumed = JsonParseScope::resume(handoff).expect("a scope was open");
+        note_json_parse();
+        // The answer goes out here, before either scope ends.
+    })
+    .join()
+    .unwrap();
+    assert_eq!(
+        stats.snapshot().parses.frames,
+        IpcParseSnapshot { requests: 1, json_parses: 2, json_parses_per_request: 2.0 },
+        "counted while the reader's scope is open"
+    );
+}
+
 /// A request handed to another thread (a line queued on its connection's
 /// control sequence) counts once, where it began, with the parses of both
 /// threads; one whose handoff is dropped unrun adds no parse.

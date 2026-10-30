@@ -348,8 +348,8 @@ fn cat(chan: u32) -> SpawnRequest {
 
 /// WRITE_FLOW: the trailer never reaches the shell, and the first PTY
 /// read after the input reached the master carries the flow
-/// (`holder.pty.read` with flow 42 in the holder's flow marks), exactly
-/// once. A flow mark with no input, sent before the daemon writes on its
+/// (a `holder.pty.read` hop with flow 42 in the holder's trace recording),
+/// exactly once. A flow mark with no input, sent before the daemon writes on its
 /// custody master, marks the echo of that write the same way.
 #[test]
 fn a_write_flow_marks_the_next_read_and_never_reaches_the_shell() {
@@ -366,14 +366,24 @@ fn a_write_flow_marks_the_next_read_and_never_reaches_the_shell() {
     let spawned = link.spawn(1, &cat(1), sink.clone()).unwrap();
     let text = || String::from_utf8_lossy(&sink.bytes.lock().unwrap()).into_owned();
     wait_for("the first line", || text().contains("up"));
-    let marks_file = marks.join(format!("flows-{}.jsonl", holder.id()));
+    // Hops are records of the holder's trace ring (cmux-flow-trace): its
+    // recording file in CMUX_TRACE_FLOWS. A hop that carries a flow is one
+    // FlowIn record (the press arrived) and one FlowOut record, both with
+    // the flow id in arg1; count the FlowIns. The holder writes the file
+    // while the test reads it, so a read that does not decode counts none
+    // and the wait reads again.
+    let recording =
+        marks.join(cmux_trace::recording_file_name(cmux_trace::Role::Holder, holder.id()));
     let reads_with = |flow: u64| {
-        let marks = std::fs::read_to_string(&marks_file).unwrap_or_default();
-        marks
-            .lines()
-            .filter(|line| {
-                line.contains("\"hop\":\"holder.pty.read\"")
-                    && line.contains(&format!("\"flow\":{flow},"))
+        let Ok(bytes) = std::fs::read(&recording) else { return 0 };
+        let Ok(decoded) = cmux_trace::decode(&bytes) else { return 0 };
+        decoded
+            .records
+            .iter()
+            .filter(|record| {
+                decoded.name(record.name) == Some("holder.pty.read")
+                    && record.phase == cmux_trace::Phase::FlowIn as u8
+                    && record.arg1 == flow
             })
             .count()
     };

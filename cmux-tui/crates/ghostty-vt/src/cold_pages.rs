@@ -58,6 +58,10 @@ use super::{
 };
 use crate::{Error, KittyGraphicsSnapshot, Result, check, kitty};
 
+#[cfg(feature = "test-support")]
+#[path = "ready_reader.rs"]
+mod ready_reader;
+
 /// Settings this wrapper writes to libghostty-vt that GHOSTSNP does not
 /// carry. Their setters record them here; a thaw writes them again.
 #[derive(Debug, Default)]

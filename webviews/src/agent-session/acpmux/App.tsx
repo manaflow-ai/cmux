@@ -6293,6 +6293,7 @@ function AcpmuxPane() {
           "chat.model": ({ modelId, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             return harnessSwitch.pickModel(
               String(modelId),
@@ -6302,18 +6303,21 @@ function AcpmuxPane() {
           "chat.mode": async ({ modeId, expectedSessionId }) => {
             const sessionId = snapshotRef.current?.summary?.sessionId;
             if (!configurationSessionMatches(expectedSessionId, sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             if (!harnessSwitch.pickMode(String(modeId))) await setMode(String(modeId));
           },
           "chat.effort": async ({ configId, value, effort, expectedSessionId }) => {
             const summary = snapshotRef.current?.summary;
             if (!configurationSessionMatches(expectedSessionId, summary?.sessionId))
+              // l10n-allow: a refusal for the host action's caller, which drops a stale pick; never shown.
               throw new Error("the agent chat session changed");
             const requested = typeof value === "string" && value ? value : String(effort ?? "");
             const resolved = resolveEffortOption(
               summary?.configOptions,
               typeof configId === "string" ? configId : undefined,
             );
+            // l10n-allow: a refusal for the host action's caller; the picker offers no effort then.
             if (!resolved || !requested) throw new Error("the session offers no effort option");
             const current = resolved.currentValue;
             if (

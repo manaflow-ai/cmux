@@ -247,12 +247,12 @@ import Testing
             host.layoutSubtreeIfNeeded()  // sync-layout: the key's own layout is measured from a clean tree
             Self.markClean(host, outside: h.field)
             let layouts = host.layoutPasses, changes = chrome.controlsChanges
-            let layers = Self.layerStates(chrome.layer)
+            let layers = Self.layerStates(try #require(chrome.layer, "the controls view is layer-backed"))
             h.field.insertText(String(c), replacementRange: h.field.selectedRange())
             for _ in 0..<8 { await Task.yield() }
             if host.layoutPasses != layouts { dirty.append("'\(c)': the pane laid out \(host.layoutPasses - layouts) times") }
             if chrome.controlsChanges != changes { dirty.append("'\(c)': the controls changed \(chrome.controlsChanges - changes) times") }
-            let after = Self.layerStates(chrome.layer)
+            let after = Self.layerStates(try #require(chrome.layer, "the controls view is layer-backed"))
             if after.count != layers.count { dirty.append("'\(c)': \(layers.count) layers -> \(after.count)") }
             dirty += zip(layers, after).filter { pair in pair.0 != pair.1 }.map { pair in "'\(c)': layer \(pair.0) -> \(pair.1)" }
             dirty += Self.dirtyViews(host, outside: h.field).map { "'\(c)': \($0)" }
@@ -314,7 +314,7 @@ import Testing
         while let v = views.popLast() {
             if skipping.contains(where: { $0 === v }) { continue }
             let frame = v.convert(v.bounds, to: root)
-            if !frame.isEmpty, field.insetBy(dx: -1, dy: -1).contains(frame) { found.append("\(type(of: v)) \(frame)") }
+            if !frame.isEmpty, field.insetBy(dx: -1, dy: -1).contains(frame) { found.append("\(Swift.type(of: v)) \(frame)") }
             views += v.subviews
         }
         return found
@@ -348,7 +348,7 @@ import Testing
         var views: [NSView] = [root]
         while let v = views.popLast() {
             if isFieldView(v, field) { continue }
-            let id = "\(type(of: v)) \(ObjectIdentifier(v).hashValue)"
+            let id = "\(Swift.type(of: v)) \(ObjectIdentifier(v).hashValue)"
             if v.needsLayout { found.append("\(id) needs layout") }
             if v.needsDisplay { found.append("\(id) needs display") }
             views += v.subviews

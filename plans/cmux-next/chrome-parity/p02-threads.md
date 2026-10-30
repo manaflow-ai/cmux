@@ -329,8 +329,8 @@ program). Chromium's ThreadRestrictions are DCHECK-only, so they are off in ship
 
 threading-inventory.py (whole tree, JSONL, enclosing function, isolation, async, fan-in, file-ownership
 graph), debug.threads / server.threads (requested QoS, effective priority, task role, declared row),
-debug.blocking / server.blocking, debug.work (lane histograms), blocking-probe.sh (app + daemon +
-Chromium bucket), lifecycle-sweep.py. No CI gates, jobs, steps or budget rows are added (Lawrence
+debug.blocking / server.blocking, debug.work (lane histograms), blocking-probe.sh (app main thread; its
+daemon and Chromium-bucket half went in deletion wave 1), lifecycle-sweep.py. No CI gates, jobs, steps or budget rows are added (Lawrence
 2026-10-23); every check is pre-push or a fleet run the agent does.
 
 ## 4. Rules
@@ -384,6 +384,7 @@ R12. Compat changes land in one early batch (wave 0) and Compat is then frozen f
   whose first cmux frame is cmux code; main off-CPU time in cmux frames < 0.5 ms per action at p99.
   The app_chromium bucket total is reported as an OPEN number against the "0 main-thread blocking"
   target and filed to the CEF helper-app program; the target is not called met while it is above 0.
+  (Not measurable now: the daemon, thread-filter and Chromium-bucket half of the probe (task 020) went in deletion wave 1, 2026-10-29; the probe is the base one, app main thread only.)
 - **RUN-3** (a) threads: `debug.threads` in STRESS, window visible and once hidden/occluded: 100% of
   cmux-created threads registered; requested QoS (THREAD_QOS_POLICY, overrides excluded) equals
   declared; effective priority (THREAD_EXTENDED_INFO pth_curpri) and process task role are reported;
@@ -437,7 +438,7 @@ Each hit or row is one task item; the orchestrator chunks at 25 hits by call-gra
 - **MQ-8 sync waits and locks.** `rg -n --glob '!**/CmuxNextCompat/**' -e '\.sync\s*(\{|\(execute:)|DispatchSemaphore\(|NSCondition\(|NSLock\(\)|NSRecursiveLock|OSAllocatedUnfairLock|[\w)\]]\.wait\((timeout:|wallTimeout:)?[^)]*\)' Packages/macOS/CmuxNext/Sources | rg -v 'await '`. Tasks 035-036.
 - **MQ-9 thread-doc.** `--rule thread-doc`. Tasks 034, 022.
 - **MQ-10 runtime Swift (test phase).** every-action-sweep and lifecycle-sweep in record mode, then `debug.blocking` JSON; each (fileID, kind, context) site grouped by module is one task p02-threads-R<n>.
-- **MQ-11 runtime probe (test phase).** blocking-probe.sh bench STRESS; each first-cmux-frame with total wait >= 1 ms is one task; app_chromium rows go to the CEF program.
+- **MQ-11 runtime probe (test phase).** blocking-probe.sh bench STRESS; each first-cmux-frame with total wait >= 1 ms is one task; app_chromium rows go to the CEF program (the daemon, thread-filter and Chromium-bucket half of the probe (task 020) went in deletion wave 1, 2026-10-29).
 - **MQ-12 Rust thread spawns.** Fleet: `cd cmux-tui && cargo clippy -p <crate> -- -W clippy::disallowed_methods 2>&1 | rg 'disallowed method'`. Diff reviewer: `rg -n -g '*.rs' -g '!*tests*.rs' -g '!**/tests/**' -e 'thread::Builder::new\(\)|thread::spawn\(|thread::scope\(' cmux-tui/crates/<crate>`. Tasks 210-218, 229.
 - **MQ-13 runtime daemon (test phase).** Daemon Debug record mode running the test suites plus perf-10x-lifecycle; `server.blocking` JSON; each (location, kind, thread) is one task.
 - **MQ-14 static daemon request-path primitives.** `rg -n -B1 --no-heading -g '*.rs' -g '!*tests*' -e 'std::fs::|fs::(write|read|read_to_string|create_dir_all|remove_file|rename|metadata|read_dir)\(|File::(open|create)\(|OpenOptions::new|\.sync_all\(|\.sync_data\(|Command::new\(|thread::sleep|\.recv\(\)|\.recv_timeout\(|\.join\(\)|rusqlite|\.flock|flock\(|\.block_on\(' <paths> | awk '/mq14-allow: /{allow=1; next} /^[^:]+:[0-9]+:/{if(!allow)print} {allow=0}'`. `sync_*` matches std's method form only: the checked form `files::sync_all(&file)` (cmux_threads::checked::fs) does not. A hit on a thread that is not a request path (a writer, watcher or start thread waiting for its own queue or spawning its own child) carries `// mq14-allow: <the thread and why>` on the line directly above, as the repo's other `<rule>-allow:` escapes; review checks the reason. Paths: server/, mux/ (tasks 220-221) and workspace_registry/, state/, terminal_host_runtime/, git_ops/, apps/, journal_*, chief_*, conversation_*, output_store/, resource_router/, fs_ops/, holder_runtime/ (task 231).
@@ -1519,7 +1520,7 @@ site is filed, fixed and rerun. Test: T2.
 
 **301 TEST PHASE: probe (MQ-11, MQ-13).** Depends 020, 300. app_main -> MQ-11 tasks; daemon_request ->
 MQ-13; app_chromium -> CEF helper-app program with the total recorded as open. Acceptance: RUN-2 and RUN-5
-numbers in perf-lead.md section 5 with sha, host, macOS. Test: T3.
+numbers in perf-lead.md section 5 with sha, host, macOS. Test: T3. (Removed with task 020: the daemon, thread-filter and Chromium-bucket half of the probe (task 020) went in deletion wave 1, 2026-10-29.)
 
 **302 TEST PHASE: QoS audit (MQ-15).** Depends 018, 131, 203, 219, 228. Window visible and hidden runs.
 Acceptance: RUN-3 and RUN-4. Test: T3.

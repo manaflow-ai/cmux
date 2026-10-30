@@ -2075,7 +2075,7 @@ jobs:
   # same-repository run hands `cmux-ci compile-check --app` the commit; the
   # fleet compiles and links the app executable, which covers every
   # production target the app links (the canary's targets are production
-  # targets only), and answers. The two production targets the app does not
+  # targets only), and answers. The production targets the app does not
   # link go straight to the Mac canary. A pass lets the
   # canary below report it from a small Linux runner instead of taking a Mac.
   # A red, an unavailable fleet or a timeout runs the Mac canary as before,
@@ -2109,7 +2109,7 @@ jobs:
           # CmuxNextApp). The app check cannot vouch for them.
           for target in $SWIFT_CANARY_TARGETS; do
             case "$target" in
-              CmuxNextAppPermissions|CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
+              CmuxNextAppPermissions|CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview|CmuxNextWireGen)
                 echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
                 echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
                 exit 0 ;;
@@ -3749,7 +3749,7 @@ jobs:
     needs: release-compile-fast
     if: ${{ always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' }}
     name: cmux-next Release compile (Xcode 26)
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read

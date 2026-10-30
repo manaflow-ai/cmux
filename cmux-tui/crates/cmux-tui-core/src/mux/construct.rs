@@ -286,7 +286,11 @@ impl Mux {
             next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
-            surface_options: Mutex::new(surface_options),
+            surface_options: crate::lock_rank::RankedMutex::new(
+                crate::lock_rank::LockRank::Leaf,
+                "mux.surface_options",
+                surface_options,
+            ),
             provider_managed: AtomicBool::new(provider_workspace.managed),
             provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),

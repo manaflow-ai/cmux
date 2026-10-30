@@ -169,8 +169,24 @@ impl Forget {
 /// The writer thread's name, also its name in a hang record.
 const THREAD: &str = "acpmux-meta-writer";
 
+/// Debug builds only: `ACPMUX_TEST_META_WRITE_DELAY_MS` holds each session record write that
+/// long, so a test can stop the daemon while a record is queued and not yet written. Release
+/// builds have no seam.
+fn test_write_delay() -> Option<std::time::Duration> {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var("ACPMUX_TEST_META_WRITE_DELAY_MS")
+            .ok()
+            .and_then(|ms| ms.parse::<u64>().ok())
+            .map(std::time::Duration::from_millis)
+    }
+    #[cfg(not(debug_assertions))]
+    None
+}
+
 fn run(shared: &Shared, store: &dyn Store) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
+    let delay = test_write_delay();
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         // One session at a time, so `forget` waits for at most one write.
@@ -186,6 +202,9 @@ fn run(shared: &Shared, store: &dyn Store) {
         let Some(q) = state.queued.remove(&id) else { continue };
         state.writing = Some(id);
         drop(state);
+        if let Some(delay) = delay {
+            cmux_threads::checked::sync::sleep(delay);
+        }
         {
             let _item = watched.item();
             write(store, &q.meta, &q.purged);

@@ -539,7 +539,9 @@ mod marked_unread_tests {
     use super::*;
 
     /// A tab_state table without the marked_unread column gains it; a mark
-    /// alone keeps the row, and clearing it deletes the emptied row.
+    /// alone keeps the row, and clearing it deletes the emptied row. The
+    /// store's later migration (the attention column, as `state::store`
+    /// runs them) follows it, since a write names every column.
     #[test]
     fn tab_marked_unread_column_is_added_and_an_empty_row_is_dropped() {
         let mut connection = Connection::open_in_memory().unwrap();
@@ -554,6 +556,9 @@ mod marked_unread_tests {
             add_tab_marked_unread_column(&transaction).unwrap();
             transaction.commit().unwrap();
         }
+        let transaction = connection.transaction().unwrap();
+        add_tab_attention_column(&transaction).unwrap();
+        transaction.commit().unwrap();
         let count = |connection: &Connection| -> i64 {
             connection
                 .query_row("SELECT COUNT(*) FROM tab_state WHERE marked_unread = 1", [], |row| {

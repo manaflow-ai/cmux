@@ -7,9 +7,8 @@ public import Foundation
 ///
 /// It is ``MainActorObservation`` with the scheduler's class
 /// (``MainWorkScheduler/callbackClass(_:owner:file:line:)``): an input or frame handler runs in the
-/// notification's delivery, as a task of its class on the board; any other waits while a person's
-/// input is pending or in dispatch (the ``MainJobGate``), then runs when its class's budget lets it,
-/// in that delivery when nothing is held or queued ahead of it, else in a later turn or frame.
+/// notification's delivery, as a task of its class on the board; any other runs when its class's
+/// budget lets it, in that delivery when nothing is queued ahead of it, else in a later turn or frame.
 /// Use it instead of `addObserver(forName:object:queue: .main)` and instead of a
 /// ``MainActorObservation`` with no class.
 ///
@@ -66,7 +65,7 @@ public final class MainNotificationObserver {
                                            read: read, handler)
     }
 
-    /// Stops observing now, and drops the deliveries still waiting in the class: a held or queued
+    /// Stops observing now, and drops the deliveries still waiting in the class: a queued
     /// handler never runs after this (also happens when the observer is released).
     public func cancel() {
         observation.cancel()

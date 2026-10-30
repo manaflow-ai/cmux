@@ -41,17 +41,16 @@ impl ProviderSecret {
     /// daemon-minted secret and hands only it to its Chromium Host, so the
     /// host can open a relay link and nothing else: a `hello` with it is
     /// refused, and the secret never leaves the app.
-    pub fn relay_credential(&self) -> ProviderSecret {
+    ///
+    /// The error is the HMAC key check's; HMAC takes a key of any length
+    /// (RFC 2104), so it does not happen, and a caller that gets it fails
+    /// closed (the handshake refuses the link).
+    pub fn relay_credential(&self) -> Result<ProviderSecret, hmac::digest::InvalidLength> {
         use hmac::{Hmac, Mac};
-        #[allow(
-            clippy::expect_used,
-            reason = "INVARIANT: HMAC takes a key of any length (RFC 2104)"
-        )]
-        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(self.0.as_bytes())
-            .expect("HMAC takes any key length");
+        let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(self.0.as_bytes())?;
         mac.update(RELAY_CREDENTIAL_CONTEXT);
         let digest = mac.finalize().into_bytes();
-        ProviderSecret(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+        Ok(ProviderSecret(digest.iter().map(|byte| format!("{byte:02x}")).collect()))
     }
 }
 

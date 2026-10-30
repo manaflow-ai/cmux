@@ -171,7 +171,12 @@ struct TraceRingStorage {
     func claim(threadIndex: UInt32, generation: UInt32) -> (chunk: Int, lap: UInt64)? {
         let count = UInt64(layout.chunkCount)
         let cursor = word(TraceRingOffsets.chunkCursor)
-        for _ in 0 ..< TraceRing.claimTries {
+        // A counted loop, not `for _ in 0 ..< claimTries`: a Debug build runs a range's `IndexingIterator`
+        // unspecialized in libswiftCore, whose read coroutine heap-allocates its frame,
+        // and a write must not allocate in any build (KeyFrameSignpostAllocationTests).
+        var tries = 0
+        while tries < TraceRing.claimTries {
+            tries += 1
             let ticket = cursor.add(1, ordering: .relaxed).oldValue
             let chunk = Int(ticket & (count - 1))
             let lap = ticket / count

@@ -1,0 +1,113 @@
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextDaemon
+import CmuxNextFocus
+import Testing
+
+/// Lawrence 2026-10-29 (felt 1f): "i do cmd shift l and it opens a browser tab, but then i start typing, and
+/// nothing is focused". The new tab (a stand-in the daemon's tab replaces) showed in the key's turn, but the
+/// focus on its address bar was asked for only in the daemon's reply: until then the model targeted the stand-in's
+/// page (or the old terminal), and keys typed after the creation hold (2 s) went there, not into the address bar.
+/// Focus is part of the action's own turn (plans/cmux-next/focus-invariant.md, zero-latency.md): the new tab's
+/// address bar has the keys, or is the focus the model waits for, before the action's turn ends.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+struct NewBrowserTabFocusTests {
+    @Test func newBrowserTabPutsTheKeysOnItsAddressBarInTheKeysTurn() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let pane = try #require(content.focusedPane ?? content.panes.values.first)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            // Set-up: the person works in a terminal (a fresh app's first pane may hold another kind). Ctrl-` makes one.
+            #expect(services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user)))
+            try await Self.until({ content.focus.state.resolved.kind == "terminal" && content.focus.state.expectation == nil },
+                                 "set-up: no terminal has the keys", content)
+            let before = Set((content.focusedPane?.stripModel.orderedTabs ?? []).map(\.id.rawValue))
+
+            // Cmd-Shift-L, as the key router runs it: a person's openBrowser (WebKit: no Chromium in tests).
+            #expect(services.registry.perform("openBrowser.webkit", invocation: ActionInvocation(origin: .user)))
+
+            // Still in the key's turn, before any daemon reply.
+            let selected = try #require(content.focusedPane?.stripModel.selectedID?.rawValue, "no tab selected after the open")
+            #expect(!before.contains(selected), "the new tab is not selected in the key's turn")
+            let state = content.focus.state
+            // The address bar has the keys now: a focus that only waits (an expectation) is not enough, since one that
+            // never lands leaves the keys where they were (the reducer lands an expectation on a listed tab at once).
+            let onBar: Bool = if case .addressBar(_, let tab) = state.resolved { tab == selected } else { false }
+            #expect(onBar && state.expectation == nil,
+                    "in the key's turn the keys go to \(state.resolved), not the new tab's address bar (expectation \(String(describing: state.expectation)))")
+
+            // The daemon's reply lands: its tab (a daemon surface, not the stand-in's) is the pane's selected tab. Only
+            // then does the check below say anything: before the reply the stand-in's bar already passes it.
+            let store = services.daemon.store
+            try await Self.until({ Self.daemonTabSelected(content, store) != nil }, "the daemon's tab never replaced the stand-in", content)
+            let real = try #require(Self.daemonTabSelected(content, store))
+            #expect(!ProvisionalTab.isProvisional(real) && real != selected, "the selected tab \(real) is still the stand-in \(selected)")
+            // The new tab, not one that was there before: a fallback to the earlier terminal must not pass.
+            #expect(!before.contains(real), "after the reply the selection fell back to \(real), a tab from before the open")
+            // And the daemon's tab has the keys in its address bar, with nothing left waiting.
+            try await Self.until({
+                if case .addressBar(_, let tab) = content.focus.state.resolved { tab == real && content.focus.state.expectation == nil } else { false }
+            }, "the daemon's tab \(real) never had the keys in its address bar", content)
+        }
+    }
+
+    /// Ctrl-` (newSurface): the terminal stand-in (`newTerminalTabNow`, PaneController+Intents.swift) is selected and
+    /// has the keys in the key's turn through the same path (`showStandIn`), before the daemon's reply; the daemon's
+    /// terminal keeps them after it.
+    @Test func newTerminalTabHasTheKeysInTheKeysTurn() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let content = try #require(services.windows.active?.workspaceContent)
+            let pane = try #require(content.focusedPane ?? content.panes.values.first)
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            // Set-up: a first terminal has the keys and nothing waits (a stand-in path needs a connected local daemon).
+            #expect(services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user)))
+            try await Self.until({ content.focus.state.resolved.kind == "terminal" && content.focus.state.expectation == nil },
+                                 "set-up: no terminal has the keys", content)
+            let before = Set((content.focusedPane?.stripModel.orderedTabs ?? []).map(\.id.rawValue))
+
+            #expect(services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user)))
+
+            // Still in the key's turn.
+            let selected = try #require(content.focusedPane?.stripModel.selectedID?.rawValue, "no tab selected after Ctrl-`")
+            #expect(!before.contains(selected), "the new terminal is not selected in the key's turn")
+            let state = content.focus.state
+            let onIt: Bool = if case .terminal(_, let tab) = state.resolved { tab == selected } else { false }
+            #expect(onIt && state.expectation == nil,
+                    "in the key's turn the keys go to \(state.resolved), not the new terminal (expectation \(String(describing: state.expectation)))")
+
+            // The daemon's reply lands: the daemon's tab takes the stand-in's place under its own id
+            // (TabContentCache.adoptStandIn moves the view, NewTabSuccession the selection). Before the reply the check
+            // below already passes on the stand-in.
+            let store = services.daemon.store
+            try await Self.until({ Self.daemonTabSelected(content, store) != nil }, "the daemon's terminal never replaced the stand-in", content)
+            let real = try #require(Self.daemonTabSelected(content, store))
+            // The new terminal, not one that was there before: a fallback to the set-up terminal must not pass.
+            #expect(!before.contains(real), "after the reply the selection fell back to \(real), a tab from before Ctrl-`")
+            // And the daemon's terminal has the keys, with nothing left waiting.
+            try await Self.until({
+                if case .terminal(_, let tab) = content.focus.state.resolved { tab == real && content.focus.state.expectation == nil } else { false }
+            }, "the daemon's terminal \(real) never kept the keys", content)
+        }
+    }
+
+    /// The focused pane's selected tab once it is the daemon's (its id is not a stand-in's and the store lists it with a
+    /// daemon surface), else nil.
+    private static func daemonTabSelected(_ content: WorkspaceContentController, _ store: DaemonStore) -> String? {
+        guard let id = content.focusedPane?.stripModel.selectedID?.rawValue, !ProvisionalTab.isProvisional(id),
+              let tab = store.tab(id: id), !ProvisionalTab.isProvisional(surface: tab.surface) else { return nil }
+        return id
+    }
+
+    /// Polls `condition` for up to 60 s; on a time-out records `what` with the focus state, so a set-up failure is
+    /// never read as the red.
+    private static func until(_ condition: () -> Bool, _ what: String, _ content: WorkspaceContentController,
+                              sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        let deadline = ContinuousClock.now + .seconds(60)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        let state = content.focus.state
+        let tabs = state.topology.panes.map { "\($0.id): \($0.tabs.map(\.kind.rawValue)) selected \($0.selected ?? "-")" }
+        try #require(condition(), "\(what): resolved \(state.resolved), expectation \(String(describing: state.expectation)), panes \(tabs)",
+                     sourceLocation: sourceLocation)
+    }
+}

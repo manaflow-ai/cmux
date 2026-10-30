@@ -63,8 +63,7 @@ fi
 if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
   scripts/cmux-next/build-web-bundles.sh
 fi
-# CmuxNextWireGenPlugin is a build-tool plugin; headless xcodebuild cannot answer Xcode's trust prompt.
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' -skipPackagePluginValidation build
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
 APP_PATH="$OWN_APP_PATH"
 if [[ ! -d "${APP_PATH}" ]]; then
   echo "cmux.app not found at ${APP_PATH}" >&2

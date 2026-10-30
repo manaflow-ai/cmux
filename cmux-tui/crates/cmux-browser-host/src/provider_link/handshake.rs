@@ -68,7 +68,10 @@ pub fn read_opening(
             Ok(Opening::Provider(ProviderInfo { provider_id, install_id, engines, tabs }))
         }
         Frame::RelayHello { version, link, credential } => {
-            if !credential.matches(&expected.relay_credential()) {
+            let derived = expected
+                .relay_credential()
+                .map_err(|_| forbidden("relay credential cannot be derived"))?;
+            if !credential.matches(&derived) {
                 return Err(forbidden("relay credential does not match"));
             }
             if version != crate::provider::RELAY_VERSION {

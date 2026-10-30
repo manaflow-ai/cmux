@@ -17,11 +17,21 @@ import CmuxNextCompat
 /// check one settle later to confirm a violation (async focus reports, such
 /// as Chromium's, land in between). Only a violation present in both checks
 /// is reported, once until it clears. The check walks every window and pane,
-/// so it runs by itself only in debug builds (perf-speed-of-light.md: no
-/// release scan per input); `debug.desync` checks on demand in any build.
+/// so it runs by itself only in Debug builds and in bench builds launched with
+/// `CMUX_NEXT_FOCUS_CHECK=1` (perf-speed-of-light.md: no release scan per input;
+/// a bench build times like Release); `debug.desync` checks on demand in any build.
+///
+/// Something takes the keys (plans/cmux-next/focus-invariant.md): the check also
+/// runs after every action run (`noteAction`; key-window and activation changes
+/// already reach it as focus reductions), a focus expectation still pending
+/// `expectationLimit` after it was first seen is W11, and a report names the
+/// action that ran last.
 final class InputInvariantMonitor {
     /// Time after the last change before the check (about 12 display frames).
     static let settleDelay: Duration = .milliseconds(200)
+    /// How long a focus expectation may wait to land: the creation hold (`CreationInputCoordinator.holdLimit`,
+    /// 2 s), the longest the keys typed meanwhile are held for it, plus one settle.
+    static let expectationLimit: Duration = .seconds(2) + settleDelay
     static let reportsKept = 16
     static let journalTail = 512
 
@@ -42,26 +52,67 @@ final class InputInvariantMonitor {
     private(set) var lastResult: InputInvariants.WorldResult?
     private(set) var reports: [DesyncReport] = []
     private(set) var reportCount = 0
+    /// The action that ran last (`noteAction`): its id and origin, for the focus rules' reports.
+    private var last: (id: String, origin: String)?
+    /// Each window's pending focus expectation and when a check first saw it (W11).
+    private var expectations = FocusExpectationAges()
+    /// The re-check at the oldest pending expectation's limit: nothing else may run a check by then.
+    private let expectationDeadline: MainDeadline
+    private let now: @MainActor () -> ContinuousClock.Instant
+    /// `autoChecks(environment:)` at launch.
+    private let autoChecks: Bool
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.input")
 
     /// - Parameters:
     ///   - tag: The tagged build's name, which names the report folder.
     ///   - deadlines: The app's deadline placer (`AppServices.mainDeadlines`).
     ///   - runner: The app's blocking-work lanes (`AppServices.work`): the desync reports are written there.
-    init(tag: String?, deadlines: MainDeadlineScheduler, runner: any MayBlockRunner) {
+    ///   - now: The clock W11 reads (tests pass their own).
+    ///   - environment: The launch environment (`benchOptInKey`).
+    init(tag: String?, deadlines: MainDeadlineScheduler, runner: any MayBlockRunner,
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
+         environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.tag = tag
+        self.now = now
+        autoChecks = Self.autoChecks(environment: environment)
         store = DesyncReportStore(tag: tag, runner: runner)
         settle = MainDeadline(owner: "InputInvariantMonitor.settle", workClass: .background, scheduler: deadlines)
+        expectationDeadline = MainDeadline(owner: "InputInvariantMonitor.expectation", workClass: .background, scheduler: deadlines)
     }
 
     var directory: String? { store.directory?.path(percentEncoded: false) }
 
     /// Input or focus changed; check once it settles.
     func noteChange() {
-        #if DEBUG
+        guard autoChecks else { return }
         settle.schedule(after: Self.settleDelay) { [weak self] in self?.settled() }
+    }
+
+    /// The opt-in that turns the automatic checks on in a bench build (`=1`), for the focus journeys. A bench build
+    /// times like Release (bench-config-parity.py), so its checks stay off unless a run asks.
+    static let benchOptInKey = "CMUX_NEXT_FOCUS_CHECK"
+
+    /// Whether checks run by themselves after a change: always in Debug, in a bench build only with
+    /// `benchOptInKey=1`, never in Release (`debug.desync` checks on demand in every build).
+    static func autoChecks(environment: [String: String]) -> Bool {
+        #if DEBUG
+        return true
+        #elseif CMUX_BENCH_HOOKS
+        return environment[benchOptInKey] == "1"
+        #else
+        return false
         #endif
     }
+
+    /// An action is about to run (`ActionRegistry.willRunObservers`): kept as the last action, and a check once
+    /// its turn and its focus effects settle.
+    func noteAction(_ id: String, origin: String) {
+        last = (id, origin) // no string is built per action; `lastAction` builds it for a report
+        noteChange()
+    }
+
+    /// The action that ran last, with its origin, as a report names it.
+    var lastAction: String? { last.map { "\($0.id) (\($0.origin))" } }
 
     private func settled() {
         guard let result = check() else { return }
@@ -95,15 +146,37 @@ final class InputInvariantMonitor {
     func check() -> InputInvariants.WorldResult? {
         guard let services else { return nil }
         checks += 1
-        var result = InputInvariants.world(InputObservationBuilder.observe(services))
+        let observation = InputObservationBuilder.observe(services)
+        var result = InputInvariants.world(observation)
         result.violations += Self.pageGeometry(services)
         result.violations += Self.tabConservation(services)
         result.violations += Self.mirrorWrites(services)
         result.violations += services.hoverCards.singleCardViolations().map {
             InputViolation(invariant: .hoverCardSingle, window: nil, detail: $0)
         }
+        result.violations += expectationsLand(observation.windows, holding: Self.holdingWindows(services))
         lastResult = result
         return result
+    }
+
+    /// W11 (`FocusExpectationAges`); a window whose keys still wait for a create's reply starts its clock when the
+    /// hold ends. While an expectation is pending and not yet past its limit, one re-check is due at the limit, so no
+    /// input need come to run it (past it, the violation is out and the usual triggers check).
+    func expectationsLand(_ windows: [InputObservation.Window], holding: Set<String>) -> [InputViolation] {
+        let time = now()
+        let result = expectations.check(windows, now: time, limit: Self.expectationLimit, holding: holding)
+        if autoChecks, let oldest = result.oldest, case let due = Self.expectationLimit - (time - oldest), due > .zero {
+            expectationDeadline.schedule(after: due) { [weak self] in self?.noteChange() }
+        }
+        return result.violations
+    }
+
+    /// The windows whose keys wait in a creation or New Tab hold now.
+    static func holdingWindows(_ services: AppServices) -> Set<String> {
+        let router = services.keyRouter
+        return Set(services.windows.controllers.filter {
+            router.creationInputCoordinator.isHolding(in: $0.window) || router.newTabInputCoordinator.isHolding(in: $0.window)
+        }.map(\.state.id))
     }
 
     /// G1 (input-spec.md 2.6): the Chromium page geometry invariant owned by
@@ -168,7 +241,8 @@ final class InputInvariantMonitor {
             violations: violations,
             observation: InputObservationBuilder.observe(services),
             journal: journal.entries(last: Self.journalTail),
-            journalStats: journal.stats
+            journalStats: journal.stats,
+            lastAction: lastAction
         )
         reports.append(report)
         if reports.count > Self.reportsKept { reports.removeFirst(reports.count - Self.reportsKept) }
@@ -204,6 +278,7 @@ final class InputInvariantMonitor {
         reports.removeAll()
         suspected.removeAll()
         reported.removeAll()
+        expectations = FocusExpectationAges()
     }
 
     func url(of report: DesyncReport) -> String? { store.url(for: report)?.path(percentEncoded: false) }

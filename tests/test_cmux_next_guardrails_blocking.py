@@ -296,5 +296,34 @@ class BlockingRuleTests(unittest.TestCase):
         self.assertLess(elapsed, 1.0)
 
 
+class ThreadContextTests(unittest.TestCase):
+    """check_own() runs measure() for a merge's ranges on several threads at once. BLOCKING_CONTEXT was one shared
+    dict: the range loaded last gave every range its manifest, actor tree and doc, and a key cleared between a test
+    and a read raised KeyError, which now refuses the push (a rule that raises fails closed)."""
+
+    @staticmethod
+    def manifest(target: str) -> str:
+        return f'let package = Package(targets: [.target(name: "{target}", swiftSettings: uiSwiftSettings)])\n'
+
+    def test_each_range_thread_reads_the_manifest_it_loaded(self):
+        import threading
+        loaded = threading.Barrier(2)
+        seen: dict[str, set[str]] = {}
+
+        def judge(head: str, target: str) -> None:
+            guardrails.load_blocking_context({(head, guardrails.PACKAGE_MANIFEST): self.manifest(target)}, head)
+            loaded.wait(timeout=10)  # both ranges loaded before either reads, as when measure() overlaps
+            seen[head] = guardrails.ui_targets()
+            loaded.wait(timeout=10)  # neither clears its context while the other still reads
+
+        threads = [threading.Thread(target=judge, args=(head, target))
+                   for head, target in (("head", "HeadUI"), ("before", "BeforeUI"))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(seen, {"head": {"HeadUI"}, "before": {"BeforeUI"}})
+
+
 if __name__ == "__main__":
     unittest.main()

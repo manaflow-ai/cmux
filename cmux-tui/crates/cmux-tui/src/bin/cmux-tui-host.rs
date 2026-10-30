@@ -82,22 +82,11 @@ fn main() -> std::process::ExitCode {
     if args.first().map(String::as_str) == Some("__terminal-host") {
         args.remove(0);
     }
-    match run(&args) {
+    match cmux_tui_core::terminal_host_runtime::run_terminal_host_process(&args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-host: {error}");
             std::process::ExitCode::FAILURE
         }
     }
-}
-
-fn run(args: &[String]) -> anyhow::Result<()> {
-    // Single-threaded until the host has left the daemon's session and
-    // closed every inherited descriptor.
-    cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
-    // Then the black box, before any terminal work:
-    // the app's trace folder, which the daemon shares with its hosts.
-    #[cfg(unix)]
-    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::TerminalHost));
-    cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }

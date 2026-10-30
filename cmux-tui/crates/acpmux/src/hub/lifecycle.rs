@@ -219,6 +219,8 @@ impl Hub {
             }
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        // The session exists: a retry would make a second one (`request_writes.rs`).
+        super::request_writes::note_kept();
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
                 json!({"agentSessionId": a.agent_session_id, "fork": true})
@@ -464,9 +466,7 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         session.loading.store(false, Ordering::SeqCst);
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
-        }
+        self.set_status_unless_closed(session, SessionStatus::Idle);
         self.append(
             session,
             "mux",

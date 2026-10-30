@@ -113,7 +113,7 @@ class LiveSchemaTests(unittest.TestCase):
             self.assertIn("macos", commands[name]["clients"], name)
 
     def test_typed_swift_command_names_count_as_macos_commands(self) -> None:
-        """Request types migrated to `static let commandName: DaemonCommandName` leave census Q1
+        """Request types migrated to `static let commandName: DaemonCommandName` may not reach swift_request_type_names
         and still name macos commands; without them nearly every command loses `macos`."""
 
         names = ASSIGN.swift_typed_commands()
@@ -299,7 +299,7 @@ class AssignmentTests(unittest.TestCase):
             with self.assertRaisesRegex(ASSIGN.AssignError, "'set-ratio' is a write"):
                 ASSIGN.Assigner(document, NO_SOURCES).run()
 
-    def test_clients_follow_the_census_on_every_run(self) -> None:
+    def test_clients_follow_their_sources_on_every_run(self) -> None:
         document = live()
         document["commands"]["ping"]["clients"] = ["cli", "sdk"]
         document["commands"]["identify"]["clients"] = ["ios", "sdk"]
@@ -361,7 +361,7 @@ class SwiftSourceTests(unittest.TestCase):
 
     def test_cli_typed_requests_keep_cli(self) -> None:
         # The CLI sends these through cmux_ipc::client request types, which exist only
-        # while the schema lists `cli`; census Q14 sees no "cmd" literal for them.
+        # while the schema lists `cli`; they have no "cmd" literal for cli_cmd_line_names.
         names = ASSIGN.cli_typed_request_names(live()["commands"])
         self.assertTrue({"identify", "reload-config", "server-stats", "shutdown-daemon"} <= names)
         for name in names:

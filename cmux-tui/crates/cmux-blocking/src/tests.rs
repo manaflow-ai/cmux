@@ -3,7 +3,9 @@ use std::sync::mpsc;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
-use cmux_threads::blocking::{AllowReason, BlockingCheck, allow_blocking, is_blocking_disallowed};
+use cmux_threads::blocking::{
+    AllowReason, BlockingCheck, BlockingMode, allow_blocking, is_blocking_disallowed, with_mode,
+};
 
 use cmux_threads::ThreadQos;
 
@@ -19,19 +21,23 @@ thread_local! {
     pub(crate) static STRICT_OVERRIDE: Cell<Option<bool>> = const { Cell::new(None) };
 }
 
-struct Lenient;
-
-impl Lenient {
-    fn enter() -> Self {
-        STRICT_OVERRIDE.with(|cell| cell.set(Some(false)));
-        Self
+/// Runs `f` on this thread in the record path of both layers: this crate's
+/// stall is counted and recorded instead of its strict test panic, and the
+/// `cmux_threads` check records the site instead of its Debug panic
+/// (`BlockingMode::Record`, what Release and `CMUX_DAEMON_BLOCKING=record`
+/// do). In a Debug build `cmux_threads` panics at a stall's policy check
+/// (b6e8b3cba04, Chrome's DCHECK), before this crate's route runs, so a test
+/// of this crate's own stall handling needs that layer to record.
+fn recording<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            STRICT_OVERRIDE.with(|cell| cell.set(None));
+        }
     }
-}
-
-impl Drop for Lenient {
-    fn drop(&mut self) {
-        STRICT_OVERRIDE.with(|cell| cell.set(None));
-    }
+    STRICT_OVERRIDE.with(|cell| cell.set(Some(false)));
+    let _restore = Restore;
+    with_mode(BlockingMode::Record, f)
 }
 
 struct Collector(Mutex<Vec<BlockingRecord>>);
@@ -189,16 +195,17 @@ fn raw_spawn_blocking_is_not_a_worker_and_is_not_counted_compensated() {
 #[test]
 fn multi_thread_driver_stalls_instead_of_compensating() {
     collector();
-    let _lenient = Lenient::enter();
     let runtime = runtime::multi_thread(TEST_RUNTIME, ThreadQos::Utility)
         .worker_threads(1)
         .build()
         .expect("build runtime");
     let before = counts();
-    let (sleep_line, role, disallowed) = runtime::block_on(&runtime, async {
-        let sleep_line = line!() + 1;
-        thread::sleep(Duration::from_millis(1));
-        (sleep_line, current_role(), is_blocking_disallowed())
+    let (sleep_line, role, disallowed) = recording(|| {
+        runtime::block_on(&runtime, async {
+            let sleep_line = line!() + 1;
+            thread::sleep(Duration::from_millis(1));
+            (sleep_line, current_role(), is_blocking_disallowed())
+        })
     });
     assert_eq!((role, disallowed), (Role::Driver, true));
     assert_eq!((current_role(), is_blocking_disallowed()), (Role::Unknown, false));
@@ -213,27 +220,28 @@ fn multi_thread_driver_stalls_instead_of_compensating() {
 #[test]
 fn local_set_on_a_multi_thread_driver_records_stalls_and_never_panics() {
     collector();
-    let _lenient = Lenient::enter();
     let runtime = runtime::multi_thread(TEST_RUNTIME, ThreadQos::Utility)
         .worker_threads(1)
         .build()
         .expect("build runtime");
     let local = tokio::task::LocalSet::new();
-    let (direct_line, local_task_line) = runtime::block_on(
-        &runtime,
-        local.run_until(async {
-            let direct_line = line!() + 1;
-            thread::sleep(Duration::from_millis(1));
-            let local_task_line = tokio::task::spawn_local(async {
-                let line = line!() + 1;
+    let (direct_line, local_task_line) = recording(|| {
+        runtime::block_on(
+            &runtime,
+            local.run_until(async {
+                let direct_line = line!() + 1;
                 thread::sleep(Duration::from_millis(1));
-                line
-            })
-            .await
-            .expect("local task");
-            (direct_line, local_task_line)
-        }),
-    );
+                let local_task_line = tokio::task::spawn_local(async {
+                    let line = line!() + 1;
+                    thread::sleep(Duration::from_millis(1));
+                    line
+                })
+                .await
+                .expect("local task");
+                (direct_line, local_task_line)
+            }),
+        )
+    });
     assert_eq!(records_at(direct_line).len(), 1);
     assert_eq!(records_at(local_task_line).len(), 1);
 }
@@ -242,8 +250,11 @@ fn local_set_on_a_multi_thread_driver_records_stalls_and_never_panics() {
 fn current_thread_stall_panics_in_strict_mode_and_restores_the_thread() {
     let runtime =
         runtime::current_thread(TEST_RUNTIME, ThreadQos::Utility).build().expect("build runtime");
+    // This crate's strict panic, not the `cmux_threads` Debug panic before it.
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime::block_on(&runtime, async { thread::sleep(Duration::from_millis(1)) });
+        with_mode(BlockingMode::Record, || {
+            runtime::block_on(&runtime, async { thread::sleep(Duration::from_millis(1)) });
+        });
     }));
     let payload = caught.expect_err("strict mode panics on a stall");
     let message = payload.downcast_ref::<String>().expect("panic! with arguments yields a String");
@@ -255,23 +266,24 @@ fn current_thread_stall_panics_in_strict_mode_and_restores_the_thread() {
 #[test]
 fn current_thread_stall_is_counted_and_recorded_once_per_site() {
     collector();
-    let _lenient = Lenient::enter();
     let path = scratch_file("stall");
     let before = counts();
     let runtime =
         runtime::current_thread(TEST_RUNTIME, ThreadQos::Utility).build().expect("build runtime");
-    let (read_line, metadata_line, reads) = runtime::block_on(&runtime, async {
-        assert_eq!(current_role(), Role::Driver);
-        let mut reads = Vec::new();
-        // Each marker names the line below it, the wrapper's call site.
-        let read_line = line!() + 2;
-        for _ in 0..3 {
-            reads.push(fs::read(&path).expect("read"));
-        }
-        let metadata_line = line!() + 1;
-        let len = fs::metadata(&path).expect("metadata").len();
-        assert_eq!(len, 4);
-        (read_line, metadata_line, reads)
+    let (read_line, metadata_line, reads) = recording(|| {
+        runtime::block_on(&runtime, async {
+            assert_eq!(current_role(), Role::Driver);
+            let mut reads = Vec::new();
+            // Each marker names the line below it, the wrapper's call site.
+            let read_line = line!() + 2;
+            for _ in 0..3 {
+                reads.push(fs::read(&path).expect("read"));
+            }
+            let metadata_line = line!() + 1;
+            let len = fs::metadata(&path).expect("metadata").len();
+            assert_eq!(len, 4);
+            (read_line, metadata_line, reads)
+        })
     });
     assert_eq!(reads, vec![b"cmux".to_vec(); 3]);
     let after = counts();
@@ -326,11 +338,14 @@ fn spawn_blocking_may_block_inside_a_current_thread_runtime() {
 
 #[test]
 fn a_disallowed_std_thread_reports_a_wrapper_in_the_shared_table() {
+    // Record mode: the site is the finding, not the Debug panic.
     let line = std::thread::spawn(|| {
         cmux_threads::disallow_blocking();
-        let line = line!() + 1;
-        thread::sleep(Duration::from_millis(1));
-        line
+        with_mode(BlockingMode::Record, || {
+            let line = line!() + 1;
+            thread::sleep(Duration::from_millis(1));
+            line
+        })
     })
     .join()
     .expect("test thread");

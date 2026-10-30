@@ -158,7 +158,14 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
               let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width > 0, height > 0, let thumbnail = source.thumbnail(options: options) else { return nil }
         let scale = 160 / max(CGFloat(width), CGFloat(height), 160)
-        return NSImage(cgImage: thumbnail, size: CGSize(width: CGFloat(width) * scale, height: CGFloat(height) * scale))
+        // A bitmap rep of the decoded thumbnail, sized in points: its pixels are the thumbnail's (a 2x picture on a
+        // Retina display), stated rather than left to `NSImage(cgImage:size:)`'s snapshot rep, which reports
+        // the point size as its pixel width.
+        let rep = NSBitmapImageRep(cgImage: thumbnail)
+        rep.size = CGSize(width: CGFloat(width) * scale, height: CGFloat(height) * scale)
+        let picture = NSImage(size: rep.size)
+        picture.addRepresentation(rep)
+        return picture
     }
 
     /// The file's icon from Launch Services at ``iconSize`` (a lane body).

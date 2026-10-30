@@ -121,7 +121,12 @@ public final class KeyFrameSignpost {
         guard !pending.isEmpty else { return }
         let outcome: CommitBoundary.Outcome = activity == .afterWaiting ? .missed : .committed
         let endNanos = signposter.clock.nowNanos()
-        for key in pending {
+        // An index loop, not `for key in pending`: a Debug build runs the array's `IndexingIterator` unspecialized in
+        // libswiftCore, whose read coroutine heap-allocates its frame, once per key.
+        var index = 0
+        while index < pending.count {
+            let key = pending[index]
+            index += 1
             if let interval = key.interval { signposter.end(.keyToFrame, interval, outcome) }
             guard outcome == .committed else { continue }
             let micros = endNanos > key.keyDownNanos ? (endNanos - key.keyDownNanos) / 1_000 : 0

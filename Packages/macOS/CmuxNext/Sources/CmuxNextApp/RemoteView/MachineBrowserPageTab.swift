@@ -39,8 +39,7 @@ final class MachineBrowserPageTab: BrowserTab {
     /// when the machine's browser is ready, or here with Open Locally Instead.
     private(set) var queuedURL: URL?
     /// A woken machine tab's last frame while the machine's browser starts again; the streamed
-    /// page it starts takes it over (`handOverWakeCover`) until its first frame. This page itself is
-    /// never discarded: only the streamed page is (`BrowserStreamedPage`).
+    /// page it starts takes it over (`handOverWakeCover`) until its first frame.
     @ObservationIgnored private let wakeCover = BrowserWakeCover()
 
     var contentView: NSView { view }
@@ -126,6 +125,24 @@ final class MachineBrowserPageTab: BrowserTab {
 
     /// The last frame covers the page now (tests, debug).
     var showsWakeCover: Bool { wakeCover.isShown }
+}
+
+/// A hidden not-ready page is released as the other cmux pages are (`memoryDiscardPageTabs`): it hibernates to
+/// its record, with the address the person typed, and a show builds it again from that record
+/// (`TabContentCache.makeAppPage`). Its state is the record alone: the message comes from the machine's state
+/// at the show, as on a first open.
+extension MachineBrowserPageTab: BrowserAppPage {
+    /// The record with the address the person typed as its first page.
+    var pageAddress: URL { MachineBrowserRecord(machine: record.machine, initialURL: queuedURL).url }
+
+    /// A native view draws its message in its first frame. While the machine's browser starts, the woken tab's
+    /// last frame covers it instead (`showStandIn`) until the streamed page takes the frame over.
+    var drawsInFirstFrame: Bool { !isStarting }
+
+    func saveViewState() async -> BrowserAppPageState { BrowserAppPageState(url: pageAddress) }
+
+    /// The address came back in the record the page was built from: nothing else to put back.
+    func restoreViewState(_ state: BrowserAppPageState) {}
 }
 
 extension MachineBrowserPageTab: BrowserWakeStandIn {

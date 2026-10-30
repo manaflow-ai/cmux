@@ -37,7 +37,7 @@ final class AgentPaneMenuAction: NSObject {
 extension AgentPaneView {
     /// The page's message handler for its report of the message under the pointer
     /// (`cmuxAgentContextMenu`), sent on `contextmenu` before the engine asks the host for the menu.
-    static let contextMenuHandler = "cmuxAgentContextMenu"
+    public static let contextMenuHandler = "cmuxAgentContextMenu"
 
     /// Routes WebKit's context menu through the pane and listens for the page's reports. Also takes
     /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``), and

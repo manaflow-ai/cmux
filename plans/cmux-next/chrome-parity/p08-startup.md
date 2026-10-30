@@ -402,8 +402,8 @@ build of the same SHA), 120 Hz, named host, macOS, display kind and SHA.
 6. No blocking at launch. `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5` on a
    `reload.sh --config bench-checks` app gives 0 sites first hit on main before `startup_complete`. A `--config bench`
    app has no detector (`debug.blocking` `compiled_in: false`), and the tool refuses it (task 147).
-   `scripts/measure/blocking-probe.sh --until-mark first_window_frame_committed` shows 0 raw calls on main,
-   including the xpc-reply, mach-receive, spawn and dlopen kinds (084).
+   (Its raw-call half, `blocking-probe.sh --until-mark` with the 084 kinds, was removed in deletion wave 1,
+   2026-10-29.)
 7. Chromium, STRESS session, 20 runs. With no visible Chromium pane: `cef.initialize_started > startup_complete`.
    With a visible restored Chromium page: `cef.initialize_started <= first_window_frame_committed + 20 ms`,
    reason `visiblePaneLoadedIdle` (never timed out), and hidden restored tabs start no renderer before
@@ -450,8 +450,8 @@ Every hit of a queue is one task with the named template. Each queue is regenera
   and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
 - Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce(\(\))?\.schedule|(LaunchImageHold\.shared|imageHold)\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
-- Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold` and
-  `blocking-probe.sh --until-mark startup_complete` (with the 084 kinds). Template 038.
+- Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold`
+  (the probe half went in deletion wave 1). Template 038.
 - Q6 main-thread profile. `startup-queue.py profile`: symbols >= 2 ms inclusive on main before first frame,
   turns >= 4 ms before `startup_complete`, `swift_once` / static init >= 1 ms. Seeded by 072. Template 039.
 - Q7 mark gaps. `startup-queue.py gaps warm.json --min-ms 5`. Template 039.

@@ -165,6 +165,13 @@ install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_e
 install -m 0644 scripts/normalize-pbxproj.py "$TRUSTED_HOOK_DIR/normalize-pbxproj.py"
 printf '%s\n' "$PYTHON3_BIN" > "$TRUSTED_HOOK_DIR/python3-path"
 chmod 0644 "$TRUSTED_HOOK_DIR/python3-path"
+# The guardrails' Rust rules refuse a push they cannot run ast-grep for, so the pinned ast-grep goes into the hook's
+# own tool cache now (sha256-checked, from the per-user cache when it is there), not on the first push. Offline, the
+# install still completes: the first push that needs it downloads it, with retries.
+if ! "$PYTHON3_BIN" -I "$TRUSTED_CHECKS_DIR/prepush-gate.py" --fetch-tool ast-grep >/dev/null; then
+    echo "warning: could not fetch the pinned ast-grep into $TRUSTED_HOOK_DIR/lint-tools; the first push that changes" \
+         "Rust fetches it (or run scripts/install-git-hooks.sh again when online)." >&2
+fi
 
 # Hooks a contributor already has (a core.hooksPath set in any config scope, or
 # executable hooks such as Git LFS's in .git/hooks) are left in place with a

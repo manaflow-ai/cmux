@@ -702,6 +702,22 @@ pub(crate) use shared::codec::{
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+
+/// A terminal host process from its start (`__terminal-host ...`), for
+/// every binary that runs one: the slim `cmux-tui-host` (macOS, beside the
+/// daemon) and the daemon's own executable (Linux, `/proc/self/exe`; macOS
+/// without the sibling). Single-threaded until the host has left the
+/// daemon's session and closed every inherited descriptor; then its black
+/// box, in the app's trace folder the daemon shares with its hosts
+/// (`cmux_trace::process_dir`), before any terminal work: a trace-start and
+/// a hang report find the host's rings there, whichever binary runs it.
+#[cfg(any(unix, windows))]
+pub fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    enter_terminal_host_process()?;
+    #[cfg(unix)]
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::TerminalHost));
+    serve_terminal_host_process(args)
+}
 pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
 pub use shared::host_state::set_dev_host_orphan_grace;
 #[cfg(unix)]

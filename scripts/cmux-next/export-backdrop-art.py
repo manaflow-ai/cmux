@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Export cmux-next's backdrop art list to plans/cmux-next/backdrop-art.json (cmux2-0b, chief decision 4).
 
-The Swift in CmuxNextDesign is the source of truth; this reads it and writes the JSON, so the
+The Swift in CmuxNextAppearance/Backdrop and CmuxNextDesign is the source of truth; this reads it and writes the JSON, so the
 GPUI app and other readers never copy the list by hand. With --check nothing is written; the exit
 status says whether the JSON equals what the Swift gives (the cmux-next checks job runs it).
 
-Read from Packages/macOS/CmuxNext/Sources/CmuxNextDesign:
+Read from Packages/macOS/CmuxNext/Sources/CmuxNextAppearance/Backdrop (the art's enum, records and
+selection, p15-oracle-134) or, for the rest, Packages/macOS/CmuxNext/Sources/CmuxNextDesign:
 - BackdropArt.swift: each work's id (its raw value) in catalog order, and its English title;
 - BackdropArt+Entries.swift: artist, year, museum, collection, source, license, sha256, bundled, and
   the framing and color hints the app's tint and crop use: focal (the crop's focal anchor, x and y
   in 0...1), subject (the box the window keeps whole and in view, from the top-left, 0...1), tint (the preferred tint opacity), darkest and lightest (the image's range, #RRGGBB);
-- BackdropArt+Library.swift: the collections in picker order with their titles, and retired ids;
+- BackdropArt+Catalog.swift: the collections in picker order with their titles, and retired ids;
 - BackdropArt+DailyRotation.swift: the Shuffle Daily list (BackdropArt.dailyRotation);
 - BackdropArtDownloads.swift: the download base (remoteBase), for the full image URL;
 - AppleWallpapers.swift: the macOS wallpaper and video sources, which the app lists at run time.
@@ -30,6 +31,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DESIGN = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"
+BACKDROP = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextAppearance/Backdrop"
+# Where the Swift files live; each name is in exactly one of them.
+SOURCE_DIRS = (BACKDROP, DESIGN)
 RESOURCES = DESIGN / "Resources/BackdropArt"
 OUT = ROOT / "plans/cmux-next/backdrop-art.json"
 STRING = r'"((?:[^"\\]|\\.)*)"'
@@ -44,7 +48,11 @@ def unescape(text: str) -> str:
 
 
 def read(name: str) -> str:
-    return (DESIGN / name).read_text(encoding="utf-8")
+    found = [directory / name for directory in SOURCE_DIRS if (directory / name).is_file()]
+    if len(found) != 1:
+        where = " and ".join(str(d.relative_to(ROOT)) for d in SOURCE_DIRS)
+        fail(f"{name}: expected in exactly one of {where}, found {len(found)}")
+    return found[0].read_text(encoding="utf-8")
 
 
 def block(text: str, start: str, name: str) -> str:
@@ -110,13 +118,13 @@ def works() -> list[dict]:
 
 
 def library(case_ids: dict) -> tuple[list[dict], dict]:
-    text = read("BackdropArt+Library.swift")
-    collection_cases = re.findall(r'^    case (\w+)$', block(text, "enum BackdropArtCollection: String, CaseIterable, Equatable, Sendable {", "BackdropArt+Library.swift"), re.M)
+    text = read("BackdropArt+Catalog.swift")
+    collection_cases = re.findall(r'^    case (\w+)$', block(text, "enum BackdropArtCollection: String, CaseIterable, Equatable, Sendable {", "BackdropArt+Catalog.swift"), re.M)
     titles = dict(re.findall(r'case \.(\w+): String\(localized: "backdrop\.collection\.\w+", defaultValue: ' + STRING, text))
     if not collection_cases or set(collection_cases) - set(titles):
-        fail("BackdropArt+Library.swift: collections without titles")
+        fail("BackdropArt+Catalog.swift: collections without titles")
     retired = {}
-    for old, case in re.findall(STRING + r': \.(\w+),', block(text, "static let retiredIDs: [String: BackdropArt] = [", "BackdropArt+Library.swift")):
+    for old, case in re.findall(STRING + r': \.(\w+),', block(text, "static let retiredIDs: [String: BackdropArt] = [", "BackdropArt+Catalog.swift")):
         if case not in case_ids:
             fail(f"retired id {old} names an unknown case .{case}")
         retired[unescape(old)] = case_ids[case]
@@ -132,6 +140,21 @@ def daily(case_ids: dict) -> list[str]:
     return [case_ids[c] for c in cases]
 
 
+def video_extensions(apple_text: str) -> list[str]:
+    """The movie types: listed in AppleWallpapers.swift, or forwarded from the type that lists them
+    (`static var videoExtensions: Set<String> { BackdropUserImages.videoExtensions }`)."""
+    literal = r'static let videoExtensions: Set<String> = \[([^\]]*)\]'
+    name, text = "AppleWallpapers.swift", apple_text
+    forward = re.search(r'static var videoExtensions: Set<String> \{ (\w+)\.videoExtensions \}', text)
+    if forward:
+        name = f"{forward.group(1)}.swift"
+        text = read(name)
+    found = re.search(literal, text)
+    if not found:
+        fail(f"{name}: no videoExtensions")
+    return sorted(re.findall(STRING, found.group(1)))
+
+
 def apple() -> dict:
     text = read("AppleWallpapers.swift")
     def one(pattern: str, what: str) -> str:
@@ -145,7 +168,7 @@ def apple() -> dict:
                 "inside one image (its apr, solar or h24 metadata names the light and dark frames, BackdropAppearance.swift).",
         "collection": one(r'static let collection = ' + STRING, "collection"),
         "videoCollection": one(r'static let videoCollection = ' + STRING, "videoCollection"),
-        "videoExtensions": sorted(re.findall(STRING, one(r'static let videoExtensions: Set<String> = \[([^\]]*)\]', "videoExtensions"))),
+        "videoExtensions": video_extensions(text),
         "aerialsFolder": one(r'static let systemAerials = URL\(fileURLWithPath: ' + STRING, "systemAerials"),
     }
 

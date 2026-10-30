@@ -63,6 +63,10 @@ private let liveBit: UInt64 = 1 << 31
 /// and clears the live flag, so old tokens miss; the weak reference is written only by the next `register`, which
 /// claims a slot only when no reader is inside it. No call takes a lock or makes a syscall, so a callback on any
 /// thread (an FSEvents queue, an event tap on the main run loop, a render thread) can use it.
+// concurrency-allow: what synchronizes it: each slot's state word changes only by an acquire-release compare-exchange
+// (register claims a free slot) or a release fetch-or / fetch-sub (publish live, leave a lookup); a lookup enters with an
+// acquire fetch-add and reads the weak reference only after it sees the live bit, so the register thread's write of the
+// reference happens-before that read. The reference is written only while the slot is claimed with no reader inside it.
 @safe
 public final class CallbackRegistry<Target: AnyObject & Sendable>: @unchecked Sendable { // crash-allow: every state word is reached only through hardware atomic operations, and a slot's weak reference is written only by the register call that claimed the slot with no reader inside and read only by lookups that entered while it was live (see the type's documentation)
     /// One slot's object, weakly: an owner that dies without unregistering leaves a slot whose lookups miss.

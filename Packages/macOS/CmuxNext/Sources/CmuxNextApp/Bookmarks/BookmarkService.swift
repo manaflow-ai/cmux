@@ -62,6 +62,9 @@ final class BookmarkService {
     /// Each omnibar suggestion engine's bookmark feed, by engine (``BookmarkSuggestionFeed``).
     @ObservationIgnored var suggestionFeeds: [ObjectIdentifier: ServiceObservation<[BookmarkNode]>] = [:]
     @ObservationIgnored var migrating = false
+    /// Finished by ``startSync()``: the launch read's import migration waits for it (`LaunchStart.bookmarkSync`).
+    private let syncStarted: AsyncStream<Void>
+    private let syncStart: AsyncStream<Void>.Continuation
     /// The folder each profile's last bookmark went to, offered for the next one.
     @ObservationIgnored var lastFolder: [String: String] = [:]
     /// Live browser chromes, by tab key, for the star and bar fan-out.
@@ -91,10 +94,13 @@ final class BookmarkService {
         machines = services.machines
         mainWork = services.mainWork
         mainDeadlines = services.mainDeadlines
+        (syncStarted, syncStart) = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))  // only finished
     }
 
-    /// Reads the file, observes the home daemon, and runs the one-time
-    /// migrations (file to daemon, earlier browser imports into bookmarks).
+    /// Reads the file, follows the daemon's bookmark changes and observes the
+    /// home daemon (the file-to-daemon migration): the store the restored
+    /// pages read (`LaunchStart.bookmarks`). Earlier browser imports become
+    /// bookmarks once ``startSync()`` ran.
     func start(directory: URL, importStore: ImportedDataStore?) {
         guard let services else { return }
         self.directory = directory
@@ -102,18 +108,32 @@ final class BookmarkService {
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
         self.file = file
         services.importedBookmarkSink = BookmarkImportSink(service: self)
-        chromium = BookmarkChromiumSync(service: self)
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
-        let mainWork = services.mainWork, work = services.work
+        let mainWork = services.mainWork, work = services.work, syncStarted = syncStarted
         // task-owner: one-shot launch read of the bookmark file. The file actor reads off main; the trees apply as
-        // one posted `visible` task (bars and stars show them), then the legacy imports migrate once.
+        // one posted `visible` task (bars and stars show them), then the legacy imports migrate once, after the sync
+        // started (``startSync()``, `LaunchStart.bookmarkSync`).
         Task { @concurrent [weak self] in
             let loaded = await file.load()
             await mainWork.apply(.visible, owner: "BookmarkService.fileLoaded") { [weak self] () -> Void in self?.fileRead(loaded) }
+            for await _ in syncStarted {}
             guard let importStore, let self else { return }
             await self.migrateLegacyImports(store: importStore, directory: directory, mainWork: mainWork, work: work)
+        }
+    }
+
+    /// Chromium's bookmark models follow the trees, and earlier browser imports
+    /// become bookmarks after the file read: no first frame needs either, so with
+    /// feature `launchStartDeferral` they wait for startup to complete
+    /// (`LaunchStart.bookmarkSync`). After ``start(directory:importStore:)``.
+    func startSync() {
+        guard let services else { return syncStart.finish() }
+        services.runLaunchStart(.bookmarkSync) { [weak self] in
+            guard let self, chromium == nil else { return }
+            chromium = BookmarkChromiumSync(service: self)
+            syncStart.finish()
         }
     }
 

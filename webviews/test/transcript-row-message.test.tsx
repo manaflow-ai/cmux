@@ -95,7 +95,12 @@ test("opening it grows the message in place: the card holds the text and nothing
   await act(async () => toggle().click());
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
   const card = host.querySelector(".cv-agentmsg__card")!;
-  expect(card.textContent).toBe("first line\nsecond line");
+  // Markdown represents the source newline with a line break, not a text node.
+  expect(card.textContent).toBe("first linesecond line");
+  const breaks = card.querySelectorAll("br");
+  expect(breaks).toHaveLength(1);
+  expect(breaks[0]?.previousSibling?.textContent).toBe("first line");
+  expect(breaks[0]?.nextSibling?.textContent).toBe("second line");
   expect(card.classList.contains("selectable")).toBe(true);
   expect(toggle().getAttribute("aria-controls")).toBe(card.id);
   // One scroller in the card, the message's text, capped by the stylesheet (conversation.css).

@@ -58,7 +58,6 @@ const FORBIDDEN_FILES = [
   /^scripts\/cmux-next\/perf-budgets[^/]*(\/|$)/,
   /^scripts\/perf-bench\/(budget\.py|budgets[^/]*\.json)$/,
   /^scripts\/ci\/launch_budget_gate\.py$/,
-  /^plans\/cmux-next\/ipc-targets\.json$/,
   /^\.github\/workflows\/[^/]*perf[^/]*$/,
   /(^|\/)baselines?\//,
   /(^|\/)[^/]*(budget|threshold|expectation|baseline)[^/]*\.(json|tsv|csv|toml|ya?ml|txt)$/i,

@@ -292,6 +292,8 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // The fork's log copies the parent's records, `git` ones too: read once.
+            git_told: None,
             // Read for the fork's own folder when its agent starts.
             worktree: None,
             // The fork's own spend. Claude Code restores the parent's running cost into a
@@ -399,6 +401,8 @@ impl Hub {
             forked.set("harness", json!(parent_meta.harness));
         }
         self.append(&new, "mux", "forked", forked);
+        // The fork exists: a retry would make a second one (`request_writes.rs`).
+        super::request_writes::note_kept();
         self.append(session, "mux", "fork_child", json!({"childId": id}));
         // The forked agent session lives in the parent's process. Load it in
         // its own process so one session keeps one child.

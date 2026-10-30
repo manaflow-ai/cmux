@@ -27,8 +27,10 @@ app-size: count-swift-code-lines.py's lexer).
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
 your report.
-A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
-it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
+A rule that raises refuses the push (fail closed: a broken rule must not pass every push unjudged) with the rule and
+the error named, and prints a `guardrails` warning with the same text; the other rules still run and refuse.
+CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>" skips a broken rule like any other. A warning check (perf-hot, owner)
+or a context reading that raises is not applied to that push and prints a `guardrails` warning (fail open).
 
 Arch ratchet (one entry, one report): run_push() also runs scripts/cmux-next/arch-ratchet.py, next to this file,
 on a thread (start_ratchet() starts it early so it runs beside prepush-gate's scanners). It holds the counts of
@@ -56,7 +58,7 @@ whole grows (the same total check-app-size.sh --base computes, a split file's ne
 bytes added and the package the code goes to. This is the only App-size
 limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
-`app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type that is not a move
+`app-type`, its own rule (so a fault in its brace scan fails only it, which then refuses alone), refuses a new type that is not a move
 in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any
 depth: top-level, a member of an `extension`, or nested with more than PRIVATE_TYPE_MAX source lines (a type's
 `extension` blocks in its file count toward its size); a small private or nested helper and `// app-type-allow:`
@@ -75,9 +77,11 @@ from __future__ import annotations
 import argparse
 import bisect
 import collections
+import collections.abc
 import concurrent.futures
 import dataclasses
 import functools
+import hashlib
 import importlib.util
 import itertools
 import json
@@ -572,7 +576,7 @@ def swift_lexer() -> Callable[[str], list[bool]]:
 
     One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files. Only
     app-size reads it, so it loads inside that rule: a lexer that does not load (CI owns that file) turns off
-    app-size alone through check()'s per-rule fail open, never this module and every rule with it. A failed load
+    app-size alone through check()'s per-rule failure (it refuses), never this module and every rule with it. A failed load
     is not cached; the next push tries again.
     """
     spec = importlib.util.spec_from_file_location("cmux_next_count_swift_code_lines",
@@ -610,10 +614,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS), so its blobs are read while the content diff
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS, QUALITY_BASELINE), so its blobs are read while the content diff
     runs. A path this misses is read after the diff (check()'s late read)."""
     return (in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
-            or in_rust_stability_scope(path))
+            or in_rust_stability_scope(path) or path == QUALITY_BASELINE)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -1840,7 +1844,8 @@ R_HOP = ("recipe R-hop: change the model synchronously in the input's turn, or p
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
-         "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state; when it is truly safe, "
+         "an actor, a Sendable value type, or CmuxNextCompat `Mutex` around the state (a new `Mutex` says why on its "
+         "line or directly above: `// concurrency-allow: <why>`, the carve-out rule); when it is truly safe, "
          "say why on the declaration line or the line directly above: `// crash-allow: <the safety argument>` "
          "(crash_ratchet.py's class and escape: CI's ratchet reads the same two lines; it counts the line as a "
          "waived hit: record it with crash_ratchet.py --record-waivers)",
@@ -1984,7 +1989,7 @@ RULES = (
 # hit's line or the line directly above it, the same pattern, window and raw line text (comments and strings too,
 # as its `rg -n` reads them) as render-done-checks.py's MQ-sync-layout queue and DC11, so a push that passes this
 # rule never grows that queue. Added lines only, base debt per file as the other line rules; a fault in the rule
-# turns off only it (check()'s fail open per rule).
+# refuses with only it named (measure()'s per-rule fail closed).
 # The block owns its lines from here to `RULES += SYNC_LAYOUT_RULES`.
 SYNC_LAYOUT = re.compile(r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush")
 SYNC_LAYOUT_ALLOW = re.compile(r"//\s*sync-layout:\s*\S")
@@ -2707,6 +2712,38 @@ RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
+# ---------------------------------------------------------------- executor-hook (sequence-manager S6)
+# The Swift runtime's `swift_task_enqueueMainExecutor_hook` is one process-wide word: whoever writes it first sees
+# every main-actor job, and a second writer finds it taken. Sequence-manager S6 (plans/cmux-next/
+# sequence-manager-DESIGN.md 2.7, cmux-ad Q4) deleted the MainJobGate and the priority-ordered MainExecutorHook, which
+# reordered the main queue by origin or priority, and left one owner that only records: CmuxNextCompat's
+# MainJobRing (Debug and bench builds, the main-job census). A new reader or writer of the symbol anywhere else is
+# refused, with no escape: priority belongs at the post site (a runner post), not in a reorder of the main queue.
+EXECUTOR_HOOK = re.compile(r"\bswift_task_enqueueMainExecutor_hook\b")
+EXECUTOR_HOOK_OWNER = SOURCES + "CmuxNextCompat/MainJobRing.swift"
+
+
+def executor_hook_code(text: str) -> str:
+    """TEXT for the executor-hook rule: a comment line reads as empty (docs may name the symbol); code and string
+    literals stay (`dlsym` takes the name as a string)."""
+    return "" if COMMENT_LINE.match(text) else text.split(" //", 1)[0]
+
+
+EXECUTOR_HOOK_RULES = (
+    Rule("executor-hook", "`swift_task_enqueueMainExecutor_hook` outside CmuxNextCompat/MainJobRing.swift",
+         "the main-executor hook is one process-wide word; a second owner either loses it (the first install wins) "
+         "or reorders every main-actor job of the process behind the scheduler's back (sequence-manager-DESIGN.md "
+         "2.7: MainJobGate and MainExecutorHook were deleted in S6; cmux-ad Q4: record-only, one owner)",
+         "post the work on the scheduler with its class (`mainWork.post(_:owner:)`, `.reply(on:class:owner:)`); to "
+         "see main-actor jobs, read the main-job census (`MainJobRing`, `CMUX_NEXT_MAIN_JOB_CENSUS`)",
+         None,
+         scoped_to(Matcher(EXECUTOR_HOOK, None, code=executor_hook_code), lambda path: path != EXECUTOR_HOOK_OWNER),
+         scope=(SOURCES, TESTS)),
+)
+RULES += EXECUTOR_HOOK_RULES
+# ---------------------------------------------------------------- end of executor-hook (sequence-manager S6)
+
+
 # ---------------------------------------------------------------- main-wakeup-owner (sequence-manager S1)
 # The main thread has one wake-up timer: the `MainWakeUpQueue` `main()` makes (CmuxNextApp.swift), which the
 # scheduler (`MainWorkScheduler.wakeUps`, LaunchOrder.swift) and the app's one `MainDeadlineScheduler`
@@ -2956,7 +2993,7 @@ RULES += TRAP_API_RULES
 # new; the key is the bare id, so `cp/`, backticks or `(fixer)` around it do not make a kept id new.
 # It sees only the files check() diffs (Swift in Packages' Sources and Tests, the shipped crates' src, webviews/src and
 # the CEF shim's and Chromium host's src); comments elsewhere (crate tests/, the host's client/ and tests/, scripts)
-# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule open, not the hook.
+# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule (it refuses), not the hook.
 TASK_ID_SCOPE = ("Packages/", "cmux-tui/", "webviews/", "Native/", "cmux-next-ios/")
 
 
@@ -3042,7 +3079,8 @@ RUST_MEMO = "rust-stability"
 
 
 class RustScanError(RuntimeError):
-    """The pinned ast-grep could not be found, run or read: the Rust rules fail open for this push."""
+    """The pinned ast-grep could not be found, run or read: the Rust rules cannot judge this push, so they refuse it
+    (measure()'s per-rule fail closed; CMUX_GUARDRAILS_SKIP_REASON names them to push anyway)."""
 
 
 def in_rust_stability_scope(path: str) -> bool:
@@ -3333,19 +3371,27 @@ class WakeupHit(Added):
     cause: str = ""
 
 
+WAKEUP_AUDIT_LOAD = threading.Lock()
+
+
 def wakeup_audit():
-    """wakeup-audit.py beside this file, loaded on first use (a load error fails only this rule open)."""
+    """wakeup-audit.py beside this file, loaded on first use (a load error refuses the push: measure()'s rule crash).
+
+    check_own() runs measure() for a merge's ranges on several threads at once, so the load holds a lock: the module
+    is in sys.modules while it runs (its dataclasses resolve their module there), and a second thread that saw it
+    there unlocked got a half-run module (AttributeError: no attribute 'WEB_SKIP_DIRS', so wakeup-ext judged nothing)."""
     name = "cmux_next_wakeup_audit"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            del sys.modules[name]
-            raise
-    return sys.modules[name]
+    with WAKEUP_AUDIT_LOAD:
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                del sys.modules[name]
+                raise
+        return sys.modules[name]
 
 
 class ChecksRoot:
@@ -3746,8 +3792,32 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
-BLOCKING_CONTEXT: dict[str, object] = {}
+class ThreadContext(threading.local, collections.abc.MutableMapping):
+    """A dict of its own on each thread. check_own() runs measure() for a merge's ranges on several threads at once,
+    and each sets the context of its own revision (load_blocking_context); one shared dict let a range's rules read
+    the other range's manifest, actor tree and doc, or raise KeyError between a key's test and its read."""
+
+    def __init__(self):
+        self.values: dict[str, object] = {}
+
+    def __getitem__(self, key: str) -> object:
+        return self.values[key]
+
+    def __setitem__(self, key: str, value: object) -> None:
+        self.values[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.values[key]
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+# HEAD's threading doc and package manifest, and loaded helpers; measure() refreshes them per run, on its own thread.
+BLOCKING_CONTEXT: ThreadContext = ThreadContext()
 
 
 class Prefiltered:
@@ -4908,8 +4978,9 @@ def in_rule_scope(path: str, scope: tuple[str, ...]) -> bool:
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
-    and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
+    """Keeps HEAD's threading doc and package manifest for the rules above, on this thread (a missing doc makes
+    thread-doc raise, so it refuses), and, given REPO, names HEAD's tree for pool-blocking's actor index
+    (repo_actor_index reads it on demand)."""
     for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index", "linked"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
@@ -5124,6 +5195,402 @@ AWAITED_LOW_PRIORITY_RULES = (
          matcher_rule(Matcher(LOW_TASK, PRIORITY_ALLOW, awaited_low_task))),
 )
 RULES += AWAITED_LOW_PRIORITY_RULES
+
+
+# ---------------------------------------------------------------- quality ratchet
+# The code-quality ratchet (cmux-ad's quality audit of perf/chrome-parity, 2026-10-29, order 1): five line rules over
+# every package (Packages/*/Sources and Packages/*/Tests, not only CmuxNext), and one record rule for their baseline.
+# A push may not ADD (a) a carve-out (`nonisolated(unsafe)`, `@unchecked Sendable`, a new lock, a GCD main hop or
+# `asyncAfter`) without a justification comment, (b) a `static let/var shared` singleton in package Sources, (c) a
+# sleep in product Sources without a justification comment, (d) a test that reads source or project files
+# (skills/cmux-testing/references/regression-and-quality.md: such a test asserts shape, not behavior) or (e) a new
+# product Swift file with two or more top-level types, and (assume-isolated, the same carve-out escape or crash_ratchet's
+# `// main-proof:`) an `assumeIsolated` without a reason. Where another check already refuses a pattern before the push
+# (in CmuxNext's Sources: unchecked-sendable, main-async and check-concurrency.sh's locks, asyncAfter, main.sync and
+# sleeps), this block does not judge it again (CARVE_OUT_OWNED, product_sleep_source).
+#
+# A justification comment is the escape form CLAUDE.md gives (`// concurrency-allow:`, `// crash-allow:`): any
+# `// <tag>-allow: <reason>` on the line, in the comment block directly above it, or trailing the code line above
+# (escape_window), so a line another rule already escapes (`// main-async-allow:`, `// wakeup-allow:`) needs no
+# second comment. (b) has no inline escape: CMUX_GUARDRAILS_SKIP_REASON, said in the report, is its only skip.
+#
+# The count: per changed file, every hit of the file at head against every hit at base, paired by text and then by
+# count (resolve(), as trap-api does), so an edit of a line that already had the debt adds none and a removed
+# escape is new debt; a hit whose text another file of the push removes is a move.
+# The baseline: plans/cmux-next/quality-ratchet.json lists, per rule and file, a short hash of every hit at the rev
+# it was measured on (`guardrails.py --quality-baseline --write`). A hit the base does not have is still no new
+# debt when the baseline lists its text for that file and the base has fewer of it: so a push to
+# origin/feat-cmux-next that brings perf/chrome-parity's old lines (a slice) passes, and a removed old line can come
+# back only as the same line, never as another one. Each rule is judged against its own reference
+# (quality_reference): the base's json when it lists the rule, else the json as the push's first commit that
+# introduces the rule wrote it (a commit whose json lists the rule while its first parent's json does not), never the
+# head's: a json rewritten after new debt lists that debt, and `quality-baseline` refuses a head json with a site its
+# reference lacks, so the baseline only goes down. So a new rule (assume-isolated) brings its baseline once, in the
+# commit that adds it, and a slice onto a base without the json brings each rule's baseline the same way. A base json
+# that does not parse allows nothing, and a rule with no reference allows nothing (a base that deleted the json, with
+# a push that only rewrites it): quality-baseline refuses such a json.
+# Trusted by design: the commit that first introduces a rule's baseline is trusted as written. Its sites are that
+# rule's baseline for the whole push, so debt that this commit, or an earlier commit of the same push, adds and lists
+# passes as old. That trust is what lets a slice of perf/chrome-parity (the json's own branch) onto
+# origin/feat-cmux-next bring its old lines; a reviewer of a push that introduces a rule's baseline checks that the
+# json was measured at the push's base side (`measured_rev`), not after new debt. Local only, like every guardrail.
+# The block owns its lines from here to `RULES += QUALITY_RULES`.
+QUALITY_BASELINE = "plans/cmux-next/quality-ratchet.json"
+QUALITY_MEMO = "quality-baseline"
+JUSTIFIED = re.compile(r"//\s*[a-z][a-z0-9]*(?:-[a-z0-9]+)*-allow:\s*\S")
+JUSTIFIED_ESCAPE = "// <tag>-allow: <the reason> (any CLAUDE.md escape tag: concurrency-allow, crash-allow, ...)"
+CARVE_OUT = re.compile(
+    r"\bnonisolated\s*\(\s*unsafe\s*\)|@unchecked\s+Sendable\b"
+    r"|\bNS(?:Recursive|Condition)?Lock\s*\(|\bos_unfair_lock(?:_s)?\s*\(\s*\)|\bOSAllocatedUnfairLock\b(?:\s*<[^()]*>)?\s*\("
+    r"|\bpthread_mutex_init\s*\(|\bMutex\b(?:\s*<[^()]*>)?\s*\("
+    r"|\bDispatchQueue\.main\.(?:async|sync)\b|\.asyncAfter\s*\(")
+# In CmuxNext's Sources other checks already refuse these, each with its own escape, so they are not judged again
+# here: unchecked-sendable (`// crash-allow:`), main-async (`// main-async-allow:`) and check-concurrency.sh, run by
+# the gate before the push (`// concurrency-allow:`: NSLock, NSConditionLock, os_unfair_lock, asyncAfter, main.sync).
+CARVE_OUT_OWNED = re.compile(r"\bnonisolated\s*\(\s*unsafe\s*\)|@unchecked\s+Sendable\b|\bDispatchQueue\.main\.(?:async|sync)\b"
+                             r"|\bNS(?:Recursive)?Lock\(|\bNSConditionLock\(|\bos_unfair_lock|\basyncAfter\(")
+# `MainActor.assumeIsolated` and any actor's `assumeIsolated`: it traps when the caller is off that actor, and the compiler
+# proves nothing behind it. crash_ratchet.py's reviewed escape for it, `// main-proof: <why>`, counts as a justification
+# too, so one comment satisfies both checks.
+ASSUME_ISOLATED = re.compile(r"\bassumeIsolated\b")
+MAIN_PROOF = re.compile(r"//\s*main-proof:\s*\S")
+STATIC_SHARED = re.compile(r"\b(?:static|class)\s+(?:let|var)\s+shared\b")
+# check-concurrency.sh's SLEEP_CALL (Task.sleep, a clock's `.sleep(for:/until:)`, an awaited injected sleeper).
+PRODUCT_SLEEP = re.compile(r"\bTask\.sleep\s*\(|\.sleep\s*\(\s*(?:for|until):|\bclock\.sleep\b"
+                           r"|\bawait\s+(?:[A-Za-z_]\w*\??\.)*sleep\(")
+# A test file reads the repository when it locates it (`#filePath`, a `packageRoot` / `repoRoot` /
+# `repositoryRoot`) and reads a file or lists a folder; each line that names a source or project file there is a hit.
+REPO_LOCATOR = re.compile(r"#filePath\b|#file\b|\b[a-z]*(?:[pP]ackage|[rR]epo|[rR]epository|[sS]ources?)Root\b")
+FILE_READ = re.compile(r"\bString\s*\(\s*contentsOf|\bData\s*\(\s*contentsOf|contentsOfFile:|\.contents\s*\(\s*atPath"
+                       r"|\.enumerator\s*\(\s*at|contentsOfDirectory\s*\(|subpathsOfDirectory\s*\(|\.subpaths\s*\(\s*atPath")
+SOURCE_REFERENCE = re.compile(
+    r"\b(?:appendingPathComponent|appending)\s*\(\s*(?:path:\s*)?\"[^\"]*\bSources\b"
+    r"|\bpathExtension\s*==\s*\"swift\"|\bhasSuffix\s*\(\s*\"\.swift\"\s*\)"
+    r"|\"[^\"]*/[^\"]*\.(?:swift|h|hpp|cc|cpp|m|mm|rs)\""
+    r"|\"[^\"]*(?:Package\.swift|\.pbxproj|\.xcconfig|\.entitlements|Info\.plist)\"")
+GENERATED_HEADER = re.compile(r"\bGENERATED\b|\bDo not edit\b|@generated", re.IGNORECASE)
+
+
+def product_sleep_source(path: str) -> bool:
+    """product_source(PATH) outside CmuxNext's Sources, where check-concurrency.sh already refuses a sleep without
+    `// wakeup-allow:` before the push."""
+    return product_source(path) and not path.startswith(SOURCES)
+
+
+def assume_isolated_source(path: str) -> bool:
+    """product_source(PATH) outside CmuxNext's Sources, where crash_ratchet.py (`assume_isolated`, escape
+    `// main-proof:`) and the arch ratchet's assume_isolated_outside_adapters row already hold every site."""
+    return product_source(path) and not path.startswith(SOURCES)
+
+
+def assume_isolated_hits(path: str, lines: list[str]) -> list[Added]:
+    """The lines whose code calls `assumeIsolated` with no `// <tag>-allow:` or `// main-proof:` reason in the
+    escape window."""
+    return [Added(path, i + 1, line) for i, line in enumerate(lines)
+            if ASSUME_ISOLATED.search(line) and ASSUME_ISOLATED.search(code_of(line))
+            and not justified(lines, i) and not any(MAIN_PROOF.search(lines[j]) for j in escape_window(lines, i))]
+
+
+def product_source(path: str) -> bool:
+    """PATH is a Swift file of a package's product Sources (not a `...TestSupport` target, not under Tests)."""
+    if not (path.startswith("Packages/") and path.endswith(".swift") and "/Sources/" in path and "/Tests/" not in path):
+        return False
+    target = path.split("/Sources/", 1)[1].split("/", 1)[0]
+    return not target.endswith("TestSupport")
+
+
+def package_test(path: str) -> bool:
+    """PATH is a Swift file of a package's Tests."""
+    return path.startswith("Packages/") and path.endswith(".swift") and "/Tests/" in path
+
+
+def justified(lines: list[str], index: int) -> bool:
+    return any(JUSTIFIED.search(lines[j]) for j in escape_window(lines, index))
+
+
+def code_hits(pattern: re.Pattern, escape: bool) -> Callable[[str, list[str]], list[Added]]:
+    """The lines of a file whose code (comments dropped, strings blanked) matches PATTERN, less the justified ones
+    when ESCAPE."""
+    def hits(path: str, lines: list[str]) -> list[Added]:
+        return [Added(path, i + 1, line) for i, line in enumerate(lines)
+                if pattern.search(line) and pattern.search(code_of(line)) and not (escape and justified(lines, i))]
+    return hits
+
+
+def carve_out_hits(path: str, lines: list[str]) -> list[Added]:
+    """code_hits(CARVE_OUT), less, in CmuxNext's Sources, the lines whose only carve-out another rule owns."""
+    found = code_hits(CARVE_OUT, escape=True)(path, lines)
+    if not path.startswith(SOURCES):
+        return found
+    return [a for a in found if CARVE_OUT.search(CARVE_OUT_OWNED.sub(" ", code_of(a.text)))]
+
+
+def source_test_hits(path: str, lines: list[str]) -> list[Added]:
+    """The lines of a test file that name a source or project file, when the file locates the repository and reads
+    a file or lists a folder (the strings matter here, so the raw line is read; comment lines are not)."""
+    code = [line if code_of(line).strip() else "" for line in lines]
+    text = "\n".join(code)
+    if not (REPO_LOCATOR.search(text) and FILE_READ.search(text)):
+        return []
+    return [Added(path, i + 1, lines[i]) for i, line in enumerate(code)
+            if line and SOURCE_REFERENCE.search(line) and not justified(lines, i)]
+
+
+def extra_types(path: str, lines: list[str]) -> list[Added]:
+    """The declaration lines of a file's top-level types after its first one, less justified ones. A private or
+    fileprivate helper of at most PRIVATE_TYPE_MAX source lines does not count (app-type's helper rule), and a
+    generated file (a GENERATED / Do not edit header) or one whose braces the scan cannot follow has none."""
+    if any(GENERATED_HEADER.search(line) for line in lines[:5]):
+        return []
+    scan = QUALITY_TYPE_SCAN(lines)
+    if scan.problem is not None:
+        return []
+    counted = []
+    for decl in type_decls(lines, scan.rows).types:
+        if decl.nested:
+            continue
+        source = sum(1 for j in range(decl.first, decl.end) if scan.rows[j][1] and scan.rows[j][3].strip())
+        if decl.private and source <= PRIVATE_TYPE_MAX:
+            continue
+        counted.append(decl)
+    return [Added(path, d.decl + 1, lines[d.decl]) for d in counted[1:] if not justified(lines, d.decl)]
+
+
+# app-type's scan, bound once: a fault there (or a test's stand-in for it) fails app-type alone, as app-type's
+# own tests require; this rule then refuses on its own (measure()'s per-rule fail closed).
+QUALITY_TYPE_SCAN = type_scan
+
+
+def site_key(text: str) -> str:
+    """The baseline's name for a hit: a short hash of its debt_key (text compared as resolve() compares it)."""
+    return hashlib.sha1(debt_key(text).encode()).hexdigest()[:12]
+
+
+@dataclass(frozen=True)
+class QualityKind:
+    rule: str
+    applies: Callable[[str], bool]
+    hits: Callable[[str, list[str]], list[Added]]
+    new_files_only: bool = False
+
+
+QUALITY_KINDS = (
+    QualityKind("carve-out", product_source, carve_out_hits),
+    QualityKind("static-shared", lambda p: p.startswith("Packages/") and "/Sources/" in p and p.endswith(".swift"),
+                code_hits(STATIC_SHARED, escape=False)),
+    QualityKind("product-sleep", product_sleep_source, code_hits(PRODUCT_SLEEP, escape=True)),
+    QualityKind("source-reading-test", package_test, source_test_hits),
+    QualityKind("multi-type-file", product_source, extra_types, new_files_only=True),
+    QualityKind("assume-isolated", assume_isolated_source, assume_isolated_hits),
+)
+
+
+def quality_baseline_sites(text: str | None) -> dict[str, dict[str, collections.Counter]] | None:
+    """{rule: {path: Counter(site key)}} of a quality-ratchet.json text; None for no file or one that does not parse."""
+    if text is None:
+        return None
+    try:
+        data = json.loads(text)
+        return {rule: {path: collections.Counter(keys.split()) for path, keys in files.items()}
+                for rule, files in data.get("sites", {}).items()}
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def quality_reference(memo: tuple, rule: str) -> dict[str, collections.Counter] | None:
+    """{path: site keys} that RULE's sites are judged against, or None when RULE has no reference.
+
+    The base's json when it lists RULE. Else (the base has no json, or a json from before RULE existed) the json as
+    the push's first commit that introduces RULE wrote it (quality_origins). Never the head's: a json rewritten
+    after new debt lists that debt. A base json that does not parse allows nothing ({}, and quality-baseline names it).
+    """
+    base_text, origins = memo
+    if base_text is not None:
+        base = quality_baseline_sites(base_text)
+        if base is None:
+            return {}
+        if rule in base:
+            return base[rule]
+    origin = (origins or {}).get(rule)
+    if origin is None:
+        return None
+    return (quality_baseline_sites(origin) or {}).get(rule, {})
+
+
+def quality_allowance(changes: list[FileChange], rule: str) -> dict[str, collections.Counter]:
+    """{path: site keys the baseline lists for RULE} (quality_reference); no reference allows nothing."""
+    for change in changes:
+        return dict(quality_reference(change.memo.get(QUALITY_MEMO, (None, {})), rule) or {})
+    return {}
+
+
+def quality_origins(repo: Path, base: str, head: str) -> dict[str, str]:
+    """{rule: the json text of the first commit of BASE..HEAD that introduces RULE}: a commit whose json lists RULE
+    while its first parent's json does not (or has no json). A commit that only rewrites a json its parent already
+    had introduces nothing, so a branch made before its base deleted the json gets no reference (fail closed)."""
+    commits = git(repo, "log", "--format=%H", "--reverse", f"{base}..{head}", "--", QUALITY_BASELINE,
+                  check=False).split()
+    if not commits:
+        return {}
+    texts = blobs(repo, [(c, QUALITY_BASELINE) for c in commits] + [(f"{c}^1", QUALITY_BASELINE) for c in commits])
+    origins: dict[str, str] = {}
+    for commit in commits:
+        text = texts.get((commit, QUALITY_BASELINE))
+        sites = quality_baseline_sites(text) if text is not None else None
+        if not sites:
+            continue
+        parent = texts.get((f"{commit}^1", QUALITY_BASELINE))
+        before = set(quality_baseline_sites(parent) or {}) if parent is not None else set()
+        for rule in sites:
+            if rule not in before:
+                origins.setdefault(rule, text)
+    return origins
+
+
+def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        judged = [c for c in changes if kind.applies(c.path) and (c.added or c.removed)]
+        found, base_keys = [], {}
+        for change in judged:
+            base = kind.hits(change.path, change.base_lines) if change.base_lines != [""] else []
+            if kind.new_files_only and change.base_lines != [""]:
+                # An existing file adds nothing here; its types removed at head may pay for a move into a new file.
+                head_keys = collections.Counter(debt_key(a.text) for a in kind.hits(change.path, change.head_lines))
+                kept = []
+                for line in base:
+                    if head_keys[debt_key(line.text)] > 0:
+                        head_keys[debt_key(line.text)] -= 1
+                    else:
+                        kept.append(line)
+                found.append(([], kept))
+            else:
+                head = [] if change.is_deleted else kind.hits(change.path, change.head_lines)
+                found.append((head, base))
+            base_keys[change.path] = collections.Counter(site_key(r.text) for r in base)
+        left = resolve(found)
+        allowance = quality_allowance(judged, kind.rule)
+        hits = []
+        for hit in left:
+            spare = allowance.get(hit.path, collections.Counter()) - base_keys.get(hit.path, collections.Counter())
+            key = site_key(hit.text)
+            if spare[key] > 0:
+                allowance[hit.path] = allowance[hit.path] - collections.Counter({key: 1})
+            else:
+                hits.append(hit)
+        return hits
+    return find
+
+
+def quality_baseline_raise(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """quality-ratchet.json gains a site over each rule's reference (quality_reference), lists a rule that has no
+    reference in the push, or does not parse (at head, or the base's)."""
+    hits = []
+    for change in changes:
+        if change.path != QUALITY_BASELINE or change.is_deleted:
+            continue
+        memo = change.memo.get(QUALITY_MEMO, (None, {}))
+        if memo[0] is not None and quality_baseline_sites(memo[0]) is None:
+            hits.append(Added(change.path, 1, "the base's quality baseline does not parse; fix it in its own push"))
+            continue
+        head = quality_baseline_sites("\n".join(change.head_lines))
+        if head is None:
+            hits.append(Added(change.path, 1, "the file does not parse as the quality baseline"))
+            continue
+        for rule in sorted(head):
+            reference = quality_reference(memo, rule)
+            if reference is None:
+                hits.append(Added(change.path, 1, f"{rule}: no commit of this push introduces its baseline and the "
+                                                  "base lists none (the base deleted the json?)"))
+                continue
+            for path in sorted(head[rule]):
+                extra = head[rule][path] - reference.get(path, collections.Counter())
+                if extra:
+                    hits.append(Added(change.path, 1, f"{rule} {path}: {sum(extra.values())} more site(s)"))
+    return hits
+
+
+def quality_counts(repo: Path, rev: str) -> dict:
+    """The baseline json for REV: every hit of each rule in every package Swift file (multi-type-file: in every
+    product file, as if each were new)."""
+    listed = git(repo, "ls-tree", "-r", "--name-only", rev, "--", "Packages").split("\n")
+    paths = sorted(p for p in listed if p and any(kind.applies(p) for kind in QUALITY_KINDS))
+    texts = blobs(repo, [(rev, p) for p in paths])
+    sites: dict[str, dict[str, str]] = {kind.rule: {} for kind in QUALITY_KINDS}
+    for path in paths:
+        lines = texts.get((rev, path), "").split("\n")
+        for kind in QUALITY_KINDS:
+            if kind.applies(path) and (found := kind.hits(path, lines)):
+                sites[kind.rule][path] = " ".join(sorted(site_key(h.text) for h in found))
+    return {
+        "_doc": "The quality ratchet's baseline (scripts/cmux-next/guardrails.py, block `quality ratchet`): per rule "
+                "and file, the short hashes (site_key) of every existing hit, space-separated. A hit the push's base lacks but this file lists for its "
+                "file is old debt, not new. Only `guardrails.py --quality-baseline --write` writes it, and a push may "
+                "only remove sites (rule quality-baseline). Never CI.",
+        "measured_rev": git(repo, "rev-parse", rev).strip(),
+        "counts": {rule: sum(len(v.split()) for v in files.values()) for rule, files in sites.items()},
+        "files": {rule: len(files) for rule, files in sites.items()},
+        "sites": sites,
+    }
+
+
+QUALITY_RULES = (
+    Rule("carve-out", "A carve-out without a justification comment in package Sources: `nonisolated(unsafe)`, "
+         "`@unchecked Sendable`, a new lock (`NSLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `Mutex`), "
+         "`DispatchQueue.main.async` / `.sync` or `.asyncAfter` (in CmuxNext's Sources only the locks other checks do "
+         "not judge: `Mutex`, `OSAllocatedUnfairLock`, `pthread_mutex_init`)",
+         "each switches off a check (the data-race checker, the main-thread scheduler's classes) or adds a wait; "
+         "without a written reason nobody can review it (CLAUDE.md: an escape comment needs a reason that proves the "
+         "code is safe; quality audit 2026-10-29: 68 % of perf's carve-outs had none)",
+         "an actor or a Sendable value type instead of the lock or the unchecked conformance; recipe R-hop instead of "
+         "a GCD main hop; an injected Clock or a MainDeadline instead of asyncAfter. When it must stay, write why on "
+         "the line or directly above: `// concurrency-allow: <why>` (`// crash-allow:` for an unchecked conformance; "
+         "any `// <tag>-allow: <reason>` counts)",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[0]), scope=("Packages/",), local_only=True),
+    Rule("static-shared", "A new `static let shared` / `static var shared` singleton in package Sources",
+         "a process-wide instance no owner constructs or injects: tests share its state and nothing can replace it "
+         "(CLAUDE.md package design discipline; the arch ratchet's stateful-singleton row counts only stateful types)",
+         "construct the instance at the composition root and pass it in (an init parameter or an environment value)",
+         None, quality_rule(QUALITY_KINDS[1]), scope=("Packages/",), local_only=True),
+    Rule("product-sleep", "A `Task.sleep` / clock sleep in product package Sources outside CmuxNext (check-concurrency.sh "
+         "judges CmuxNext's) without a justification comment",
+         "a sleep is a wakeup, and a sleep that waits for a state hides a race (REVIEW-STANDARD.md: sleeps and polls "
+         "that hide a race are hacks)",
+         "wait for the event (a stream, a continuation, a store waiter); a deadline uses MainDeadline or Deadline, a "
+         "retry Backoff; a bounded, cancellable delay through an injected Clock says why on the line or directly "
+         "above: `// wakeup-allow: <deadline|backoff|bounded|...> <reason>`",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[2]), scope=("Packages/",), local_only=True),
+    Rule("source-reading-test", "A test that reads source or project files (a test file that finds the repository "
+         "through `#filePath` or a package/repo root, reads files, and names a Swift, C or project file or a Sources "
+         "folder)",
+         "it asserts the code's shape, not its behavior, and passes while the bug is live "
+         "(skills/cmux-testing/references/regression-and-quality.md)",
+         "test the behavior through the code (call the type, drive the store, run the built tool); a rule about source "
+         "text belongs in guardrails.py or a check script, not in a Swift test; a fixture tree under a temporary folder "
+         "that only names Sources says so with a justification comment",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[3]), scope=("Packages/",), local_only=True),
+    Rule("multi-type-file", "A new product Swift file with two or more top-level types (a private or fileprivate "
+         f"helper of at most {PRIVATE_TYPE_MAX} source lines does not count)",
+         "one major type per file keeps files small and findable and keeps every edit from re-reading unrelated "
+         "types (CLAUDE.md; quality audit 2026-10-29: 15.6 % of perf's new files, 9.8 % of trunk's)",
+         "put each type in its own file named after it; a small helper can be private beside its user",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[4]), scope=("Packages/",), local_only=True),
+    Rule("assume-isolated", "A new `assumeIsolated` (`MainActor.assumeIsolated` or any actor's) in product package Sources "
+         "outside CmuxNext (crash_ratchet.py holds CmuxNext's) without a justification comment",
+         "it traps at run time when the caller is off the actor, and the compiler proves nothing behind it (the carve-out "
+         "family: an escape from the isolation checker needs a written reason)",
+         "make the caller `@MainActor` (or the actor's own method) so the compiler proves it, or hop with `await`; when "
+         "the caller is provably on the actor, say why on the line or directly above: `// main-proof: <why>` "
+         "(crash_ratchet.py's escape) or any `// <tag>-allow: <reason>`",
+         JUSTIFIED_ESCAPE + " or // main-proof: <why>", quality_rule(QUALITY_KINDS[5]), scope=("Packages/",),
+         local_only=True),
+    Rule("quality-baseline", f"{QUALITY_BASELINE} gains a site",
+         "the baseline lists old debt that a push may bring back as it was; a new site would let new debt in",
+         "never add a site by hand: fix the code, and rerun `scripts/cmux-next/guardrails.py --quality-baseline "
+         "--write` only after a push that removes debt, to drop its sites; a json written after new debt is refused",
+         None, quality_baseline_raise, scope=(QUALITY_BASELINE,), local_only=True),
+)
+RULES += QUALITY_RULES
+# ---------------------------------------------------------------- end of quality ratchet
 
 
 # ---------------------------------------------------------------- diff
@@ -5430,11 +5897,29 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
 # ---------------------------------------------------------------- run
 
 def check_failure(name: str, error: Exception) -> str:
-    """The warning for a rule or warning check NAME that raised: the error and where it raised."""
+    """The warning for a warning check or context reading NAME that raised: the error and where it raised."""
     frames = traceback.extract_tb(error.__traceback__)
     where = f" at {Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
     return (f"{name} failed ({type(error).__name__}: {error}{where}), so it was not applied to this push "
             "(fail open); the other rules were. Tell the Performance Lead (PL-guardrails) with this line.")
+
+
+@dataclass
+class RuleFailure(Added):
+    """A rule that raised on this push: it judged nothing, so it refuses the push (fail closed). PATH and NUMBER
+    are the file name and line where it raised; TEXT names the rule and the error. check_own() never nets one out
+    against another range."""
+
+
+def rule_failure(rule: Rule, error: Exception) -> tuple[RuleFailure, str]:
+    """(the refusal, the `guardrails` warning) for RULE that raised ERROR. The warning stays so a test or the
+    self-test sees which rule raised; the refusal is what keeps a broken rule from passing every push."""
+    frames = traceback.extract_tb(error.__traceback__)
+    path, number = (Path(frames[-1].filename).name, frames[-1].lineno) if frames else ("guardrails.py", 0)
+    text = f"rule {rule.id} failed ({type(error).__name__}: {error} at {path}:{number})"
+    return RuleFailure(path, number, text), (
+        f"{text}, so it judged nothing and refuses this push (fail closed); the other rules ran. Tell the "
+        "Performance Lead (PL-guardrails) with this line.")
 
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
@@ -5461,7 +5946,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
-             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS]
+             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS, QUALITY_BASELINE]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -5475,7 +5960,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
-                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST)]
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST),
+                     (head, QUALITY_BASELINE), (base, QUALITY_BASELINE)]
                   + [(base, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -5504,7 +5990,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if rust:
         try:
             rust_rules: str | RustScanError = rust_rule_texts(texts, base)
-        except RustScanError as error:  # the Rust rules fail open with it (rust_rule)
+        except RustScanError as error:  # the Rust rules raise it (rust_rule), so they refuse
             rust_rules = error
         for change in rust:
             change.memo["rust_rules"] = rust_rules
@@ -5528,9 +6014,17 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
     invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
+    try:
+        # Only a push that changes the json can introduce a rule's baseline: any other push reads no history.
+        quality_baseline = (texts.get((base, QUALITY_BASELINE)),
+                            quality_origins(repo, base, head) if QUALITY_BASELINE in set(names.split("\n")) else {})
+    except Exception as error:  # fail closed for the quality rules only: no baseline, so old lines count as new
+        quality_baseline = (None, {})
+        warnings.append(("guardrails", check_failure("quality baseline", error)))
     for change in files:
         change.memo["wakeup"] = wakeup
         change.memo[INVARIANT_ALLOW_MEMO] = invariant_allow
+        change.memo[QUALITY_MEMO] = quality_baseline
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     try:
         load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
@@ -5546,8 +6040,10 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         scoped = [f for f in files + context_files if in_rule_scope(f.path, rule.scope)]
         try:
             hits = rule.find(scoped, moved)
-        except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
-            warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
+        except Exception as error:  # fail closed: a rule that raised judged nothing, so it refuses; the rest still run
+            failure, warning = rule_failure(rule, error)
+            warnings.append(("guardrails", warning))
+            found.append((rule, [failure]))
             continue
         hits = [Attributed(h.path, h.number, h.text, causes[h.path]) if h.path in causes and type(h) is Added else h
                 for h in hits]
@@ -5603,7 +6099,6 @@ def check_own(repo: Path, base: str, head: str, before=()):
     found, warnings = results[0]
     others = []
     for theirs, other_warnings in results[1:]:
-        # A rule that failed on one range is off for this push even when it ran on the others.
         warnings += [w for w in other_warnings if w[0] == "guardrails" and w not in warnings]
         others.append({rule.id: hits for rule, hits in theirs})
     mine = {rule.id: hits for rule, hits in found}
@@ -5611,6 +6106,13 @@ def check_own(repo: Path, base: str, head: str, before=()):
     for rule in RULES:
         hits = mine.get(rule.id, [])
         prior = [other.get(rule.id, []) for other in others]
+        # A rule that raised on any range cannot tell the push's own debt from the other side's: it refuses (fail
+        # closed), and the same failure on both sides never nets out.
+        failed = list({(h.path, h.number, h.text): h for side in (hits, *prior) for h in side
+                       if isinstance(h, RuleFailure)}.values())
+        if failed:
+            own.append((rule, failed))
+            continue
         if not rule.net:
             kept = push_range.less(hits, prior, key=lambda h: (h.path, h.text.strip()))
         else:
@@ -5676,7 +6178,9 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     """
     lines = []
     if warnings:
-        lines.append("guardrails: warnings (never refuse):")
+        lines.append("guardrails: warnings (these never refuse; a rule that failed refuses below):"
+                     if any(isinstance(h, RuleFailure) for _, hits in refusals for h in hits)
+                     else "guardrails: warnings (never refuse):")
         lines += [f"  [{kind}] {text}" for kind, text in warnings]
     skip = os.environ.get(SKIP_ENV, "").strip()
     skip_ids, skip_error = parse_skip(skip) if skip else (set(), None)
@@ -5691,6 +6195,14 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     lines.append("guardrails: this push adds architecture debt (scripts/cmux-next/guardrails.py):")
     for rule, hits in refusals:
         lines.append(f"  [{rule.id}] {rule.title}")
+        failed = [h for h in hits if isinstance(h, RuleFailure)]
+        if failed:
+            for hit in failed:
+                lines.append(f"    {hit.text}")
+            lines.append("    the rule could not judge this push, so it refuses it (fail closed). Tell the Performance "
+                         f"Lead (PL-guardrails) with these lines; skip it once only with {SKIP_ENV}=\"{rule.id}: <why>\" "
+                         "and say so in your report.")
+            continue
         for hit in hits[:20]:
             lines.append(f"    {hit.path}:{hit.number}: {hit.text.strip()[:140]}")
             if getattr(hit, "cause", ""):
@@ -5819,14 +6331,16 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
     for own in ranges:
-        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        # Fail closed per range: a range the checker could not judge refuses (it judged nothing); the other ranges
+        # are still judged and print their own answer.
         try:
             refusals, warnings = check_own(repo, own.base, own.head, own.before)
             text, refuse = format_report(refusals, warnings)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            print(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
-                  f"{own.base[:11]}..{own.head[:11]}; not applied to that range. Tell the Performance Lead "
-                  "(PL-guardrails) with this line.", file=sys.stderr)
+            print(f"prepush-gate: guardrails.py failed ({type(error).__name__}: {error}) on "
+                  f"{own.base[:11]}..{own.head[:11]}, so it judged nothing there and refuses this push (fail "
+                  "closed). Tell the Performance Lead (PL-guardrails) with this line.", file=sys.stderr)
+            refused = True
             continue
         if text:
             print(text)
@@ -6401,8 +6915,8 @@ def edits_rust_rules(files: dict[str, str | None]) -> bool:
 def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple,
                          judge: Callable[[dict[str, str | None], str], tuple[list[Added], list[str]]]) -> list[str]:
     """The Rust rules' sources, judged with RUST_RULES_HOME swapped: a snapshot without the rules (installed before
-    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects fails open
-    with a warning instead of passing the push unjudged. The failures."""
+    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects refuses
+    the push with the rule's failure named (fail closed) instead of passing it unjudged. The failures."""
     global RUST_RULES_HOME
     failures = []
     installed = RUST_RULES_HOME
@@ -6425,9 +6939,10 @@ def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple
                 failures.append(f"{rule_id}: {name} from a snapshot without the rules")
         RUST_RULES_HOME = broken
         hits, raised = judge(refusing[1], refusing[0])
-        ok = bool(raised) and not hits
+        closed = bool(hits) and all(isinstance(h, RuleFailure) for h in hits)
+        ok = bool(raised) and closed
         print(f"  {'ok  ' if ok else 'FAIL'} {refusing[0]}, with a rule ast-grep rejects: "
-              f"{'fails open with a warning' if raised else 'refused' if hits else 'passes unjudged'}")
+              f"{'refused with its failure named' if ok else 'refused unnamed' if hits else 'passes unjudged'}")
         if not ok:
             failures.append(f"{rule_id}: {refusing[0]} with a rule ast-grep rejects")
     finally:
@@ -6469,7 +6984,7 @@ def self_test() -> int:
                     return run("rev-parse", "HEAD")
 
                 def judge(files: dict[str, str | None], message: str) -> tuple[list[Added], list[str]]:
-                    """(this rule's hits, its fail-open warnings) for one commit of FILES over the suite's base."""
+                    """(this rule's hits, the warnings that it raised) for one commit of FILES over the suite's base."""
                     run("checkout", "--quiet", "--detach", base)
                     refusals, warnings = check(repo, base, commit(files, message))
                     return ([h for rule, found in refusals if rule.id == rule_id for h in found],
@@ -6485,7 +7000,7 @@ def self_test() -> int:
                 for name, files, refused in cases:
                     total += 1
                     hits, raised = judge(files, name)
-                    # A rule that raised is skipped (fail open) and would pass every case that expects no refusal.
+                    # A rule that raised refuses (fail closed): that is no answer, even for a case that expects one.
                     ok = bool(hits) == refused and not raised
                     print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
                           + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits)
@@ -6538,7 +7053,20 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
                              "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
                              "declaration")
+    parser.add_argument("--quality-baseline", action="store_true",
+                        help=f"print the quality ratchet's counts at --head (default HEAD); with --write, write them "
+                             f"to {QUALITY_BASELINE}")
+    parser.add_argument("--write", action="store_true", help="with --quality-baseline: write the json")
     args = parser.parse_args(argv)
+    if args.quality_baseline:
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        data = quality_counts(repo, args.head)
+        for rule, count in data["counts"].items():
+            print(f"{rule}: {count} sites in {data['files'][rule]} files at {data['measured_rev'][:12]}")
+        if args.write:
+            (repo / QUALITY_BASELINE).write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            print(f"wrote {QUALITY_BASELINE}")
+        return 0
     if args.self_test:
         return self_test()
     if args.list_perf_hot is not None:

@@ -780,17 +780,16 @@ async fn agents_rules_past_one_blocks_share_wait_for_later_prompts() {
     assert!(!third.contains("cmux-rules-context"), "{third}");
 }
 
-/// `hub` on a unix socket of its own, as the daemon listens; its path.
-async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
-    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
-    let path = std::path::PathBuf::from("/tmp").join(format!(
-        "acpmux-forum-{}-{}.sock",
-        std::process::id(),
-        uuid::Uuid::now_v7().simple()
-    ));
+/// `hub` on a unix socket of its own, as the daemon listens: the socket's
+/// directory (removed when dropped) and its path. The directory is a private
+/// one under the short `/tmp` (a worker's temp dir can be too long for a
+/// socket path), because the daemon binds only in a private directory.
+async fn listen(hub: &Arc<Hub>) -> (cmux_unix_socket::TestDir, std::path::PathBuf) {
+    let dir = cmux_unix_socket::short_test_dir("amx-frm");
+    let path = dir.path().join("a.sock");
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
-    path
+    (dir, path)
 }
 
 /// The agent's `cmux-forum` MCP server posts, reads and acks as its session,
@@ -801,7 +800,7 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     let hub = hub();
     let mut app = Client::person(&hub).await;
     let id = app.new_session().await;
-    let socket = listen(&hub).await;
+    let (_socket_dir, socket) = listen(&hub).await;
     let scratch = std::env::temp_dir().join(format!("amx-forum-{}", std::process::id()));
     let mut mcp = daemon_env::tokio_command(&scratch, daemon_env::Agents::Deny)
         .arg("forum-mcp")
@@ -861,5 +860,4 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     assert_eq!(acked["isError"], false, "{acked}");
     let rule = app.rule("merges").await.unwrap();
     assert_eq!(rule["acks"][0]["sessionId"], id.as_str(), "{rule}");
-    let _ = std::fs::remove_file(&socket);
 }

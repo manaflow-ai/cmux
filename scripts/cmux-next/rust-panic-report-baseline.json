@@ -218,12 +218,6 @@
    "await_holding_invalid_type": 0,
    "invariant_allows": 0
   },
-  "cmux-lock-rank": {
-   "undocumented_unsafe_blocks": 0,
-   "large_futures": 0,
-   "await_holding_invalid_type": 0,
-   "invariant_allows": 0
-  },
   "cmux-memory": {
    "undocumented_unsafe_blocks": 0,
    "large_futures": 0,

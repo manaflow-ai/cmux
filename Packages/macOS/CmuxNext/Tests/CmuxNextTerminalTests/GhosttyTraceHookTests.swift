@@ -480,7 +480,10 @@ struct GhosttyTraceHookTests {
         let rig = Rig(trace: trace, probe: TypingLatencyProbe(path: nil, trace: trace))
         rig.hook.refreshDemand()
         var seq: UInt64 = 0
-        func allocations(_ frame: (UInt64) -> Void) -> Int? {
+        // `@MainActor`: the probe's body closure takes this test's main-actor isolation, and a Release build refuses to
+        // merge a plain (task-isolated) closure parameter into it (SendingRisksDataRace). The frames run on the main
+        // actor, as the test does, so the parameter says so and is Sendable.
+        func allocations(_ frame: @MainActor (UInt64) -> Void) -> Int? {
             MallocProbe.allocations {
                 for _ in 0..<1_000 {
                     seq += 1

@@ -86,6 +86,9 @@ public final class DeviceHubService {
         settingsModel.thisDeviceRenamed = { [weak pages] name in pages?.store.setHubDeviceName(name) }
     }
 
+    /// ``start(settings:)`` ran.
+    public var isStarted: Bool { watch != nil }
+
     /// What the hub is made for: its address and the signed-in account.
     private struct Target: Equatable {
         var url: URL?

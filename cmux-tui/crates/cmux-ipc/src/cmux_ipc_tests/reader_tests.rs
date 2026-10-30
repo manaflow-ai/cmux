@@ -119,6 +119,38 @@ fn frame_payloads_share_the_read_buffer() {
 }
 
 #[test]
+fn frame_payloads_are_zeroed_when_their_last_handle_drops() {
+    let wiped = || crate::reader::WIPED_BYTES.with(std::cell::Cell::get);
+    let secret = br#"{"cmd":"send","text":"hunter2"}"#;
+    let request = Frame::new(
+        FrameKind::Request,
+        0,
+        Aux::Call(crate::CallAux {
+            request_id: 1,
+            method_id: 0x0101,
+            priority: crate::PriorityHint::Control,
+            flags: crate::CallFlags::empty(),
+        }),
+        Bytes::from_static(secret),
+    )
+    .unwrap();
+    let mut bytes = encode_all(&[request]);
+    // A line behind the frame keeps the read buffer's allocation shared.
+    bytes.extend_from_slice(b"{\"cmd\":\"ping\"}\n");
+    let mut reader = framed_reader();
+    reader.push(&bytes);
+    let Some(Message::Frame(frame)) = reader.next_message().unwrap() else { panic!("frame") };
+    let before = wiped();
+    let copy = frame.payload().clone();
+    drop(frame);
+    assert_eq!(wiped(), before, "a clone still shares the payload");
+    assert_eq!(copy.as_ref(), secret);
+    drop(copy);
+    assert_eq!(wiped(), before + secret.len(), "the last drop zeroes the payload");
+    assert_eq!(drain(&mut reader), Ok(vec![Got::Line("{\"cmd\":\"ping\"}".into())]));
+}
+
+#[test]
 fn json_lines_pass_through_verbatim() {
     let mut reader = FrameReader::new(ReaderLimits::default());
     reader.push(b"{\"a\":1}\r\n  \n\n{\"b\":2}");

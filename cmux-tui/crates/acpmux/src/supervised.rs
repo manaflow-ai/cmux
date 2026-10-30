@@ -279,6 +279,25 @@ where
     });
 }
 
+/// Debug builds only: starts the thread `thread`, which panics with `message`
+/// outside any supervisor, so a test reads the panic log line of an
+/// unsupervised panic (tests/panic_log.rs for the daemon,
+/// tests/agent_host_panic_log.rs for an agent host). Each process's setup
+/// calls it once its panic log is installed and its test variable says
+/// `thread`.
+#[cfg(debug_assertions)]
+#[allow(
+    clippy::panic,
+    reason = "debug-build test trigger for a process's panic log; release builds have no seam"
+)]
+pub(crate) fn spawn_test_panic(thread: &'static str, message: &'static str) {
+    // supervise-allow: debug-only trigger whose unsupervised panic line is what the panic log tests check.
+    let _ = cmux_threads::spawn(thread, cmux_threads::ThreadQos::Utility, move || {
+        // crash-allow: debug-only test trigger for a process's panic log
+        panic!("{message}")
+    });
+}
+
 #[cfg(test)]
 #[path = "supervised_tests.rs"]
 pub(crate) mod tests;

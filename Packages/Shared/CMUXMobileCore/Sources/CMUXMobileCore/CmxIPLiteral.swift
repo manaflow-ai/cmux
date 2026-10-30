@@ -23,7 +23,12 @@ struct CmxIPLiteral: Equatable, Sendable {
     /// IPv4, standard IPv6 text (never `127.1`, a hex quad or a `%scope`
     /// suffix); nil for anything else.
     init?(_ text: String, family: Family) {
-        var parsed = [UInt8](repeating: 0, count: family.byteCount)
+        // Darwin's inet_pton accepts a `%zone` suffix and writes the interface
+        // index into a link-local address's bytes (`fe80::1%en0` becomes
+        // fe80:7::1); glibc's refuses it. Refuse it here so the parse is the same
+        // strict one on both. A caller that takes a scoped literal strips the zone first.
+        guard !text.utf8.contains(UInt8(ascii: "%")) else { return nil }
+        var parsed = family.zeroBytes
         // SAFETY: inet_pton writes sizeof(struct in_addr) (4) bytes for AF_INET and
         // sizeof(struct in6_addr) (16) for AF_INET6, exactly parsed.count. It reads
         // the NUL-terminated copy of `text` Swift passes, which lives for this call.
@@ -51,7 +56,7 @@ struct CmxIPLiteral: Equatable, Sendable {
     var canonicalText: String? {
         var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
         // SAFETY: inet_ntop reads 4 (AF_INET) or 16 (AF_INET6) bytes from `bytes`;
-        // both initializers store exactly family.byteCount bytes. It writes at most
+        // both initializers store exactly that many (family.zeroBytes.count). It writes at most
         // buffer.count bytes, the size passed, NUL included. Both arrays outlive the call.
         guard unsafe inet_ntop(family.addressFamily, bytes, &buffer, socklen_t(clamping: buffer.count)) != nil else {
             return nil
@@ -61,10 +66,11 @@ struct CmxIPLiteral: Equatable, Sendable {
 }
 
 private extension CmxIPLiteral.Family {
-    var byteCount: Int {
+    /// An all-zero address of the family: 4 bytes for IPv4, 16 for IPv6.
+    var zeroBytes: [UInt8] {
         switch self {
-        case .ipv4: 4
-        case .ipv6: 16
+        case .ipv4: [UInt8](repeating: 0, count: 4)
+        case .ipv6: [UInt8](repeating: 0, count: 16)
         }
     }
 

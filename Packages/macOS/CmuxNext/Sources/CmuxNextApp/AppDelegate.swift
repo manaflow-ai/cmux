@@ -151,7 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = registerSettings(services: services, launch: settingsRead)
         // The platform services: what the first frame or the restore reads now, the rest posted.
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
-        services.followEnergySaver(settings)
+        LaunchStart.energySaver.runNow(on: order.startup) { services.followEnergySaver(settings) }
         registerSavedPicture(services: services, settings: settings)
         registerHomeFeeds(services: services, settings: settings)
         order.startup.post(.afterFirstFrame, "ConfigActions.start", on: .main) { [weak services, weak settings] in
@@ -167,7 +167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The look of the first frame: the loaded theme, background and backdrop art, then each workspace's theme and the app accent.
         order.startup.post(.critical, "TerminalTheme.follow", on: .main) { services.terminalTheme.follow(settings) }
         order.startup.post(.critical, "Themes.start", on: .main) { services.themes.start(); services.themes.followChromeTheme(settings) }
-        services.bookmarks.follow(settings)
+        LaunchStart.bookmarksBar.runNow(on: order.startup) { services.bookmarks.follow(settings) }
         registerControl(services: services, settings: settings)
         DebugTimings.markLaunch("dfl.settings")
         MainMenu.install(registry: services.registry, blocking: services.blocking, decidedKey: services.decidedKey, on: order.startup)  // critical `MainMenu.make`
@@ -176,9 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
         registerFirstWindowHooks(services: services)
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
-        services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        LaunchStart.browserProfiles.runNow(on: order.startup) { services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore) }
         DebugTimings.markLaunch("dfl.first_window_hooks")
-        services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
+        LaunchStart.homeWorkspace.runNow(on: order.startup) { services.home.startWorkspace() }  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
         order.startup.post(.afterFirstFrame, "MouseSideButtons.start", on: .main) { [weak self, weak services] in
             self?.mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         }
@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         // The runtime pack check wires the engine reason at once; its download waits until asked.
-        services.startChromiumRuntime()
+        LaunchStart.chromiumRuntime.runNow(on: order.startup) { services.startChromiumRuntime() }
         services.postLaterTabWarmups(on: order.startup)
         registerExternalOpen(services: services)
         // The registered launch work ends the implicit ref. The first window is made in this turn, or

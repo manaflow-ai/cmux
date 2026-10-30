@@ -59,8 +59,8 @@ final class LineTransport: Sendable {
     /// (LineTransport+Route.swift).
     let state = Mutex(State())
     private let socket: Mutex<Socket>
-    /// Nonblocking, ordered writes (never parks the calling actor's thread).
-    private let writer: SocketWriter
+    /// Nonblocking, ordered writes (never parks the calling actor's thread); frames go out by ``sendFrame(_:priority:)``.
+    let writer: SocketWriter
     let path: String
 
     /// The bridge child of this connection (``DaemonBridge``), killed and
@@ -92,9 +92,10 @@ final class LineTransport: Sendable {
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line the reader handles and each writer drain step; nil: none. `writerTarget`: see `open`.
     /// - Parameter clock: What reply deadlines are measured and slept on; tests pass a `ManualClock`.
+    /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
     init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
          hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared,
-         clock: any Clock<Duration> = ContinuousClock()) throws(DaemonError) {
+         clock: any Clock<Duration> = ContinuousClock(), writerLimit: Int = FrameWriter.defaultLimit) throws(DaemonError) {
         self.path = path
         self.role = role
         self.trace = trace
@@ -116,7 +117,8 @@ final class LineTransport: Sendable {
         }
         Self.sizeBuffers(fd)
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget,
+                              limit: writerLimit, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
@@ -186,8 +188,8 @@ final class LineTransport: Sendable {
     /// late reply is dropped when it comes (architecture.md 5a). Its
     /// `daemon.request` slice ends when the slot resolves (LineTransport+RequestTrace.swift).
     /// With `framed`, a typed v12 command goes as a REQUEST frame once the connection holds `ipc-frames-v2`
-    /// (``FramedRequests``).
-    func request(cmd: DaemonCommandName, timeout: Duration?, framed: Bool = false,
+    /// (``FramedRequests``); `opening` names the stream a framed opener opens (``submit(_:deadline:framed:opening:_:)``).
+    func request(cmd: DaemonCommandName, timeout: Duration?, framed: Bool = false, opening: AttachStreamHandle? = nil,
                  _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -195,7 +197,8 @@ final class LineTransport: Sendable {
         let armed = NewTerminalTrace.shared.isArmed
         var traced: String?
         #endif
-        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed) { id in
+        submit(.reply(cmd: cmd.wire, slot), deadline: timeout.map { self.deadline(after: $0) }, framed: framed,
+               opening: opening) { id in
             let line = try body(id)
             #if DEBUG || CMUX_BENCH_HOOKS
             if armed { traced = NewTerminalTrace.shared.requestSent(line) }
@@ -242,11 +245,13 @@ final class LineTransport: Sendable {
     /// registration the waiter is resumed here; after it, `failAll` owns it. A `deadline` applies
     /// only to a waiter that awaits its reply.
     /// With `framed`, the request goes as a REQUEST frame when the connection frames its method
-    /// (``FramedRequests``), else as a line.
+    /// (``FramedRequests``), else as a line. A framed stream opener (`attach-surface`) names `opening`'s stream in
+    /// its header, which announces the stream to the daemon; the stream is marked announced before the frame is
+    /// written, so its INPUT frames may follow (``announcedAttachStream(_:)``). Sent as a line, it announces nothing.
     /// Returns the request id once the waiter is registered.
     @discardableResult
     func submit(_ waiter: Waiter, deadline: DeadlineHeap.Deadline? = nil, framed: Bool = false,
-                _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+                opening: AttachStreamHandle? = nil, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -273,9 +278,10 @@ final class LineTransport: Sendable {
                 }
             }
             submittedID = id
-            let message = Self.message(payload, id: id, cmd: waiter.cmd, framing: framing)
-            writeFailure = socket.fd >= 0 ? writer.write(message)?.description : "socket closed"
-            if writeFailure == nil { recorder?.lineWritten(bytes: message.count) }
+            let message = Self.message(payload, id: id, cmd: waiter.cmd, framing: framing, stream: opening?.id ?? 0)
+            if message.framed, let opening { state.withLock { $0.attachStreams.announce(opening) } }
+            writeFailure = socket.fd >= 0 ? writer.write(message.bytes)?.description : "socket closed"
+            if writeFailure == nil { recorder?.lineWritten(bytes: message.bytes.count) }
             return nil
         }
         if let early {
@@ -291,7 +297,18 @@ final class LineTransport: Sendable {
 
     /// Closes the socket; pending requests fail with `.connectionClosed`.
     func close() {
-        failAll(.closedByClient)
+        end(.closedByClient)
+    }
+
+    /// Ends the connection because a write it could not take would leave a gap in what follows (a refused INPUT
+    /// frame): pending requests fail, and the socket shuts down, so the reader ends every stream on it
+    /// (`lost(detail)`) and the owner reconnects.
+    func fail(_ detail: String) {
+        end(.lost(detail))
+    }
+
+    private func end(_ reason: TransportCloseReason) {
+        failAll(reason)
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }

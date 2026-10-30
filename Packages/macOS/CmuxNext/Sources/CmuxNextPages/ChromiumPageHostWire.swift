@@ -125,6 +125,11 @@ nonisolated struct ChromiumPageHostWire {
         return "globalThis.\(ChromiumPageHostBridge.resolveName)?.(\(seq), \(replyJSON(reply)), \(jsonString(document)));"
     }
 
+    /// The host's failure envelope, `{ok: false, error: {code, userMessage}}`, as JSON.
+    static func failureJSON(code: String, message: String) -> String {
+        #"{"ok":false,"error":{"code":"# + jsonString(code) + #","userMessage":"# + jsonString(message) + "}}"
+    }
+
     /// The reply as a page push (``ChromiumPageHostBridge/pushReceiverScript``):
     /// `{"r":seq,"d":doc,"v":reply}`, with the reply's JSON as ``resolveExpression(seq:reply:document:)``
     /// writes it. `doc` is the token of the document that sent the call; any other document's
@@ -139,7 +144,7 @@ nonisolated struct ChromiumPageHostWire {
         // `JSONSerialization` raises an Objective-C exception (it does not throw) for a value
         // that is not JSON, such as a `Date`: check first, wrapped in an array so a bare string
         // or number counts too.
-        let invalid = #"{"ok":false,"error":{"code":"native.invalid_reply","userMessage":"Invalid reply"}}"#
+        let invalid = failureJSON(code: "native.invalid_reply", message: "Invalid reply")
         guard JSONSerialization.isValidJSONObject([reply]) else { return invalid }
         return (try? JSONSerialization.data(withJSONObject: reply, options: [.fragmentsAllowed]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? invalid

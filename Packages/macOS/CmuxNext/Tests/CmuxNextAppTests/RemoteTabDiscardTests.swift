@@ -277,16 +277,16 @@ import Testing
 
     // MARK: A machine's browser
 
-    /// The not-ready page of a machine's tab is never discarded (a wake would start the machine's
-    /// browser for a tab nobody showed or retried); a woken streamed page's last frame stays over
-    /// it while the machine's browser starts, and the streamed page takes it over.
+    /// A woken streamed page's last frame stays over the machine's not-ready page while the machine's browser
+    /// starts, and the streamed page takes it over; a page that says why the browser is not there shows that.
     @Test func aMachinesNotReadyPageHandsTheLastFrameToItsStream() throws {
         let page = Self.machinePage()
-        #expect(!(page is any BrowserHibernationSource), "a machine's not-ready page can be discarded")
+        #expect(page.drawsInFirstFrame, "a not-ready page waits for a picture to cover its message")
         let picture = try #require(Self.picture())
         #expect(!page.showStandIn(picture, decoded: true, cap: BrowserWakeCover.reconnectCap, clock: ManualClock()),
                 "a page that says why the browser is not there showed an old frame")
         page.phase = .starting("m1")
+        #expect(!page.drawsInFirstFrame, "a starting page's wake shows no last frame")
         #expect(page.showStandIn(picture, decoded: true, cap: BrowserWakeCover.reconnectCap, clock: ManualClock()))
 
         let stream = try RemoteStream()
@@ -294,6 +294,106 @@ import Testing
         page.handOverWakeCover(to: stream.tab)
         #expect(!page.showsWakeCover)
         #expect(stream.tab.wakeCoverPixels != nil, "the streamed page did not take the last frame over")
+    }
+
+    /// A machine's not-ready page hidden past its discard rule was held until its tab closed: it was no
+    /// `BrowserHibernationSource`, so the planner could never release it. Now it goes through the same
+    /// cmux page discard as History or Bookmarks (`memoryDiscardPageTabs`): it hibernates to its record
+    /// with the address the person typed, and a show builds the not-ready page again from that record.
+    @Test func aHiddenMachineTabPastItsDiscardRuleIsReleasedAndWakesWithItsAddress() async throws {
+        let rig = PageBrowserTabDiscardTests.Rig(path: .pressure)
+        defer { rig.close() }
+        let typed = try #require(URL(string: "https://example.com/typed"))
+        let record = MachineBrowserRecord(machine: "m1", initialURL: try #require(URL(string: "https://example.com/")))
+        let key: String
+        weak var oldPage: MachineBrowserPageTab?
+        do {
+            let (opened, page) = try rig.open(record.url)
+            key = opened
+            let machinePage = try #require(page as? MachineBrowserPageTab, "the record made no machine page")
+            machinePage.load(typed)
+            oldPage = machinePage
+        }
+        rig.hide(key)
+        try await rig.until("the hidden machine tab was released") { rig.isHibernated(key) }
+        let asleep = try #require(rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)
+        #expect(asleep.restoreState == .appPage(BrowserAppPageState(url: MachineBrowserRecord(machine: "m1", initialURL: typed).url)),
+                "the released tab forgot the address the person typed")
+        await rig.nextRunLoopTurn()
+        #expect(oldPage == nil, "the machine page outlived its release")
+
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the machine tab woke") { !rig.isHibernated(key) }
+        let woken = try #require(rig.services.cache.browsers[key]?.tab as? MachineBrowserPageTab, "the wake made no machine page")
+        #expect(woken.queuedURL == typed, "the woken page lost the typed address")
+        #expect(woken.record.machine == "m1")
+    }
+
+    /// A session-local tab (no daemon record: a remote workspace whose cmux-tui serves no browser tabs) opened on a
+    /// machine holds a machine page with no tab model. Released while hidden, it must wake as `browser(for:url:)` builds
+    /// such a page, not stay a placeholder whose every show fails.
+    @Test func aReleasedSessionLocalMachineTabWakes() async throws {
+        let rig = PageBrowserTabDiscardTests.Rig(path: .pressure)
+        defer { rig.close() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-wake-\(UUID().uuidString.prefix(8))")
+        rig.services.machines.add(CloudMoveTests.machine(rig.services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root))
+        let typed = try #require(URL(string: "https://example.com/typed"))
+        let record = MachineBrowserRecord(machine: "vm-move", initialURL: typed)
+        let key = "session-local-\(UUID().uuidString.prefix(8))"
+        let page = try #require(MachineBrowserPages(cache: rig.services.cache).page(key: key, url: record.url, profile: .default),
+                                "no machine page for a registered machine")
+        #expect(rig.services.cache.tabModel(key) == nil, "the tab has a record")
+        rig.services.cache.install(page, for: key)
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        rig.hide(key)
+        try await rig.until("the hidden session-local machine tab was released") { rig.isHibernated(key) }
+
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the session-local machine tab woke") { !rig.isHibernated(key) }
+        let woken = try #require(rig.services.cache.browsers[key]?.tab as? MachineBrowserPageTab, "the wake made no machine page")
+        #expect(woken.queuedURL == typed)
+    }
+
+    /// An incognito tab with no daemon record woke in the profile the cache looks up for its key, which falls back to
+    /// the default profile when no incognito workspace owns the key: the private tab's page then ran in the normal
+    /// profile (history, cookies). A released tab wakes in its own profile; when that off-the-record profile has
+    /// ended, it does not wake in another one.
+    @Test func aReleasedIncognitoTabWakesOnlyInItsOwnProfile() async throws {
+        let rig = PageBrowserTabDiscardTests.Rig(path: .pressure)
+        defer { rig.close() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-incognito-\(UUID().uuidString.prefix(8))")
+        rig.services.machines.add(CloudMoveTests.machine(rig.services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root))
+        let offTheRecord = rig.services.browserStores.offTheRecord
+        let record = MachineBrowserRecord(machine: "vm-move", initialURL: URL(string: "https://example.com/private"))
+
+        func releasedTab(_ profile: BrowserProfileID) async throws -> String {
+            let key = "incognito-\(UUID().uuidString.prefix(8))"
+            let page = try #require(MachineBrowserPages(cache: rig.services.cache).page(key: key, url: record.url, profile: profile))
+            #expect(page.profileID == profile)
+            #expect(rig.services.cache.browserProfile?(key) == .default, "the lookup no longer falls back to the default profile")
+            rig.services.cache.install(page, for: key)
+            rig.services.cache.present(key, by: rig.pane, presence: .visible)
+            rig.hide(key)
+            try await rig.until("the hidden incognito tab was released") { rig.isHibernated(key) }
+            return key
+        }
+
+        let live = offTheRecord.begin()
+        let key = try await releasedTab(live)
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the incognito tab woke") { !rig.isHibernated(key) }
+        let woken = try #require(rig.services.cache.browsers[key]?.tab, "the wake made no page")
+        #expect(woken.profileID == live, "the incognito tab woke in profile \(woken.profileID), not its own")
+
+        let ended = offTheRecord.begin()
+        let gone = try await releasedTab(ended)
+        offTheRecord.end(ended)
+        rig.services.cache.present(gone, by: rig.pane, presence: .visible)
+        await rig.nextRunLoopTurn()
+        await rig.nextRunLoopTurn()
+        let after = try #require(rig.services.cache.browsers[gone]?.tab)
+        #expect(after is HibernatedBrowserTab || after.profileID == ended,
+                "a tab whose incognito session ended woke in profile \(after.profileID)")
     }
 
     @Test func aMachinesBrowserThatFailsToStartDropsTheLastFrame() throws {

@@ -67,7 +67,7 @@ import Testing
             let work = BackgroundWork(label: "test.chromium-host-supervisor")
             let mainWork = MainWorkScheduler(budget: MainFrameBudget())
             let plan = ChromiumHostSupervisorTests.plan(script, logFile: logFile)
-            supervisor = ChromiumHostSupervisor(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork, fencesResizes: false) {
+            supervisor = ChromiumHostSupervisor(spawner: ChromiumHostLaneSpawner(work: work, mainWork: mainWork) {
                 planOnMain.withLock { $0.append(Thread.isMainThread) }
                 return plan
             })
@@ -88,7 +88,7 @@ import Testing
         #expect(table.sites.filter { $0.kind == .processSpawn }.isEmpty, "posix_spawn ran on the main thread: \(table.sites)")
         #expect(rig.planOnMain.withLock { $0 } == [false])
         #expect(attachment.frameworkLocales == ["en.lproj"])
-        #expect(attachment.inputRingFD == -1 && attachment.resizeFence == nil)
+        #expect(attachment.inputRingFD == -1)
         // The handed-out descriptor is the host's fd 3: a byte written comes back.
         var timeout = timeval(tv_sec: 5, tv_usec: 0)
         // SAFETY: setsockopt reads the one timeval `timeout` holds, the length given, during the call.

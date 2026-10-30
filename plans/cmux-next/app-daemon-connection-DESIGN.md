@@ -46,40 +46,6 @@ Code read at feat-cmux-next fbbf611f7b4. `app:` = `Packages/macOS/CmuxNext/Sourc
 Targets (perf-lead): attach handshakes per split 0; output bytes copied app-side 0 for local terminals; key
 echo and output frame latency no worse, better at STRESS; every daemon op < 2 ms p95.
 
-### 2.1 Connections that stay
-
-Chrome keeps one IPC channel per child process (`content/browser/renderer_host/render_process_host_impl.cc`
-`InitializeChannelProxy`) and accepts other channels only when they go to another process or are short-lived
-and bounded. cmux does the same. `scripts/cmux-next/ipc-census.py` queue Q4 counts every app socket to a
-daemon; `plans/cmux-next/ipc-targets.json` allowlists the sites below, with one reason each.
-`ipc-census.py --check` fails on an allowlist entry that matches no site, so an entry goes away with its
-site. Done check IPC-1: 0 Q4 sites outside the allowlist.
-
-| Site (`app:`) | Kind | Why it stays |
-|---|---|---|
-| `DaemonService.start` (`CmuxNextDaemonService/DaemonService.swift`) | control | The one connection per daemon (local and each machine). |
-| `DaemonConnection.connectOnce`, `LineTransport.init` bridge open | control | The control connection's own transport and bridge child; the census counts each at its constructor already. |
-| `DaemonPrestart.init` | control | The control connection's first attempt, begun at the top of `main`. `DaemonService` adopts it or closes it. |
-| `DaemonConnection.shutdownDaemon` (end terminals) | transient | Runs after the control connection closed (a reconnect would start a new daemon) and waits for every host, longer than the control deadline. |
-| `SessionEnding.closeEveryWorkspace` | transient | Quit's End Everything, after the control connection closed; closed before `shutdown-daemon`. |
-| `DaemonSocketMemory.acceptsConnections` | transient | The launch probe of the remembered socket: connects and closes, sends no request. |
-| `ChiefConversationOwner.start` | other daemon | The Chief owner is another daemon (its own session and socket); this is its one control connection. |
-| `DaemonCompatBackend.connect` (`CmuxNextMobile/Compat`) | mobile | The mobile host's own connection while a phone is attached, so phone traffic never waits behind the Mac's tree mirror. |
-| `UnixSocketLane.connect` (`CmuxNextMobile/DaemonLane`) | phone lane | Splices a paired phone's lane to the daemon under `DaemonLanePolicy`; the daemon sees the phone as its own client. |
-| `SessionTransferService.answers` | not a daemon | Probes the source build's acpmux socket; closes at once. |
-
-Sites that move onto the control or page-relay connection, so they are not allowlisted:
-`TerminalAttachment.attach` (p05-ipc-095), `SessionJournalRead.read` (100), `LoopbackForwardClient.connect`
-(101), `AgentSessionAttachClient.connect` (102), `PageRelayChannel` (104), `AgentPaneGitLink.open` (105),
-`ChiefProfilePageRelay` (108). Its task removes each one from Q4.
-
-The rows for `DaemonConnection.connectOnce`, the bridge open, `DaemonConnection.shutdownDaemon`,
-`SessionEnding.closeEveryWorkspace` and `SessionTransferService.answers` have no allowlist entry now: those
-sites open through the shared `LineTransport.open` (`DaemonBridge.swift`) and `UnixSocketAddress.connect`,
-and the census counts the socket at that shared helper, not at each caller. An entry keyed to one caller
-would match no site, and an entry on the helper would also hide `TerminalAttachment` and
-`LoopbackForwardClient`. They get their entries back when Q4 counts each caller of those helpers.
-
 ## 3. Wire
 
 Three additive capabilities, each advertised by the daemon in `identify` and by the client in its

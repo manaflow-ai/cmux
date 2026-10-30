@@ -1386,6 +1386,18 @@ CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, cons
 // Returns 1 when the fork took the vote, 0 when the fork lacks the call,
 // for a level out of range, or once quit began (nothing changes).
 CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
+// Evicts every back-forward cache entry of browser_id's tab (fork
+// cmux_flush_back_forward_cache, p07-memory-101): the tab's
+// NavigationController's BackForwardCache::Flush
+// (content/public/browser/back_forward_cache.h). cmux calls it for a hidden
+// tab when the tab freezes and when memory pressure reaches warning, as
+// Chrome turns the cache off on low memory (BackForwardCacheMemoryControls);
+// the evicted pages' renderers and documents go, and a later Back loads the
+// page again. The tab's own page stays. In host library mode the call is one
+// post to the Chromium Host. UI thread, after cmux_shim_initialize. Returns 1
+// when the fork flushed, 0 for an unknown browser, a fork without the call,
+// or once quit began.
+CMUX_SHIM_EXPORT int cmux_shim_tab_flush_back_forward_cache(int browser_id);
 // 1: page cursors come to the host as CMUX_SHIM_CURSOR and tooltips as
 // CMUX_SHIM_TOOLTIP, and Chromium sets no NSCursor and shows no tooltip of
 // its own (the Chromium Host, whose page windows never show: the page view in

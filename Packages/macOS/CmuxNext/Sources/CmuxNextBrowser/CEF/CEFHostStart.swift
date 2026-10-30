@@ -33,8 +33,6 @@ final class CEFHostStart {
     /// passed a ring; nil otherwise and after the host ended. The remote shim's input acks reach it.
     private(set) var inputRoute: ChromiumHostInputRoute?
     #endif
-    /// Page resizes hold their window's commit on a fence (feature `chromiumHostResizeFence`).
-    let fencesResizes: Bool
     /// `<select>` popups show as cmux menus (feature `chromiumHostPopupMenus`, `CEFRuntime.showHostPopupMenus(_:)`).
     let drawsPopupMenus: Bool
     /// The host's `<select>` popups in cmux menus, from the start on when ``drawsPopupMenus``; nil otherwise.
@@ -55,7 +53,7 @@ final class CEFHostStart {
     /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
     let files: ChromiumHostFiles?
     /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
-    var pageResizes: ChromiumHostResizeFence?
+    var pageResizes: ChromiumHostPageResizes?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
@@ -100,7 +98,7 @@ final class CEFHostStart {
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
     init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, routesInput: Bool = false, takesDrags: Bool = false,
-         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil,
+         drawsPopupMenus: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil,
          open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
@@ -108,7 +106,6 @@ final class CEFHostStart {
         self.showsWidgets = showsWidgets
         self.routesInput = routesInput
         self.takesDrags = takesDrags
-        self.fencesResizes = fencesResizes
         self.drawsPopupMenus = drawsPopupMenus
         self.open = open
         self.helloDeadline = helloDeadline
@@ -132,9 +129,9 @@ final class CEFHostStart {
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let startsAttach = self.task == nil
-        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, fencesResizes, routesInput] in
+        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, routesInput] in
             await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock,
-                                      fencesResizes: fencesResizes, routesInput: routesInput)
+                                      routesInput: routesInput)
         }
         self.task = task
         let outcome = await task.value
@@ -234,7 +231,7 @@ final class CEFHostStart {
 
     private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, replies: CEFHostReplies,
                                helloDeadline: Duration, clock: any Clock<Duration>,
-                               fencesResizes: Bool, routesInput: Bool) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+                               routesInput: Bool) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let elapsed = ContinuousClock()
         let started = elapsed.now
         let attachment: ChromiumHostAttachment
@@ -256,12 +253,6 @@ final class CEFHostStart {
         }
         // From the hello on, the host's end is a crash of its pages (ChromiumHostExitReporting).
         (supervisor as? any ChromiumHostExitReporting)?.hostSaidHello()
-        // The host checked its fence inbox in before its hello; the look-up is off the main thread.
-        if fencesResizes, let name = attachment.resizeFence {
-            let channel = ChromiumHostResizeFenceChannel(name: name)
-            let port = await channel.lookUp()
-            channel.hand(port, to: remote)
-        }
         do {
             // SAFETY: `remote.symbol` is dlsym on the remote dylib, never closed, whose ABI identity `make` checked.
             let shim = try unsafe CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)

@@ -44,7 +44,7 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
 import new_surfaces_report as report  # noqa: E402
 
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -69,6 +69,11 @@ parser.add_argument("--build-config", choices=["bench", "bench-checks", "release
                     help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
 parser.add_argument("--close-window-ms", type=float, default=600,
                     help="how long the Cmd-W leg records frames after the frame that shows the close (its motion)")
+parser.add_argument("--activate", action="store_true",
+                    help="launch as an isolated launch that may activate (bench_launch ISOLATED_LAUNCH_KEY, no "
+                         "CMUX_NEXT_NO_ACTIVATE) and make the app active with a key window before measuring, as a person's "
+                         "app is; for focus timings (where the keys land in a key window). Off by default: a bench that "
+                         "must not take the host's focus keeps the no-activate launch")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -215,8 +220,13 @@ def ensure_terminal():
     """A shown terminal workspace: `newTab` from a script makes one terminal; focus: true shows it."""
     if (focused() or {}).get("kind") == "terminal":
         return True
-    reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
-    print("newTab:", json.dumps(reply)[:300], flush=True)
+    if opts.activate:
+        # An active app: a script's newTab does not take a text input the person has (the New Tab page's field, an
+        # address bar; cp/fix-chief-composer-focus), so the set-up presses the person's New Terminal Tab key.
+        reply = rpc("debug.key", {"key": "`", "modifiers": ["control"]})
+    else:
+        reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
+    print(("Ctrl-` (debug.key):" if opts.activate else "newTab:"), json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
     time.sleep(1)  # test harness: shell prompt
     return ok
@@ -341,6 +351,9 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    if opts.activate:
+        # None removes a BASE_ENV variable (BenchApp); the isolated launch keeps LaunchIsolation without no-activate.
+        env.update({"CMUX_NEXT_NO_ACTIVATE": None, ISOLATED_LAUNCH_KEY: "1"})
     if opts.hang_stacks:
         env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
@@ -352,6 +365,13 @@ def main():
         app = launcher.process
     SOCKET = launcher.socket
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+    if opts.activate:
+        activated = launcher.activate(timeout=15)
+        focus = rpc("debug.focus") or {}
+        print("ACTIVATE " + json.dumps({"activate": activated, "app_active": focus.get("app_active"),
+                                         "key_window": focus.get("key_window")}), flush=True)
+        if not (activated.get("activated") and focus.get("app_active") is True and focus.get("key_window")):
+            raise SystemExit("instant-new-surfaces: --activate: the app is not active with a key window; nothing measured")
     time.sleep(2)  # test harness: shell prompt
     stress = None
     if opts.session == "stress":

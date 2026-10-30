@@ -52,16 +52,8 @@ fn install_panic_log(path: std::path::PathBuf) {
         is_test_panic_thread,
     );
     #[cfg(debug_assertions)]
-    #[allow(
-        clippy::panic,
-        reason = "debug-build test trigger for the agent host panic log; release builds have no seam"
-    )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
-        // supervise-allow: debug-only trigger whose unsupervised panic line is what tests/agent_host_panic_log.rs checks.
-        let _ = cmux_threads::spawn(TEST_PANIC_THREAD, cmux_threads::ThreadQos::Utility, || {
-            // crash-allow: debug-only test trigger for the agent host panic log
-            panic!("acpmux agent host test panic")
-        });
+        crate::supervised::spawn_test_panic(TEST_PANIC_THREAD, "acpmux agent host test panic");
     }
 }
 

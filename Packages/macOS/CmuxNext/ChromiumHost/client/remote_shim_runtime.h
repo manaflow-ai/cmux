@@ -140,33 +140,10 @@ typedef void (*cmux_remote_host_watch_fn)(void* ctx, int32_t event, int64_t a, i
 // is counted only on a host whose HELLO listed kHangWatchHelloName: ring input against its
 // kOpInputDispatched, control-channel input (sent with a token) against its kOpAck of the op.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch);
-// Main thread. Takes `port`, a send right to the attached host's resize fence inbox (the
-// bootstrap name cmux passed as --resize-fence, looked up off the main thread after the HELLO;
-// ChromiumHost/src/host_resize.h, task 052): 1 when kept until the host detaches, 0 (the right
-// released) with no host attached.
-CMUX_REMOTE_EXPORT int cmux_remote_shim_set_resize_fence_channel(unsigned int port);
-// What cmux_remote_shim_page_resize did.
-typedef enum {
-  CMUX_REMOTE_RESIZE_NOT_SENT = 0,  // no host attached, view token 0, or over a bound
-  CMUX_REMOTE_RESIZE_UNFENCED = 1,  // sent with no fence: no answer comes
-  CMUX_REMOTE_RESIZE_FENCED = 2,    // sent with its fence: the host answers
-} cmux_remote_page_resize_result;
-// Main thread. Sizes page view `view_token`'s page (`browser_id`: the tab it shows) to `width` x
-// `height` points with kOpPageResize, on the ordered stream. With `fence_port` (a send right of
-// this process to a -[CAContext createFencePort] port) and a fence channel, a copy of that right
-// goes to the host first, which gives the fork its own right before the page's frame change
-// (deadline `deadline_frames` display frames, at most kMaxFenceDeadlineFrames) and answers with
-// i32 1 when the fork took it: CMUX_REMOTE_RESIZE_FENCED, the answer's token in
-// cmux_remote_shim_last_reply_token. With no fence, no channel or a full inbox it goes unfenced.
-// The caller's right stays its own either way.
-CMUX_REMOTE_EXPORT int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height,
-                                                    unsigned int fence_port, unsigned int deadline_frames);
-// Sends a copy of the send right `fence` and its `seq` to the fence inbox `channel`: 1 when sent.
-typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fence, uint64_t seq);
-// Main thread. How cmux_remote_shim_page_resize sends a fence right: nullptr (the default) is the
-// Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
-// tests pass their own to drive the fenced path on Linux.
-CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
+// Main thread. Sizes page view `view_token`'s page to `width` x `height` points with
+// kOpPageResize (ChromiumHost/src/host_resize.h), on the ordered stream: 1 when sent, 0 with no
+// host attached or view token 0.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_page_resize(uint64_t view_token, int width, int height);
 // Main thread. The browser host's provider link for the Chromium Host (kOpProviderLink,
 // ChromiumHost/src/host_provider_link.h): its socket (NULL or "" ends the
 // link), the relay credential derived from the daemon-minted secret, the link id cmux names the

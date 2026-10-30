@@ -42,7 +42,7 @@ public struct PageStatusDebug {
             "can_go_forward": chrome.tab.state.canGoForward ? "1" : "0",
             "unresponsive": status.unresponsiveView.isHidden ? "0" : "1",
             "gone_text": goneText,
-            "page_pid": (chrome.tab as? WebKitTab).flatMap { Self.webProcess($0.webView) }.map(String.init) ?? "",
+            "page_pid": (chrome.tab as? WebKitTab).flatMap(Self.webProcess).map(String.init) ?? "",
             "error": status.errorView.isHidden ? "" : status.errorView.debugText,
             "certificate": !status.errorView.isHidden && status.errorView.isCertificateInterstitial ? "1" : "0",
             "gone": gone ? "1" : "0",
@@ -53,12 +53,11 @@ public struct PageStatusDebug {
         ]
     }
 
-    private static func webProcess(_ webView: WKWebView) -> Int32? {
-        // crash-allow: WebKit private selector, used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let selector = NSSelectorFromString("_webProcessIdentifier")
-        // crash-allow: KVC read of the WebKit private key above, only after responds(to:) confirmed it.
-        guard webView.responds(to: selector), let pid = (webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else { return nil }
-        return pid
+    /// The tab's WebContent process, as the tab reports it (``WebKitTab/contentProcesses``, the one reader of
+    /// WebKit's `_webProcessIdentifier` in this module).
+    private static func webProcess(_ tab: WebKitTab) -> Int32? {
+        guard case let .pids(pids) = tab.contentProcesses else { return nil }
+        return pids.first
     }
 }
 #endif

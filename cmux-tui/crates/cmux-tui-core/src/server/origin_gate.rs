@@ -37,7 +37,7 @@ pub(super) fn handle_resource_line(
         Ok(envelope) => envelope,
         Err(error) => {
             let response = crate::resource_router::malformed_resource_response(message, error);
-            return writer.send_control(&response).is_ok();
+            return writer.send_reply(&response).is_ok();
         }
     };
     let (id, operation) = (envelope.id.clone(), envelope.operation);

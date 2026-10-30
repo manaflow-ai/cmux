@@ -18,7 +18,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::PoisonError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -419,13 +418,7 @@ impl TraceTargets for LiveTargets<'_> {
     #[cfg(unix)]
     fn holder(&self, op: ControlOp, admit: &mut dyn FnMut() -> bool) -> Option<HolderSent> {
         use crate::holder_runtime::HolderService;
-        let root = self
-            .mux
-            .surface_options
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .terminal_host_root
-            .clone()?;
+        let root = self.mux.terminal_host_paths().root?;
         if !HolderService::may_run(&root) {
             return None;
         }

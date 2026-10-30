@@ -9,10 +9,24 @@ use super::*;
 use crate::terminal_host_runtime::HostPanicLog;
 use cmux_threads::work::{Lane, Priority};
 
+/// The terminal-host record directory and the owner's panic log for its
+/// hosts' crash sidecars, from one `SurfaceOptions` snapshot.
+pub(crate) struct TerminalHostPaths {
+    /// `None` without host records.
+    pub(crate) root: Option<std::path::PathBuf>,
+    pub(crate) panic_log: Option<HostPanicLog>,
+}
+
 impl Mux {
-    /// The owner's panic log for its terminal hosts' crash sidecars.
-    pub(super) fn host_panic_log(&self) -> Option<HostPanicLog> {
-        self.surface_options.lock().unwrap_or_else(PoisonError::into_inner).host_panic_log.clone()
+    /// The one read of the host root and the panic log: both under one
+    /// `surface_options` guard, which ends before this returns, so a caller
+    /// never holds it while it ends hosts or locks the options again.
+    pub(crate) fn terminal_host_paths(&self) -> TerminalHostPaths {
+        let options = self.surface_options.lock().recover_poison();
+        TerminalHostPaths {
+            root: options.terminal_host_root.clone(),
+            panic_log: options.host_panic_log.clone(),
+        }
     }
 }
 

@@ -178,16 +178,16 @@ async fn records(c: &mut TestClient, id: &str, kind: &str) -> Vec<Value> {
     page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
 }
 
-/// `hub` on a unix socket of its own, as a sibling build's daemon listens; its path.
-async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
-    let path = std::path::PathBuf::from("/tmp")
-        .join(format!("acpmux-move-{}-{n}.sock", std::process::id()));
+/// `hub` on a unix socket of its own, as a sibling build's daemon listens: the
+/// socket's directory (removed when dropped) and its path. The directory is a
+/// private one under the short `/tmp` (a worker's temp dir can be too long
+/// for a socket path), because the daemon binds only in a private directory.
+async fn listen(hub: &Arc<Hub>) -> (cmux_unix_socket::TestDir, std::path::PathBuf) {
+    let dir = cmux_unix_socket::short_test_dir("amx-move");
+    let path = dir.path().join("a.sock");
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
-    path
+    (dir, path)
 }
 
 /// Waits until `id`'s status on `c` is `status`.
@@ -233,7 +233,7 @@ async fn a_move_whose_client_goes_away_before_the_bundle_is_read_gives_the_chat_
 async fn a_move_whose_client_goes_away_after_the_target_took_the_chat_commits_on_its_own() {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
     let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
-    let socket = listen(&b).await;
+    let (_socket_dir, socket) = listen(&b).await;
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
     let begin = src
         .request(
@@ -267,7 +267,7 @@ async fn a_move_whose_client_goes_away_before_the_target_finished_is_dropped_the
 {
     let (a, mut src) = setup(PermissionPolicy::ApproveAll).await;
     let (b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
-    let socket = listen(&b).await;
+    let (_socket_dir, socket) = listen(&b).await;
     let id = busy_chat(&mut src, &[("p-a", "a")]).await;
     let begin = src
         .request(

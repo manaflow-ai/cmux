@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextLaunch
 import CmuxNextSettings
 import Foundation
 
@@ -56,10 +57,12 @@ final class HistoryService {
     }
 
     /// Launch: keeps each daemon's command recording and closed-history
-    /// retention in step with the settings.
+    /// retention in step with the settings. Retention prunes what no first
+    /// frame shows: with feature `launchStartDeferral` it waits for startup to
+    /// complete (`LaunchStart.historyRetention`).
     func startDaemonSync(settings: SettingsController) {
         commands.start(settings: settings)
-        closedRetention.start(settings: settings)
+        services?.runLaunchStart(.historyRetention) { [weak self] in self?.closedRetention.start(settings: settings) }
     }
 
     // MARK: Pages

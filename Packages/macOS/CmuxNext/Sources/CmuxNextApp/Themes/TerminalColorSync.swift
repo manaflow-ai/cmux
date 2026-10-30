@@ -90,7 +90,8 @@ extension AppServices {
                      resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration,
-                     terminalStreams: CmuxNextApp.terminalStreams(features), prestart: landed.prestart,
+                     terminalStreams: CmuxNextApp.terminalStreams(features),
+                     wireUpgrades: CmuxNextApp.wireUpgrades(features), prestart: landed.prestart,
                      launchSnapshot: landed.launchSnapshot,
                      featureHello: environment.daemonFeatureHello)
         daemon.launchSnapshot.endExpectedTake()  // a start that failed before its take holds no window

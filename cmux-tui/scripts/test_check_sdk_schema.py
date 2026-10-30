@@ -277,6 +277,24 @@ class SnifferNameTests(unittest.TestCase):
         )
         self.assertEqual(self.names(source), {"by-const", "literal", "listed"})
 
+    def test_a_route_one_of_a_local_const_array_serves_its_names(self) -> None:
+        # server/energy_op.rs: `RouteName::OneOf(&COMMANDS)` with `const COMMANDS: [&str; 2] = [SET, STATUS]`.
+        # A scan that reads only an inline `&[...]` misses `energy.set`, which nothing else names.
+        source = (
+            'const SET: &str = "energy.set";\n'
+            'const STATUS: &str = "energy.status";\n'
+            "pub(in crate::server) const COMMANDS: [&str; 2] = [SET, STATUS];\n"
+            "pub(in crate::server) const ROUTES: &[Route] = &[Route {\n"
+            "    names: &[crate::server::routes::RouteName::OneOf(&COMMANDS)],\n"
+            "    stage: FrameStage::Route,\n"
+            "    entry: handle,\n"
+            "}];\n"
+        )
+        self.assertEqual(self.names(source), {"energy.set", "energy.status"})
+        # A bare name the module does not declare as an array cannot be read: fail, never serve nothing.
+        with self.assertRaises(SNIFFERS.SnifferNameError):
+            self.names("const ROUTES: &[Route] = &[Route { names: &[RouteName::OneOf(&ELSEWHERE)] }];\n")
+
     def test_guard_arms_matches_and_command_expressions(self) -> None:
         self.assertEqual(
             self.names('fn f() { match cmd { "a" if ok => 1, "b" => 2, _ => 0 } }'), {"a", "b"}

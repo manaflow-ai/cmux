@@ -159,7 +159,7 @@ final class HomeDiagramRowProvider: TranscriptCustomRowProvider {
         let key = WidthKey(source: source, width: CrashGuard.int(size.width), height: CrashGuard.int(size.height))
         state.withLock { state in
             if state.widths.count > 512 { state.widths.removeAll(keepingCapacity: true) }
-            state.widths[key] = room
+            state.widths.updateValue(room, forKey: key)
         }
         return size
     }
