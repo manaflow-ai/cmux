@@ -174,6 +174,8 @@ test("the merge keeps both texts once, the saved draft first", () => {
   expect(mergedDraft("typed", undefined)).toBe("typed");
   expect(mergedDraft("saved, then more", "saved")).toBe("saved, then more");
   expect(mergedDraft("typed", "saved\n\ntyped")).toBe("saved\n\ntyped");
+  expect(mergedDraft("world again", "hello world")).toBe("hello world again");
+  expect(mergedDraft("saved", "saved text")).toBe("saved text");
   // A first read of acpmux's draft merges; an empty editor never writes over it.
   expect(hydratedDraft({ current: "", restored: "saved", edited: true, pendingWrite: true, firstRead: true })).toEqual({
     text: "saved",
