@@ -39,6 +39,8 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ],
   ["agent-session/acpmux/conversation/conversation.css|.cv-received:hover .cv-received__reply", "reply affordance"],
   ["agent-session/acpmux/styles.css|.acpmux-file-header:hover .acpmux-fh-chevron", "disclosure chevron"],
+  // Suggestion rows sit in .nt-popover, which the New Tab page's ContextMenu ignores: no menu opens from them.
+  ["agent-session/acpmux/newtab/screen.css|.nt-row:hover .nt-row-action", "suggestion row hint"],
   [
     "agent-session/acpmux/styles.css|.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut",
     "keyboard shortcut",
