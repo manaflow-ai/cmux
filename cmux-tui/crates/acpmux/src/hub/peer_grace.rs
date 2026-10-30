@@ -10,7 +10,7 @@ impl Hub {
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
         // Purge fencing and transcript persistence belong to the real link
         // boundary, never to its later row deadline (a new handshake may be busy).
-        {
+        let first = {
             let _rows = self.remote_sessions.lock().unwrap();
             let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
                 return;
@@ -22,6 +22,13 @@ impl Hub {
                 tracing::debug!(peer, attempts = link.attempts, "peer still unreachable: {reason}");
             }
             self.with_tombstones(peer, generation, |t| t.link_ended());
+            link.attempts <= 1
+        };
+        // A row change whose save was throttled reaches disk now, not at the
+        // deadline: the daemon may stop inside the grace window, and a peer whose
+        // rows are all closed changes no row at the deadline.
+        if first {
+            self.save_peer_cache(peer, generation, true);
         }
         self.peer_snapshots.flush(Some(peer));
     }
