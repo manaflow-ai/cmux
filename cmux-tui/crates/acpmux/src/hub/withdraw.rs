@@ -266,8 +266,12 @@ impl Hub {
         // (retracted) or ended (still new, so unsent). Waited for outside the lock every withdraw
         // takes, and for at most `INBOX_SETTLE`: a notice still on its way then (queued behind a
         // turn) is retracted, and the retraction goes into its thread next to it.
-        if !by_msg {
-            let settle = self.inbox_settled(session, id);
+        let prompt_id = match by_msg {
+            true => self.find_withdrawn(session, true, id).map(|f| f.prompt_id),
+            false => Some(id.to_owned()),
+        };
+        if let Some(prompt_id) = prompt_id {
+            let settle = self.inbox_settled(session, &prompt_id);
             let _ = tokio::time::timeout(INBOX_SETTLE, settle).await;
         }
         let _deciding = DECIDING.get_or_init(|| Mutex::new(())).lock().await;

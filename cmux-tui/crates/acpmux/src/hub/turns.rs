@@ -173,6 +173,18 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A resent inbox message answers as its notice did, a failure as the same error.
+        if opts.resend
+            && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
+        {
+            if let Some(f) = opts.on_accepted.take() {
+                f(duplicate(answer.clone().unwrap_or(Value::Null)));
+            }
+            let mut ledger = session.prompts.lock().unwrap();
+            outcome.send_replace(Some(answer.clone()));
+            prompt_ledger::prune(&mut ledger);
+            return answer;
+        }
         if opts.resend
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
