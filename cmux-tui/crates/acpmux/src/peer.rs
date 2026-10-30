@@ -225,9 +225,10 @@ pub struct Peer {
     health: StdMutex<Option<(u64, Value)>>,
     /// An ask for it is out.
     health_asking: AtomicBool,
-    /// The pending key of the handshake's `_acpmux/watch`. The reader publishes that reply's
-    /// list itself, before it reads the next frame, so a `session_changed` the peer sent after
-    /// the reply reaches the hub after the list, never before it.
+    /// The pending key of the handshake's `_acpmux/watch`, or of a page of its list
+    /// (`watch_request_on`). The reader publishes that reply's list itself, before it reads the
+    /// next frame, so a `session_changed` the peer sent after the reply reaches the hub after
+    /// the list, never before it. A list in pages is published once, whole, after its last.
     watch_key: StdMutex<Option<String>>,
 }
 
@@ -777,6 +778,22 @@ impl Peer {
         params: Value,
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
+        self.send_request(m, params, epoch, false).await
+    }
+
+    /// [`Self::link_request_on`] for the handshake's watch list on link `link`, its
+    /// `_acpmux/watch` or a page after it: the reader takes the reply's rows (`watch_key`).
+    async fn watch_request_on(&self, m: &str, params: Value, link: u64) -> Result<Value, RpcError> {
+        self.send_request(m, params, Some(link), true).await
+    }
+
+    async fn send_request(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+        watch: bool,
+    ) -> Result<Value, RpcError> {
         // One deadline from here: a request that waits for room in the queue (a stalled link,
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
@@ -786,9 +803,6 @@ impl Peer {
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
         self.pending.lock().await.insert(key.clone(), tx);
-        if m == method::MUX_WATCH {
-            *self.watch_key.lock_or_recover() = Some(key.clone());
-        }
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending {
@@ -801,6 +815,16 @@ impl Peer {
         // prompt (which has no deadline) would wait for good.
         if epoch.is_some_and(|e| e != self.link_epoch() || !self.open.load(Ordering::SeqCst)) {
             return Err(self.unreachable_error());
+        }
+        // Only on its own link, checked again under the lock: a request of a link gone down
+        // (whose task may still run after its abort) never takes the key of the next link's
+        // list. The next handshake sets its key after the epoch moved on, under the same lock.
+        if watch {
+            let mut held = self.watch_key.lock_or_recover();
+            if epoch.is_some_and(|e| e != self.link_epoch()) {
+                return Err(self.unreachable_error());
+            }
+            *held = Some(key.clone());
         }
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
@@ -1209,19 +1233,24 @@ impl Peer {
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             let watch = |tools| json!({"enabled": true, "withTools": tools});
-            match me.link_request_on(method::MUX_WATCH, watch(true), Some(link)).await {
+            let (first, tools) = match me
+                .watch_request_on(method::MUX_WATCH, watch(true), link)
+                .await
+            {
                 // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
                 // 2026-10-30) is read without them: the link connects with its rows' tools
                 // missing rather than never. A peer on this build leaves its peers' rows out
                 // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
                 Err(e) if too_large(&e) => {
                     tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
-                    me.link_request_on(method::MUX_WATCH, watch(false), Some(link)).await?;
+                    (me.watch_request_on(method::MUX_WATCH, watch(false), link).await?, false)
                 }
-                answer => {
-                    answer?;
-                }
-            }
+                answer => (answer?, true),
+            };
+            // A list too large for one message comes in pages (a peer served as Web, over
+            // plain ws://, gets the whole list): every page is read before the link connects,
+            // and the reader publishes the list once, whole, after the last.
+            me.watch_pages(first, tools, link).await?;
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
@@ -1293,6 +1322,10 @@ impl Peer {
                 }
             };
         }
+        // The rows of a watch list read in pages so far, and the changes the peer sent
+        // meanwhile: published once the last page is in, the list first. A link that drops
+        // before then publishes neither, so the hub keeps its last whole list.
+        let mut paged: Option<(Vec<Value>, Vec<PeerNotice>)> = None;
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(LinkEnd::Stopped);
@@ -1384,9 +1417,25 @@ impl Peer {
                                 self.github_link.store(link + 1, Ordering::SeqCst);
                             }
                             if let (true, Ok(list)) = (watch, &reply) {
-                                let notice = PeerNotice::Sessions(watch_sessions(list));
-                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
-                                    break Ok(LinkEnd::Stopped);
+                                let (mut rows, held) = paged.take().unwrap_or_default();
+                                rows.extend(watch_sessions(list));
+                                match page_cursor(list) {
+                                    // More pages: the handshake asks for them.
+                                    Ok(Some(_)) => paged = Some((rows, held)),
+                                    // A bad cursor: the handshake fails and the link drops.
+                                    Err(_) => {}
+                                    Ok(None) => {
+                                        let mut stopped = false;
+                                        for notice in std::iter::once(PeerNotice::Sessions(rows)).chain(held) {
+                                            if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                                stopped = true;
+                                                break;
+                                            }
+                                        }
+                                        if stopped {
+                                            break Ok(LinkEnd::Stopped);
+                                        }
+                                    }
                                 }
                             }
                             let _ = tx.send(reply);
@@ -1411,6 +1460,11 @@ impl Peer {
                             } else {
                                 PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
+                            // A change during a paged watch list goes after that list.
+                            if let (Some((_, held)), PeerNotice::SessionChanged { .. }) = (paged.as_mut(), &notice) {
+                                held.push(notice);
+                                continue;
+                            }
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(LinkEnd::Stopped);
                             }
@@ -1500,6 +1554,34 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
         .filter(|session| !is_mirrored_session(session))
         .cloned()
         .collect()
+}
+
+impl Peer {
+    /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
+    /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
+    /// not a string, is an error that ends the handshake, never a loop or a short list.
+    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
+        let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
+        while let Some(cursor) = next {
+            if !seen.insert(cursor.clone()) {
+                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
+                return Err(RpcError::internal(why));
+            }
+            let params = json!({"withTools": tools, "cursor": cursor});
+            let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
+            next = page_cursor(&page)?;
+        }
+        Ok(())
+    }
+}
+
+/// A watch or page reply's `nextCursor`: none when absent or null, an error when not a string.
+fn page_cursor(reply: &Value) -> Result<Option<String>, RpcError> {
+    match reply.get("nextCursor") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(cursor)) => Ok(Some(cursor.clone())),
+        Some(other) => Err(RpcError::internal(format!("the peer gave the page cursor {other}"))),
+    }
 }
 
 /// Whether `e` is a reply too large to send (`RpcError::too_large`).
