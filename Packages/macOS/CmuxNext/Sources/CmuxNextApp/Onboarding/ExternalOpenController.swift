@@ -108,7 +108,7 @@ final class ExternalOpenController {
         // Chief's Home workspace keeps its layout (#27897): its focused pane is the chat's pinned
         // dock, which moves a tab made there into a new column beside it. A tab from another app
         // opens in a workspace of the person's instead, as from the Home page. A link in this
-        // build's scheme only navigates (`link.open`), so it may stay on Home.
+        // build's scheme runs `link.open`, which places what it shows itself (a Chief session on Home).
         let leavesHome: Bool
         if case .deepLink = route { leavesHome = false } else { leavesHome = true }
         let onHome = { leavesHome && controller.showsHomeWorkspace }
