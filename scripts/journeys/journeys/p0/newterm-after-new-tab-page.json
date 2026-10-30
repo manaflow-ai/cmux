@@ -4,7 +4,7 @@
  "title": "Ctrl-`, Cmd-D and terminal-first Cmd-N right after Cmd-T always give a new terminal that takes the keys; the old terminal gets none of them",
  "why": "Lawrence on v2.2.9-opt (4 h session): \"at some points I can no longer make new terminals via Ctrl-` or Cmd-D\". Fleet repro 4/4 (cmux17, cmux20, cmux21): the New Tab page's new-conversation-tab held the app's daemon connection, the Ctrl-` new-tab missed the 5 s client start deadline, the app took the stand-in back, and the typed line ran in the OLD terminal. Invariant (principled-audit R3): Ctrl-` and Cmd-D always give a terminal that takes keys, whatever the New Tab spare and the daemon's latency.",
  "source": "P0 bug (handoff/v229-lawrence-newterm-2026-10-30), fix/p0-new-terminal-always",
- "budget_seconds": 300,
+ "budget_seconds": 260,
  "steps": [
   {
    "do": "new_terminal",
