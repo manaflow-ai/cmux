@@ -136,6 +136,20 @@ def restore(receipt, root):
     return version
 
 
+def bundled_client_commit(root):
+    versions = list(root.glob("app/**/Contents/Resources/bin/cmux-tui.version"))
+    require(len(versions) == 1, "resumed unsigned app has no unique cmux-tui.version")
+    fields = {}
+    for line in versions[0].read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            fields[key] = value
+    commit = fields.get("commit", "")
+    require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
+            "resumed unsigned app has no valid cmux-tui commit")
+    return commit
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "restore"))
@@ -149,6 +163,7 @@ def main():
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build_sha", "build")}
     if args.command == "restore":
         outputs["version"] = restore(receipt, args.out)
+        outputs["cmux_tui_commit"] = bundled_client_commit(args.out)
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():

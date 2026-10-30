@@ -351,8 +351,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("needs.await-nightly-tree-marker.result == 'success'", own_tree)
         self.assertIn("inputs.nightly_next_unsigned_run == ''", own_tree)
         build_outputs = workflow()["jobs"]["build-nightly-app"]["outputs"]
-        self.assertIn("steps.resume-client.outputs.commit", build_outputs["cmux_tui_commit"])
-        self.assertIn("Read resumed cmux-tui client commit", "\n".join(step.get("name", "") for step in workflow()["jobs"]["build-nightly-app"]["steps"]))
+        self.assertIn("steps.resume.outputs.cmux_tui_commit", build_outputs["cmux_tui_commit"])
 
     def test_an_unmarked_own_build_is_never_the_source(self):
         with self.assertRaises(AssertionError):
