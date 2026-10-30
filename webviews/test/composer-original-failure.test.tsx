@@ -307,3 +307,31 @@ test("a failed original whose chip left with a switch to another chat keeps no f
   act(() => handle.current!.retry(chip.id));
   expect(uploaded).toEqual([["shot.png"]]);
 });
+
+// Review (Astra) at fb51546b asked whether a carried chip's Retry should survive the switch. It
+// should: a chip is carried only when the prompt moves to the new chat (a harness switch), so the
+// original belongs on the new chat's machine and Retry uploads it there. A switch that does not
+// carry swaps the strip for the other chat's chips, and the failure goes with the chip (above).
+test("a carried chip's Retry uploads its original to the chat the prompt moved to", async () => {
+  const uploads: string[] = [];
+  const options = (scope: string): AttachmentIntakeOptions => ({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope,
+    carries: () => true,
+    upload: async () => {
+      uploads.push(scope);
+      return scope === "A" ? { error: "The disk is full." } : { paths: [`/${scope}/shot.png`] };
+    },
+  });
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options("A")} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.originalFailures[handle.current!.attachments[0]?.id ?? ""]));
+  act(() => root!.render(<Harness options={options("B")} handle={handle} />));
+  act(() => host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry")!.click());
+  await until(() => handle.current!.attachments[0]?.originalPath === "/B/shot.png");
+  expect(uploads).toEqual(["A", "B"]);
+  expect(handle.current!.originalFailures).toEqual({});
+});
