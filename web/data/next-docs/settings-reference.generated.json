@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 525,
+  "count": 526,
   "sections": [
     {
       "id": "general",
@@ -5707,6 +5707,14 @@
           "key": "labs.classicHome",
           "title": "Classic Home",
           "help": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.machineJoin",
+          "title": "Join Any Machine with One Line",
+          "help": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

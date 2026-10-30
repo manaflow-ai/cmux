@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1.
+// cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1251,6 +1251,8 @@ pub struct ConversationRunAppendResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRunsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answers: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_started_at: Optional<u64>,
     pub conversation: String,
@@ -4521,6 +4523,9 @@ impl CmuxClient {
     }
 
     pub fn conversation_runs(&mut self, request: ConversationRunsRequest) -> Result<ConversationRunsResult> {
+        if !request.answers.is_missing() {
+            self.require_capability_field("conversation-runs", "conversation-run-answers-v1")?;
+        }
         self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 

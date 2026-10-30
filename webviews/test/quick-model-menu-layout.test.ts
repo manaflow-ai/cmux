@@ -27,10 +27,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(variant: string, width = 640, height = 560) {
+  async function open(variant: string, width = 640, height = 560, entry = "new-tab.quick-model-menu") {
     const page = await browser.newPage({ viewport: { width, height } });
     const { port } = vite.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame("new-tab.quick-model-menu", { variant, width, height })}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     return page;
   }
@@ -93,7 +93,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const chip = await bounds(page, "button[data-menu=model]");
       expect(menu.y).toBeGreaterThan(chip.y);
       expect(menu.y + menu.height - fast.y - fast.height).toBeLessThan(12);
-      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(10);
+      expect(await page.locator(".acpmux-quick-rail-tab").count()).toBe(11);
       expect(await page.locator(".acpmux-quick-fast").innerText()).toBe("Fast mode");
       expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Claude subscription");
     } finally {
@@ -125,6 +125,29 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
+    const page = await open("claude-many-harnesses-inline-effort", 320, 560);
+    try {
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      const menu = await bounds(page, ".acpmux-quick-menu");
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
+      );
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      const switched = await bounds(page, ".acpmux-quick-menu");
+      const switchedRail = await bounds(page, ".acpmux-quick-rail");
+      expect(switched.width).toBeLessThanOrEqual(296);
+      expect(switched.x + switched.width).toBeLessThanOrEqual(320);
+      expect(Math.abs(switched.width - menu.width)).toBeLessThan(1);
+      expect(Math.abs(switchedRail.x - rail.x)).toBeLessThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a midpoint menu keeps its opening side as tall content becomes short", async () => {
     const page = await open("newtab-midpoint");
     try {
@@ -149,6 +172,9 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("keyboard-selected harnesses stay visible in an overflowing strip", async () => {
     const page = await open("claude-many-harnesses", 320);
     try {
+      await page.keyboard.press("ArrowLeft");
+      const add = page.locator(".acpmux-quick-rail-add");
+      expect(await add.evaluate((node) => node === document.activeElement)).toBe(true);
       await page.keyboard.press("ArrowLeft");
       const selected = page.locator(".acpmux-quick-rail-tab[aria-pressed=true]");
       await page.waitForFunction(
@@ -212,6 +238,18 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("inline effort keeps the compact rail at its narrow geometry", async () => {
+    const page = await open("compact", 640, 560, "agent-pane.inline-model-effort");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      expect(rail.width).toBeGreaterThanOrEqual(76);
+      expect(rail.width).toBeLessThan(110);
+      expect(await page.locator(".acpmux-quick-effort-segment").count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("every harness placement leaves the model rows visible", async () => {
     for (const variant of ["harness-left", "harness-top", "harness-compact"]) {
       const page = await open(variant, 420, 560);
@@ -244,6 +282,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("searching from a launch entry selects the visible model, not that launch entry", async () => {
     const page = await open("claude");
     try {
+      await page.keyboard.press("ArrowLeft");
+      expect(await page.locator(".acpmux-quick-rail-add").evaluate((node) => node === document.activeElement)).toBe(
+        true,
+      );
       await page.keyboard.press("ArrowLeft");
       await page.waitForFunction(
         () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
