@@ -61,6 +61,32 @@ import Testing
         #expect(harness.flow.lastFailure == nil)
     }
 
+    @Test func lateMalformedCallbackAfterSignOutStaysQuiet() async {
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        let state = harness.callbackState(harness.factory.sessions[0])
+        await harness.flow.signOut()
+
+        // A browser error page (old state, no tokens) and a stateless malformed callback.
+        #expect(await harness.flow.handleCallbackURL(URL(string: "cmux-dev://auth-callback?other=1&cmux_auth_state=\(state)")!) == false)
+        #expect(await harness.flow.handleCallbackURL(URL(string: "cmux-dev://auth-callback?other=1")!) == false)
+        #expect(harness.flow.lastFailure == nil)
+        #expect(harness.coordinator.isAuthenticated == false)
+    }
+
+    @Test func staleCallbackAfterSignOutAndALaterAttemptStillOffersRetry() async {
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+        await harness.flow.signOut()
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        harness.factory.sessions[0].cancel()
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: "previous-launch")) == false)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+    }
+
     @Test func replayedCallbackDoesNotReplaceSignedInSessionOrReportFailure() async {
         let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
