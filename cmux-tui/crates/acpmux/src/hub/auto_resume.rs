@@ -477,7 +477,9 @@ impl Hub {
         });
         if deciding {
             let mut msg = json!({"turnId": turn_id, "why": why});
-            if let Some(prompt_id) = last.as_ref().and_then(|t| t["promptId"].as_str()) {
+            if let Some(prompt_id) =
+                last.as_ref().and_then(|t| t.get("promptId").and_then(Value::as_str))
+            {
                 msg.set("promptId", json!(prompt_id));
             }
             self.append_retry(session, "auto_resume_settled", msg);
