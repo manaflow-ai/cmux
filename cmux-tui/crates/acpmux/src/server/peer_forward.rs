@@ -280,6 +280,9 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        if m == method::SESSION_CANCEL {
+            super::requests::person_stop::mark(conn, params, &peer, &mut p);
+        }
         bound_page(m, params, &mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
@@ -671,6 +674,26 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     }
     crate::hub::merge_mux_meta(forwarded, json!({PEER_HOPS_FIELD: hops + 1}));
     Ok(())
+}
+
+/// The `_meta.acpmux` fields of a `session/new` that stay on this daemon when it is forwarded
+/// to a peer (`_meta.acpmux.peer`).
+pub(super) fn strip_new_meta(p: &mut Value) {
+    if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        m.remove("peer");
+        // A family lives on one daemon: this daemon's caller is no session there.
+        m.remove(crate::hub::lineage::PARENT_FIELD);
+        m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
+        // The peer would tie it to this daemon's long-lived connection, never to the
+        // client's: the client's own kill purges it (`ephemeral.rs`).
+        m.remove("ephemeral");
+        // Retry hints use the original params here; the peer does not need the
+        // CLI argv or a second copy of the prompt file to create the session.
+        m.remove("argv");
+        m.remove("promptFileText");
+        // Only this daemon decides the VM boundary, never its caller.
+        m.remove(crate::hub::vm_boundary::FIELD);
+    }
 }
 
 #[cfg(test)]
