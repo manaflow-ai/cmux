@@ -121,6 +121,8 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 }
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    let watch = super::service::agent_watch();
     let ready = super::service::take_ready_signal();
     // One listener per state directory; the OS drops the lock with the
     // process, so `status` and `stop` never act on a stale pid. Taken before
@@ -183,7 +185,7 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     ready("ready");
     // `None` when a listener stopped; the launchd agent's outcome otherwise.
     let (done, events) = std::sync::mpsc::channel();
-    super::service::follow_app_updates(done.clone());
+    super::service::follow_app_updates(watch, done.clone());
     let mut running = listeners.len();
     for listener in listeners {
         let host = Arc::clone(&host);

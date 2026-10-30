@@ -299,15 +299,28 @@ pub(crate) enum AgentExit {
     Removed,
 }
 
-/// When launchd runs this serve as its agent: a watch on its program, sent to
-/// `done` once an update replaced the binary or the app was deleted. Nothing
-/// is ever sent otherwise.
-pub(crate) fn follow_app_updates(done: mpsc::Sender<Option<AgentExit>>) {
+/// This serve's launchd agent watch, when launchd runs it as its agent. Opened
+/// first thing in `serve`, before any setup (`launchd_refresh::for_agent`).
+#[cfg(target_os = "macos")]
+pub(crate) type AgentWatch = Option<crate::launchd_refresh::Agent>;
+#[cfg(not(target_os = "macos"))]
+pub(crate) type AgentWatch = Option<std::convert::Infallible>;
+
+pub(crate) fn agent_watch() -> AgentWatch {
     #[cfg(target_os = "macos")]
-    if let Some(agent) = imp::plist_path()
+    return imp::plist_path()
         .ok()
-        .and_then(|plist| crate::launchd_refresh::for_agent(LAUNCHD_LABEL, plist))
-    {
+        .and_then(|plist| crate::launchd_refresh::for_agent(LAUNCHD_LABEL, plist));
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+/// Runs `watch` (from [`agent_watch`]) and sends its outcome to `done` once an
+/// update replaced the binary or the app was deleted. Nothing is ever sent
+/// otherwise.
+pub(crate) fn follow_app_updates(watch: AgentWatch, done: mpsc::Sender<Option<AgentExit>>) {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = watch {
         std::thread::spawn(move || {
             let exit = match agent.wait() {
                 crate::launchd_refresh::Outcome::Replaced => AgentExit::Replaced,
@@ -317,7 +330,7 @@ pub(crate) fn follow_app_updates(done: mpsc::Sender<Option<AgentExit>>) {
         });
     }
     #[cfg(not(target_os = "macos"))]
-    drop(done);
+    let _ = (watch, done);
 }
 
 /// Replaces any running `serve` (the service's or a detached one) with a
@@ -390,6 +403,7 @@ mod imp {
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>ProcessType</key><string>Background</string>
+  <key>EnvironmentVariables</key><dict><key>{}</key><string>{LAUNCHD_LABEL}</string></dict>
   <key>StandardOutPath</key><string>{}</string>
   <key>StandardErrorPath</key><string>{}</string>
 </dict>
@@ -397,6 +411,7 @@ mod imp {
 "#,
             escape(exe),
             escape(dir),
+            crate::launchd_refresh::AGENT_ENV,
             escape(&log),
             escape(&log),
         );

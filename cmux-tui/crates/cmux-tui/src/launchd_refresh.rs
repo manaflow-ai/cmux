@@ -8,16 +8,18 @@
 //! after the app was deleted, the agent kept running (and launchd kept
 //! trying to start a file that was gone) forever.
 //!
-//! So a `serve` that launchd runs for one of these labels (`XPC_SERVICE_NAME`
-//! is the label) holds its executable open from the start and looks every
+//! So a `serve` that launchd runs for one of these labels (the plist's
+//! [`AGENT_ENV`], or launchd's `XPC_SERVICE_NAME`, is the label) holds its
+//! executable open from the start of `serve` and looks every
 //! [`RECHECK`]. Once no name links to that file any more for two looks in a
 //! row (one update replaces a bundle in steps; the second look rides it out):
 //!
 //! - [`Outcome::Replaced`]: a file is at the program path again (an update or
 //!   rebuild). The serve exits non-zero and launchd starts the new binary.
 //! - [`Outcome::Removed`]: nothing is at the program path and no app bundle
-//!   around it is left (the app was deleted). The agent removes its plist,
-//!   when the plist still names this program, and boots its job out.
+//!   around it (or around its symlink's target) is left: the app was deleted.
+//!   The agent boots its job out, waiting for launchd, then removes its plist
+//!   when the plist still names this program.
 //!
 //! A moved, touched or re-signed binary keeps its file (see
 //! `acpmux`'s `daemon/app_orphan.rs` for why only the link count is read). A
@@ -85,13 +87,23 @@ impl Debounce {
 /// The running program, held open from the start.
 pub(crate) struct Program {
     path: PathBuf,
+    /// `path` with its symlinks resolved at start (`~/.local/bin/cmux` linked into an app
+    /// bundle): the bundle is looked for around this one.
+    resolved: PathBuf,
     file: Option<std::fs::File>,
 }
 
 impl Program {
     pub(crate) fn open(path: PathBuf) -> Self {
         let file = std::fs::File::open(&path).ok();
-        Self { path, file }
+        let resolved = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        Self { path, resolved, file }
+    }
+
+    /// Whether `program` (a plist's `ProgramArguments[0]`) names this program, as launched or
+    /// with its links resolved.
+    fn is(&self, program: &Path) -> bool {
+        program == self.path || program == self.resolved
     }
 
     pub(crate) fn look(&self) -> Look {
@@ -101,7 +113,9 @@ impl Program {
         Look {
             unlinked,
             path_exists: self.path.exists(),
-            bundle_exists: app_bundle(&self.path).is_some_and(|bundle| bundle.exists()),
+            bundle_exists: app_bundle(&self.path)
+                .or_else(|| app_bundle(&self.resolved))
+                .is_some_and(|bundle| bundle.exists()),
         }
     }
 }
@@ -114,23 +128,31 @@ pub(crate) fn app_bundle(exe: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-/// Whether the plist at `plist` runs `program` (its `ProgramArguments[0]`):
-/// only then is it this agent's to remove. A plist a later install wrote for
-/// another program is never touched.
-pub(crate) fn plist_runs(plist: &Path, program: &Path) -> bool {
-    let Ok(value) = plist::Value::from_file(plist) else { return false };
+/// The program a plist runs (its `ProgramArguments[0]`). Only a plist that
+/// runs this program is this agent's to remove: one a later install wrote
+/// for another program is never touched.
+pub(crate) fn plist_program(plist: &Path) -> Option<PathBuf> {
+    let value = plist::Value::from_file(plist).ok()?;
     value
         .as_dictionary()
         .and_then(|d| d.get("ProgramArguments"))
         .and_then(|a| a.as_array())
         .and_then(|a| a.first())
         .and_then(|p| p.as_string())
-        .is_some_and(|p| Path::new(p) == program)
+        .map(PathBuf::from)
 }
+
+/// Set in the plists `cmux link install-agent` and `cmux host enable` write
+/// (`EnvironmentVariables`): the label of the job launchd runs this process
+/// for. launchd also sets `XPC_SERVICE_NAME` to the label; either one counts,
+/// so an agent installed before this marker is still followed.
+pub(crate) const AGENT_ENV: &str = "CMUX_LAUNCHD_AGENT";
 
 /// Whether launchd runs this process as the job `label`.
 pub(crate) fn run_by_launchd(label: &str) -> bool {
-    std::env::var("XPC_SERVICE_NAME").is_ok_and(|name| name == label)
+    [AGENT_ENV, "XPC_SERVICE_NAME"]
+        .iter()
+        .any(|key| std::env::var(key).is_ok_and(|name| name == label))
 }
 
 fn recheck() -> Duration {
@@ -142,7 +164,9 @@ fn recheck() -> Duration {
 }
 
 /// The agent `label` (plist at `plist`) for this process: `Some` only when
-/// launchd runs it for that label. Opens the executable at once.
+/// launchd runs it for that label. Opens the executable at once: call it
+/// first thing in `serve`, before any setup, so an update during the setup
+/// is still seen (one before the process opened its file is not).
 pub(crate) fn for_agent(label: &'static str, plist: PathBuf) -> Option<Agent> {
     if !run_by_launchd(label) {
         return None;
@@ -190,19 +214,27 @@ impl Agent {
         outcome
     }
 
+    /// Boots the job out, then removes its plist (when it still runs this
+    /// program). The bootout is waited for before anything returns: with
+    /// `KeepAlive`, an exit launchd saw first would start the job again from
+    /// the gone path. launchd ends this process during the bootout; if it
+    /// does not, the caller exits.
     fn remove(&self) {
-        if plist_runs(&self.plist, &self.program.path) {
-            let _ = std::fs::remove_file(&self.plist);
-        }
         // SAFETY: getuid has no preconditions.
         let job = format!("gui/{}/{}", unsafe { libc::getuid() }, self.label);
-        // launchd stops this process; the caller exits on its own if it does not.
-        let _ = cmux_process::Command::new("/bin/launchctl")
+        let ours = plist_program(&self.plist).is_some_and(|program| self.program.is(&program));
+        let booted = cmux_process::Command::new("/bin/launchctl")
             .args(["bootout", job.as_str()])
             .stdin(cmux_process::Stdio::null())
             .stdout(cmux_process::Stdio::null())
             .stderr(cmux_process::Stdio::null())
-            .spawn();
+            .status();
+        if let Err(error) = booted {
+            eprintln!("cmux: {} could not boot itself out: {error}", self.label);
+        }
+        if ours {
+            let _ = std::fs::remove_file(&self.plist);
+        }
     }
 }
 
@@ -292,7 +324,6 @@ mod tests {
     fn only_a_plist_that_runs_this_program_is_removed() {
         let dir = scratch("plist");
         let plist = dir.join("agent.plist");
-        let ours = Path::new("/Applications/cmux.app/Contents/Resources/bin/cmux");
         let write = |program: &str| {
             let mut d = plist::Dictionary::new();
             d.insert(
@@ -301,11 +332,24 @@ mod tests {
             );
             plist::Value::Dictionary(d).to_file_xml(&plist).unwrap();
         };
-        write(&ours.to_string_lossy());
-        assert!(plist_runs(&plist, ours));
+        // The program as launched through a symlink, and its resolved target.
+        let bundle = dir.join("cmux.app/Contents/Resources/bin");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let target = bundle.join("cmux");
+        std::fs::write(&target, b"one").unwrap();
+        let link = dir.join("cmux-link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let program = Program::open(link.clone());
+        write(&link.to_string_lossy());
+        assert!(plist_program(&plist).is_some_and(|p| program.is(&p)), "the launched spelling");
+        let resolved = std::fs::canonicalize(&target).unwrap();
+        write(&resolved.to_string_lossy());
+        assert!(plist_program(&plist).is_some_and(|p| program.is(&p)), "the resolved spelling");
         write("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
-        assert!(!plist_runs(&plist, ours), "a later install re-pointed it");
-        assert!(!plist_runs(&dir.join("missing.plist"), ours));
+        assert!(!plist_program(&plist).is_some_and(|p| program.is(&p)), "a later install");
+        assert_eq!(plist_program(&dir.join("missing.plist")), None);
+        // Launched through a symlink: the bundle is the one around its target.
+        assert!(program.look().bundle_exists);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
