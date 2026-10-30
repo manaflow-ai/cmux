@@ -101,16 +101,23 @@ export async function intakeFiles(
     }
     return { result, image };
   });
+  /// What each file becomes once its own preview is made (a link, or its failure): never awaited
+  /// before the batch's upload starts.
+  const outcomes: Promise<void>[] = [];
+  const once = (index: number, then: (made: Awaited<(typeof prepared)[number]>) => void) =>
+    outcomes.push(prepared[index]!.then(then));
   const entries = await Promise.all(
     files.map(async (file, index) => {
       const path = (await known)?.[index];
       if (path) {
-        if (!(await prepared[index]!).image)
-          link(index, {
-            ...linkAttachment(path.path, path.folder),
-            mimeType: file.type || "application/octet-stream",
-            size: file.size,
-          });
+        once(index, ({ image }) => {
+          if (!image)
+            link(index, {
+              ...linkAttachment(path.path, path.folder),
+              mimeType: file.type || "application/octet-stream",
+              size: file.size,
+            });
+        });
       } else if (options.upload) {
         // WebKit exposes folders as unreadable zero-byte Files. Do not let one prevent real files
         // in the batch from uploading. Files with bytes are left unread here for the streaming host.
@@ -121,14 +128,17 @@ export async function intakeFiles(
             () => false,
           ))
         ) {
-          if (!(await prepared[index]!).image) fail(index, { name: file.name, reason: "unsupported" });
+          once(index, ({ image }) => {
+            if (!image) fail(index, { name: file.name, reason: "unsupported" });
+          });
           return;
         }
         return { index, file };
       } else {
-        const { result, image } = await prepared[index]!;
-        if (!image)
-          fail(index, { name: file.name, reason: result && "reason" in result ? result.reason : "unsupported" });
+        once(index, ({ result, image }) => {
+          if (!image)
+            fail(index, { name: file.name, reason: result && "reason" in result ? result.reason : "unsupported" });
+        });
       }
     }),
   );
@@ -174,7 +184,7 @@ export async function intakeFiles(
       }),
     );
   }
-  await Promise.all(prepared);
+  await Promise.all([...prepared, ...outcomes]);
   const attachments = [...images, ...links].filter((chip): chip is ComposerAttachment => Boolean(chip));
   return { attachments, ...(error ? { error } : {}) };
 }
