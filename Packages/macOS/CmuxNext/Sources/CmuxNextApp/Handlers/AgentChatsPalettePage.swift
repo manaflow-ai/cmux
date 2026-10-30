@@ -52,7 +52,7 @@ struct AgentChatsPalettePage {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text,
                                           untitled: AgentChatsPaletteStrings.untitled, history: text.isEmpty ? nil : history,
-                                          count: true)
+                                          count: !text.isEmpty)
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
         let answer = { (rows: [AcpmuxChat]) in
@@ -60,7 +60,7 @@ struct AgentChatsPalettePage {
             // More chats than one page holds: say so, and how to reach the rest (R-L5: a limit
             // that leaves chats out shows it).
             if let total = windows.window(window).total, total > rows.count {
-                shown.append(text.isEmpty ? moreChatsNotice(more: total - rows.count) : moreNotice(shown: rows.count, total: total))
+                if !text.isEmpty { shown.append(moreNotice(shown: rows.count, total: total)) }
             }
             continuation.yield(shown)
             continuation.finish()
