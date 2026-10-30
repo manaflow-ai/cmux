@@ -12,6 +12,34 @@ import struct CmuxNextLayout.DockColumn
 /// creator's `then`, so nothing moves a tab twice.
 @MainActor
 enum HomeDockOpens {
+    /// Owns the outbound hold from the moment a creator is prepared until it
+    /// names a surface. If creation is refused or cancelled before invoking
+    /// the callback, releasing this token restores the Home strip immediately.
+    private final class PlacementHold {
+        let outbound: OutboundTab?
+        private var completed = false
+
+        init(_ outbound: OutboundTab?) { self.outbound = outbound }
+
+        func made(_ surface: SurfaceID) {
+            completed = true
+            outbound?.made(surface)
+        }
+
+        func cancel() {
+            guard !completed else { return }
+            completed = true
+            outbound?.finish(moved: false)
+        }
+
+        func fail() {
+            completed = true
+            outbound?.finish(moved: false)
+        }
+
+        deinit { cancel() }
+    }
+
     /// The pinned dock column holding `pane` in `store`, if any.
     static func pinnedDock(holding pane: PaneModel, in store: DaemonStore) -> DockColumn? {
         let handle = pane.handle
@@ -37,15 +65,16 @@ enum HomeDockOpens {
         // creators insert provisional tabs synchronously, before `then` runs.
         // The creator's own refusal paths release this hold; successful opens
         // name it below before the callback can observe the strip.
-        let outbound = services.paneController(for: pane).map { OutboundTab.begin(in: $0) }
+        let hold = PlacementHold(services.paneController(for: pane).map { OutboundTab.begin(in: $0) })
         return { [weak services] surface in
-            guard let services else { then?(surface); return }
-            outbound?.made(surface)
+            guard let services else { hold.cancel(); then?(surface); return }
+            hold.made(surface)
             then?(surface)
             if let controller = services.paneController(for: pane) {
-                services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target, outbound: outbound)
+                services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target,
+                                                outbound: hold.outbound)
             } else {
-                outbound?.finish(moved: false)
+                hold.fail()
                 moveOffscreen(surface, from: pane, services: services)
             }
         }
