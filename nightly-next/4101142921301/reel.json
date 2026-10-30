@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4101142921301",
+  "notes": "notes/4101142921301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26953,
+      "title": "NEXT: dictation sends long recordings to a remote chat's machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27969,
+      "title": "cmux NEXT: a web update that swaps in shows no \"Updated to\" toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27576,
+      "title": "cmux NEXT: dividers light a themed glow band while hovered and dragged",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27043,
+      "title": "fix(agent-pane): restart stopped daemon from Retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27668,
+      "title": "Cloud create Retry: wait on an answered approval, renew the key after a refusal (fix-forward #26715)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27893,
+      "title": "fix(tabs): the pane-type chooser fades with the plus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27782,
+      "title": "cmux NEXT composer: + menu groups take the shared separator, the list fades at its scroll edge, search has no ring",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26867,
+      "title": "perf(New Tab): skip Markdown lexing for plain user rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24587,
+      "title": "composer: slash and @ parity for Claude and Codex",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27999,
+      "title": "cmux NEXT: one Copy submenu on the workspace, tab and pane menus, link first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27816,
+      "title": "test(webviews): follow inline effort, the queue's lead row, steer Copy and token-sized circles (react-apps-check base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27977,
+      "title": "fix(webviews): step rows stay still on hover; token-line tests follow the activity tone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27992,
+      "title": "cmux NEXT sidebar: hint how to create the first workspace (lands #27068 + space-page fix)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26950,
+      "title": "perf(cef): cache normalized occlusion geometry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27983,
+      "title": "acpmux tests: allow the CPU-class test's hermetic host launcher in the daemon guard",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
