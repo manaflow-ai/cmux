@@ -521,3 +521,18 @@ test("rows streaming in while the reader is scrolled up keep the mounted rows bo
   }
   expect(mountedIds(container)).toContain("r399");
 });
+
+test("a reply that stops streaming without a new version redraws as settled", async () => {
+  const container = installDom();
+  const reply = (streaming: boolean): AcpmuxRow[] => [
+    { id: "r0", version: 1, at: 0, kind: "assistant", text: "| a | b |\n| - | - |\n| 1 | 2 |", streaming },
+  ];
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={reply(true)} running />));
+  await act(async () => root!.render(<SubagentTranscript rows={reply(false)} running={false} />));
+  const fresh = container.ownerDocument.createElement("div");
+  const freshRoot = createRoot(fresh);
+  await act(async () => freshRoot.render(<SubagentTranscript rows={reply(false)} running={false} />));
+  expect(container.querySelector("[data-row-id]")!.innerHTML).toBe(fresh.querySelector("[data-row-id]")!.innerHTML);
+  await act(async () => freshRoot.unmount());
+});
