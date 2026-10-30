@@ -339,7 +339,7 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
         # NIGHTLY_NEXT_TREE_AT_INSTALL: a build that started before its tree published (or a
@@ -350,6 +350,9 @@ class WorkflowTests(unittest.TestCase):
         own_tree = step(job, "Select the build to publish")["env"]["OWN_TREE"]
         self.assertIn("needs.await-nightly-tree-marker.result == 'success'", own_tree)
         self.assertIn("inputs.nightly_next_unsigned_run == ''", own_tree)
+        build_outputs = workflow()["jobs"]["build-nightly-app"]["outputs"]
+        self.assertIn("steps.resume-client.outputs.commit", build_outputs["cmux_tui_commit"])
+        self.assertIn("Read resumed cmux-tui client commit", "\n".join(step.get("name", "") for step in workflow()["jobs"]["build-nightly-app"]["steps"]))
 
     def test_an_unmarked_own_build_is_never_the_source(self):
         with self.assertRaises(AssertionError):
