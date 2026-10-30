@@ -14,7 +14,7 @@ import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
-import type { NativeRowNeedsYou } from "./nativeRowTools";
+import type { NativeOperationState, NativeRowNeedsYou } from "./nativeRowTools";
 import { onOpenNeedsYou } from "../needsYou/links";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -163,7 +163,16 @@ export function ChatHeaderTools({
       ? withShown(quick, "preview", true)
       : quick;
   const worktree = useWorktree(folder, readStatus, statusKey);
-  const [nativeRemoveUnsaved, setNativeRemoveUnsaved] = useState(false);
+  const worktreeIdentity = worktree ? `${worktree.mainRoot}\u0000${worktree.branch}` : undefined;
+  const [nativeApplyState, setNativeApplyState] = useState<{ identity?: string; state: NativeOperationState }>({
+    state: { step: "idle" },
+  });
+  const [nativeRemoveState, setNativeRemoveState] = useState<{ identity?: string; state: NativeOperationState }>({
+    state: { step: "idle" },
+  });
+  const [nativeMergeState, setNativeMergeState] = useState<NativeOperationState>({ step: "idle" });
+  const worktreeIdentityRef = useRef(worktreeIdentity);
+  worktreeIdentityRef.current = worktreeIdentity;
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -284,26 +293,72 @@ export function ChatHeaderTools({
       worktree: worktree
         ? {
             value: worktree,
-            onApply: onApplyWorktree,
-            onRemove: onRemoveWorktree
-              ? async (key, discard) => {
+            identity: worktreeIdentity,
+            onApply: onApplyWorktree
+              ? async (key) => {
+                  if (worktreeIdentityRef.current !== worktreeIdentity) return;
+                  setNativeApplyState({ identity: worktreeIdentity, state: { step: "pending", key } });
                   try {
-                    const result = await onRemoveWorktree(key, discard);
-                    setNativeRemoveUnsaved(false);
+                    const result = await onApplyWorktree(key);
+                    if (worktreeIdentityRef.current === worktreeIdentity)
+                      setNativeApplyState({ identity: worktreeIdentity, state: { step: "success" } });
                     return result;
                   } catch (error) {
-                    const reason = (error as { details?: { reason?: unknown } } | null)?.details?.reason;
-                    if (reason === "uncommitted_changes" || reason === "unpushed_commits") setNativeRemoveUnsaved(true);
+                    if (worktreeIdentityRef.current === worktreeIdentity)
+                      setNativeApplyState({
+                        identity: worktreeIdentity,
+                        state: { step: "failed", key, message: error instanceof Error ? error.message : undefined },
+                      });
                     throw error;
                   }
                 }
               : undefined,
-            removeUnsaved: nativeRemoveUnsaved,
-            onRemoveKeep: () => setNativeRemoveUnsaved(false),
+            applyState: nativeApplyState.identity === worktreeIdentity ? nativeApplyState.state : { step: "idle" },
+            onRemove: onRemoveWorktree
+              ? async (key, discard) => {
+                  if (worktreeIdentityRef.current !== worktreeIdentity) return;
+                  setNativeRemoveState({ identity: worktreeIdentity, state: { step: "pending", key, discard } });
+                  try {
+                    const result = await onRemoveWorktree(key, discard);
+                    if (worktreeIdentityRef.current === worktreeIdentity)
+                      setNativeRemoveState({ identity: worktreeIdentity, state: { step: "success" } });
+                    return result;
+                  } catch (error) {
+                    const reason = (error as { details?: { reason?: unknown } } | null)?.details?.reason;
+                    if (worktreeIdentityRef.current === worktreeIdentity)
+                      setNativeRemoveState({
+                        identity: worktreeIdentity,
+                        state: {
+                          step: "failed",
+                          key,
+                          discard,
+                          unsaved: reason === "uncommitted_changes" || reason === "unpushed_commits",
+                          message: error instanceof Error ? error.message : undefined,
+                        },
+                      });
+                    throw error;
+                  }
+                }
+              : undefined,
+            removeState: nativeRemoveState.identity === worktreeIdentity ? nativeRemoveState.state : { step: "idle" },
+            removeUnsaved:
+              nativeRemoveState.identity === worktreeIdentity &&
+              nativeRemoveState.state.step === "failed" &&
+              nativeRemoveState.state.unsaved === true,
+            onRemoveKeep: () => setNativeRemoveState({ identity: worktreeIdentity, state: { step: "idle" } }),
           }
         : undefined,
       pullRequest:
-        pullRequest && pullRequestChip !== false ? { value: pullRequest, onMerge: onMergePullRequest } : undefined,
+        pullRequest && pullRequestChip !== false
+          ? {
+              value: pullRequest,
+              mergeState: nativeMergeState,
+              onMerge: onMergePullRequest,
+              onMergeConfirm: () => setNativeMergeState({ step: "confirm" }),
+              onMergeStart: () => setNativeMergeState({ step: "pending", key: "merge" }),
+              onMergeEnd: setNativeMergeState,
+            }
+          : undefined,
       needsYou: nativeNeedsYou,
     },
     t,

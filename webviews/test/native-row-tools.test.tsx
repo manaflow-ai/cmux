@@ -10,6 +10,10 @@ import { headerState, setHeaderState } from "../src/agent-session/acpmux/header/
 import {
   dispatchNativeRowTool,
   nativeRowToolBindings,
+  boundedNativeText,
+  NATIVE_MAX_TOTAL_MENU_ITEMS,
+  NATIVE_MAX_TEXT_BYTES,
+  NATIVE_MAX_TEXT_GRAPHEMES,
   type NativeRowExtras,
   type NativeRowTool,
 } from "../src/agent-session/acpmux/header/nativeRowTools";
@@ -169,20 +173,34 @@ test("native bindings describe worktree, pull request and Needs You menus", asyn
   };
   const bindings = nativeRowToolBindings([], undefined, extras);
   expect(bindings.map(({ tool }) => tool.id)).toEqual(["worktree", "pullRequest", "needsYou"]);
-  expect(bindings[0]!.tool.menu?.map(({ id }) => id)).toEqual(["worktree.apply", "worktree.remove"]);
-  expect(bindings[1]!.tool).toMatchObject({ badge: "#42", toggled: true });
+  const worktreeMenu = bindings[0]!.tool.menu ?? [];
+  expect(worktreeMenu).toHaveLength(2);
+  expect(worktreeMenu[0]!.id).toMatch(/^worktree\.apply:/);
+  expect(worktreeMenu[1]!.id).toMatch(/^worktree\.remove:/);
+  expect(bindings[1]!.tool).toMatchObject({ badge: "#42 ✓2/2", toggled: true });
   expect(bindings[1]!.tool.menu).toEqual([
-    { id: "pullRequest.open", label: "Open pull request", enabled: true },
-    { id: "pullRequest.merge", label: "Merge", enabled: true },
+    { id: expect.stringMatching(/^pullRequest\.open:/), label: "Open pull request", enabled: true },
+    { id: expect.stringMatching(/^pullRequest\.merge:/), label: "Merge", enabled: true },
   ]);
   expect(bindings[2]!.tool.badge).toBe("1");
   const needsChildren = bindings[2]!.tool.menu?.[0]?.children ?? [];
   expect(needsChildren).toHaveLength(3);
   expect(needsChildren.every(({ id }) => id.length <= 64)).toBe(true);
 
-  dispatchNativeRowTool({ id: "worktree", menuItemId: "worktree.apply" }, bindings);
-  dispatchNativeRowTool({ id: "worktree", menuItemId: "worktree.remove" }, bindings);
-  dispatchNativeRowTool({ id: "pullRequest", menuItemId: "pullRequest.merge" }, bindings);
+  dispatchNativeRowTool({ id: "worktree", menuItemId: worktreeMenu[0]!.id }, bindings);
+  dispatchNativeRowTool({ id: "worktree", menuItemId: worktreeMenu[1]!.id }, bindings);
+  const mergeMenuId = bindings[1]!.tool.menu?.find((item) => item.id.startsWith("pullRequest.merge:"))?.id;
+  dispatchNativeRowTool({ id: "pullRequest", menuItemId: mergeMenuId }, bindings);
+  const confirmed = nativeRowToolBindings([], undefined, {
+    pullRequest: { ...extras.pullRequest!, mergeState: { step: "confirm" } },
+  });
+  dispatchNativeRowTool(
+    {
+      id: "pullRequest",
+      menuItemId: confirmed[0]!.tool.menu?.find((item) => item.id.startsWith("pullRequest.merge:"))?.id,
+    },
+    confirmed,
+  );
   for (const child of needsChildren) dispatchNativeRowTool({ id: "needsYou", menuItemId: child.id }, bindings);
   await Promise.resolve();
   expect(calls).toContain("remove:false");
@@ -214,6 +232,137 @@ test("conditional quick actions and Browser's preview delegation keep the web be
   expect(nativeRowToolBindings(browser)[0]!.tool.toggled).toBe(true);
   dispatchNativeRowTool({ id: "browser" }, nativeRowToolBindings(browser));
   expect(calls).toEqual(["preview:toggle:http://localhost:5173/"]);
+});
+
+test("native descriptors honor decoder text and aggregate menu budgets", () => {
+  const emoji = "👨‍👩‍👧‍👦".repeat(64);
+  const longNeeds = Array.from({ length: 32 }, (_, index) => ({
+    id: `needs-${index}`,
+    kind: "approval" as const,
+    sessionId: "chat",
+    ask: index === 0 ? "" : emoji,
+    who: { name: "A", chief: false },
+    answers: Array.from({ length: 5 }, (_, answer) => ({
+      id: `answer-${answer}`,
+      label: answer ? emoji : "",
+      tone: "allow" as const,
+    })),
+    permissionId: `permission-${index}`,
+  }));
+  const checks = Array.from({ length: 31 }, (_, index) => ({
+    name: `check-${index}`,
+    state: index % 2 ? "pending" : "failed",
+    url: index === 0 ? undefined : `https://example.test/${index}`,
+  }));
+  const bindings = nativeRowToolBindings([], undefined, {
+    worktree: {
+      value: { branch: "feature/long-branch-name", base: "main", mainRoot: "/repo" },
+      onApply: async () => {},
+    },
+    pullRequest: {
+      value: {
+        url: "https://example.test/pr/42",
+        number: 42,
+        title: "PR",
+        state: "open",
+        review: "approved",
+        mergeable: "conflicting",
+        checks: { state: "failing", passed: 0, total: checks.length },
+        checkList: checks,
+      },
+    },
+    needsYou: {
+      mode: "pinned",
+      items: longNeeds,
+      actions: { answer: async () => {}, ask: async () => {}, goTo: () => {} },
+    },
+  });
+  const count = (items: readonly { children?: readonly any[] }[]): number =>
+    items.reduce((total, item) => total + 1 + (item.children ? count(item.children) : 0), 0);
+  expect(
+    bindings.flatMap(({ tool }) => tool.menu ?? []).reduce((total, item) => total + count([item]), 0),
+  ).toBeLessThanOrEqual(NATIVE_MAX_TOTAL_MENU_ITEMS);
+  for (const { tool } of bindings) {
+    expect(tool.label.length).toBeGreaterThan(0);
+    expect(new TextEncoder().encode(tool.label).byteLength).toBeLessThanOrEqual(NATIVE_MAX_TEXT_BYTES);
+    for (const item of tool.menu ?? []) expect(item.label.length).toBeGreaterThan(0);
+  }
+  const worktree = bindings.find(({ tool }) => tool.id === "worktree")!.tool;
+  expect(worktree.badge).toContain("feature/");
+  expect(worktree.badge).toContain("branch-name");
+  expect(
+    Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(boundedNativeText(emoji))).length,
+  ).toBeLessThanOrEqual(NATIVE_MAX_TEXT_GRAPHEMES);
+  expect(boundedNativeText("")).toBe("…");
+  expect(bindings.find(({ tool }) => tool.id === "pullRequest")!.tool.menu).toEqual(
+    expect.arrayContaining([expect.objectContaining({ enabled: false })]),
+  );
+});
+
+test("native menu ids reject stale worktree, pull request and Needs You selections", () => {
+  const calls: string[] = [];
+  const item = (id: string) => ({
+    id,
+    kind: "approval" as const,
+    sessionId: "chat",
+    ask: "Approve",
+    who: { name: "A", chief: false },
+    answers: [{ id: "yes", label: "Yes", tone: "allow" as const }],
+    permissionId: id,
+  });
+  const old = nativeRowToolBindings([], undefined, {
+    worktree: {
+      value: { branch: "old", base: "main", mainRoot: "/repo" },
+      onApply: async () => calls.push("old-worktree"),
+    },
+    pullRequest: {
+      value: {
+        url: "https://example.test/old",
+        number: 1,
+        title: "old",
+        state: "open",
+        review: "approved",
+        mergeable: "conflicting",
+        checks: { state: "none", passed: 0, total: 0 },
+        checkList: [],
+      },
+      onMerge: async () => ({ queued: false }),
+    },
+    needsYou: {
+      mode: "pinned",
+      items: [item("old")],
+      actions: { answer: async () => calls.push("old-needs"), ask: async () => {}, goTo: () => {} },
+    },
+  });
+  const current = nativeRowToolBindings([], undefined, {
+    worktree: {
+      value: { branch: "new", base: "main", mainRoot: "/repo" },
+      onApply: async () => calls.push("new-worktree"),
+    },
+    pullRequest: {
+      value: {
+        url: "https://example.test/new",
+        number: 2,
+        title: "new",
+        state: "open",
+        review: "approved",
+        mergeable: "conflicting",
+        checks: { state: "none", passed: 0, total: 0 },
+        checkList: [],
+      },
+      onMerge: async () => ({ queued: false }),
+    },
+    needsYou: {
+      mode: "pinned",
+      items: [item("new")],
+      actions: { answer: async () => calls.push("new-needs"), ask: async () => {}, goTo: () => {} },
+    },
+  });
+  for (const index of [0, 1, 2]) {
+    const oldMenu = old[index]!.tool.menu?.[0];
+    if (oldMenu) dispatchNativeRowTool({ id: old[index]!.tool.id, menuItemId: oldMenu.id }, current);
+  }
+  expect(calls).toEqual([]);
 });
 
 let dom: JSDOM | undefined;
@@ -312,6 +461,21 @@ test("host events switch the header to native tools and invoke the same web hand
             }}
           />
         }
+        nativeNeedsYou={{
+          mode: "pinned",
+          items: [
+            {
+              id: "needs-1",
+              kind: "approval",
+              sessionId: "chat-1",
+              ask: "Approve",
+              who: { name: "A", chief: false },
+              answers: [{ id: "allow", label: "Allow", tone: "allow" }],
+              permissionId: "p-1",
+            },
+          ],
+          actions: { answer: async () => {}, ask: async () => {}, goTo: () => {} },
+        }}
         menu={() => [
           {
             key: "rename",
@@ -360,7 +524,7 @@ test("host events switch the header to native tools and invoke the same web hand
   await render(true, "first");
   expect(sent).toHaveLength(1);
   expect(sent[0]!.method).toBe("pane.tabRowTools.set");
-  expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "terminal", "browser"]);
+  expect(sent[0]!.tools.map(({ id }) => id)).toEqual(["summary", "needsYou", "terminal", "browser"]);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(0);
   expect(container.querySelector(".acpmux-summary-button")).toBeNull();
   expect(container.querySelector(".acpmux-needs-you-button")).toBeNull();
@@ -386,7 +550,7 @@ test("host events switch the header to native tools and invoke the same web hand
   await render(false, "still-hidden");
   expect(sent).toHaveLength(count);
   await render(true, "shown");
-  expect(sent.at(-1)!.tools).toHaveLength(3);
+  expect(sent.at(-1)!.tools).toHaveLength(4);
   await act(async () => root!.unmount());
   root = undefined;
   expect(sent.at(-1)!.tools).toEqual([]);
