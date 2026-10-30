@@ -753,20 +753,20 @@ impl Peer {
         self.attached.lock_or_recover().insert(session_id.to_owned())
     }
 
-    /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. One
-    /// the peer refused, or did not answer while its link stayed up, is no longer marked, so
-    /// the next prompt attaches it again (a mark is never sent twice), and its error goes to
-    /// the log at warn: a chat whose attach failed got no stream, and said nothing of why.
-    /// One whose link dropped stays marked: the next link's handshake attaches it again.
+    /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
+    /// error goes to the log at warn: a chat whose attach failed got no stream, and said
+    /// nothing of why. One the peer refused ([`refuses_attach`]: the chat is gone there, or the
+    /// peer takes no such attach) is no longer marked, so no reconnect asks for it again and the
+    /// next prompt attaches it anew; any other failure (the link dropped, a timeout, a full
+    /// queue) keeps the mark, and the next link's handshake attaches it again.
     pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
-        let link = self.link_epoch();
-        let attached = self.request_on(method::MUX_ATTACH, hidden_attach(id), Some(link)).await;
-        if let Err(e) = &attached
-            && self.link_epoch() == link
-            && self.connected.load(Ordering::SeqCst)
-        {
-            self.attached.lock_or_recover().remove(id);
-            tracing::warn!(peer = %self.name, session = %id, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+        let attached = self.request(method::MUX_ATTACH, hidden_attach(id)).await;
+        if let Err(e) = &attached {
+            let refused = refuses_attach(e);
+            if refused {
+                self.attached.lock_or_recover().remove(id);
+            }
+            tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
         }
         attached
     }
@@ -1253,9 +1253,15 @@ impl Peer {
             }
             tracing::info!(peer = %me.name, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
-            // All at once: a chat the peer is slow on holds up no other's stream.
+            // Several at once: a chat the peer is slow on holds up no other's stream, and a
+            // link with many chats does not fill its send queue with them.
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
-            futures::future::join_all(attached.iter().map(|sid| me.attach_hidden(sid))).await;
+            let link = &me;
+            futures::stream::iter(attached.iter())
+                .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
+                    let _ = link.attach_hidden(sid).await;
+                })
+                .await;
             me.refresh_health();
             Ok::<(), RpcError>(())
         });
@@ -1480,6 +1486,17 @@ fn lends_over(url: &str) -> bool {
         }
         _ => false,
     }
+}
+
+/// How many of a link's chats its handshake attaches again at once after a reconnect.
+const REATTACHES_AT_ONCE: usize = 16;
+
+/// Whether the peer itself refused an attach (`Peer::attach_hidden`): the chat is not there, or
+/// the peer takes no such request. The link's own failures (dropped, timed out, too large, a
+/// full queue) are internal errors or carry `peer_unreachable` / `peer_disconnected`, never
+/// these codes.
+fn refuses_attach(e: &RpcError) -> bool {
+    matches!(e.code, -32002 | -32601 | -32602)
 }
 
 /// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
