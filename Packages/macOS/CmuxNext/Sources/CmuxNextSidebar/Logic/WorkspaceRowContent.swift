@@ -90,6 +90,14 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Separates second-line items.
     public static let separator = " · "
 
+    /// The computer label (`name`, or `name · status`) without the name when the row's title already is it (an
+    /// unnamed workspace of another computer reads as that computer): `dev-vm · dev-vm · ~` said it twice.
+    static func unrepeated(_ machine: String?, title: String) -> String? {
+        guard let machine = nonEmpty(machine), !title.isEmpty else { return nonEmpty(machine) }
+        if machine == title { return nil }
+        return machine.hasPrefix(title + separator) ? String(machine.dropFirst(title.count + separator.count)) : machine
+    }
+
     /// The content of `ws`'s row under `preferences`; `now` decides whether
     /// the last activity shows a time (today) or a date. `machine` (the
     /// computer of a workspace in the one-list sidebar that is not this Mac)
@@ -109,7 +117,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // Another computer's workspace names its folder after the computer, so the row says
         // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
         let folder = machine != nil && !set.secondLine.contains(.directory) ? Self.nonEmpty(ws.directory) : nil
-        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage), Self.descriptionLine(ws)].compactMap { $0 }
+        let lead = [Self.unrepeated(machine, title: ws.title), folder, Self.nonEmpty(ws.stage), Self.descriptionLine(ws)].compactMap { $0 }
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = lead + secondLine.map(\.1)
         var status = Self.status(ws.reported, set)
@@ -156,7 +164,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     init(expanded ws: SidebarWorkspace, now: Date, machine: String?, showsNotification: Bool, showsPullRequest: Bool,
          ages: AgeTextCache) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
-        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
+        let meta = [Self.unrepeated(machine, title: ws.title), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon,
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)

@@ -15,9 +15,16 @@ public struct SidebarMapping {
     /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
     /// hq#1957), and a page's favicon in place of an icon the user never chose.
     /// A daemon default name (`workspace-7`) remains visible until a rename.
-    private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
-        if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
+    private static func sidebarTitle(_ workspace: WorkspaceModel, label: String?) -> String {
+        if let label, !label.isEmpty { return label }
         return workspace.displayName
+    }
+
+    /// Whether `label` is only the last folder of an account's home (`/home/cmux` read "cmux"): what an idle
+    /// shell at another computer's home gives its workspace, the account's name, not the work.
+    static func namesHome(_ label: String?, cwd: String?) -> Bool {
+        guard let label, let cwd, abbreviateRemote(cwd) == "~" else { return false }
+        return label == URL(fileURLWithPath: cwd).lastPathComponent
     }
     /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
     public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
@@ -79,10 +86,17 @@ public struct SidebarMapping {
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { (!hidesHomeWorkspace || $0.kind != Self.homeKind) && workspaceFilter($0) }
                 .map { workspace in
-                    let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
-                                     muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
-                                     newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
-                                     notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons()) }
+                    let make = { () -> SidebarWorkspace in
+                        var made = row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
+                                       muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
+                                       newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
+                                       notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons())
+                        // Nobody named another computer's workspace: it reads as that computer (`dev-vm`), not as
+                        // its account's home folder or `workspace-N` (Leo 2026-10-29: "why is there all this weird stuff
+                        // at the bottom of the sidebar").
+                        if machine.kind != .local, !machine.id.isLocalChief, made.isUnnamed { made.title = machine.name }
+                        return made
+                    }
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
@@ -143,7 +157,9 @@ public struct SidebarMapping {
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
-        let title = Self.sidebarTitle(workspace, page: page)
+        // Another computer's shell at its account's home names no work: the row is unnamed (`sections` names it).
+        let label = machine != .local && !machine.isLocalChief && Self.namesHome(page?.title, cwd: face?.cwd) ? nil : page?.title
+        let title = Self.sidebarTitle(workspace, label: label)
         let rowAgent = agentMark(tabs, harnessIcons: harnessIcons)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
@@ -194,7 +210,7 @@ public struct SidebarMapping {
         row.focusedTab = focused.map { TabID($0.id) }
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
+        row.isUnnamed = Self.isUnnamed(workspace, label: label)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
