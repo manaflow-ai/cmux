@@ -2249,6 +2249,8 @@ export function VirtualTranscript({
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll(scrollRef.current);
+        // Upward intent can arrive before the browser's default moves the offset. Even at the
+        // queued frame's exact position, its old follow state must not replace that live intent.
         setFollowing(followingRef.current);
       }),
     );
