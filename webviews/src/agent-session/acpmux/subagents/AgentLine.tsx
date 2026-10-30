@@ -187,7 +187,6 @@ export const AgentLine = memo(function AgentLine({
   a.label === b.label &&
   a.kind === b.kind &&
   a.chevron === b.chevron &&
-  a.card === b.card &&
   a.wave === b.wave &&
   a.working === b.working &&
   a.expanded === b.expanded &&
