@@ -371,14 +371,17 @@ class Excusing(unittest.TestCase):
 
     def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
         self.with_ci_status_workflow()
-        self.gh.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
-                           "conclusion": "failure", "steps": [{"name": "Report", "conclusion": "failure"}]}
+        for job_id, run_id, sha in ((3, 10, HEAD), (4, 20, BASE_SHA)):
+            self.gh.jobs[job_id] = {"id": job_id, "run_id": run_id, "head_sha": sha, "name": "ci-status",
+                                    "status": "completed", "conclusion": "failure",
+                                    "steps": [{"name": "Report", "conclusion": "failure"}]}
+            self.gh.logs[job_id] = log("ci-status", "Report", "##[error]Process completed with exit code 1.")
         self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
-        self.assertIn(SWIFT, "\n".join(lines))
-        self.assertNotIn("excused 'ci-status'", "\n".join(lines))
+        self.assertIn(f"excused '{SWIFT}'", "\n".join(lines))
+        self.assertIn("'ci-status' rolls up run 10's jobs", "\n".join(lines))
 
     def test_a_red_ci_status_with_no_other_failed_job_blocks(self):
         self.with_ci_status_workflow()
@@ -756,8 +759,21 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
         self.assertIn(f"excused '{NOTARY}': feat-cmux-next run 20", text)
         self.assertIn("test_highlights_name_the_release", text)
         self.assertIn(f"'{GUARD_STATUS}' rolls up run 10's jobs", text)
-        # The rollup is never compared by itself: it has nothing of its own to compare.
-        self.assertNotIn(f"excused '{GUARD_STATUS}'", text)
+        # The rollup itself is red the same way on the base (no line of its own to differ), so it passes too.
+        self.assertIn(f"excused '{GUARD_STATUS}': feat-cmux-next run 20", text)
+
+    def test_a_rollup_green_on_the_base_is_not_excused(self):
+        self.gh.jobs[4]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, f"'{GUARD_STATUS}' is not red on feat-cmux-next"):
+            self.judge()
+
+    def test_a_rollup_failing_on_a_verdict_of_its_own_is_not_excused(self):
+        # The generated-files verdict's shape: it reads a need's output and fails on it, a red of its own that
+        # the base comparison of the jobs under it never sees.
+        self.gh.logs[3] = log(GUARD_STATUS, "Check routed guard jobs",
+                              "##[error]Generated cmux-next files are stale. swift-test's step summary says how")
+        with self.assertRaisesRegex(excuse.Refused, f"'{GUARD_STATUS}': errors not on feat-cmux-next run 20.*stale"):
+            self.judge()
 
     def test_the_same_holds_for_the_whole_red_run(self):
         self.gh.jobs[7] = failed_job(7, 10, HEAD, "tooling-tests", "Run")
@@ -860,6 +876,11 @@ class RollupsComeFromTheWorkflows(unittest.TestCase):
         graph = excuse.workflow_graph(REPO, run, NoContentsAPI())
         self.assertIsNotNone(graph)
         self.assertTrue(graph.resolve(GUARD_STATUS)["rollup"])
+
+    def test_the_generated_files_verdict_rolls_up_its_hosts_and_is_still_compared_itself(self):
+        graph = self.graph(".github/workflows/cmux-next.yml")
+        patterns = self.under(graph, "cmux-next generated files (shared build)")
+        self.assertTrue(any(pattern.fullmatch(SWIFT) for pattern in patterns))
 
     def test_a_job_that_runs_tests_is_never_a_rollup_even_when_it_reads_its_needs(self):
         # cmux-next swift test reads needs results, but checks out and runs the suite.

@@ -29,9 +29,12 @@ lines are compared with commit shas masked, so a real red that names each run's 
 
 A rollup job (ci-status, Guard status, macOS status: a job whose every step only reads its `needs` results)
 has no test or error of its own: its red is the reds of the jobs under it. It is found in the run's workflow
-files at the head, never from a list of names, and is excused only when it has a failed job under it in the
-same run and every one of them is excused above. A rollup with nothing failed under it, and one whose workflow
-cannot be read (then it is judged as an ordinary job, with nothing to compare), stays red.
+files at the head, never from a list of names. It is excused only when it has a failed job under it in the same
+run, every one of them is excused above, and the rollup itself is red the same way on the base: red there too, with
+its failed steps and its own error lines among the base's. A step that reads its needs' outputs can fail on a verdict
+of its own (the generated-files verdict), and that red is only the base's when the base printed it too. A rollup
+with nothing failed under it, and one whose workflow cannot be read (then it is judged as an ordinary job, with
+nothing to compare), stays red.
 """
 from __future__ import annotations
 
@@ -355,7 +358,8 @@ class HeadJobs:
         self.runs: dict[int, dict] = {}
         self.run_jobs: dict[int, list[dict]] = {}
         self.graphs: dict[int, Graph | None] = {}
-        self.rollups: set[int] = set()
+        # Rollups found among the head's reds: compared with the base as well, minus the need for a test line.
+        self.rollups: dict[int, dict] = {}
         # A job brought in by a rollup: the rollup's name, so a refusal says which red it stands for.
         self.parents: dict[int, str] = {}
         self.current: int | None = None  # the job judge_jobs is comparing now
@@ -387,7 +391,7 @@ class HeadJobs:
         if node is None or not node["rollup"]:
             self.jobs[job["id"]] = job
             return
-        self.rollups.add(job["id"])
+        self.rollups[job["id"]] = job
         patterns = graph.under(node)
         under = [found for found in self.jobs_of(job["run_id"])
                  if found["id"] != job["id"] and failed(found)
@@ -417,7 +421,8 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, n
             head.add(job_for(repo, latest[name], sha, github))
     if notes is not None:
         notes.extend(head.notes)
-    return list(head.jobs.values())
+    # A rollup only gets here with failed jobs under it (add refuses one without), so it is never alone.
+    return list(head.rollups.values()) + list(head.jobs.values())
 
 
 def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: list[str] = ()) -> list[str]:
@@ -490,7 +495,8 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        # A rollup's red is the jobs under it, each compared on its own; its own lines, if any, are compared below.
+        if not head_tests and not head_errors and not head_crash and job["id"] not in reds.rollups:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
@@ -508,6 +514,9 @@ def judge_jobs(repo: str, base: str, sha: str, runs: list[int], github, checks: 
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
         what = "; ".join(sorted(head_tests)) or "; ".join(sorted(head_errors))
+        if job["id"] in reds.rollups:
+            what = what or "the failed steps " + "; ".join(sorted(head_steps))
+            what += " (and the jobs under it, each excused here)"
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit
