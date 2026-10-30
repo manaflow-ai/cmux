@@ -100,8 +100,8 @@ public final class AgentChatSurface {
     public var composerFocused = false
 
     /// Edit and Resend from a user bubble: the message goes into the composer to edit and
-    /// is sent from there. Returns false, changing nothing, while the composer holds a
-    /// draft (the bubble asks before replacing it).
+    /// is sent from there. Returns false and requests confirmation while the composer holds
+    /// a draft, leaving the draft unchanged.
     func editAndResend(_ turn: AgentTurn, store: AgentChatStore) -> Bool {
         guard let prompt = store.editAndResend(turn, draft: text) else {
             editConfirmation = turn.prompt
@@ -750,7 +750,7 @@ struct TurnView: View {
         VStack(alignment: .leading, spacing: 16) {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
-            UserBubble(turn: turn, isLast: isLast) { _ in editAndResend() }
+            UserBubble(prompt: turn.prompt, attachments: turn.attachments, promptAt: turn.promptAt, isLast: isLast) { _ in editAndResend() }
                 .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
