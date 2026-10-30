@@ -3416,7 +3416,12 @@ export class AcpmuxDirectClient {
   private adoptSummaryTurn(): void {
     const summary = this.summary;
     const turn = summary?.turn;
-    if (summary?.status !== "running" || this.staleRun(summary) || typeof turn?.startedAt !== "number") return;
+    if (
+      (summary?.status !== "running" && summary?.status !== "waiting") ||
+      this.staleRun(summary) ||
+      typeof turn?.startedAt !== "number"
+    )
+      return;
     if (typeof turn.turnId === "string" && this.endedTurns.has(turn.turnId)) return;
     if (this.turnStartedAtMs !== undefined && turn.startedAt < this.turnStartedAtMs) return;
     this.turnStartedAtMs = turn.startedAt;
@@ -3455,7 +3460,7 @@ export class AcpmuxDirectClient {
       this.summary = { ...this.summary, ...session };
       // A summary update is authoritative when it says the turn is no longer running. This
       // clears a summary-only turn whose terminal event was missed, so Stop/continue cannot stay blocked.
-      if (session.status !== "running") {
+      if (session.status !== "running" && session.status !== "waiting") {
         this.turnOpen = false;
         this.turnId = undefined;
         this.turnStartedAtMs = undefined;
@@ -4858,7 +4863,7 @@ export class AcpmuxDirectClient {
     const working =
       this.replayThrough === undefined &&
       // acpmux may still list a paused queue as running after its turn failed.
-      (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary)));
+      (this.turnOpen || ((summary?.status === "running" || summary?.status === "waiting") && !this.staleRun(summary)));
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(
@@ -6379,7 +6384,10 @@ export class AcpmuxDirectClient {
   }
   /// A turn is running in the shown session.
   turnRunning(): boolean {
-    return this.turnOpen || (this.summary?.status === "running" && !this.staleRun(this.summary));
+    return (
+      this.turnOpen ||
+      ((this.summary?.status === "running" || this.summary?.status === "waiting") && !this.staleRun(this.summary))
+    );
   }
   /// Stops showing the selected session: a harness switch draws its new chat meanwhile. The
   /// session keeps running in acpmux; only this client's attach ends.

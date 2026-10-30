@@ -274,3 +274,28 @@ test("an idle summary ends a summary-only turn when its terminal event was misse
     client.close();
   }
 });
+
+test("a waiting summary keeps the active turn blocked", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "permissioned prompt" }]]), {
+    status: "running",
+    turn: { turnId: "t2", startedAt: START + 30_000 },
+  });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    daemon.change({ status: "waiting", turn: { turnId: "t2", startedAt: START + 30_000 } });
+    await until(() => snapshot.summary?.status === "waiting", "the waiting summary");
+    expect(snapshot.isWorking).toBe(true);
+    expect(client.turnRunning()).toBe(true);
+    expect(await client.continueIn("claude")).toBeUndefined();
+    expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(0);
+  } finally {
+    client.close();
+  }
+});
