@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// The placement policy shared by links, document viewers and session opens that originate in an
 /// agent chat.  The policy is deliberately a value type: callers gather their own pane snapshot,
