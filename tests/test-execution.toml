@@ -586,6 +586,10 @@ path = "tests/test_ios_sim_runtime.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_ffi_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -1976,6 +1980,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_perf_section_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_design_spec_check.py"
 lane = "linux-guard"
 
 [[test]]
