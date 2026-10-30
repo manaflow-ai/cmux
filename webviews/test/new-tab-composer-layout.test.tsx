@@ -142,17 +142,18 @@ test("the New Tab card keeps Send in the box and model in the footer", async () 
   expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
 });
 
-// Lucas 2026-10-30 (a sketch with arrows): Claude's New Tab puts folder and computer above the box,
-// top left, and keeps the mode and model in the quiet row under it; Codex retains its tray.
-test("Claude New Tab puts the location above the box and the mode and model under it", async () => {
+// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
+// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
+// the folder/computer, as Codex does.
+test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
   const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
   act(() => setComposerLook("claude", { remember: false }));
   await mount({ template: "cards" });
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
-  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
-  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
   expect(row.querySelector(".acpmux-chips")).not.toBeNull();
+  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
   expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
 
   act(() => setComposerLook("codex", { remember: false }));

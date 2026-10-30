@@ -523,8 +523,10 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
-                    // Anything else (hook_callback, mcp_message) is declined
-                    // with an error response, so claude does not wait on it.
+                    // A registered hook fired: answered with no decision (hook_callback.rs).
+                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    // Anything else (mcp_message) is declined with an error
+                    // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }

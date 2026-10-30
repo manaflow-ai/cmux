@@ -137,7 +137,9 @@
   gap: var(--nt-composer-gap);
 }
 :root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
-  --acpmux-strip-height: 26px;
+  /* The chat composer's strip height (composerLocation.css), so the two heads match (Leo
+     2026-10-29: "stop making them take up so much space"). */
+  --acpmux-strip-height: 24px;
   margin: 0;
   /* The ghost buttons' own inset puts the folder icon on the field's text edge. */
   padding: 0 6px;
@@ -566,7 +568,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
-
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
    the composer at the foot of the page, full width of the column. The stage centers its cards
    while they fit. When content grows, the whole page scrolls together. */

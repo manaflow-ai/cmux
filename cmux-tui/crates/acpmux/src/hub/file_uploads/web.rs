@@ -91,7 +91,7 @@ fn start(session: &str, params: &Value) -> Result<Value, RpcError> {
         return Err(refused());
     }
     let answer = begin(session, params)?;
-    let upload = answer["uploadId"].as_str().ok_or_else(refused)?;
+    let upload = answer.get("uploadId").and_then(Value::as_str).ok_or_else(refused)?;
     let dir = upload_dir(session, upload).ok_or_else(refused)?;
     let result = (|| {
         let mut bytes = [0u8; 32];
@@ -118,7 +118,7 @@ pub(crate) async fn handle(
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
     let method = method.to_owned();
-    params["sessionId"] = json!(id);
+    params.set("sessionId", json!(id));
     let answer = tokio::task::spawn_blocking(move || {
         if method == method::MUX_FILE_PUT_BEGIN {
             return start(&id, &params);

@@ -5,5 +5,10 @@ fn web_image_attachments() {
         .args(["--test", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/web_image_attachments.mjs")])
         .output()
         .expect("Node is required for the dashboard behavioral regression");
-    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
