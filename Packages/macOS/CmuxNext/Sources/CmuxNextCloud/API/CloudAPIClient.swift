@@ -16,12 +16,8 @@ public struct CloudAPIClient: Sendable {
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
-    /// Where a machine's exec and file routes live: `/api/vm` here, `/v1/cloud/machines` on the
-    /// cmux API Worker (``workerMachines(baseURL:accessToken:teamID:session:appVersion:)``).
-    let machinePath: String
-    /// Sends the Stack refresh token and `X-Cmux-Team-Id` (`/api/vm`). A Worker machines client
-    /// sends the Stack access token and the cmux team in `x-cmux-team`, never the refresh token.
-    let sendsStackSession: Bool
+    /// `/api/vm`, or the Worker's (CloudAPIClient+MachineRoutes.swift, which says what each sends).
+    let machinePath: String, sendsStackSession: Bool
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -60,21 +56,8 @@ public struct CloudAPIClient: Sendable {
         sendsStackSession = true
     }
 
-    /// A Worker machine's (the Cloud app server link's) exec and file routes: the same requests
-    /// and answers as `/api/vm/{id}/exec` and `/api/vm/{id}/fs/...`, under
-    /// `/v1/cloud/machines/{id}/` on the cmux API Worker (`baseURL`:
-    /// ``CloudConfiguration/ownerAPIBaseURL(environment:)``), as the person's Stack session
-    /// (`accessToken`) in the cmux team `teamID` (`x-cmux-team`; the install token's team claim,
-    /// the team the app link lists its machines in), like ``CloudOwnerAPIClient``. Never this Mac's
-    /// install token: a Mac install has no execute grant, so the route refuses it with a 403
-    /// (cmux-platform#89, backend cloud-machine-guest.ts). Only those routes serve there.
-    public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
-                                      teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
-                                      appVersion: String = "cmux-next") -> CloudAPIClient {
-        CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session, appVersion: appVersion)
-    }
-
-    private init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String) {
+    /// A Worker machines client (CloudAPIClient+MachineRoutes.swift).
+    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession, appVersion: String) {
         self.baseURL = baseURL
         backendIsLocalOnly = false
         self.tokens = tokens
@@ -203,13 +186,6 @@ public struct CloudAPIClient: Sendable {
         try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
     }
 
-    /// `POST /api/vm/{id}/exec`: runs `command` in the machine's shell. The
-    /// route caps `timeoutMs` at 15 minutes.
-    public func exec(_ id: String, command: String, timeoutMs: Int = 30_000) async throws -> CloudExecResult {
-        try await send("POST", "\(machinePath)/\(id)/exec", body: ["command": command, "timeoutMs": timeoutMs],
-                       timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
-    }
-
     // MARK: Remote approvals (cx-psxg)
 
     /// `POST /api/vm/{id}/acpmux/keyed-start`: restarts the machine's acpmux with this app's
@@ -260,37 +236,6 @@ public struct CloudAPIClient: Sendable {
         }
         return endpoint
     }
-
-    /// Lists a guest directory through the authenticated backend wrapper.
-    public func listFiles(_ id: String, path: String) async throws -> [CloudFileEntry] {
-        struct List: Decodable { var entries: [CloudFileEntry] }
-        return try await send("GET", "\(machinePath)/\(id)/fs/dir?path=\(query(path))", as: List.self).entries
-    }
-
-    /// Reads a guest file. The backend encodes bytes as base64 for this JSON API.
-    public func readFile(_ id: String, path: String) async throws -> CloudFileContents {
-        try await send("GET", "\(machinePath)/\(id)/fs/read?path=\(query(path))", timeout: .seconds(120), as: CloudFileContents.self)
-    }
-
-    /// Writes a guest file atomically through the backend wrapper.
-    public func writeFile(_ id: String, path: String, data: Data, mode: Int? = nil) async throws {
-        var body: [String: any Sendable] = ["path": path, "dataBase64": data.base64EncodedString()]
-        if let mode { body["mode"] = mode }
-        _ = try await send("POST", "\(machinePath)/\(id)/fs/write", body: body, timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func makeDirectory(_ id: String, path: String) async throws {
-        _ = try await send("POST", "\(machinePath)/\(id)/fs/mkdir", body: ["path": path], as: Ignored.self)
-    }
-
-    public func removeFile(_ id: String, path: String) async throws {
-        _ = try await send("DELETE", "\(machinePath)/\(id)/fs/remove?path=\(query(path))", timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func statFile(_ id: String, path: String) async throws -> CloudFileStat {
-        try await send("GET", "\(machinePath)/\(id)/fs/stat?path=\(query(path))", as: CloudFileStat.self)
-    }
-
 
     // MARK: Tunnel
 
@@ -372,7 +317,7 @@ public struct CloudAPIClient: Sendable {
         return try await send("GET", "/api/vm/publications", as: List.self).publications
     }
 
-    private func query(_ value: String) -> String {
+    func query(_ value: String) -> String {
         // Keep guest path separators readable, but never let a path inject a
         // second query item or fragment into the request URL.
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))

@@ -584,7 +584,7 @@ final class CloudService {
                                                           // The first send's team, for every later call about this machine.
                                                           let team = creation?.request.wasSent == true ? creation?.request.team : await api.currentTeam()
                                                           creation?.markRequestSent(team: team)
-                                                          return try await Self.createWithKey(api.pinningTeam(team), name: name, request: request, idlePause: idlePause, onSent: onSent)
+                                                          return try await api.pinningTeam(team).createWithKey(name: name, request: request, idlePause: idlePause, onSent: onSent)
                                                       })
         logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
@@ -610,35 +610,6 @@ final class CloudService {
         listGeneration += 1
         return session
     }
-
-    /// `POST /api/vm` with the request's one idempotency key. The server answers
-    /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
-    /// creating, and `409 vm_create_in_progress` to the same key while it still has no provider
-    /// machine: the same key is sent again (the server answers the machine once it exists), up
-    /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
-    /// ends with its machine and its bootstrap.
-    static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
-                              onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
-        // `api` is pinned to the first send's team: the server scopes a key per team, so a team
-        // switched in the app meanwhile must not make the same key a new machine in the other team.
-        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, autosize: request.autosize, idlePauseMinutes: idlePause,
-                                                    idempotencyKey: request.idempotencyKey, onSent: onSent) }
-        for _ in 0..<inProgressRetries {
-            do {
-                return try await send()
-            } catch let CloudAPIError.http(status, code, _, _, _)
-                        where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
-                // wakeup-allow: bounded same-key retry of a create the server reports still in progress
-                try await ContinuousClock().sleep(for: inProgressDelay)
-            }
-        }
-        return try await send()
-    }
-
-    /// 70 tries 15 s apart: past the server's 16-minute provisioning budget (routeDeadline.ts
-    /// `create`), with each try's own answer time on top.
-    static let inProgressRetries = 70
-    static let inProgressDelay: Duration = .seconds(15)
 
     func deleteMachine(_ machineID: String) async throws {
         let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
