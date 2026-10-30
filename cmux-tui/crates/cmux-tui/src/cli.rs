@@ -629,8 +629,13 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     if let Some((name, action_args)) = agent_view::action(&command_args) {
         return app::run_cli_action(&global, &name, &action_args);
     }
-    if let Some((name, action_args)) = share_cli::action(&command_args) {
-        return app::run_cli_action(&global, &name, &action_args);
+    match share_cli::action(&command_args) {
+        Some(Ok((name, action_args))) => return app::run_cli_action(&global, &name, &action_args),
+        Some(Err(message)) => {
+            let error = serde_json::json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false});
+            return Some(wire::print_local_error(&error, global.output, 2));
+        }
+        None => {}
     }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {

@@ -10,10 +10,10 @@ struct AgentSessionShareRequestTests {
     }
 
     @Test func createCarriesTheOwnerTokenOnlyWhenThereIsOne() throws {
-        let full = AgentSessionShareCreateRequest(surface: 3, ttlSecs: 3600, uses: 2, ownerToken: "jwt")
+        let full = AgentSessionShareCreateRequest(surface: 3, session: "acp-1", ttlSecs: 3600, uses: 2, ownerToken: "jwt")
         #expect(try fields(full) == .object([
             "id": .number(1), "cmd": .string("agent-session-share-create"), "surface": .number(3),
-            "ttl_secs": .number(3600), "uses": .number(2), "owner_token": .string("jwt"),
+            "session": .string("acp-1"), "ttl_secs": .number(3600), "uses": .number(2), "owner_token": .string("jwt"),
         ]))
         #expect(try fields(AgentSessionShareCreateRequest(surface: 3)) == .object([
             "id": .number(1), "cmd": .string("agent-session-share-create"), "surface": .number(3),

@@ -12,6 +12,18 @@ enum AgentShareStrings {
         String(localized: "agentShare.notThisMac", defaultValue: "Only a chat on this Mac can be shared.", table: "AgentShare", bundle: .module)
     }
 
+    static var badSurface: String {
+        String(localized: "agentShare.badSurface", defaultValue: "--surface takes a surface number.", table: "AgentShare", bundle: .module)
+    }
+
+    static var surfaceAndTarget: String {
+        String(localized: "agentShare.surfaceAndTarget", defaultValue: "Name the chat with --surface or with a tab target, not both.", table: "AgentShare", bundle: .module)
+    }
+
+    static var badUses: String {
+        String(localized: "agentShare.badUses", defaultValue: "--uses takes a number from 1 to 8.", table: "AgentShare", bundle: .module)
+    }
+
     static func noSurface(_ surface: Int) -> String {
         String(format: String(localized: "agentShare.noSurface", defaultValue: "No agent chat is on surface %lld.", table: "AgentShare", bundle: .module), Int64(surface))
     }
@@ -43,6 +55,7 @@ enum AgentShareStrings {
         case "share.room_unreachable": String(localized: "agentShare.roomUnreachable", defaultValue: "The share service didn’t answer. Try again in a moment.", table: "AgentShare", bundle: .module)
         case "share.room_refused": String(localized: "agentShare.roomRefused", defaultValue: "Sharing is off for this account.", table: "AgentShare", bundle: .module)
         case "share.not_a_chat": notAChat
+        case "share.chat_moved": String(localized: "agentShare.chatMoved", defaultValue: "That surface shows another chat now. Name the chat again.", table: "AgentShare", bundle: .module)
         case "share.limit": String(localized: "agentShare.limit", defaultValue: "This Mac has too many links. Revoke one first.", table: "AgentShare", bundle: .module)
         case "share.unknown": String(localized: "agentShare.unknown", defaultValue: "No such link or guest.", table: "AgentShare", bundle: .module)
         case "share.not_trusted": String(localized: "agentShare.notTrusted", defaultValue: "Only chats on this Mac can be shared.", table: "AgentShare", bundle: .module)

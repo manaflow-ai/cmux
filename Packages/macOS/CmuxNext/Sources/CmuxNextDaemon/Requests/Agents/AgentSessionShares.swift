@@ -14,12 +14,16 @@ public struct AgentSessionShareCreateRequest: DaemonRequest {
     public static let command = "agent-session-share-create"
 
     public var surface: UInt64
+    /// The acpmux session the caller saw on `surface`; the daemon refuses (`share.chat_moved`) when
+    /// the surface shows another one by the time the request arrives.
+    public var session: String?
     public var ttlSecs: UInt64?
     public var uses: UInt32?
     public var ownerToken: String?
 
-    public init(surface: UInt64, ttlSecs: UInt64? = nil, uses: UInt32? = nil, ownerToken: String? = nil) {
+    public init(surface: UInt64, session: String? = nil, ttlSecs: UInt64? = nil, uses: UInt32? = nil, ownerToken: String? = nil) {
         self.surface = surface
+        self.session = session
         self.ttlSecs = ttlSecs
         self.uses = uses
         self.ownerToken = ownerToken

@@ -7,25 +7,48 @@
 use serde_json::Value;
 
 /// The app action and its arguments for `share revoke|kick <ids…> [flags]`, or None for other words.
-pub(super) fn action(command_args: &[String]) -> Option<(String, Vec<String>)> {
+/// The ids are the words right after the verb. They are base64url and may start with `-`, so a word
+/// counts as a flag only when it names one of these commands' own flags. An id given both ways
+/// (`share revoke s1 --share-id s2`) is refused rather than one of them silently winning.
+pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<String>), String>> {
     let [scope, verb, rest @ ..] = command_args else { return None };
     if scope != "share" {
         return None;
     }
-    let positional = rest.iter().take_while(|arg| !arg.starts_with('-')).count();
-    let (ids, flags) = rest.split_at(positional);
-    let names: &[&str] = match (verb.as_str(), ids.len()) {
-        ("revoke", 1) => &["--share-id"],
-        ("kick", 2) => &["--share-id", "--guest-id"],
+    let names: &[&str] = match verb.as_str() {
+        "revoke" => &["--share-id"],
+        "kick" => &["--share-id", "--guest-id"],
         _ => return None,
     };
+    let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
+    if positional != names.len() {
+        return None;
+    }
+    let (ids, flags) = rest.split_at(positional);
+    if let Some(name) = names.iter().find(|name| flags.iter().any(|flag| flag_name(flag) == **name))
+    {
+        return Some(Err(format!(
+            "share {verb}: the id is given twice (positionally and as {name})"
+        )));
+    }
     let mut args = Vec::new();
     for (name, id) in names.iter().zip(ids) {
         args.push((*name).to_owned());
         args.push(id.clone());
     }
     args.extend(flags.iter().cloned());
-    Some((format!("share {verb}"), args))
+    Some(Ok((format!("share {verb}"), args)))
+}
+
+/// The flags `share revoke` and `share kick` take; any other word, `-x…` ids included, is an id.
+const FLAGS: &[&str] = &["--share-id", "--guest-id", "--json", "--help", "-h", "--"];
+
+fn is_flag(arg: &str) -> bool {
+    FLAGS.contains(&flag_name(arg))
+}
+
+fn flag_name(arg: &str) -> &str {
+    arg.split_once('=').map_or(arg, |(name, _)| name)
 }
 
 /// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works.
@@ -51,12 +74,31 @@ mod tests {
     fn revoke_and_kick_name_their_ids() {
         assert_eq!(
             action(&words("share revoke s1 --json")),
-            Some(("share revoke".to_owned(), words("--share-id s1 --json")))
+            Some(Ok(("share revoke".to_owned(), words("--share-id s1 --json"))))
         );
         assert_eq!(
             action(&words("share kick s1 g2")),
-            Some(("share kick".to_owned(), words("--share-id s1 --guest-id g2")))
+            Some(Ok(("share kick".to_owned(), words("--share-id s1 --guest-id g2"))))
         );
+    }
+
+    #[test]
+    fn an_id_may_start_with_a_dash() {
+        assert_eq!(
+            action(&words("share revoke -Xk3_aQ9 --json")),
+            Some(Ok(("share revoke".to_owned(), words("--share-id -Xk3_aQ9 --json"))))
+        );
+        assert_eq!(
+            action(&words("share kick --a1b2 -g2")),
+            Some(Ok(("share kick".to_owned(), words("--share-id --a1b2 --guest-id -g2"))))
+        );
+    }
+
+    #[test]
+    fn an_id_given_twice_is_refused() {
+        for text in ["share revoke s1 --share-id s2", "share kick s1 g1 --guest-id=g2"] {
+            assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
+        }
     }
 
     #[test]

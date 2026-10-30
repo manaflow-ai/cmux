@@ -64,7 +64,7 @@ fn the_owner_creates_lists_kicks_and_revokes() {
         json!({"ttl_secs":604_801}),
         json!({"uses":0}),
         json!({"uses":9}),
-        json!({"session":"acp_other"}),
+        json!({"pane":1}),
     ] {
         let mut frame = json!({"cmd":"agent-session-share-create", "surface":surface});
         frame.as_object_mut().unwrap().extend(bad.as_object().unwrap().clone());
@@ -93,6 +93,13 @@ fn the_owner_creates_lists_kicks_and_revokes() {
     assert_code(&owner.request(unknown), "share.unknown");
     let no_guest = json!({"cmd":"agent-session-share-kick", "share_id":share["share_id"]});
     assert_code(&owner.request(no_guest), "share.bad_request");
+    // The session the caller named pins the chat: a surface that shows another one now is refused,
+    // and the one it shows is accepted.
+    let moved = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
+        "session":"acp_other"}));
+    assert_code(&moved, "share.chat_moved");
+    let pinned = create(&mut owner, surface, json!({"session": SESSION}));
+    assert_eq!(pinned["session"], json!(SESSION));
 }
 
 #[test]

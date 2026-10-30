@@ -136,6 +136,31 @@ struct AgentShareTests {
         #expect(notAChat?.isNotFound == false, "a terminal is not a missing target")
     }
 
+    /// A malformed or doubled selector, or a target that is not a tab, is refused: it never falls
+    /// back to the focused chat or the caller's.
+    @Test func aSelectorThatCannotNameOneChatIsRefused() {
+        let f = Self.fixture()
+        let host = f.services
+        let cases: [(ActionInvocation, String)] = [
+            (ActionInvocation(target: nil, arguments: ["surface": .string("abc")], origin: .cli), AgentShareStrings.badSurface),
+            (ActionInvocation(target: ActionTargetRef(kind: .tab, id: f.chat.id), arguments: ["surface": .int(1)], origin: .cli),
+             AgentShareStrings.surfaceAndTarget),
+            (ActionInvocation(target: ActionTargetRef(kind: .pane, id: "1"), arguments: [:], origin: .cli), AgentShareStrings.notAChat),
+            (ActionInvocation(target: ActionTargetRef(kind: .workspace, id: "1"), arguments: [:], origin: .cli), AgentShareStrings.notAChat),
+        ]
+        for (invocation, reason) in cases {
+            guard case .failure(let refusal) = AgentShareActions.chat(invocation, host: host) else {
+                Issue.record("\(invocation) named a chat"); continue
+            }
+            #expect(refusal.reason == reason)
+        }
+        let byTarget = ActionInvocation(target: ActionTargetRef(kind: .tab, id: f.chat.id), arguments: [:], origin: .cli)
+        guard case .success(let chat) = AgentShareActions.chat(byTarget, host: host) else {
+            Issue.record("the chat's tab target names it"); return
+        }
+        #expect(chat.session == Self.session, "the share does not pin the session it named")
+    }
+
     @Test func ttlTakesSecondsOrAUnitWithinOneMinuteToSevenDays() throws {
         #expect(try AgentShareArguments.ttl(nil) == nil)
         #expect(try AgentShareArguments.ttl(" ") == nil)

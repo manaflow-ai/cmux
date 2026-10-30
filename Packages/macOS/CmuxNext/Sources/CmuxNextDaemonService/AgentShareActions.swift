@@ -31,11 +31,14 @@ public struct AgentShareActions {
             guard chat.isLocal else { return .refused(AgentShareStrings.notThisMac) }
             let ttl: UInt64?
             do { ttl = try AgentShareArguments.ttl(invocation["ttl"]?.stringValue) } catch { return .refused(AgentShareStrings.badTTL) }
+            if invocation["uses"] != nil, invocation["uses"]?.intValue == nil { return .refused(AgentShareStrings.badUses) }
             let uses = invocation["uses"]?.intValue.map { UInt32(clamping: $0) }
             let person = invocation.origin == .user
             return Self.answer(registry) {
                 let token = await host.shareOwnerToken()
-                let request = AgentSessionShareCreateRequest(surface: chat.surface, ttlSecs: ttl, uses: uses, ownerToken: token)
+                // The session pins the chat: the daemon refuses if the surface shows another one by now.
+                let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, ttlSecs: ttl, uses: uses,
+                                                             ownerToken: token)
                 let created = try await Self.connected(chat.connection).request(request)
                 // A person's palette or menu run copies the link at once; a script gets it back.
                 if person { Self.announce(created, host: host) }
@@ -84,12 +87,22 @@ public struct AgentShareActions {
     /// agent ran the CLI, else the focused tab. Only a started agent chat can be shared.
     static func chat(_ invocation: ActionInvocation, host: any AgentShareHost) -> Result<AgentShareChat, AgentShareRefusal> {
         let tab: TabModel?
+        // A selector that is malformed, or two that could disagree, never falls back to another chat.
+        if invocation["surface"] != nil, invocation["surface"]?.intValue == nil {
+            return .failure(AgentShareRefusal(reason: AgentShareStrings.badSurface))
+        }
+        if invocation["surface"] != nil, invocation.target != nil {
+            return .failure(AgentShareRefusal(reason: AgentShareStrings.surfaceAndTarget))
+        }
+        if let target = invocation.target, target.kind != .tab {
+            return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat))
+        }
         if let surface = invocation["surface"]?.intValue {
             guard surface > 0, let found = host.shareTab(surface: SurfaceID(rawValue: UInt64(surface))) else {
                 return .failure(AgentShareRefusal(reason: AgentShareStrings.noSurface(surface), isNotFound: true))
             }
             tab = found
-        } else if let target = invocation.target, target.kind == .tab {
+        } else if let target = invocation.target {
             guard let found = host.shareTab(id: target.id) else {
                 return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat, isNotFound: true))
             }
@@ -99,8 +112,8 @@ public struct AgentShareActions {
         } else {
             tab = host.shareFocusedTabID.flatMap(host.shareTab(id:))
         }
-        guard let tab, AgentShareChat.session(of: tab) != nil else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
-        return .success(AgentShareChat(surface: tab.surface.rawValue, connection: host.shareConnection(holding: tab),
+        guard let tab, let session = AgentShareChat.session(of: tab) else { return .failure(AgentShareRefusal(reason: AgentShareStrings.notAChat)) }
+        return .success(AgentShareChat(surface: tab.surface.rawValue, session: session, connection: host.shareConnection(holding: tab),
                                        isLocal: host.shareIsOnThisMac(tab)))
     }
 
@@ -153,6 +166,8 @@ public struct AgentShareActions {
 /// The chat a share names: its surface on the daemon of `connection`.
 struct AgentShareChat {
     let surface: UInt64
+    /// The acpmux session the surface showed when the run named it.
+    var session = ""
     let connection: DaemonConnection?
     /// Whether `connection` is this Mac's daemon, the only one shares are made and listed on.
     var isLocal = true

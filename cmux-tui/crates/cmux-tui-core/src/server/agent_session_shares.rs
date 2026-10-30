@@ -251,6 +251,10 @@ fn author_of(share: &LinkShare, guest: &Guest) -> Value {
 #[serde(deny_unknown_fields)]
 struct Create {
     surface: u64,
+    /// The session the caller saw on `surface`: a surface that shows another chat by now is
+    /// refused (`share.chat_moved`), so a share never goes to a chat nobody named.
+    #[serde(default)]
+    session: Option<String>,
     #[serde(default)]
     ttl_secs: Option<u64>,
     #[serde(default)]
@@ -652,6 +656,9 @@ pub(super) fn handle(
                 return Err("share.bad_request");
             }
             let session = tab_session(mux, p.surface).ok_or("share.not_a_chat")?;
+            if p.session.as_ref().is_some_and(|named| *named != session) {
+                return Err("share.chat_moved");
+            }
             if shares.bridge.invalid() {
                 return Err("share.room_unreachable");
             }
@@ -714,6 +721,7 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.name" => "a name is 1 to 64 characters on one line",
         "share.limit" => "too many shares on this machine",
         "share.not_a_chat" => "not an agent chat with a session",
+        "share.chat_moved" => "the surface shows another chat now; name the chat again",
         "share.not_trusted" => "only the owner's own local connection manages shares",
         "share.unsaved" => "the share could not be saved",
         "share.needs_sign_in" => "sharing a link needs the owner's cmux sign-in (owner_token)",

@@ -132,6 +132,530 @@
         }
       }
     },
+    "agentShare.badSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface takes a surface number."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface erwartet eine Surface-Nummer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface attend un numéro de surface."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ‎--surface رقم سطح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface espera un número de superficie."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要一個表面編號。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 需要一个表面编号。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface에는 서피스 번호가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface にはサーフェス番号を指定します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface prima broj površine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface skal have et overfladenummer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface richiede un numero di superficie."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ត្រូវការលេខផ្ទៃ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface tar et overflatenummer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface przyjmuje numer powierzchni."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface recebe um número de superfície."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface принимает номер поверхности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface ต้องใช้หมายเลขพื้นผิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface bir yüzey numarası alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface приймає номер поверхні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface cần một số bề mặt."
+          }
+        }
+      }
+    },
+    "agentShare.surfaceAndTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the chat with --surface or with a tab target, not both."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Chat mit --surface oder mit einem Tab-Ziel an, nicht mit beidem."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désignez la conversation avec --surface ou avec une cible d’onglet, pas les deux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد الدردشة باستخدام ‎--surface أو بهدف علامة تبويب، وليس كليهما."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica el chat con --surface o con un destino de pestaña, no con ambos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 --surface 或分頁目標指定聊天，不要同時使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 --surface 或标签页目标指定聊天，不要同时使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--surface 또는 탭 대상 중 하나로만 채팅을 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットは --surface かタブのターゲットのどちらか一方で指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navedi chat pomoću --surface ili cilja kartice, ne oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv chatten med --surface eller med et fanemål, ikke begge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la chat con --surface o con una scheda di destinazione, non con entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់ការជជែកដោយ --surface ឬដោយគោលដៅផ្ទាំង មិនមែនទាំងពីរទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi chatten med --surface eller med et fanemål, ikke begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wskaż czat przez --surface albo przez kartę docelową, nie oba naraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indique o chat com --surface ou com uma aba de destino, não com os dois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите чат через --surface или через вкладку, но не оба сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุแชตด้วย --surface หรือด้วยแท็บเป้าหมาย อย่างใดอย่างหนึ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbeti --surface ile ya da bir sekme hedefiyle belirtin, ikisiyle birden değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть чат через --surface або через вкладку, але не обидва."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ định cuộc trò chuyện bằng --surface hoặc bằng thẻ đích, không dùng cả hai."
+          }
+        }
+      }
+    },
+    "agentShare.badUses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses takes a number from 1 to 8."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses erwartet eine Zahl von 1 bis 8."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses attend un nombre de 1 à 8."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ‎--uses رقمًا من 1 إلى 8."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses espera un número del 1 al 8."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses 需要 1 到 8 的數字。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses 需要 1 到 8 的数字。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses에는 1에서 8 사이의 숫자가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses には 1 から 8 の数を指定します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses prima broj od 1 do 8."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses skal have et tal fra 1 til 8."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses richiede un numero da 1 a 8."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses ត្រូវការលេខពី 1 ដល់ 8។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses tar et tall fra 1 til 8."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses przyjmuje liczbę od 1 do 8."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses recebe um número de 1 a 8."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses принимает число от 1 до 8."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses ต้องใช้ตัวเลข 1 ถึง 8"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses 1 ile 8 arasında bir sayı alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses приймає число від 1 до 8."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--uses cần một số từ 1 đến 8."
+          }
+        }
+      }
+    },
+    "agentShare.chatMoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That surface shows another chat now. Name the chat again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Surface zeigt jetzt einen anderen Chat. Gib den Chat erneut an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette surface affiche maintenant une autre conversation. Désignez-la à nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض هذا السطح دردشة أخرى الآن. حدّد الدردشة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa superficie muestra ahora otro chat. Vuelve a indicar el chat."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該表面現在顯示另一個聊天。請重新指定聊天。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该表面现在显示另一个聊天。请重新指定聊天。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 서피스에 이제 다른 채팅이 표시됩니다. 채팅을 다시 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのサーフェスには別のチャットが表示されています。チャットをもう一度指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta površina sada prikazuje drugi chat. Ponovo navedi chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den overflade viser nu en anden chat. Angiv chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella superficie ora mostra un’altra chat. Indica di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទៃនោះកំពុងបង្ហាញការជជែកផ្សេងឥឡូវនេះ។ កំណត់ការជជែកម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den overflaten viser en annen chat nå. Angi chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta powierzchnia pokazuje teraz inny czat. Wskaż czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa superfície agora mostra outro chat. Indique o chat de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта поверхность теперь показывает другой чат. Укажите чат снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นผิวนั้นแสดงแชตอื่นอยู่ตอนนี้ ระบุแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu yüzey artık başka bir sohbet gösteriyor. Sohbeti yeniden belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця поверхня тепер показує інший чат. Вкажіть чат знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bề mặt đó hiện đang hiển thị một cuộc trò chuyện khác. Hãy chỉ định lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
     "agentShare.notAChat": {
       "extractionState": "manual",
       "localizations": {
