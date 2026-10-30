@@ -599,8 +599,10 @@ done
 
 # The commit is resolved in its own job BEFORE the Xcode compile (the app builds
 # at the resolved commit: tests/test_nightly_cmux_tui_resolve.py), never in
-# build-nightly-app; build-nightly-app installs that one commit before it
-# archives the app, and every sign variant requires it before thinning.
+# build-nightly-app; build-nightly-app installs that one commit (or, while the
+# tip's tree publishes, the one await-tree-client.sh finds) before it archives
+# the app, and every sign variant requires the commit build-nightly-app bundled
+# before thinning.
 if ! awk '
   /^  prepare-nightly-variant-primary:/ { job="prepare-nightly-variant-primary:" }
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
@@ -613,7 +615,7 @@ if ! awk '
   job == "build-nightly-app:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { app_commit=1 }
   job == "prepare-nightly-variant-primary:" && /name: Require the cmux-tui client build-nightly-app bundled$/ { require_line=NR }
   job == "prepare-nightly-variant-primary:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
-  job == "prepare-nightly-variant-primary:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
+  job == "prepare-nightly-variant-primary:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.build-nightly-app\.outputs\.cmux_tui_commit \|\| needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
   END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && app_commit && install_line && archive_line && install_line < archive_line && require_line && thin_line && require_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
