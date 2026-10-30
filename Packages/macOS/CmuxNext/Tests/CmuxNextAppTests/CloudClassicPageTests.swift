@@ -38,7 +38,6 @@ struct CloudClassicPageTests {
             unavailable: { machines.unavailable },
             machines: { machines.list },
             limits: { machines.limits },
-            memoryOptions: [8192, 4096],
             hasList: { true },
             lastError: { nil },
             refresh: {},
@@ -242,12 +241,23 @@ struct CloudClassicPageTests {
         } catch let error as PageError {
             #expect(error.code == "cmux.cloud.unsupported")
         }
-        machines.limits = CloudMachineLimits(maxActiveVms: 2, activeVmCount: 1, planId: "free")
+        machines.limits = try JSONDecoder().decode(CloudMachineLimits.self, from: Data(#"{"maxActiveVms":2,"activeVmCount":1,"planId":"free","memoryOptionsMb":[8192,4096],"lockedMemoryOptionsMb":[32768,16384]}"#.utf8))
         let plan = try await provider.call("cmux.cloud.plan.get", params: .object([:]), context: Self.page)
         #expect(plan["plan_id"]?.stringValue == "free")
         #expect(plan["limits"]?["max_active"]?.intValue == 2)
         #expect(plan["usage"]?["active"]?.intValue == 1)
         #expect(plan["limits"]?["memory_options_mb"]?.arrayValue?.compactMap(\.intValue) == [4096, 8192])
+        #expect(plan["limits"]?["locked_memory_options_mb"]?.arrayValue?.compactMap(\.intValue) == [16384, 32768])
+        // The same provider reads updated entitlements, rather than keeping its initial ladder.
+        machines.limits = try JSONDecoder().decode(CloudMachineLimits.self, from: Data(#"{"maxActiveVms":1,"activeVmCount":0,"planId":"go","memoryOptionsMb":[4096],"lockedMemoryOptionsMb":[8192,16384]}"#.utf8))
+        let go = try await provider.call("cmux.cloud.plan.get", params: .object([:]), context: Self.page)
+        #expect(go["limits"]?["memory_options_mb"]?.arrayValue?.compactMap(\.intValue) == [4096])
+        #expect(go["limits"]?["locked_memory_options_mb"]?.arrayValue?.compactMap(\.intValue) == [8192, 16384])
+        // Older servers provide no size entitlement: do not invent allowed sizes.
+        machines.limits = CloudMachineLimits(maxActiveVms: 1, activeVmCount: 0)
+        let old = try await provider.call("cmux.cloud.plan.get", params: .object([:]), context: Self.page)
+        #expect(old["limits"]?["memory_options_mb"]?.arrayValue?.isEmpty == true)
+        #expect(old["limits"]?["locked_memory_options_mb"]?.arrayValue?.isEmpty == true)
         for op in ["cmux.cloud.snapshot.list", "cmux.cloud.fs.list", "cmux.cloud.migration.status"] {
             do {
                 _ = try await provider.call(op, params: .object([:]), context: Self.page)

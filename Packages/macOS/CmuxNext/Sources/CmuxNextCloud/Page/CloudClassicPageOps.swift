@@ -35,8 +35,6 @@ public final class CloudClassicPageOps {
         /// The listed machines in sidebar order (observable: the feed watches it).
         public var machines: @MainActor () -> [CloudMachine]
         public var limits: @MainActor () -> CloudMachineLimits?
-        /// The memory sizes a create offers, in MiB.
-        public var memoryOptions: [Int]
         /// Whether a list for the account signed in now has landed.
         public var hasList: @MainActor () -> Bool
         /// The last list failure, as a person reads it.
@@ -54,7 +52,7 @@ public final class CloudClassicPageOps {
         public init(signedIn: @escaping @MainActor () -> Bool, team: @escaping @MainActor () -> String?,
                     unavailable: @escaping @MainActor () -> String?,
                     machines: @escaping @MainActor () -> [CloudMachine], limits: @escaping @MainActor () -> CloudMachineLimits?,
-                    memoryOptions: [Int], hasList: @escaping @MainActor () -> Bool, lastError: @escaping @MainActor () -> String?,
+                    hasList: @escaping @MainActor () -> Bool, lastError: @escaping @MainActor () -> String?,
                     refresh: @escaping @MainActor () async -> Void, resume: @escaping @MainActor (String) async throws -> Void,
                     pause: @escaping @MainActor (String) async throws -> Void, rename: @escaping @MainActor (String, String) async throws -> Void,
                     delete: @escaping @MainActor (String) async throws -> Void,
@@ -64,7 +62,6 @@ public final class CloudClassicPageOps {
             self.unavailable = unavailable
             self.machines = machines
             self.limits = limits
-            self.memoryOptions = memoryOptions
             self.hasList = hasList
             self.lastError = lastError
             self.refresh = refresh
@@ -285,7 +282,8 @@ public final class CloudClassicPageOps {
             throw Refusal(code: "cmux.cloud.unsupported", message: "cloud.plan.get")
         }
         return Plan(plan_id: limits.planId ?? "",
-                    limits: .init(max_active: cap, max_saved: 0, memory_options_mb: backend.memoryOptions.sorted(), locked_memory_options_mb: []),
+                    limits: .init(max_active: cap, max_saved: 0, memory_options_mb: (limits.memoryOptionsMb ?? []).sorted(),
+                                  locked_memory_options_mb: (limits.lockedMemoryOptionsMb ?? []).sorted()),
                     usage: .init(active: limits.activeVmCount, saved: 0))
     }
 
