@@ -74,12 +74,16 @@ impl MeshHub for FakeHub {
 
 /// A daemon with the relay on and peer `box` down, whose last list had session `m1`, "lane".
 fn setup(answers: &[Answer]) -> (Arc<Hub>, Arc<FakeHub>) {
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "turnCount": 1, "updatedAt": 5});
+    setup_rows(answers, vec![row])
+}
+
+fn setup_rows(answers: &[Answer], rows: Vec<Value>) -> (Arc<Hub>, Arc<FakeHub>) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(config, store);
-    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "turnCount": 1, "updatedAt": 5});
-    hub.seed_down_peer("box", vec![row]);
+    hub.seed_down_peer("box", rows);
     let fake = Arc::new(FakeHub { answers: answers.to_vec(), sent: Mutex::new(Vec::new()) });
     assert!(hub.mesh.set(fake.clone()).is_ok());
     (hub, fake)
@@ -129,6 +133,17 @@ async fn a_text_send_to_a_down_peer_goes_through_the_relay_only_by_the_sessions_
     let to: Vec<_> =
         fake.sent.lock().unwrap().iter().map(|m| (m.to.host.clone(), m.to.name.clone())).collect();
     assert_eq!(to, vec![(Some("box".to_owned()), Some("lane".to_owned()))]);
+}
+
+/// Review of #27590 at f2c910b7: `box/m` names session `m123` by its id prefix as well as by its
+/// name `m`. Relayed by name, it could reach another session the name passes to.
+#[tokio::test]
+async fn a_target_that_names_a_session_by_its_id_prefix_is_never_relayed_by_name() {
+    let row = json!({"sessionId": "m123", "name": "m", "status": "idle", "turnCount": 1, "updatedAt": 5});
+    let (hub, fake) = setup_rows(&[Answer::Take], vec![row]);
+    let reply = send_queue(&hub, text("box/m", "prompt-0001")).await;
+    assert!(!delivery(&reply).starts_with("mesh:"), "{reply}");
+    assert!(fake.sent.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
