@@ -138,3 +138,73 @@ describe("Home attachments: parts over the Worker's request limit go straight to
     expect(code(uploadModeFor(1.5 * TB, true, false, 200_000_000))).toBe("multipart")
   })
 })
+
+describe("Home attachments: a direct completion recovers from lost answers and transient R2 errors", { timeout: 180_000 }, () => {
+  /** The env `base` whose conversation owner runs `override[name]` instead of the real method (given the real stub). */
+  const ownerWith = (base: typeof small, override: Record<string, (stub: any, ...args: Array<any>) => Promise<unknown>>) => {
+    const ns = base.CONVERSATION_DO
+    const get = (oid: DurableObjectId) => {
+      const stub = ns.get(oid)
+      return new Proxy(stub, { get: (t, p) => (typeof p === "string" && override[p] ? (...args: Array<unknown>) => override[p]!(t, ...args) : (...args: Array<unknown>) => (t as any)[p](...args)) })
+    }
+    return { ...base, CONVERSATION_DO: { idFromName: (n: string) => ns.idFromName(n), get } as unknown as typeof small.CONVERSATION_DO }
+  }
+  const bucketWith = (base: typeof small, override: Record<string, (bucket: R2Bucket, ...args: Array<any>) => unknown>) => {
+    const b = base.HOME_ATTACHMENTS
+    return { ...base, HOME_ATTACHMENTS: new Proxy(b, { get: (t, p) => (typeof p === "string" && override[p] ? (...args: Array<unknown>) => override[p]!(t, ...args) : typeof Reflect.get(t, p) === "function" ? (Reflect.get(t, p) as Function).bind(t) : Reflect.get(t, p)) }) }
+  }
+  const run = async (who: Who, conversation: string, slot: string, parts: Array<unknown>, env: object = small) => {
+    let last: { status: number; json: any } | undefined
+    for (let i = 0; i < 10; i++) {
+      last = await complete(who, conversation, slot, parts, env, 64 * MiB)
+      if (last.json.value?.state !== "verifying") break
+    }
+    return last!
+  }
+
+  it("the last step's owner commit lost its answer: completing again commits the verified object and answers stored", async () => {
+    const alice = await signIn("att-direct-commit-lost")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * MiB + 9).map((_, i) => (i * 3) % 241)
+    const r = await ask(alice, id, body)
+    const parts = await sendParts(id, r.json.value, body)
+    const lost = ownerWith(small, { commitAttachment: async (stub, ...args) => { await stub.commitAttachment(...args); throw new Error("Network connection lost.") } })
+    await expect(run(alice, id, r.json.value.slot, parts, lost)).rejects.toThrow("Network connection lost.")
+    const again = await run(alice, id, r.json.value.slot, parts)
+    expect([again.status, again.json.value?.state]).toEqual([200, "stored"])
+    const downloaded = new Uint8Array(await (await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)).arrayBuffer())
+    expect(sha(downloaded)).toBe(sha(body))
+  })
+
+  it("the owner commit failed before it took effect: completing again commits the verified object", async () => {
+    const alice = await signIn("att-direct-commit-failed")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * MiB + 11).map((_, i) => (i * 7) % 233)
+    const r = await ask(alice, id, body)
+    const parts = await sendParts(id, r.json.value, body)
+    const failed = ownerWith(small, { commitAttachment: async () => { throw new Error("owner unreachable") } })
+    await expect(run(alice, id, r.json.value.slot, parts, failed)).rejects.toThrow("owner unreachable")
+    const again = await run(alice, id, r.json.value.slot, parts)
+    expect([again.status, again.json.value?.state]).toEqual([200, "stored"])
+  })
+
+  it("R2's join fails transiently with no object yet: 503 retryable, the upload stays, and completing again stores the file", async () => {
+    const alice = await signIn("att-direct-join-transient")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * MiB + 13).map((_, i) => (i * 11) % 229)
+    const r = await ask(alice, id, body)
+    const parts = await sendParts(id, r.json.value, body)
+    const flaky = bucketWith(small, {
+      resumeMultipartUpload: (b, key: string, uploadId: string) =>
+        new Proxy(b.resumeMultipartUpload(key, uploadId), { get: (u, q) => (q === "complete" ? async () => { throw new Error("completeMultipartUpload: We encountered an internal error. Please try again. (10001)") } : (Reflect.get(u, q) as Function).bind(u)) })
+    })
+    const failed = await complete(alice, id, r.json.value.slot, parts, flaky, 64 * MiB)
+    expect([failed.status, failed.json.error?.code, failed.json.error?.retryable]).toEqual([503, "attachment.complete_unavailable", true])
+    // The join failed and the object could not be read either: still 503, never a 500.
+    const blind = bucketWith(flaky, { head: async () => { throw new Error("Network connection lost.") } })
+    const unknown = await complete(alice, id, r.json.value.slot, parts, blind, 64 * MiB)
+    expect([unknown.status, unknown.json.error?.code]).toEqual([503, "attachment.complete_unavailable"])
+    const done = await run(alice, id, r.json.value.slot, parts)
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+  })
+})
