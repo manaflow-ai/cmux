@@ -6182,10 +6182,32 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         assigned["runner_id"] = 7
         self.assertTrue(rescue.job_started(assigned), "a runner assigned is started")
 
-    def test_every_nightly_dev_and_promote_workflow_is_excluded_by_name(self):
+    def test_every_nightly_dev_and_promote_delivery_run_is_excluded(self):
+        # dep-fleet's ruling: a delivery run (any event but a pull request's) of a nightly, DEV, promote, release,
+        # sign or rollback workflow never fails over; an unread event keeps the exclusion.
         for path in rescue.NEVER_FAILOVER_PATHS | {".github/workflows/nightly-next-future.yml"}:
-            self.assertTrue(rescue.never_fails_over(path), path)
-        self.assertFalse(rescue.never_fails_over(rescue.CMUX_NEXT_WORKFLOW_PATH))
+            for event in ("schedule", "workflow_dispatch", "push", "workflow_run", "", None):
+                self.assertTrue(rescue.never_fails_over(path, event), (path, event))
+        self.assertFalse(rescue.never_fails_over(rescue.CMUX_NEXT_WORKFLOW_PATH, "schedule"))
+
+    def test_a_pull_request_run_of_the_canary_or_launch_smoke_is_not_excluded(self):
+        # The ruling never meant a pull request's test run of a post-publish check: it publishes, signs, rolls back
+        # and files nothing (8 such jobs held glaeda-side-std-xcode-26.6 as reserved on 2026-10-30 14:16Z).
+        for path in (".github/workflows/nightly-next-canary.yml", ".github/workflows/nightly-next-launch-smoke.yml"):
+            self.assertFalse(rescue.never_fails_over(path, "pull_request"), path)
+
+    def test_a_pull_request_run_of_the_canary_or_launch_smoke_fails_over_a_dead_label(self):
+        for path in (".github/workflows/nightly-next-canary.yml", ".github/workflows/nightly-next-launch-smoke.yml"):
+            with self.subTest(path=path):
+                target = rescue.target_from_event(event(path=path, pull_requests=[{"number": 26999}]),
+                                                  "manaflow-ai/cmux")
+                self.assertIsInstance(target, rescue.Target)
+                clock, api, _ = self.world(self.gates, path=path)
+                result, lines = self.run_rescue(api, clock, target)
+                self.assertIn("cancel", api.calls)
+                self.assertIn("rerun", api.calls)
+                self.assertNotIn(rescue.OPEN_HEAD_RULE, result)
+                self.assertTrue(any(line.startswith(rescue.OPEN_HEAD_FAILOVER) for line in lines), lines)
 
     def test_the_failover_leaves_a_receipt(self):
         clock, api, target = self.world(self.gates)
