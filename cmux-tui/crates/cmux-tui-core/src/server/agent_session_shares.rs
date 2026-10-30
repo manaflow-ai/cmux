@@ -120,9 +120,7 @@ impl LinkShare {
 
     /// The room's `DELETE` is already queued.
     fn delete_queued(&self) -> bool {
-        self.pending_room_ops
-            .iter()
-            .any(|op| op.get("op").and_then(Value::as_str) == Some("delete"))
+        self.pending_room_ops.iter().any(|op| op_of(op) == Some("delete"))
     }
 
     fn shown(&self, now: u64) -> Value {
@@ -422,7 +420,7 @@ impl LinkShares {
                 shares.retain(|s| {
                     s.live().is_ok()
                         || s.state == ShareState::Provisioning
-                        || s.pending_room_ops.iter().any(|o| o["op"] != "kick")
+                        || s.pending_room_ops.iter().any(|o| op_of(o) != Some("kick"))
                 });
             }
             if shares.len() >= MAX_SHARES {
@@ -546,23 +544,32 @@ impl LinkShares {
 
     /// Closes every open share whose chat `gone` names, as [`Self::close_chat`] does.
     fn close_where(&self, directory: Option<&Path>, gone: impl Fn(&str) -> bool) {
-        self.end_where(directory, |s| gone(&s.session), |share| {
-            share.state = ShareState::Closed;
-            if share.room.is_some() && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
-            {
-                share.pending_room_ops.push(json!({"op": "delete"}));
-            }
-        });
+        self.end_where(
+            directory,
+            |s| gone(&s.session),
+            |share| {
+                share.state = ShareState::Closed;
+                if share.room.is_some() && !share.delete_queued() {
+                    share.pending_room_ops.push(json!({"op": "delete"}));
+                }
+            },
+        );
     }
 
     /// The room ended `share_id` (it closed the host socket with 4001, or refused its upgrade as
     /// gone): a share still open here is revoked, with no room `DELETE` (the room is gone) and no
     /// kick left to send.
     pub(super) fn ended_by_room(&self, directory: Option<&Path>, share_id: &str) {
-        self.end_where(directory, |s| s.share_id == share_id, |share| {
-            share.state = ShareState::Revoked;
-            share.pending_room_ops.retain(|o| o["op"] != "kick" && o["op"] != "delete");
-        });
+        self.end_where(
+            directory,
+            |s| s.share_id == share_id,
+            |share| {
+                share.state = ShareState::Revoked;
+                share
+                    .pending_room_ops
+                    .retain(|o| op_of(o) != Some("kick") && op_of(o) != Some("delete"));
+            },
+        );
     }
 
     /// Ends every open share `which` picks with `end`. The end stands even when it cannot be
@@ -641,7 +648,7 @@ impl LinkShares {
                 !room_deletes.contains(&s.share_id)
                     && s.expires_at > now
                     && (matches!(s.state, ShareState::Active | ShareState::Provisioning)
-                        || s.pending_room_ops.iter().any(|o| o["op"] != "kick"))
+                        || s.pending_room_ops.iter().any(|o| op_of(o) != Some("kick")))
             })
             .map(|s| s.expires_at)
             .min();
@@ -699,6 +706,11 @@ pub(crate) fn close_unlisted_chat_shares(mux: &Mux, listed: &HashSet<String>) {
     let directory = mux.session_state_directory();
     shares.close_where(directory.as_deref(), |session| !listed.contains(session));
     shares.settle(mux);
+}
+
+/// The kind of a queued room operation (`kick`, `delete`).
+pub(super) fn op_of(op: &Value) -> Option<&str> {
+    op.get("op").and_then(Value::as_str)
 }
 
 /// Ends at once every guest connection whose author id `ended` names.

@@ -240,14 +240,14 @@ fn read_watch(
                 return Err(std::io::Error::other("acpmux did not list its sessions"));
             };
             for summary in sessions {
-                if summary["peer"].is_null()
-                    && let Some(session) = summary["sessionId"].as_str()
+                if summary.get("peer").is_none_or(Value::is_null)
+                    && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
                 {
                     listed.insert(session.to_owned());
                 }
-                if summary["peer"].is_null()
-                    && summary["status"] == "closed"
-                    && let Some(session) = summary["sessionId"].as_str()
+                if summary.get("peer").is_none_or(Value::is_null)
+                    && summary.get("status").and_then(Value::as_str) == Some("closed")
+                    && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
                 {
                     crate::server::close_chat_shares(&mux, session);
                 }
@@ -350,7 +350,9 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
 
 /// A change that ends the chat for its link shares: closed by the person, or removed.
 fn closes_chat(params: &Value) -> bool {
-    params["kind"] == "purged" || params["session"]["status"] == "closed"
+    params.get("kind").and_then(Value::as_str) == Some("purged")
+        || params.get("session").and_then(|s| s.get("status")).and_then(Value::as_str)
+            == Some("closed")
 }
 
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.

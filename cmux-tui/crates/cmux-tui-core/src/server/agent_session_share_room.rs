@@ -28,7 +28,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find};
+use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
 
 type Ws =
@@ -193,7 +193,7 @@ fn view(mux: &Mux, share_id: &str) -> Option<View> {
             kicks: s
                 .pending_room_ops
                 .iter()
-                .filter(|o| o.get("op").and_then(Value::as_str) == Some("kick"))
+                .filter(|o| op_of(o) == Some("kick"))
                 .filter_map(|o| o.get("guest_id").and_then(Value::as_str).map(str::to_owned))
                 .collect(),
             delete: s.delete_queued(),
@@ -252,8 +252,8 @@ fn done(mux: &Mux, share_id: &str, op: &Value) -> bool {
     change(mux, share_id, |s| {
         let before = s.pending_room_ops.len();
         // The room's DELETE answered: its guests are gone with it, so no kick waits.
-        let deleted = op["op"] == "delete";
-        s.pending_room_ops.retain(|o| o != op && !(deleted && o["op"] == "kick"));
+        let deleted = op_of(op) == Some("delete");
+        s.pending_room_ops.retain(|o| o != op && !(deleted && op_of(o) == Some("kick")));
         ((), s.pending_room_ops.len() != before)
     })
     .is_some()
@@ -705,16 +705,10 @@ enum Refused {
 }
 
 /// Opens `{room}/v1/chat-shares/{id}/host` with the host token.
-async fn connect(
-    url: &str,
-    share_id: &str,
-    token: &str,
-    timeout: Duration,
-) -> Result<Ws, Refused> {
+async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> Result<Ws, Refused> {
     let socket = format!("{}/v1/chat-shares/{share_id}/host", url.replacen("http", "ws", 1));
     let mut request = socket.into_client_request().map_err(|_| Refused::ForGood)?;
-    let bearer =
-        HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Refused::ForGood)?;
+    let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Refused::ForGood)?;
     request.headers_mut().insert("authorization", bearer);
     // `cmux.share/1` frames are at most 512 KiB: a larger one ends the socket unparsed.
     let config = tungstenite::protocol::WebSocketConfig::default()
@@ -818,17 +812,18 @@ const GUEST_REFUSALS: [&str; 8] = [
 /// The daemon's answer to one room frame.
 fn answer(mux: &Mux, share_id: &str, text: &str, ready: &mut bool) -> Vec<Value> {
     let frame: Value = serde_json::from_str(text).unwrap_or(Value::Null);
-    if frame["v"] != 1 {
+    if frame.get("v").and_then(Value::as_u64) != Some(1) {
         return Vec::new();
     }
-    match frame["t"].as_str().unwrap_or_default() {
+    match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
         "hello" => {
             *ready = true;
             reconcile(mux, share_id)
         }
         // The room sends a redeem only after the daemon's `guests`.
         "redeem" if *ready => {
-            let field = |name: &str| frame[name].as_str().unwrap_or_default().to_owned();
+            let field =
+                |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
             let redeem = Redeem {
                 share_id: share_id.to_owned(),
                 secret: field("secret"),
@@ -838,20 +833,21 @@ fn answer(mux: &Mux, share_id: &str, text: &str, ready: &mut bool) -> Vec<Value>
             let directory = mux.session_state_directory();
             let redeemed = shares(mux).redeem(directory.as_deref(), redeem);
             shares(mux).settle(mux);
-            let request_id = &frame["request_id"];
+            let request_id = frame.get("request_id").unwrap_or(&Value::Null);
             match redeemed {
                 Ok(guest) => vec![json!({"v": 1, "t": "redeemed", "request_id": request_id,
-                    "guest_id": guest["guest_id"]})],
+                    "guest_id": guest.get("guest_id")})],
                 // Only the refusals a guest may see reach the room (and the guest page); any
                 // other (storage, provisioning, an unknown share) is `share.unavailable`.
                 Err(code) => {
-                    let code = if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
+                    let code =
+                        if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
                     vec![json!({"v": 1, "t": "redeemed", "request_id": request_id, "error": code})]
                 }
             }
         }
         "kicked" => {
-            if let Some(guest) = frame["guest_id"].as_str() {
+            if let Some(guest) = frame.get("guest_id").and_then(Value::as_str) {
                 done(mux, share_id, &json!({"op": "kick", "guest_id": guest}));
             }
             Vec::new()

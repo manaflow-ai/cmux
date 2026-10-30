@@ -22,11 +22,24 @@ type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 /// What the fake room saw, in order.
 #[derive(Debug)]
 enum Seen {
-    Request { method: String, path: String, bearer: String, body: Value },
-    Host { conn: u64, bearer: String },
-    Frame { conn: u64, frame: Value },
+    Request {
+        method: String,
+        path: String,
+        bearer: String,
+        body: Value,
+    },
+    Host {
+        conn: u64,
+        bearer: String,
+    },
+    Frame {
+        conn: u64,
+        frame: Value,
+    },
     /// A host socket upgrade the room refused with `status`.
-    Refused { status: u16 },
+    Refused {
+        status: u16,
+    },
 }
 
 #[derive(Default)]
@@ -256,7 +269,10 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
             }
         }
         let mut stream = stream;
-        let _ = write!(stream, "HTTP/1.1 {status} Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        let _ = write!(
+            stream,
+            "HTTP/1.1 {status} Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        );
         let _ = seen.send(Seen::Refused { status });
         return;
     }
@@ -289,10 +305,8 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
             // `{"close": code}` closes the socket with that code, as the room does.
             if let Some(code) = frame["close"].as_u64() {
                 let code = tungstenite::protocol::frame::coding::CloseCode::from(code as u16);
-                let _ = socket.close(Some(tungstenite::protocol::CloseFrame {
-                    code,
-                    reason: "".into(),
-                }));
+                let _ = socket
+                    .close(Some(tungstenite::protocol::CloseFrame { code, reason: "".into() }));
                 let _ = socket.flush();
                 continue;
             }
@@ -1123,9 +1137,10 @@ fn a_share_the_room_ended_ends_here_and_is_not_reconnected() {
         std::thread::sleep(Duration::from_millis(5));
     }
     room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
-    room.none("a DELETE of a room already gone", |s| {
-        matches!(s, Seen::Request { method, .. } if method == "DELETE")
-    });
+    room.none(
+        "a DELETE of a room already gone",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
 }
 
 #[test]
@@ -1178,9 +1193,10 @@ fn a_share_the_room_no_longer_has_ends_here() {
         assert!(Instant::now() < deadline, "a share its room no longer has ends here");
         std::thread::sleep(Duration::from_millis(5));
     }
-    room.none("a DELETE of a room already gone", |s| {
-        matches!(s, Seen::Request { method, .. } if method == "DELETE")
-    });
+    room.none(
+        "a DELETE of a room already gone",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
 }
 
 #[test]
