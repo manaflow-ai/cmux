@@ -121,6 +121,12 @@ public final class PageInfoController {
         closed()
     }
 
+    /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
+    func closePanel() {
+        close()
+        popup.closePanel()
+    }
+
     /// The bubble closed (``close()`` or a host dismiss rule): live data stops, the page gets
     /// the keys back.
     private func closed() {

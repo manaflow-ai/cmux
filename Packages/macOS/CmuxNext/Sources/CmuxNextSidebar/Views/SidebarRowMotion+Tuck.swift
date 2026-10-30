@@ -70,6 +70,9 @@ extension RowMotion {
             guard let layer = view.layer,
                   let fade = MotionPath.keyframes("opacity", values: values.map { NSNumber(value: $0) },
                                                   times: times.map { now + $0 * settle }, on: layer) else { continue }
+            // A compositor frame just before this explicit start time must show the sampled
+            // opacity, not the already-final model alpha (which would blink off, then reappear).
+            fade.fillMode = .backwards
             view.tuckMove = move
             layer.add(fade, forKey: tuckKey)
         }

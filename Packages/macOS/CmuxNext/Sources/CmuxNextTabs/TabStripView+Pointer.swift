@@ -321,7 +321,7 @@ extension TabStripView {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
         let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
-        menuTracking.begin(menu)
+        menuTracking.begin(menu, fromNewTabButton: true)
         presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }

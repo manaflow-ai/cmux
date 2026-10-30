@@ -288,9 +288,9 @@ export const gridScenes: GridScene[] = [
       `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`,
     ),
     value("icon box", ".cv-tool__icon", "width", token("transcript-icon-box")),
-    left("text", ".cv-tool__text", "text", token("transcript-text-gap")),
+    left("text", ".cv-tool__text, .cv-command__text", "text", token("transcript-text-gap")),
     trail(".cv-tool__chevron", `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`, "right"),
-    mid(".cv-tool__text", ".cv-tool__icon"),
+    mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
   scene("transcript.actions", "agent-pane.reply-actions", "after-steer", ".cv-reply-actions", [
     trail(".cv-turn-time", token("transcript-action-trail-center")),
@@ -305,7 +305,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-permission-card",
     ".acpmux-permission-request-icon",
     ".acpmux-permission-request-label",
-    ".acpmux-permission-request-description",
+    ".acpmux-permission-scope",
     ".acpmux-permission-buttons button:last-child",
   ),
   card(
@@ -328,22 +328,47 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
-  card(
-    "transcript.cards",
-    "agent-pane.chat-inspector",
-    "layout-glance-open",
-    ".acpmux-chat-inspector-section",
-    ".acpmux-chat-inspector-section__icon",
-    ".acpmux-chat-inspector-section__title",
-    ".acpmux-summary-text",
-    ".acpmux-chat-inspector-section__fold",
-  ),
+  // Glance has a bare Environment and heterogeneous section bodies (ChatInspector.tsx).
+  // Section roots keep a proven header absence from excusing another section's selector.
+  ...[
+    ["environment", ".acpmux-chat-inspector-row__name"],
+    ["context", ".acpmux-chat-inspector-context__total > span:first-child"],
+    ["connectors", ".acpmux-chat-inspector-row__name"],
+    ["changes", ".acpmux-chat-inspector-pr__title"],
+    ["sources", ".acpmux-chat-inspector-source__label"],
+    ["outputs", ".acpmux-chat-inspector-row__name"],
+    ["subagents", ".acpmux-summary-text"],
+    ["tasks", ".acpmux-chat-inspector-task__command"],
+  ].map(([section, body]) => {
+    const entry = card(
+      "transcript.cards",
+      "agent-pane.chat-inspector",
+      "layout-glance-open",
+      `.acpmux-chat-inspector-section[data-section="${section}"]`,
+      ".acpmux-chat-inspector-section__icon",
+      ".acpmux-chat-inspector-section__title",
+      body!,
+      ".acpmux-chat-inspector-section__fold",
+    );
+    entry.absent = {};
+    if (section !== "context" && section !== "connectors")
+      entry.absent[".acpmux-chat-inspector-section__icon"] =
+        `ChatInspector's ${section} section supplies no header icon in layout-glance-open.`;
+    if (section === "environment") {
+      entry.absent[".acpmux-chat-inspector-section__title"] =
+        "Glance Environment is bare: InspectorSection renders its body without a header.";
+      entry.absent[".acpmux-chat-inspector-section__fold"] = "Bare Environment has no section disclosure control.";
+    }
+    return entry;
+  }),
 ];
 
 // These are omissions in the current component design, not selector fallbacks. All other
 // missing selectors fail fixture coverage so renames cannot produce a green warning run.
 const absentBySurface: Record<string, Record<string, string>> = {
-  "stack.trust": { ".acpmux-trust-ask-icon": "TrustAsk renders text and buttons without a leading mark." },
+  "stack.trust": {
+    ".acpmux-trust-ask-icon": "TrustAsk renders text and buttons without a leading mark.",
+  },
   "stack.queued": {
     ".acpmux-queued-kind": "Ordinary queued prompts have no leading mark; only steering entries render kind.",
   },
@@ -351,12 +376,26 @@ const absentBySurface: Record<string, Record<string, string>> = {
     ".ui-menu-icon": "The context-menu open fixture has text-only actions.",
     ".ui-menu-shortcut, .ui-submenu-chevron": "These context actions have neither shortcut nor submenu.",
   },
+  "picker.account": {
+    ".ui-menu-shortcut, .ui-submenu-chevron":
+      "AccountRows renders account labels and selection marks without shortcuts or submenus.",
+  },
   "picker.effort": {
     '[aria-checked="true"] svg': "Inline effort segments indicate selection without a checkmark glyph.",
   },
   "transcript.cards": {
     ".acpmux-permission-card-leading": "QuestionCard has a text legend without a leading header icon.",
   },
-  "transcript.toolgroup": { ".cv-tool__chevron": "Non-toggle tool rows have no trailing disclosure control." },
+  "transcript.toolgroup": {
+    ".cv-tool__chevron": "Non-toggle tool rows have no trailing disclosure control.",
+  },
 };
-for (const item of gridScenes) item.absent = absentBySurface[item.surface];
+for (const item of gridScenes) {
+  item.absent = { ...absentBySurface[item.surface], ...item.absent };
+  if (item.surface === "transcript.cards" && item.variant === "finished-open") {
+    // SummaryCard.gallery.tsx sets column=true; both controls require !card.column.
+    item.absent[".acpmux-summary-card__fold--icon"] =
+      "The inline summary column has a text heading without the popover fold icon.";
+    item.absent[".acpmux-summary-card__close"] = "The inline summary column has no popover close control.";
+  }
+}

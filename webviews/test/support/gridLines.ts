@@ -122,13 +122,8 @@ export function measureGridLines(scene: GridScene): GridResult[] {
       let node: Node | null;
       while ((node = walker.nextNode())) {
         const start = node.textContent?.search(/\S/) ?? -1;
-        if (
-          start < 0 ||
-          !node.parentElement ||
-          !visible(node.parentElement) ||
-          node.parentElement.closest('[aria-hidden="true"]')
-        )
-          continue;
+        // Accessibility-hidden placeholders still paint text; measure their ink too.
+        if (start < 0 || !node.parentElement || !visible(node.parentElement)) continue;
         const range = document.createRange();
         range.setStart(node, start);
         range.setEnd(node, start + 1);

@@ -24,6 +24,7 @@ import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import { MessagePlacement } from "./conversation/messagePlacement";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -1484,6 +1485,7 @@ export function layoutConversation(
   const prompts = new Uint8Array(rows.length);
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
+  const messages = new MessagePlacement(rows, previous?.layout);
   let start = 0;
   if (previous) {
     const limit = Math.min(rows.length, previous.rows.length);
@@ -1512,6 +1514,7 @@ export function layoutConversation(
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
     prompts[index] = prompt(row) ? 1 : 0;
+    messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
@@ -1547,7 +1550,9 @@ export function layoutConversation(
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, gaps, prompts, totalHeight: top };
+  const layout = { tops, heights, gaps, prompts, totalHeight: top };
+  messages.finish(rows, layout);
+  return layout;
 }
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
@@ -1670,28 +1675,25 @@ import { chatColumn, type ChatColumn } from "./chatWidth";
 import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 
-/// The pane's fallback accessible name and problem-only header status.
+/// The pane's fallback accessible name and problem-only header status. A handshake that is
+/// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
+/// lasts is the one line above the composer (HostError.tsx HostUnavailableLine), never a header
+/// Reconnecting (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD"). `hostRecovering`: the
+/// pane is asking the host again after its daemon went away, so a dropped socket is quiet too.
 export function paneHeader(
   snapshot: AcpmuxSnapshot,
   t: Translate = translate,
+  { hostRecovering = false }: { hostRecovering?: boolean } = {},
 ): { title: string; status: string; detail?: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
-  // Initial connecting and normal turn events are quiet. The client includes the failure
-  // after `connecting:` while retrying, and keeps it until a successful connection.
+  // Initial connecting, retrying and normal turn events are quiet.
   const connection = snapshot.connection;
-  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
   const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
-    connection === "disconnected"
-      ? t("header.disconnected")
-      : retrying
-        ? t("header.reconnecting")
-        : failed
-          ? t("header.failed")
-          : "";
+    connection === "disconnected" && !hostRecovering ? t("header.disconnected") : failed ? t("header.failed") : "";
   if (!status) return { title, status };
   const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
   let rowError: string | undefined;

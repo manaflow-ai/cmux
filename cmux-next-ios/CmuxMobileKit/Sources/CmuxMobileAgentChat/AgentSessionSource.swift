@@ -46,6 +46,8 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case queueUpdated(promptId: String, text: String)
     /// The waiting prompts' order (`queue_order`, Move up / Move down).
     case queueOrder([String])
+    /// The daemon retried the failed turn under a new attempt id.
+    case turnRetried(previousTurnID: String, turnID: String)
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
     /// The agent's request to its model failed and it is trying again (Claude Code's
@@ -90,6 +92,7 @@ public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
     /// sent again after its reply was lost (acpmux also looks for the id in the session log).
     case prompt(text: String, attachments: [AgentAttachment], steer: Bool, promptID: String, resend: Bool)
+    case retryFailedTurn
     case cancel
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
@@ -115,12 +118,19 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public var kind: Kind
     public var name: String
     public var data: Data?
+    /// A picked file too large to hold in memory: streamed from here at send.
+    public var fileURL: URL?
+    /// The file's size when its bytes are not held (`fileURL`).
+    public var byteCount: Int?
 
-    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil) {
+    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
+                fileURL: URL? = nil, byteCount: Int? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.data = data
+        self.fileURL = fileURL
+        self.byteCount = byteCount
     }
 
     /// The image MIME type from the data's signature (nil: not an image an
@@ -136,7 +146,7 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     }
 
     /// The attachment as a preview reads it (composer and sent message alike).
-    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
+    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image, fileURL: fileURL) }
 
     /// The id prefix of an image a recorded prompt names (acpmux's `images[].id`, its bytes' hash).
     public static let recordedImagePrefix = "acpmux-image:"
