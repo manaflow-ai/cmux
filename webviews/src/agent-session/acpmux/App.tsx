@@ -6916,10 +6916,20 @@ function AcpmuxPane() {
     for (const [id, progress] of Object.entries(snapshot.subagentProgress ?? {}))
       bridgeProgress.updateProgress(id, progress);
   }, [producerProgress, bridgeProgress, freshAgents, snapshot.subagentProgress]);
-  const progressStore = producerProgress ?? bridgeProgress;
+  // Older bridge/gallery snapshots have no structure version or keyed progress delta. Keep their
+  // row's own snapshot value as the fallback instead of exposing a stale one-time bridge value;
+  // direct snapshots and newer bridge snapshots use the keyed store above.
+  const compatibilitySnapshot = snapshot.subagentStructureVersion === undefined;
+  const progressStore =
+    producerProgress ?? (snapshot.subagentProgress !== undefined ? bridgeProgress : undefined);
   const structureVersion = snapshot.subagentStructureVersion ?? shownSessionId;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- usage updates use keyed subscriptions
-  const chatAgents = useMemo(() => freshAgents, [structureVersion, shownSessionId]);
+  // Compatibility snapshots do not carry a structure version, so use their fresh row list to
+  // reflect structural changes. Direct snapshots stay keyed by the producer's structure version.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- direct usage updates use keyed subscriptions
+  const chatAgents = useMemo(
+    () => freshAgents,
+    compatibilitySnapshot ? [freshAgents] : [structureVersion, shownSessionId],
+  );
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =

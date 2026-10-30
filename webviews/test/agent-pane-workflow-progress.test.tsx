@@ -175,6 +175,28 @@ test("bridge repopulates progress when switching sessions", async () => {
   } finally { await act(async () => root.unmount()); }
 });
 
+test("compatibility snapshots without a progress delta refresh the row from its latest agent", async () => {
+  configureSubagentTray(true);
+  (dom.window as unknown as { webkit: unknown }).webkit = {
+    messageHandlers: { agentSession: { postMessage(message: { method?: string }) {
+      if (message.method === "ready") return Promise.resolve({ ok: true,
+        value: { protocolVersion: 1, transport: "preview", machineName: "Mac" } });
+      return Promise.resolve({ ok: true, value: null });
+    } } },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    const first = { ...agents[0]!, tokens: 42_000 };
+    const updated = { ...first, tokens: 84_000, agents: { started: 3, done: 2 } };
+    await act(async () => root.render(<AcpmuxApp />));
+    await act(async () => receive(snapshot([first], [], "compatibility-session")));
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
+    await act(async () => receive(snapshot([updated], [], "compatibility-session")));
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("84K tokens");
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("2/3 agents");
+  } finally { await act(async () => root.unmount()); }
+});
+
 test("progress source notifies only the changed agent and cleans subscriptions", () => {
   const store = new AgentProgressStore(agents);
   let a = 0, b = 0;
