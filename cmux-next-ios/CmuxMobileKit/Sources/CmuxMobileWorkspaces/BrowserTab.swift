@@ -31,9 +31,17 @@ public final class BrowserTabModel: BrowserTabState {
     /// The person navigated (typed an address, followed a link, went back or forward),
     /// as opposed to the page redirecting by itself.
     @ObservationIgnored var personNavigated: (@MainActor () -> Void)?
-    /// Readies a Mac `localhost:<port>` page before it loads (the port forwarded to
-    /// the Mac's loopback). Nil: those pages are the Mac's only.
+    /// Whether a Mac `localhost:<port>` page may load here (answered at once). Nil:
+    /// those pages are the Mac's only.
+    @ObservationIgnored var loopbackPolicy: (@MainActor (URL) -> LoopbackForward)?
+    /// Readies the page's port (forwarded to the Mac's loopback) before it loads.
     @ObservationIgnored var forwardLoopback: (@MainActor (URL) async -> LoopbackForward)?
+    /// The address this tab itself is loading (the address bar, Open on iPhone, a
+    /// restored page): a navigation the person started, which may open a new port.
+    @ObservationIgnored var ownLoad: URL?
+    /// Whether the page's port already forwards to this tab's Mac (its redirects and
+    /// same-port links need no new port).
+    @ObservationIgnored var loopbackIsOpen: (@MainActor (URL) -> Bool)?
     /// The Mac's last refusal of a forwarded port ("Nothing is listening on port 3000 on this Mac.").
     @ObservationIgnored var loopbackRefusal: (@MainActor (URL) -> String?)?
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
@@ -83,9 +91,16 @@ public final class BrowserTabModel: BrowserTabState {
     /// shows why instead.
     public func load(_ target: URL) {
         let reach = PhoneReach(target)
-        if guardian != nil, reach == .macOnly || (reach == .macLoopback && forwardLoopback == nil) {
+        if guardian != nil, reach == .macOnly {
             refuse(target)
             return
+        }
+        if guardian != nil, reach == .macLoopback {
+            if case .macOnly(let detail) = loopbackPolicy?(target) ?? .macOnly(detail: nil) {
+                refuse(target, detail: detail)
+                return
+            }
+            ownLoad = target
         }
         problem = nil
         // The address bar shows where the page is going at once (as Safari's does).
@@ -210,6 +225,12 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
 
     init(model: BrowserTabModel) { self.model = model }
 
+    /// Same scheme, host and port.
+    static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
+        a.scheme?.lowercased() == b.scheme?.lowercased() && a.host()?.lowercased() == b.host()?.lowercased()
+            && PhoneReach.port(a) == PhoneReach.port(b)
+    }
+
     /// What a page loads itself; anything else belongs to another app.
     static let pageSchemes: Set<String> = ["http", "https", "about", "blob", "data", "javascript"]
 
@@ -222,7 +243,26 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
         if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
         let reach = PhoneReach(target)
-        if reach == .macLoopback, let model, let forward = model.forwardLoopback {
+        if reach == .macLoopback, let model, let policy = model.loopbackPolicy, let forward = model.forwardLoopback {
+            if case .macOnly(let detail) = policy(target) {
+                model.refuse(target, detail: detail)
+                decisionHandler(.cancel)
+                return
+            }
+            // A new port opens only for a navigation the person started, or one from
+            // the same loopback origin (the dev app's own links); never a page's
+            // script or form sending this iPhone into the Mac's loopback.
+            let own = model.ownLoad == target
+            model.ownLoad = nil
+            // `sourceFrame` is nil for some navigations despite its Swift type.
+            let source = (action.sourceFrame as WKFrameInfo?)?.request.url
+            let sameOrigin = source.map { Self.sameOrigin($0, target) } ?? false
+            let open = model.loopbackIsOpen?(target) ?? false
+            guard own || open || sameOrigin || [.linkActivated, .backForward].contains(action.navigationType) else {
+                model.refuse(target, detail: String(localized: "A page tried to open \(WorkspaceTabsSource.addressLabel(target)). Type it in the address bar to open it on this iPhone, or mirror it from the Mac."))
+                decisionHandler(.cancel)
+                return
+            }
             // The Mac's dev server: this iPhone's listener on the port must be up first.
             // task-owner: one navigation's decision; WebKit waits for it
             Task { @MainActor in

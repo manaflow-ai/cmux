@@ -327,22 +327,42 @@ manaflow-ai/cmux#13742 (comment 6534420678).
 - **What the phone names.** A port only. hostd connects to `127.0.0.1`, then
   `[::1]`; never a host, an interface or a path the phone chooses.
 - **Who may.** A paired phone (the pairing gate, like `browser`), which is
-  one of the account owner's own phones (above). That phone already reaches
-  every loopback port: the `browser` service loads any `http(s)` address on
-  the Mac, `localhost` included, and `daemon` types into the Mac's terminals.
-  This channel adds no reach; it moves where the page renders.
+  one of the account owner's own phones (above). The person on that phone
+  already reaches every loopback port: the `browser` service loads any
+  `http(s)` address on the Mac, `localhost` included, and `daemon` types into
+  the Mac's terminals.
+- **What is new: web content on the phone.** Pages in the phone's own web view
+  could otherwise use a forwarded port. On the Mac, Chromium's Private Network
+  Access stops an internet page from reaching loopback; iOS WebKit has no such
+  check, so the phone applies its own (`LoopbackRequestGate`, every request on
+  every forwarded connection, before any byte reaches the Mac):
+  - the request's `Host` must be `localhost`, `127.0.0.1` or `[::1]` with that
+    port (a DNS-rebinding page names its own host and is refused);
+  - a request marked `Sec-Fetch-Site: cross-site`, or with an `Origin` that is
+    not a loopback origin, is refused (an internet page in another native tab
+    can't send requests into the Mac's dev server);
+  - anything that is not an HTTP/1.x request head is refused (no other
+    protocol through the port); a WebSocket upgrade and a chunked body pass
+    as is after their checked head, and TLS passes (the certificate binds the
+    host).
+  A port is opened only for a navigation the person started (the address bar,
+  Open on iPhone, a restored tab, a tapped link, Back/Forward) or one from the
+  same loopback origin; a page's script or form can't make the phone listen on
+  a new port. One port forwards to one Mac: while one Mac's tab shows it,
+  another Mac's tab gets the mirror instead.
 - **On the phone.** The listeners accept local connections only
   (`acceptLocalOnly`), so other devices on the phone's network can't use them.
-  They run while a native tab needs the port and the app is in use. Another
-  app on the phone could connect to the listener while it runs; it would
-  reach the same Mac port a paired phone already reaches.
+  They run while a native tab shows the port and the app is active and linked
+  (they stop in the background and come back after). Another app on the phone
+  could connect to a listener while it runs; it would reach the same Mac port
+  the person already reaches, through the same request checks.
 - **App Transport Security.** The app adds `NSAllowsLocalNetworking`, so iOS
   lets the web view load `http://localhost` (also `.local` and unqualified
   hosts). Other plain `http://` sites stay refused.
 
 | Rule 2 question | Answer |
 | --- | --- |
-| Executes commands or opens content on local objects? | No command or path: bytes to a loopback port the phone could already load through `browser`. |
+| Executes commands or opens content on local objects? | No command or path: HTTP requests to a loopback port the person could already load through `browser`, each checked as above. |
 | Mutates or destroys objects the session does not own? | Only what the server on that port does with a request, as the same request through `browser` would. |
 | Reads local state the remote should not see? | What the loopback server serves, which `browser` already shows the phone. |
 

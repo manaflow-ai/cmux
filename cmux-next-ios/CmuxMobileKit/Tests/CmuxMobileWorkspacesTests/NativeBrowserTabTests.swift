@@ -239,7 +239,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         }
         native.macForwardsLocalhost = { $0 == "mac-studio" }
         // 127.0.0.1: the test runner has no App Transport Security exception for `localhost`.
-        let port = UInt16.random(in: 20000...60000)
+        let port = try await freePort()
         let (source, _, _) = try await linked(at: "http://127.0.0.1:\(port)/", native: native)
         source.openOnPhone(tab)
         let phone = try #require(try page(source) as? BrowserTabModel, "the Mac's localhost opens on the phone")
@@ -250,6 +250,37 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
 
         source.mirrorFromMac(tab)
         #expect(native.forwarder?.ports.isEmpty == true, "no tab on the phone shows the port any more")
+    }
+
+    /// One port, one Mac: while one Mac's tab on this iPhone shows localhost:<port>,
+    /// another Mac's tab can't take that port (its page would reach the wrong Mac).
+    @Test func aPortShownForOneMacIsNotTakenByAnother() async throws {
+        let native = NativeBrowserTabs(defaults: defaults())
+        native.forwarder = LocalhostForwarder { _, _ in DevServerChannel(page: "x") }
+        native.macForwardsLocalhost = { _ in true }
+        let port = try await freePort()
+        native.open(tab: "s1", macID: "mac-a", at: URL(string: "http://127.0.0.1:\(port)/"))
+        let other = native.open(tab: "s2", macID: "mac-b", at: URL(string: "http://127.0.0.1:\(port)/"))
+        #expect(other.problem?.isMacOnly == true)
+        #expect(other.problem?.detail?.contains("Another Mac's tab") == true)
+        native.drop(tab: "s1", macID: "mac-a")
+        native.drop(tab: "s2", macID: "mac-b")
+    }
+
+    /// A port nothing on this machine listens on (the simulator shares the host's loopback).
+    func freePort() async throws -> UInt16 {
+        let probe = LocalhostForwarder { _, _ in DevServerChannel(page: "") }
+        for _ in 0..<20 {
+            let port = UInt16.random(in: 20000...60000)
+            do {
+                try await probe.forward(port: port, macID: nil)
+                probe.stop(port)
+                return port
+            } catch {
+                continue
+            }
+        }
+        throw CancellationError()
     }
 
     /// A Mac from before `localhost-forward-v1`: its localhost stays mirrored.
@@ -295,7 +326,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
     @Test(arguments: [
         ("https://example.com", PhoneReach.web),
         ("http://localhost:3000", .macLoopback),
-        ("http://app.localhost:8080", .macLoopback),
+        ("http://app.localhost:8080", .macOnly),
         ("http://127.0.0.1:8000", .macLoopback),
         ("http://[::1]:8000", .macLoopback),
         ("file:///Users/me/index.html", .macOnly),
@@ -306,6 +337,8 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         ("http://studio.local:5000", .privateNetwork),
         ("http://devbox:8080", .privateNetwork),
         ("http://8.8.8.8", .web),
+        ("http://127.0.0.2:8000", .macOnly),
+        ("http://0.0.0.0:8000", .macOnly),
         ("mailto:someone@example.com", .web),
         ("tel:+15555550100", .web),
     ])

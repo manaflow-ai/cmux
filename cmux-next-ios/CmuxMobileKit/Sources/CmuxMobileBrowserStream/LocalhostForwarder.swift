@@ -7,13 +7,14 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "localhost-forw
 
 /// A browser tab opened on this iPhone at `http(s)://localhost:<port>` loads the
 /// Mac's page, as `ssh -L` would: this iPhone listens on its own `127.0.0.1:<port>`
-/// and `[::1]:<port>` (local connections only) and sends each connection over
-/// the Mac's link as a `localhost` channel, which the Mac connects to the same
-/// port on its loopback (PROTOCOL.md `localhost`). The page keeps its origin, so
-/// its cookies, absolute links and hot-reload socket work.
+/// (and `[::1]:<port>` when it can) for local connections only, and sends each
+/// connection over the Mac's link as a `localhost` channel, which the Mac
+/// connects to the same port on its loopback (PROTOCOL.md `localhost`). The page
+/// keeps its origin, so its cookies, absolute links and hot-reload socket work.
+/// Every request passes `LoopbackRequestGate` first (no rebinding, no other site).
 ///
-/// A port on this iPhone forwards to one Mac at a time: the Mac whose tab
-/// loaded it last.
+/// A port forwards to one Mac at a time. Listeners stop while the app is in the
+/// background or unlinked, and come back for the same ports when it returns.
 @MainActor
 public final class LocalhostForwarder {
     /// Opens one connection to `port` on the Mac `macID`'s loopback (nil: the focused Mac).
@@ -22,18 +23,36 @@ public final class LocalhostForwarder {
     public enum Failure: Error, Equatable {
         /// Something on this iPhone already listens on the port.
         case portInUse
+        /// The port was stopped, or moved to another Mac, while it was starting.
+        case superseded
         /// The listener could not start for another reason.
         case unavailable(String)
     }
 
     private final class Forward {
         var macID: String?
-        var listeners: [NWListener] = []
+        /// `127.0.0.1:<port>`: required, since `localhost` falls back to it.
+        var v4: NWListener?
+        /// `[::1]:<port>`: best effort (`localhost` tries it first).
+        var v6: NWListener?
+        /// The bind in flight: a second caller for the port waits for it.
+        var binding: Task<Result<Void, Failure>, Never>?
         init(macID: String?) { self.macID = macID }
+
+        var isUp: Bool { v4?.state == .ready }
+
+        func cancel() {
+            v4?.cancel()
+            v6?.cancel()
+            v4 = nil
+            v6 = nil
+        }
     }
 
     private let open: Open
     private var forwards: [UInt16: Forward] = [:]
+    /// Listeners are down while the app is in the background or unlinked.
+    private var suspended = false
     /// Why the Mac last refused a connection to a port ("Nothing is listening on
     /// port 3000 on this Mac."), until a connection to it goes through.
     public private(set) var refusals: [UInt16: String] = [:]
@@ -42,36 +61,24 @@ public final class LocalhostForwarder {
         self.open = open
     }
 
-    /// The ports forwarded now.
+    /// The ports forwarded now (listening or waiting to listen again).
     public var ports: Set<UInt16> { Set(forwards.keys) }
 
     /// Forwards `port` to `macID`'s loopback: returns once this iPhone listens on it.
     public func forward(port: UInt16, macID: String?) async throws(Failure) {
-        if let forward = forwards[port], forward.listeners.contains(where: { $0.state == .ready }) {
-            forward.macID = macID
-            return
+        guard port != 0 else { throw .unavailable("port 0") }
+        let forward: Forward
+        if let existing = forwards[port] {
+            existing.macID = macID
+            if existing.isUp { return }
+            forward = existing
+        } else {
+            forward = Forward(macID: macID)
+            forwards[port] = forward
         }
-        stop(port)
-        let forward = Forward(macID: macID)
-        forwards[port] = forward
-        // IPv4 must be ours: an app holding `127.0.0.1:<port>` would get some of the
-        // page's requests. IPv6 is best effort (`localhost` tries `[::1]` first).
-        let v4: NWListener
-        do {
-            v4 = try await listen(host: .ipv4(.loopback), port: port)
-        } catch {
-            if forwards[port] === forward { forwards[port] = nil }
-            throw error
-        }
-        var bound = [v4]
-        if let v6 = try? await listen(host: .ipv6(.loopback), port: port) { bound.append(v6) }
-        // Another tab stopped or re-forwarded the port while these bound.
-        guard forwards[port] === forward else {
-            bound.forEach { $0.cancel() }
-            return
-        }
-        forward.listeners = bound
-        log.notice("forwarding localhost:\(port, privacy: .public) on \(bound.count, privacy: .public) address(es)")
+        // Unlinked or in the background: nothing to forward to now.
+        if suspended { throw .unavailable("not connected") }
+        try await bind(forward, port: port).get()
     }
 
     /// Stops the ports no native tab shows any more.
@@ -81,14 +88,64 @@ public final class LocalhostForwarder {
 
     public func stop(_ port: UInt16) {
         guard let forward = forwards.removeValue(forKey: port) else { return }
-        forward.listeners.forEach { $0.cancel() }
+        forward.binding?.cancel()
+        forward.cancel()
         refusals[port] = nil
+    }
+
+    /// The app went to the background, or the link went: listeners stop (the ports stay known).
+    public func suspend() {
+        suspended = true
+        for forward in forwards.values { forward.cancel() }
+    }
+
+    /// The app is active and linked again: the same ports listen again.
+    public func resume() {
+        suspended = false
+        for (port, forward) in forwards where !forward.isUp && forward.binding == nil {
+            // task-owner: one port's listener coming back; a later stop() cancels it
+            Task { _ = await self.bind(forward, port: port) }
+        }
+    }
+
+    /// Binds the port's listeners, or waits for the bind already in flight.
+    private func bind(_ forward: Forward, port: UInt16) async -> Result<Void, Failure> {
+        if let binding = forward.binding { return await binding.value }
+        let task = Task { () -> Result<Void, Failure> in
+            forward.cancel()
+            let v4: NWListener
+            do {
+                v4 = try await listen(host: .ipv4(.loopback), port: port)
+            } catch {
+                return .failure(error)
+            }
+            let v6 = try? await listen(host: .ipv6(.loopback), port: port)
+            // Stopped, moved or suspended while these bound.
+            guard forwards[port] === forward, !suspended, !Task.isCancelled else {
+                v4.cancel()
+                v6?.cancel()
+                return .failure(.superseded)
+            }
+            forward.v4 = v4
+            forward.v6 = v6
+            log.notice("forwarding localhost:\(port, privacy: .public)\(v6 == nil ? " (IPv4 only)" : "", privacy: .public)")
+            return .success(())
+        }
+        forward.binding = task
+        let result = await task.value
+        if forward.binding == task { forward.binding = nil }
+        if case .failure(.portInUse) = result, forwards[port] === forward { forwards[port] = nil }
+        return result
     }
 
     private func listen(host: NWEndpoint.Host, port: UInt16) async throws(Failure) -> NWListener {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else { throw .unavailable("bad port") }
         let parameters = NWParameters.tcp
         parameters.acceptLocalOnly = true
+        // Listening again right after a stop (resume, Open on iPhone again) must not wait
+        // out the closed connections' TIME_WAIT. An app holding the port without reuse
+        // still makes this bind fail (`portInUse`).
+        parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(host: host, port: endpointPort)
         let listener: NWListener
         do {
@@ -96,14 +153,11 @@ public final class LocalhostForwarder {
         } catch {
             throw Self.failure(error)
         }
-        let open = open
         listener.newConnectionHandler = { [weak self] connection in
             // task-owner: one forwarded connection; ends when either side closes
             Task { @MainActor [weak self] in
                 guard let self else { return connection.cancel() }
-                let macID = self.forwards[port]?.macID
-                let reason = await Self.pump(connection, port: port, macID: macID, open: open)
-                if let reason { self.refusals[port] = reason } else { self.refusals[port] = nil }
+                await self.serve(connection, port: port)
             }
         }
         let ready = await withCheckedContinuation { (continuation: CheckedContinuation<NWError?, Never>) in
@@ -129,27 +183,55 @@ public final class LocalhostForwarder {
         return listener
     }
 
-    static let queue = DispatchQueue(label: "dev.cmux.mobile.localhost-forward")
+    /// One connection a page made to the port: to the port's Mac, and the Mac's refusal kept.
+    private func serve(_ connection: NWConnection, port: UInt16) async {
+        // A port stopped meanwhile forwards nothing (never to some other Mac).
+        guard let forward = forwards[port], !suspended else { return connection.cancel() }
+        let refusal = await Self.pump(connection, port: port, macID: forward.macID, open: open)
+        // Kept before the page hears the connection end, so its card can say why.
+        if forwards[port] === forward {
+            if let refusal { refusals[port] = refusal } else if refusals[port] != nil { refusals[port] = nil }
+        }
+        connection.cancel()
+    }
+
+    nonisolated static let queue = DispatchQueue(label: "dev.cmux.mobile.localhost-forward")
 
     nonisolated static func failure(_ error: any Error) -> Failure {
         if case .posix(let code) = error as? NWError, code == .EADDRINUSE { return .portInUse }
         return .unavailable(String(describing: error))
     }
 
-    /// Passes one connection's bytes both ways until either side closes. Returns
-    /// the Mac's refusal, if it refused (nothing listening on the port).
+    /// The Mac's close codes that mean it refused the connection (with a sentence).
+    nonisolated static let refusalCodes: Set<String> = ["unavailable", "bad_request", "unknown_service"]
+
+    /// Passes one connection's bytes both ways until either side closes, every
+    /// request through the gate. Returns the Mac's refusal, if it refused the
+    /// connection before any reply. The caller cancels the connection.
     nonisolated static func pump(_ connection: NWConnection, port: UInt16, macID: String?, open: Open) async -> String? {
         connection.start(queue: queue)
+        // The first request is checked before the Mac hears of the connection.
+        var gate = LoopbackRequestGate(port: port)
+        guard let first = await receive(connection) else { return nil }
+        if case .refuse(let reason) = gate.check(first) {
+            log.notice("localhost:\(port, privacy: .public): refused a request (\(reason, privacy: .public))")
+            return nil
+        }
         let channel: any LinkChannel
         do {
             channel = try await open(macID, port)
         } catch {
-            connection.cancel()
-            return (error as? LinkError)?.message ?? String(describing: error)
+            return (error as? LinkError).flatMap { refusalCodes.contains($0.code) && !$0.message.isEmpty ? $0.message : nil }
         }
-        // This iPhone → the Mac.
-        let upstream = Task {
-            while let data = await receive(connection) {
+        let sendFirst = (try? await channel.send(first)) != nil
+        // This iPhone → the Mac, every request through the gate.
+        let upstream = Task { [gate] in
+            var gate = gate
+            while sendFirst, let data = await receive(connection) {
+                if case .refuse(let reason) = gate.check(data) {
+                    log.notice("localhost:\(port, privacy: .public): refused a request (\(reason, privacy: .public))")
+                    break
+                }
                 do { try await channel.send(data) } catch { break }
             }
             await channel.close(code: "eof", reason: "")
@@ -161,9 +243,8 @@ public final class LocalhostForwarder {
             guard await send(connection, data) else { break }
         }
         upstream.cancel()
-        connection.cancel()
         await channel.close(code: "eof", reason: "")
-        guard !delivered, let closed = channel.closedBy, closed.code != "eof" else { return nil }
+        guard !delivered, let closed = channel.closedBy, refusalCodes.contains(closed.code), !closed.message.isEmpty else { return nil }
         return closed.message
     }
 

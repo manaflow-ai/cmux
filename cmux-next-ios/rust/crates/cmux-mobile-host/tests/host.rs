@@ -417,7 +417,8 @@ async fn localhost_forward(link: &cmux_mobile_link::Link) {
         ("unavailable".to_owned(), format!("Nothing is listening on port {closed} on this Mac."))
     );
     // The phone names a port only, never a host.
-    let mut channel = link.open("localhost", serde_json::json!({"host": "10.0.0.2", "port": "0"})).await.unwrap();
+    let mut channel =
+        link.open("localhost", serde_json::json!({"host": "10.0.0.2", "port": "0"})).await.unwrap();
     assert_eq!(close_reason(&mut channel).await.0, "bad_request");
 }
 

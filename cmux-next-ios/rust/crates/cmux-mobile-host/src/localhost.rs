@@ -32,8 +32,8 @@ pub fn port(args: &Value) -> Result<u16, Refusal> {
         Value::String(text) => text.parse::<u64>().ok(),
         _ => None,
     };
-    match value {
-        Some(port @ 1..=65535) => Ok(port as u16),
+    match value.and_then(|port| u16::try_from(port).ok()) {
+        Some(port) if port != 0 => Ok(port),
         _ => Err(Refusal::new("bad_request", "localhost needs a port from 1 to 65535")),
     }
 }

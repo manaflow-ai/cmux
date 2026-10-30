@@ -1,5 +1,6 @@
 import CmuxMobileTransport
 import Foundation
+import Network
 import Testing
 @testable import CmuxMobileBrowserStream
 
@@ -63,9 +64,12 @@ final class OpenLog: @unchecked Sendable {
 /// A native browser tab's `localhost:<port>` reaches the Mac's loopback through
 /// this iPhone's own listener: the request goes over the link, the reply comes back.
 @MainActor @Suite(.serialized) struct LocalhostForwarderTests {
-    func fetch(_ port: UInt16, path: String = "/") async -> (status: Int, body: String)? {
+    func fetch(_ port: UInt16, path: String = "/", origin: String? = nil) async -> (status: Int, body: String)? {
         let session = URLSession(configuration: .ephemeral)
-        guard let (data, response) = try? await session.data(from: URL(string: "http://127.0.0.1:\(port)\(path)")!) else { return nil }
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)\(path)")!)
+        request.timeoutInterval = 10
+        if let origin { request.setValue(origin, forHTTPHeaderField: "Origin") }
+        guard let (data, response) = try? await session.data(for: request) else { return nil }
         return ((response as? HTTPURLResponse)?.statusCode ?? 0, String(decoding: data, as: UTF8.self))
     }
 
@@ -118,17 +122,65 @@ final class OpenLog: @unchecked Sendable {
         forwarder.retain(ports: [])
     }
 
-    @Test func aPortTakenOnThisIPhoneIsNotForwarded() async throws {
-        let first = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "first") }
-        let port = try await forwardOnFreePort(first, macID: "mac-a")
-        let second = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "second") }
-        await #expect(throws: LocalhostForwarder.Failure.portInUse) {
-            try await second.forward(port: port, macID: "mac-b")
+    /// Two tabs restoring the same port at once share one listener.
+    @Test func concurrentForwardsOfOnePortShareOneListener() async throws {
+        let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "one listener") }
+        let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        forwarder.stop(port)
+        async let first: Void = forwarder.forward(port: port, macID: "mac-a")
+        async let second: Void = forwarder.forward(port: port, macID: "mac-a")
+        _ = try await (first, second)
+        #expect(await fetch(port)?.body == "one listener")
+        forwarder.retain(ports: [])
+    }
+
+    /// A request another site's page sends to the forwarded port never reaches the Mac.
+    @Test func aCrossSiteRequestIsDroppedOnThePhone() async throws {
+        let log = OpenLog()
+        let forwarder = LocalhostForwarder { macID, port in
+            log.note(macID, port)
+            return FakeLoopbackChannel(body: "dev server")
         }
-        #expect(second.ports.isEmpty)
-        // The same forwarder moves the port to another Mac instead.
-        try await first.forward(port: port, macID: "mac-b")
-        #expect(await fetch(port)?.body == "first")
-        first.retain(ports: [])
+        let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        #expect(await fetch(port, origin: "https://evil.example") == nil)
+        #expect(log.all.isEmpty, "the Mac never heard of it")
+        // The dev app's own origin goes through.
+        #expect(await fetch(port, origin: "http://localhost:\(port)")?.body == "dev server")
+        forwarder.retain(ports: [])
+    }
+
+    /// In the background or unlinked the port stops listening; it comes back after.
+    @Test func suspendedPortsListenAgainOnResume() async throws {
+        let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "back") }
+        let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        forwarder.suspend()
+        #expect(await fetch(port) == nil)
+        #expect(forwarder.ports == [port], "the port is still known")
+        forwarder.resume()
+        var body: String?
+        for _ in 0..<100 where body == nil {
+            body = await fetch(port)?.body
+            if body == nil { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        #expect(body == "back")
+        forwarder.retain(ports: [])
+    }
+
+    @Test func aPortTakenOnThisIPhoneIsNotForwarded() async throws {
+        let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "x") }
+        let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        forwarder.stop(port)
+        // Another app's server on the port (no address reuse).
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!)
+        let other = try NWListener(using: parameters)
+        other.newConnectionHandler = { $0.cancel() }
+        other.start(queue: .main)
+        for _ in 0..<200 where other.state != .ready { try await Task.sleep(for: .milliseconds(5)) }
+        await #expect(throws: LocalhostForwarder.Failure.portInUse) {
+            try await forwarder.forward(port: port, macID: "mac-b")
+        }
+        #expect(forwarder.ports.isEmpty)
+        other.cancel()
     }
 }
