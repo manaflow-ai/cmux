@@ -301,6 +301,7 @@ extension AgentTabStore {
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
+            host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder

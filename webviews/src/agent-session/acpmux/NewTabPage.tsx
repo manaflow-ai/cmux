@@ -11,8 +11,9 @@ import { ComposerFoot } from "./ComposerFoot";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
-import type { BrowseRequest } from "./AddProjectPanel";
 import { ProjectChooser, type Project } from "./ProjectChooser";
+import type { BrowseRequest } from "./AddProjectPanel";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import {
   defaultRow,
   stepSelection,
@@ -368,6 +369,33 @@ export function NewTabPage({
   // newtab/startedProject.ts), else the newest chat's, each only while the host still lists it; a
   // page on another machine (no `home`) never on this Mac's. A pick replaces it.
   const [picked, setProjectCwd] = useState<string | undefined>(undefined);
+  const [browseError, setBrowseError] = useState<string>();
+  const browseRequest = useRef(0);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
+  const pickProject = (path: string) => {
+    browseRequest.current += 1;
+    setBrowseError(undefined);
+    setProjectCwd(path);
+  };
+  const browseProject = async (request?: BrowseRequest): Promise<string | undefined> => {
+    // The Add Project dialog owns its result and errors until it commits the choice.
+    if (request?.deferPick) return onBrowseProject?.(request);
+    const id = ++browseRequest.current;
+    setBrowseError(undefined);
+    try {
+      const path = await onBrowseProject?.(request);
+      if (browseRequest.current === id && path) setProjectCwd(path);
+      return path;
+    } catch (error) {
+      if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
+      return undefined;
+    }
+  };
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
@@ -741,8 +769,8 @@ export function NewTabPage({
                   current={projectCwd}
                   currentLabel={selectedProject}
                   icon={<FolderIcon />}
-                  onPick={setProjectCwd}
-                  onBrowse={onBrowseProject}
+                  onPick={pickProject}
+                  onBrowse={onBrowseProject && browseProject}
                 />
               )}
               {kind === "terminal" && (
@@ -817,6 +845,13 @@ export function NewTabPage({
           </div>
         )}
       </div>
+      {browseError && (
+        <BrowseFailure
+          error={browseError}
+          onRetry={() => void browseProject()}
+          onDismiss={() => setBrowseError(undefined)}
+        />
+      )}
       {openFailed && (
         <p className="acpmux-newtab-failed" role="alert">
           {t(NEW_TAB_LABELS.openFailed)}

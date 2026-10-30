@@ -240,6 +240,30 @@ struct ClassicUpgradeSimulationTests {
         await sim.shutdown()
     }
 
+    /// The sidebar placements a run asks for go through one queue, each after
+    /// the one before it is applied (#26153). On a loaded runner that queue
+    /// trails the run, and the tree sat still for the settle window while
+    /// placements were still waiting: the check then read the daemon's own
+    /// order, not classic's (the base red at :45, :129, :206 and :253). Here a
+    /// placement ahead of the run holds the queue for a while, as a slow one
+    /// does there; the check reads the order only once the queue is through.
+    @Test func theOrderIsReadOnlyOnceQueuedPlacementsLand() async throws {
+        let profile = ClassicUpgradeProfile.small
+        let mac = try ClassicUpgradeSimulator.Mac()
+        try mac.save(profile)
+        let before = try mac.classicDigest()
+        let sim = try ClassicUpgradeSimulator(mac: mac)
+        // Held longer than the settle window, from before the run places anything.
+        sim.services.personalPlacements.enqueue(on: sim.services.daemon, failed: {}) {
+            try? await Task.sleep(for: .seconds(4))
+            return .skipped
+        }
+        _ = await sim.launch()
+        await sim.settle()
+        try sim.verify(profile, classicBefore: before)
+        await sim.shutdown()
+    }
+
     /// Background workspaces come over parked: their tabs stay, their shells
     /// do not run (no PTY), and showing one starts its terminals in place.
     @Test func backgroundWorkspacesStartTheirTerminalsWhenFirstShown() async throws {
