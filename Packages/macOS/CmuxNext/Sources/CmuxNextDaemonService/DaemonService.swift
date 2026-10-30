@@ -363,7 +363,7 @@ public final class DaemonService {
         lastStartupError = error
         let permanent = DaemonStartup.shared.isPermanent(error)
         if permanent || !retries || startup != .connecting { store.markFailed(error.description) }
-        if startup.isUnavailable || permanent {
+        if startup.isUnavailable || permanent || !retries {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }

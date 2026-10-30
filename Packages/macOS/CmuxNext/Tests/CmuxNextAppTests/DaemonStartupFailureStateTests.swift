@@ -30,6 +30,15 @@ struct DaemonStartupFailureStateTests {
         #expect(service.startup == .unavailable(error))
     }
 
+    /// The launcher could not be made: nothing retries, so the window shows it at once too.
+    @Test func aFailureNothingRetriesShowsAtOnce() {
+        let service = DaemonService()
+        let error = DaemonError.launchFailed("no launcher")
+        service.noteStartupFailure(error, retries: false)
+        #expect(service.store.connectionState == .failed(error.description))
+        #expect(service.startup == .unavailable(error), "the window waited for a deadline that was never armed")
+    }
+
     @Test func aFailureThatOutlivesTheDeadlineShowsFailed() async {
         let service = DaemonService()
         service.startupClock = NowClock()
