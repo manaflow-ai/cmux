@@ -71,20 +71,8 @@ public final class DaemonRequestLatency: Sendable {
 
     /// Records one request that took `nanoseconds` from its send to its end.
     public func record(nanoseconds: UInt64, outcome: Outcome) { // perf-hot: 1us daemon-request (every app request to the daemon)
-        let micros = nanoseconds / 1000
-        // `bucket` is below `bucketCount` by construction; `dropFirst` reads it without a trapping subscript.
-        buckets.dropFirst(Self.bucket(microseconds: micros)).first?.value.add(1, ordering: .relaxed)
-        switch outcome {
-        case .reply: break
-        case .error: errors.add(1, ordering: .relaxed)
-        case .timedOut: timeouts.add(1, ordering: .relaxed)
-        }
-        var seen = maxMicroseconds.load(ordering: .relaxed)
-        while micros > seen {
-            let (exchanged, original) = maxMicroseconds.compareExchange(expected: seen, desired: micros, ordering: .relaxed)
-            if exchanged { break }
-            seen = original
-        }
+        // RED PROOF ONLY (never merge): the measurement is taken out; nothing is recorded.
+        _ = (nanoseconds, outcome)
     }
 
     /// The counts so far (each read is atomic; a request recorded during the read may be in some
