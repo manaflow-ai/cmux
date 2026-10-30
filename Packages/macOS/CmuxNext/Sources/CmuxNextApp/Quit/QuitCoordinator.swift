@@ -165,7 +165,27 @@ final class QuitCoordinator {
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         await services.cloud.prepareForTermination()
-        await QuitCompletion.run(choice, remember: remember, QuitSteps(
+        await QuitCompletion.run(choice, remember: remember, steps())
+        sender.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// The engines' stop, the quit's very last step (tests replace it).
+    lazy var stopEngines: @MainActor () async -> Void = { [weak self, deadline] in
+        // CefShutdown runs on the main thread and can block it for
+        // good: from here the quit ends by a deadline whatever it
+        // does, and a debug build reports that hang, never asserts it.
+        deadline.arm(after: QuitDeadline.engineStopLimit)
+        self?.watchdog?.endHangAssertions()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
+        #endif
+        await self?.services.cache.cef.shutdown()
+    }
+
+    /// The quit's steps after the decision (`QuitCompletion`).
+    func steps() -> QuitSteps {
+        let services = services
+        return QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
                       let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
@@ -210,24 +230,15 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { [weak self, deadline = self.deadline] in
+            stopBrowserEngines: { [weak self] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed. The same for the other state files.
                 await services.home.flushCacheForQuit()
                 await services.stateFilesDrained()
-                // CefShutdown runs on the main thread and can block it for
-                // good: from here the quit ends by a deadline whatever it
-                // does, and a debug build reports that hang, never asserts it.
-                deadline.arm(after: QuitDeadline.engineStopLimit)
-                self?.watchdog?.endHangAssertions()
-                #if DEBUG || CMUX_BENCH_HOOKS
-                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
-                #endif
-                await services.cache.cef.shutdown()
+                await self?.stopEngines()
             }
-        ))
-        sender.reply(toApplicationShouldTerminate: true)
+        )
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.
