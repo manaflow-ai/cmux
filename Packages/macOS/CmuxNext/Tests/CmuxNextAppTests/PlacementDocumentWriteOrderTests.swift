@@ -127,7 +127,7 @@ struct PlacementDocumentWriteOrderTests {
         // confirmed document item; otherwise this would test personal order.
         let script = PlacementStaleRowsGalleryTests.daemonScript.replacingOccurrences(
             of: "'key': key, 'name': names[key]", with: "'key': key, 'resource_id': key, 'name': names[key]")
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, "0"])
+        let bridge = DaemonBridge.fakePython(["-c", script, "0"])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-document-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {
