@@ -288,15 +288,25 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// On the file's queue, first: when the last quit cut off a save (its marker, or its record:
     /// `recorded`), no stored list counts in this run, and the seal is cleared, so after it the stored
     /// list no longer matches its seal and every phone pairs again (the digest rule of ``load(userID:)``).
-    /// A Keychain that refuses the clear keeps the list refused for this run and the marker (written now
-    /// when only the record named the save) for the next launch (a fault).
+    ///
+    /// The fact must outlive this launch until the clear is done (the record is read once and removed):
+    /// when only the record named the save, the marker is written before the clear, and the clear
+    /// counts as a save in flight, so a quit deadline during a hung clear names the file again
+    /// (``markCutOffIfSaving()``). A Keychain that refuses the clear keeps the list refused for this run
+    /// and the marker for the next launch (a fault).
     private func distrustIfCutOff(recorded: Bool) {
         let marked = FileManager.checked.fileExists(atPath: cutOffMarker.path)
         guard marked || recorded else { return }
         inForce.withLock { $0 = Data() }
+        if !marked {
+            do { try writeMarker(cutOffMarker) } catch {
+                Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and its marker was not written at launch either (\(String(describing: error), privacy: .public)); only this run and a quit deadline during the seal clear keep the fact")
+            }
+        }
+        saving.withLock { $0 += 1 }
+        defer { saving.withLock { $0 -= 1 } }
         guard seal.clearDigest() || seal.clearDigest() else {
-            if !marked { try? writeMarker(cutOffMarker) }
-            Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run")
+            Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run, and the marker stays for the next launch")
             return
         }
         try? FileManager.checked.removeItem(at: cutOffMarker)

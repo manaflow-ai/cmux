@@ -394,6 +394,8 @@ import Testing
         struct DiskFull: Error {}
         let seal = HeldSeal()
         let (saved, devices) = try Self.saved(directory, seal: seal)
+        // Its first step (no marker, no record) ran, so it never sees a marker a later object writes.
+        await saved.drained()
         let file = MobileHostPairedDevicesFile(directory: directory, seal: seal, writeMarker: { _ in throw DiskFull() })
         var removal = devices
         removal.remove(Self.request.phoneDeviceID)
@@ -417,6 +419,32 @@ import Testing
         #expect(!markerWritten, "a marker is on disk although the disk refused it")
         #expect(list.devices.isEmpty, "the list from before the removal counts after a relaunch: \(list.devices.map(\.id))")
         #expect(cleared, "the next launch did not clear the seal for the recorded cut-off save")
+    }
+
+    /// R9 review of #28275: a launch told only by the quit's record (its marker was not written at quit)
+    /// keeps the fact on disk before it clears the seal, and counts the clear as a save in flight. When
+    /// that clear hangs and the app ends again, the launch after it (no record any more) still trusts no
+    /// phone, and a quit deadline during the clear names the file again. No clock decides it: the clear
+    /// waits at the seal until the test lets it go, after its checks.
+    @Test func aRecordOnlyLaunchWhoseClearHangsStillLeavesTheListUntrusted() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = HeldSeal()
+        let (saved, _) = try Self.saved(directory, seal: seal)
+        await saved.drained()
+        // The launch after the cut-off quit: only its record names the file, and its seal clear hangs.
+        seal.holdNextClear()
+        let launch = MobileHostPairedDevicesFile(directory: directory, seal: seal, lastQuitCutOff: { true })
+        let started = seal.heldClearStarted()
+        let deadlineDuringTheClear = launch.markCutOffIfSaving()
+        // The launch after that one: no record, and the hung clear never finished.
+        let next = MobileHostPairedDevicesFile(directory: directory, seal: seal)
+        let list = await next.loadInBackground(userID: "u")
+        seal.gate.signal()
+        await launch.drained()
+        #expect(started, "the record-only launch never began its seal clear")
+        #expect(deadlineDuringTheClear == .marked, "a quit deadline during the launch's seal clear found \(deadlineDuringTheClear)")
+        #expect(list.devices.isEmpty, "the cut-off list counts again after a launch whose clear hung: \(list.devices.map(\.id))")
     }
 
     /// Review 90 (2): a new hostd gets the newest paired list the app set, at once: a restart that
