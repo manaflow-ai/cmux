@@ -3,6 +3,7 @@
 //! status/dirty/failure notifications.
 
 use super::event_lanes::LaneFlow;
+use super::event_registry::{RegistryWork, run_registry_work};
 use super::*;
 
 /// Serves the surface's CDP events in order on the shared event-lane pool
@@ -20,6 +21,7 @@ pub(super) fn start_surface_thread(
     // the page the mark recorded, not this, so the first event (even one
     // after the URL already moved) still clears it.
     let mut seen_url: Option<String> = None;
+    let route = Arc::downgrade(&events);
     events.attach_handler(Box::new(move |event| {
         let Surface::Browser(browser) = surface.as_ref() else { return LaneFlow::End };
         let seen_url = &mut seen_url;
@@ -90,14 +92,17 @@ pub(super) fn start_surface_thread(
                 }
             }
             CdpEvent::TargetCreated(created) => {
-                handle_target_created(browser, &created, &mux, &runtime, id);
+                handle_target_created(browser, &created, &mux, &runtime, &route);
             }
             CdpEvent::TargetInfoChanged(info) => {
                 let title = if info.title.is_empty() { info.url.clone() } else { info.title };
                 let url_changed =
                     if info.url.is_empty() { false } else { browser.set_url(info.url) };
                 let title_changed = browser.set_title(title);
-                clear_attention_if_page_changed(seen_url, browser, mux_attention_clear(&mux, id));
+                clear_attention_if_page_changed(seen_url, browser, |url| {
+                    let _ = browser
+                        .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
+                });
                 if (url_changed || title_changed)
                     && let Some(mux) = mux.upgrade()
                 {
@@ -106,7 +111,10 @@ pub(super) fn start_surface_thread(
             }
             CdpEvent::FrameNavigated { params, frame_epoch, .. } => {
                 handle_frame_navigated(browser, params, frame_epoch);
-                clear_attention_if_page_changed(seen_url, browser, mux_attention_clear(&mux, id));
+                clear_attention_if_page_changed(seen_url, browser, |url| {
+                    let _ = browser
+                        .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
+                });
                 if let Some(mux) = mux.upgrade() {
                     mux.emit(MuxEvent::TitleChanged { surface: id, title: browser.title().into() });
                     mux.emit(MuxEvent::SurfaceOutput(id));
@@ -130,7 +138,10 @@ pub(super) fn start_surface_thread(
                 frame_epoch,
             } => {
                 let _ = handle_same_document_navigated(browser, &params, frame_epoch);
-                clear_attention_if_page_changed(seen_url, browser, mux_attention_clear(&mux, id));
+                clear_attention_if_page_changed(seen_url, browser, |url| {
+                    let _ = browser
+                        .defer_registry_work(&route, RegistryWork::ClearAttention(url.into()));
+                });
                 if browser.needs_same_document_paint() {
                     let _ = browser.enqueue_latest_authority(
                         BrowserCommand::AuthorizeSameDocumentPaint {
@@ -167,13 +178,12 @@ pub(super) fn start_surface_thread(
                             "cmux-browser provider disconnected: {reason}; waiting to reconnect"
                         )));
                         mux.emit(MuxEvent::SurfaceOutput(id));
-                        mux.restart_provider_browser_surface(surface.clone());
+                        let _ = browser.defer_registry_work(&route, RegistryWork::RestartProvider);
                     }
                 } else if !browser.is_dead() {
+                    // Retain the durable exit before kill closes admission.
+                    let _ = browser.defer_registry_work(&route, RegistryWork::SurfaceExited);
                     browser.kill();
-                    if let Some(mux) = mux.upgrade() {
-                        mux.surface_exited(id);
-                    }
                 }
                 return LaneFlow::End;
             }
@@ -197,16 +207,6 @@ pub(super) fn clear_attention_if_page_changed(
     }
     clear(&url);
     *seen_url = Some(url);
-}
-
-/// The worker's `clear`: the mux's navigation clear for surface `id`, while
-/// the mux lives.
-fn mux_attention_clear(mux: &Weak<Mux>, id: SurfaceId) -> impl FnOnce(&str) + '_ {
-    move |url| {
-        if let Some(mux) = mux.upgrade() {
-            mux.clear_attention_after_navigation(&crate::Actor::Daemon, id, url);
-        }
-    }
 }
 
 pub(super) fn start_browser_worker(
@@ -245,6 +245,7 @@ pub(super) fn start_browser_worker(
                     batch.push(next);
                 }
                 batch.extend(order.retained_releases.drain(..));
+                batch.extend(order.registry_work.drain(..));
                 if let Some(command) = take_latest_worker_commands(&latest_nav) {
                     batch.push(command);
                 }
@@ -436,6 +437,10 @@ pub(super) fn run_browser_worker_command(
         };
         match command {
             BrowserCommand::WakeLatest => Ok(BrowserWorkerSuccess::LocallySettled),
+            BrowserCommand::EventRegistry(deferred) => {
+                run_registry_work(browser, *deferred, mux, id);
+                Ok(BrowserWorkerSuccess::LocallySettled)
+            }
             BrowserCommand::Mouse {
                 input_owner,
                 event_type,

@@ -12,10 +12,9 @@
 //! This is Chrome's `SequencedTaskRunner` on a shared pool: sequences, not
 //! threads, per object.
 //!
-//! Handlers must not wait on CDP replies or on another lane: their CDP sends
-//! are fire-and-forget (`*_detached`). The pool has [`EVENT_POOL_THREADS`]
-//! threads, so one handler stuck on a mux lock still leaves a thread for the
-//! other surfaces. A panic in a handler ends only that lane.
+//! Handlers must not wait on CDP replies or durable registry work. CDP sends
+//! are fire-and-forget (`*_detached`); registry work suspends just its lane
+//! while the surface's command worker runs it. A panic ends only that lane.
 
 #[cfg(test)]
 use std::collections::HashSet;
@@ -27,8 +26,7 @@ use cmux_tui_cdp::{CDP_EVENT_QUEUE_CAPACITY, CdpEvent};
 
 use crate::panic_free::RecoverPoison;
 
-/// Threads in the process-wide lane pool. Two, so a handler that waits on a
-/// mux lock does not hold every surface's events behind it.
+/// Threads in the process-wide lane pool; blocking work runs elsewhere.
 pub(super) const EVENT_POOL_THREADS: usize = 2;
 /// Events one pool thread serves from a lane before it yields the lane.
 const EVENTS_PER_TURN: usize = 32;
@@ -61,6 +59,7 @@ struct SurfaceRouteState {
     has_handler: bool,
     /// In the pool's ready queue or being served.
     scheduled: bool,
+    paused: bool,
     /// Its handler ended; nothing is served any more.
     ended: bool,
 }
@@ -150,7 +149,12 @@ impl SurfaceRoute {
     fn schedule_locked(self: &Arc<Self>, state: &mut SurfaceRouteState) {
         #[cfg(test)]
         self.changed.notify_all();
-        if !state.has_handler || state.scheduled || state.ended || state.events.is_empty() {
+        if !state.has_handler
+            || state.scheduled
+            || state.paused
+            || state.ended
+            || state.events.is_empty()
+        {
             return;
         }
         // `has_handler` is set only after the pool started.
@@ -174,6 +178,11 @@ impl SurfaceRoute {
         for _ in 0..EVENTS_PER_TURN {
             let event = {
                 let mut state = self.state.lock().recover_poison();
+                if state.paused {
+                    *self.handler.lock().recover_poison() = Some(handler);
+                    state.scheduled = false;
+                    return false;
+                }
                 match self.pop_event(&mut state) {
                     Some(event) => event,
                     None => {
@@ -205,12 +214,25 @@ impl SurfaceRoute {
         }
         let mut state = self.state.lock().recover_poison();
         *self.handler.lock().recover_poison() = Some(handler);
-        if state.events.is_empty() {
+        if state.paused || state.events.is_empty() {
             state.scheduled = false;
             false
         } else {
             true
         }
+    }
+
+    /// Keeps the route alive even if the runtime unregisters it while its
+    /// command worker is busy. Dropping the token resumes the ordered lane.
+    pub(super) fn pause(self: &Arc<Self>) -> ResumeEventLane {
+        self.state.lock().recover_poison().paused = true;
+        ResumeEventLane(self.clone())
+    }
+
+    fn resume(self: &Arc<Self>) {
+        let mut state = self.state.lock().recover_poison();
+        state.paused = false;
+        self.schedule_locked(&mut state);
     }
 
     fn end_locked(&self, state: &mut SurfaceRouteState) {
@@ -257,6 +279,14 @@ impl SurfaceRoute {
         let (state, _) =
             self.changed.wait_timeout_while(state, timeout, |state| !state.ended).recover_poison();
         state.ended
+    }
+}
+
+pub(super) struct ResumeEventLane(Arc<SurfaceRoute>);
+
+impl Drop for ResumeEventLane {
+    fn drop(&mut self) {
+        self.0.resume();
     }
 }
 

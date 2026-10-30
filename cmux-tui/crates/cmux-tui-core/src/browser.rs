@@ -18,6 +18,7 @@ use crate::{Mux, MuxEvent, SurfaceId};
 
 mod cdp_events;
 mod event_lanes;
+mod event_registry;
 mod navigation_hold;
 mod navigation_hold_tests;
 mod surface_input;
@@ -411,6 +412,7 @@ struct PointerFrameInvalidation {
 
 enum BrowserCommand {
     WakeLatest,
+    EventRegistry(Box<event_registry::DeferredRegistryWork>),
     Mouse {
         input_owner: BrowserPointerOwner,
         event_type: String,
@@ -496,6 +498,9 @@ struct SequencedBrowserCommand {
 struct BrowserCommandOrder {
     next_sequence: u64,
     retained_releases: VecDeque<SequencedBrowserCommand>,
+    // Each route pauses until its work completes, retaining at most one.
+    // Distinct old/new provider routes must not overwrite each other's work.
+    registry_work: VecDeque<SequencedBrowserCommand>,
 }
 
 impl BrowserCommandOrder {

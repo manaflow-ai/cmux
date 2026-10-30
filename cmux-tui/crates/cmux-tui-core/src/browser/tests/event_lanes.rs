@@ -216,3 +216,87 @@ fn registry_waits_do_not_block_other_event_lanes() {
     mux.shutdown();
     assert_eq!(served.unwrap(), Some(7), "registry work held every event worker");
 }
+
+#[test]
+fn paused_lane_survives_runtime_unregister_and_serves_close() {
+    let route = Arc::new(SurfaceRoute::new());
+    let weak = Arc::downgrade(&route);
+    let handler_route = weak.clone();
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (closed_tx, closed_rx) = mpsc::channel();
+    route
+        .attach_handler(Box::new(move |event| match event {
+            cmux_tui_cdp::CdpEvent::Closed(_) => {
+                closed_tx.send(()).unwrap();
+                LaneFlow::End
+            }
+            _ => {
+                paused_tx.send(handler_route.upgrade().unwrap().pause()).unwrap();
+                LaneFlow::Continue
+            }
+        }))
+        .unwrap();
+    assert!(!route.deliver(navigated(1)));
+    let resume = paused_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+    route.close("runtime unregistered its route".into());
+    drop(route);
+    assert!(weak.upgrade().is_some(), "pending work owns the paused route");
+    drop(resume);
+    closed_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+}
+
+#[test]
+fn pause_on_turn_boundary_keeps_queued_events() {
+    let route = Arc::new(SurfaceRoute::new());
+    let weak = Arc::downgrade(&route);
+    let (paused_tx, paused_rx) = mpsc::channel();
+    let (served_tx, served_rx) = mpsc::channel();
+    route
+        .attach_handler(Box::new(move |event| {
+            if let cmux_tui_cdp::CdpEvent::FrameNavigated { frame_epoch, .. } = event {
+                if frame_epoch == 31 {
+                    paused_tx.send(weak.upgrade().unwrap().pause()).unwrap();
+                }
+                served_tx.send(frame_epoch).unwrap();
+            }
+            LaneFlow::Continue
+        }))
+        .unwrap();
+    for epoch in 0..40 {
+        assert!(!route.deliver(navigated(epoch)));
+    }
+    let resume = paused_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap();
+    for epoch in 0..32 {
+        assert_eq!(served_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap(), epoch);
+    }
+    assert!(served_rx.try_recv().is_err(), "later events wait for the durable work");
+    drop(resume);
+    for epoch in 32..40 {
+        assert_eq!(served_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap(), epoch);
+    }
+    route.close("test complete".into());
+}
+
+#[test]
+fn resume_before_handler_returns_does_not_lose_wakeup() {
+    let route = Arc::new(SurfaceRoute::new());
+    let weak = Arc::downgrade(&route);
+    let (served_tx, served_rx) = mpsc::channel();
+    route
+        .attach_handler(Box::new(move |event| {
+            let route = weak.upgrade().unwrap();
+            drop(route.pause());
+            if let cmux_tui_cdp::CdpEvent::FrameNavigated { frame_epoch, .. } = event {
+                served_tx.send(frame_epoch).unwrap();
+            }
+            LaneFlow::Continue
+        }))
+        .unwrap();
+    for epoch in 0..40 {
+        assert!(!route.deliver(navigated(epoch)));
+    }
+    for epoch in 0..40 {
+        assert_eq!(served_rx.recv_timeout(BROWSER_TEST_SAFETY_BOUND).unwrap(), epoch);
+    }
+    route.close("test complete".into());
+}
