@@ -21,7 +21,11 @@ struct PaletteCommandEntriesTests {
         let palette = PaletteController(registry: registry, frecencyPersistence: nil)
         palette.hiddenActionIDs = { ["newWindow"] }
         let rows = palette.makeRegistryProvider().makeItems().filter(\.isEnabled).compactMap(\.actionID)
-        let entries = palette.commandEntries()
+        let clock = ContinuousClock()
+        var entries: [PaletteCommandEntry] = []
+        let elapsed = clock.measure { entries = palette.commandEntries() }
+        // Every New Tab page opening pays this once (NewTabPage.omnibar).
+        print("palette-command-entries: \(entries.count) entries in \(elapsed)")
         #expect(entries.map(\.id) == rows)
         #expect(entries.count > 40)
         #expect(!entries.contains { $0.id == "newWindow" || $0.id == "commandPalette" })

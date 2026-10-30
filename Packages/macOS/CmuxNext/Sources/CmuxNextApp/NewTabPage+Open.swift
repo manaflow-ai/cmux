@@ -12,6 +12,11 @@ import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
 
+extension InternalPageID {
+    /// The native New Tab page (`tabs.nativeNewTabPage`, ``NativeNewTabView``).
+    static let nativeNewTab = InternalPageID(rawValue: "native-new-tab")
+}
+
 /// Runs a new tab page's close on the frame after its replacement shows.
 @MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
 
@@ -31,6 +36,11 @@ extension NewTabPage {
                      then: (@MainActor (String) -> Void)? = nil) {
         let start = ContinuousClock.now
         let services = pane.services
+        // `tabs.nativeNewTabPage` on: the native page instead (an alternative; the web page stays the default).
+        if seed == nil, let key = openNative(in: pane, reusingShown: reusingShown) {
+            services.newTabSpares.record(.init(spare: false, crossWindow: false, milliseconds: NewTabSparePool.milliseconds(since: start), refit: false))
+            return then?(key) ?? ()
+        }
         let openingKey = ObjectIdentifier(pane)
         if reusingShown, let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key), AgentHistoryPage.title(key, services) == nil {
             openingPanes.remove(openingKey)
@@ -195,5 +205,68 @@ extension NewTabPage {
     /// a lone page in place, so this never empties the person's pane).
     static func closingPage(_ key: String, in pane: PaneController) -> @MainActor () -> Void {
         { [weak pane] in closeFrame.scheduleFrame { pane?.close([StripTabID(key)]) } }
+    }
+
+    /// Opens the native New Tab page in `pane` when `tabs.nativeNewTabPage` is on and the pane is this
+    /// Mac's (another machine's pane keeps the web page); `reusingShown` selects one already shown.
+    /// Returns the page's tab key, or nil to open the web page.
+    static func openNative(in pane: PaneController, reusingShown: Bool) -> String? {
+        let services = pane.services
+        guard services.settings?.snapshot.nativeNewTabPage == true, pane.daemon.isLocal else { return nil }
+        if reusingShown, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
+            services.pages.reveal(key, in: pane)
+            return key
+        }
+        if services.pages.provider(.nativeNewTab) == nil {
+            // Each tab's view owns its model, made from the pane that shows the tab on its first show.
+            services.pages.register(WebPageTab(.nativeNewTab, symbol: "square.grid.2x2", title: services.registry.descriptor(for: action)?.title ?? "",
+                                               view: { [weak services] key in services?.paneController(showingTab: key).map { nativeView(key, in: $0) } }))
+        }
+        let opened = services.pages.open(.nativeNewTab, in: pane.pane.id, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
+                                         window: services.windowController(showing: pane))
+        pane.apply(pane.snapshot())
+        services.pages.reveal(opened, in: pane)
+        return opened
+    }
+
+    /// Tab `key`'s native page in `pane`: the web page's context (``page(_:selected:window:pane:)``), no web view.
+    private static func nativeView(_ key: String, in pane: PaneController) -> NSView {
+        let page = BenchSpans.measure("newTab.nativeContext") {
+            Self.page(pane.services, selected: pane.selectedTab, window: pane.view.window, pane: pane)
+        }
+        return NativeNewTabView.hosted(NativeNewTabModel(page: page, actions: nativeActions(key, cwd: page.cwd, pane: pane)))
+    }
+
+    /// The native page's requests, over the web page's paths: `newTab.submit`'s table for typed text,
+    /// the palette's switchers for jumps, the palette's own run for an action. A submit replaces the page.
+    private static func nativeActions(_ key: String, cwd: String?, pane: PaneController) -> NativeNewTabActions {
+        NativeNewTabActions(
+            submit: { [weak pane] text, kind, search in
+                guard let pane else { return }
+                submitNative(text, kind: kind, search: search, cwd: cwd, in: pane)
+                closingPage(key, in: pane)()
+            },
+            jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
+            action: { [weak pane] id in pane?.services.palette.runCommand(ActionID(rawValue: id), relativeTo: pane?.view.window) }
+        )
+    }
+
+    /// What a native submit opens: an empty field makes the kind as it is; a terminal runs the text; a
+    /// browser opens an address or searches; an agent's text goes through `newTab.submit` (a prompt, or a
+    /// URL or `!command` typed there).
+    private static func submitNative(_ text: String, kind: AgentPaneTabKind, search: Bool, cwd: String?, in pane: PaneController) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch (kind, trimmed.isEmpty) {
+        case (.terminal, _): pane.newTerminalTab(cwd: cwd, typing: command(trimmed) ?? nil)
+        case (.browser, true): _ = pane.newBrowserTab()
+        case (.agent, true): _ = pane.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
+        case (.browser, false), (.agent, false):
+            // A browser's words are searched; an agent's go out as a prompt.
+            let reads = NewTabSubmit.plan(text: trimmed, search: search, agent: nil, resolver: pane.services.cache.suggestionEngine.resolver)
+            var searches = search
+            if kind == .browser, case .chat = reads { searches = true }
+            let arguments: [String: ActionValue] = ["text": .string(trimmed), "search": .bool(searches)]
+            _ = pane.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.pane.id), arguments: arguments, origin: .user))
+        }
     }
 }
