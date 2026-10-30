@@ -74,7 +74,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Follow a Claude Code background process's output",
                 "acpmux process show coord/b7x2k1q -f",
             ),
-            ("Stop a background process", "acpmux process kill coord/b7x2k1q"),
+            ("Stop a Claude Code or Codex background process", "acpmux process kill coord/b7x2k1q"),
         ],
     ),
     (
@@ -100,7 +100,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ),
     (
         "process kill",
-        &[("Stop a dev server an agent left running", "acpmux process kill coord/b7x2k1q")],
+        &[(
+            "Stop a dev server a Claude Code or Codex agent left running",
+            "acpmux process kill coord/b7x2k1q",
+        )],
     ),
     (
         "process background",
