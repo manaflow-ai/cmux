@@ -86,12 +86,14 @@ extension WindowManager {
     }
 
     /// Leaves a Cloud space whose machine could not load, never through another wait: to `previous` when the window
-    /// shows something there now, else to `default` when it does, else to `default` with a new workspace on this
+    /// can show something there now, else to `default` when it can, else to `default` with a new workspace on this
     /// Mac. A wait into `previous` (another Cloud space that has not loaded) could fail back here and loop.
     func fallBack(preferring previous: ProfileID, in state: WindowState) {
         let members = registry.members(of: state.id), machines = services.machines
+        // Visible here, or adoptable from a closed window: both take switchProfile's non-empty path, never a wait.
         for target in [previous, .defaultProfile] where target != state.profileID
-            && !WindowProfiles.visible(members, profile: target, machines: machines).isEmpty {
+            && (!WindowProfiles.visible(members, profile: target, machines: machines).isEmpty
+                || !adoptableWorkspaces(in: target, for: state.id).isEmpty) {
             return switchProfile(target, in: state)
         }
         state.enterProfile(.defaultProfile)
