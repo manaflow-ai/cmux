@@ -1214,9 +1214,6 @@ export class AcpmuxDirectClient {
   private liveTakeOver?: { canFork: boolean; command?: string };
   /// The chat `liveTakeOver` asks about: the choice is shown only on that chat.
   private liveTakeOverFor?: string;
-  /// The watch `watchLive` opened for a chat acpmux refused to resume, with that refused adopt: its
-  /// Fork It starts the fork at once from it (`takeOver`), as the choice alone did.
-  private liveWatch?: { sessionId: string; adopt: AcpmuxAdopt };
   private summary: Record<string, any> | undefined;
   /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
   /// names the options it runs now), then each newer config update. A replayed update before it is
@@ -6581,7 +6578,6 @@ export class AcpmuxDirectClient {
     }
     this.liveTakeOver = live;
     this.liveTakeOverFor = sessionId;
-    this.liveWatch = { sessionId, adopt };
     if ((await this.select(sessionId)) === sessionId) this.adopted = sessionId;
     return true;
   }
@@ -6590,7 +6586,14 @@ export class AcpmuxDirectClient {
   /// click while it adopts does nothing.
   async adoptLive(choice: "fork" | "open"): Promise<void> {
     const live = this.liveAdopt;
-    if (!live || (choice === "fork" && !live.canFork)) return;
+    if (!live) {
+      // The same choice over a watched chat (`watchLive`, or a Take Over refused as live): it forks
+      // or takes that chat over; `adopted` names the chat the tab keeps.
+      const sessionId = this.selectedSessionId;
+      if (sessionId && (await this.takeOver(choice)) && choice === "open") this.adopted = sessionId;
+      return;
+    }
+    if (choice === "fork" && !live.canFork) return;
     this.liveAdopt = undefined;
     this.emit();
     await this.adoptChat({ ...live.adopt, ifLive: choice });
@@ -6645,11 +6648,14 @@ export class AcpmuxDirectClient {
     if (ifLive && (!live || (ifLive === "fork" && !live.canFork))) return false;
     this.liveTakeOver = undefined;
     this.emit();
-    // A watch `watchLive` opened forks at once, as the choice alone did: a fork taken over from a
-    // watch keeps its source only in the daemon's memory until its first prompt.
-    const watched = this.liveWatch?.sessionId === sessionId ? this.liveWatch : undefined;
-    if (ifLive === "fork" && watched) {
-      await this.adoptChat({ ...watched.adopt, ifLive: "fork" });
+    // Fork It forks the watched conversation at once, from its own id (as Continue in New Chat
+    // does): a fork taken over from a watch keeps its source only in the daemon's memory until its
+    // first prompt, so a restart in between would lose it.
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const family = text(summary?.watching);
+    const agentSessionId = text(summary?.agentSessionId);
+    if (ifLive === "fork" && family && agentSessionId) {
+      await this.adoptChat({ harness: family, agentSessionId, ifLive: "fork" });
       return true;
     }
     try {
