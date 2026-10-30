@@ -42,10 +42,10 @@ public struct ProvisionalPane: Sendable, Hashable {
 
     /// A fresh provisional terminal pane that opens as a new column (New Column): `width` is its
     /// viewport fraction; `widths` and `treeWidth` are the width changes it brings
-    /// (``ProvisionalColumn``).
-    @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil) {
+    /// (``ProvisionalColumn``); `left` opens it before the target's column (New Column Left).
+    @MainActor public init(columnWidth width: Double, widths: [ColumnID: Double] = [:], treeWidth: Double? = nil, left: Bool = false) {
         self.init(tab: nil)
-        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth)
+        column = ProvisionalColumn(paneHandle: handle, width: width, widths: widths, treeWidth: treeWidth, left: left)
     }
 
     /// A fresh provisional terminal pane that opens as a new row of `height` permille (New Row).

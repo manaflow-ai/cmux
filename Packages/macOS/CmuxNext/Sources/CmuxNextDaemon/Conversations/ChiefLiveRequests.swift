@@ -43,6 +43,10 @@ public struct ConversationRunRows: Decodable, Sendable, Hashable {
         public var id: String
         public var kind: String
         public var text: String?
+        public var tool: ConversationRunTool?
+        public var status: String?
+        /// The step's actual first-write timestamp, in milliseconds since the epoch.
+        public var at: Double?
         /// The row's text was cut (32 KiB): not the step's whole text.
         public var truncated: Bool?
         /// Local: the step's write revision; Cloud: its place.
@@ -94,16 +98,16 @@ public struct CloudConversationRunRequest: DaemonRequest {
 }
 
 extension ConversationClient {
-    /// Every step of `run` (pages read on while `has_more`, at most 8); nil from a daemon without `conversation-runs-v1`.
+    /// Every step of `run` (pages read on while `has_more`, stopping on cancellation or a non-advancing cursor); nil from a daemon without `conversation-runs-v1`.
     public func runRows(_ conversation: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return nil }
         var all = try await connection.request(ConversationRunRequest(conversation: conversation, run: run))
-        var pages = 1
-        while all.hasMore == true, pages < 8, let last = all.steps.compactMap(\.rev).max() {
+        var cursor: UInt64 = 0
+        while all.hasMore == true, !Task.isCancelled, let last = all.steps.compactMap(\.rev).max(), last > cursor {
+            cursor = last
             let next = try await connection.request(ConversationRunRequest(conversation: conversation, run: run, afterRev: last))
             all.steps += next.steps
             all.hasMore = next.hasMore
-            pages += 1
         }
         return all
     }

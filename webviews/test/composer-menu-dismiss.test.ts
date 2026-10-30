@@ -193,6 +193,38 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
 
   for (const [engine] of engines)
     for (const width of [760, 300])
+      test(`${engine}: Folder and Environment switch on the same press at ${width} px`, async () => {
+        const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
+        try {
+          await page.goto(stageURL("agent-pane.composer-context", "environment-picker", width));
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+            timeout: 120_000,
+          });
+          const folder = 'button[aria-haspopup][aria-label="Folder"]';
+          const environment = 'button[aria-haspopup][aria-label^="Environment:"]';
+          // The fixture starts with Environment open. Each pointer press must both close
+          // that popover and open its sibling, including at the narrow icon-only width.
+          for (const [from, to] of [
+            [environment, folder],
+            [folder, environment],
+          ] as const) {
+            await page.locator(`${from}[aria-expanded="true"]`).waitFor();
+            await pressAt(page, to);
+            await page.locator(`${to}[aria-expanded="true"]`).waitFor();
+            expect(await page.locator(from).getAttribute("aria-expanded")).toBe("false");
+            // Closing may fade. The new trigger must be open before that old surface leaves.
+            await page
+              .locator(from === environment ? ".acpmux-env-popover" : ".acpmux-folder-popover:not(.acpmux-env-popover)")
+              .waitFor({ state: "detached" });
+            expect(await page.locator('.ui-popup input[role="combobox"]:visible').count()).toBe(1);
+          }
+        } finally {
+          await page.close();
+        }
+      });
+
+  for (const [engine] of engines)
+    for (const width of [760, 300])
       for (const stage of STAGES) {
         const where = `${engine}: ${stage.entry} ${stage.variant} at ${width} px`;
 
@@ -295,7 +327,16 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
             await settle(page, stage.chips, [name]);
-            if (name === "Model") {
+            // The current model's row carries its levels inline where the caller picks model and
+            // effort together (#26521: New Tab); the segment group is the one with a checked level.
+            const inlineLevel =
+              '.acpmux-quick-menu .acpmux-quick-efforts:has(.acpmux-quick-effort-segment[aria-checked="true"]) .acpmux-quick-effort-segment[aria-checked="false"]';
+            if (name === "Model")
+              await page.locator(`${inlineLevel}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
+            if (name === "Model" && (await page.locator(inlineLevel).count()) > 0) {
+              await menusAtRest(page);
+              await pressAt(page, inlineLevel);
+            } else if (name === "Model") {
               // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
               await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');
               await page.locator('[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"]').first().waitFor();

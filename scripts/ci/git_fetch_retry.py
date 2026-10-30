@@ -271,9 +271,44 @@ def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print,
     return removed
 
 
+# `git` options and `submodule update` options that take their value as the next word.
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+                               "--config-env", "--super-prefix"})
+UPDATE_VALUE_OPTIONS = frozenset({"--reference", "--depth", "--jobs", "-j", "--filter"})
+
+
+def submodule_update_paths(command: Sequence[str]) -> list[str] | None:
+    """The paths a `git ... submodule update ...` command names (empty: every submodule), or None when the
+    command is not a submodule update. Paths are positional, with or without a `--` before them."""
+    words = list(command[1:])
+    i = 0
+    while i < len(words) and words[i].startswith("-"):  # git's own options
+        i += 2 if words[i] in GIT_VALUE_OPTIONS else 1
+    if words[i:i + 1] != ["submodule"]:
+        return None
+    i += 1
+    while i < len(words) and words[i] in ("--quiet", "-q"):  # `git submodule --quiet update`
+        i += 1
+    if words[i:i + 1] != ["update"]:
+        return None
+    paths: list[str] = []
+    rest = words[i + 1:]
+    j = 0
+    while j < len(rest):
+        word = rest[j]
+        if word == "--":
+            paths += rest[j + 1:]
+            break
+        if word.startswith("-"):
+            j += 2 if word in UPDATE_VALUE_OPTIONS else 1
+            continue
+        paths.append(word)
+        j += 1
+    return paths
+
+
 def is_submodule_update(command: Sequence[str]) -> bool:
-    words = [word for word in command if not word.startswith("-")]
-    return any(a == "submodule" and b == "update" for a, b in zip(words, words[1:]))
+    return submodule_update_paths(command) is not None
 
 
 def run_once(command: Sequence[str], timeout: float) -> int:
@@ -324,9 +359,8 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
     status = 1
     for attempt in range(1, tries + 1):
         started = clock()
-        if is_submodule_update(command):
-            # an update of named paths (`-- PATH...`) drops only under those paths
-            only = command[command.index("--") + 1:] if "--" in command else []
+        only = submodule_update_paths(command)
+        if only is not None:  # an update of named paths drops only under those paths; with none, under all
             drop_dangling_submodules(repo, log, only=only)
         modules_before = module_dirs(repo)
         status = runner(command, timeout)

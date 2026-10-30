@@ -76,6 +76,12 @@ export type AttachResult = {
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
+  /**
+   * The prompt that opened the turn the page starts inside, when the page starts inside one
+   * with older records before it (`server/requests/turn_opener.rs`); null otherwise. An older
+   * acpmux leaves it out, and its client reads it with `_acpmux/events`.
+   */
+  turnOpener: (SessionEvent | null);
 } & Record<string, unknown>;
 
 /**
@@ -354,7 +360,22 @@ export interface MemberApproverDecision {
   decisionNonce: string;
 }
 
+/** The sender and receiver projection of a persisted session-to-session message. */
+export type MessageEvent = {
+  at: number;
+  messageId: string;
+  sender: MessageSender;
+  sessionId: string;
+  text: string;
+} & Record<string, unknown>;
+
 export type MessageRole = "agent" | "user";
+
+export type MessageSender = {
+  host?: (string | null);
+  name: string;
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
@@ -550,6 +571,9 @@ export type ProcessBackgroundResult = {
   backgrounded: boolean;
 } & Record<string, unknown>;
 
+/** What another agent's message asks of the session it goes to. */
+export type PromptClass = ("block" | "question" | "result" | "fyi");
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
@@ -586,14 +610,37 @@ export type QueuedPromptSummary = {
    * Kept across a restart and by their own edit.
    */
   author: (QueuedAuthor | null);
+  /**
+   * What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+   * `result` when it named none; null for the person's own prompt and from a peer on an older
+   * acpmux.
+   */
+  class: (PromptClass | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
    * app draws it as a received message waiting for the turn, not as a composer row.
    */
   fromAgent: (string | null);
+  /**
+   * That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
+   * draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
+   */
+  fromHarness: (string | null);
+  /**
+   * The sending session's id when the daemon bound it (its caller token, a peer daemon's word
+   * on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
+   * (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
+   */
+  fromSessionId: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
+  /**
+   * Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+   * person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+   * on an older acpmux.
+   */
+  heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
   prompt: string;
@@ -767,6 +814,11 @@ export type SessionDetail = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -799,6 +851,12 @@ export type SessionDetail = {
   models?: unknown;
   /** The agent's ACP session modes. */
   modes?: unknown;
+  /**
+   * Moved to another daemon (`acpmux session move`): where it runs now,
+   * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+   * and from a peer on an older acpmux.
+   */
+  movedTo?: unknown;
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
@@ -867,6 +925,8 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -875,6 +935,11 @@ export type SessionDetail = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -884,10 +949,10 @@ export type SessionDetail = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -961,6 +1026,11 @@ export type SessionSummary = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -990,6 +1060,12 @@ export type SessionSummary = {
    */
   mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
+  /**
+   * Moved to another daemon (`acpmux session move`): where it runs now,
+   * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+   * and from a peer on an older acpmux.
+   */
+  movedTo?: unknown;
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
@@ -1054,6 +1130,8 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
+  state?: string;
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
@@ -1062,6 +1140,11 @@ export type SessionSummary = {
   status: string;
   /** The agent takes a prompt mid-turn. */
   steering: boolean;
+  /** Last classified error, redacted and bounded. Omitted for peers. */
+  stuckError?: (string | null);
+  stuckReason?: (StuckReason | null);
+  /** Unix milliseconds when the third failure established stuck. Omitted for peers. */
+  stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
@@ -1071,10 +1154,10 @@ export type SessionSummary = {
    * may omit this field.
    */
   titleSource?: (string | null);
-  /** The chat's tools (`hub/tools.rs`). */
-  tools: ToolSummary[];
-  /** `_acpmux/set_tools` can change them. */
-  toolsMutable: boolean;
+  /** The chat's tools (`hub/tools.rs`), present on per-session reads and attachments. */
+  tools?: (ToolSummary[] | null);
+  /** `_acpmux/set_tools` can change them; omitted from census rows. */
+  toolsMutable?: (boolean | null);
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1100,8 +1183,14 @@ export type SessionSummary = {
 export interface SessionsParams {
   /** A previous reply's `nextCursor`: the page starts after that session. */
   cursor?: (string | null);
+  /** `_acpmux/sessions` only: exclude these statuses before pagination. */
+  excludeStatus?: (string[] | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /** `_acpmux/sessions` only: exclude peer sessions before pagination. */
+  localOnly?: (boolean | null);
+  /** `_acpmux/sessions` only: `sessionId` orders by immutable ID for complete scans. */
+  orderBy?: (string | null);
   /**
    * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
    * (its name, e.g. `huge-blue`). Empty is no filter.
@@ -1112,6 +1201,8 @@ export interface SessionsParams {
    * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
    */
   status?: (string | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }
 
 export type SessionsResult = {
@@ -1123,6 +1214,8 @@ export type SessionsResult = {
   /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
+
+export type StuckReason = "harness_unavailable" | "capacity" | "auth" | "spawn_failed";
 
 /** One row of a chat's tool list (`store::ToolRow`). */
 export type ToolSummary = {
@@ -1190,4 +1283,6 @@ export interface WatchParams {
    */
   enabled?: (boolean | null);
   limit?: (number | null);
+  /** Include tool inventories explicitly; default census rows omit them. */
+  withTools?: (boolean | null);
 }

@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextActions
 import CmuxNextTerminal
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// soft grey with a blue accent and Clay Orange warm neutral with a clay accent, each with a light
 /// pair; Olive Grey is dark only and keeps the appearance accent. They are options only: the
 /// default theme stays Apple System Colors.
-@Suite struct BundledCmuxThemesTests {
+@Suite(.closesItsWindows) struct BundledCmuxThemesTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

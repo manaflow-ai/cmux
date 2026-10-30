@@ -10,7 +10,9 @@ variable alone.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
 import os
 import sys
 import tempfile
@@ -37,6 +39,8 @@ SIGNING_JOBS = {
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "sign-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
+    # Its same-run Blacksmith twin (tests/test_ci_signing_owned_mac.py).
+    "sign-nightly-identity-legacy-blacksmith": "needs.legacy-identity-target.outputs.sign_runner",
     "verify-nightly-identity-legacy": "needs.legacy-identity-target.outputs.sign_runner",
     # Signs the Sparkle deltas (the release environment), after the feed is published.
     "generate-nightly-deltas": "needs.pick-nightly-sign-runner.outputs.runner",
@@ -117,7 +121,7 @@ class Pick(unittest.TestCase):
             env = {"CANDIDATE": "", "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
                    "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({SMALL: 3}), now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=verified\n")
 
     def test_a_pick_made_on_a_rerun_is_its_own_alternate(self) -> None:
         # A full re-run runs the picker again; its fresh pick must win over the other size.
@@ -126,7 +130,7 @@ class Pick(unittest.TestCase):
             env = {"CANDIDATE": "", "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
                    "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "2"}
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=verified\n")
 
     def test_main_writes_the_output_and_never_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,12 +139,100 @@ class Pick(unittest.TestCase):
 
             def broken(token: str, repo: str) -> dict:
                 raise OSError("rate limit")
-            self.assertEqual(picker.main(env, read=broken, now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={LARGE}\nalternate={SMALL}\n")
+            self.assertEqual(picker.main(env, read=broken, now=NOW, sleep=lambda s: None), 0)
+            # Unreadable: unverified, so the size with the most slots, not the variable (HQ#5168).
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
             output.write_text("")
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
             # 12 vCPU is stalled, so a re-run keeps 6 vCPU rather than moving onto it.
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=verified\n")
+
+
+class Unverified(unittest.TestCase):
+    """Without a fresh pool snapshot the pick is unverified, and says so (HQ#5168).
+
+    A missing, stale or unreadable snapshot used to hand the signing jobs vars.MACOS_RUNNER_26
+    unchecked, the label that stranded every nightly for eight hours on 2026-10-26. Now the
+    pick takes the size with the most slots (6 vCPU) and offers the other size to a re-run,
+    marks the placement unverified in its outputs, a ::warning and the step summary, retries an
+    unreadable read a bounded number of times, and still never fails the job.
+    """
+
+    def run_main(self, read, attempt: str = "1", candidate: str = LARGE, clock=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            output, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            env = {"CANDIDATE": candidate, "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
+                   "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_RUN_ATTEMPT": attempt}
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                kwargs = {"clock": clock} if clock else {}
+                self.assertEqual(picker.main(env, read=read, now=NOW, sleep=lambda s: None, **kwargs), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            return values, summary.read_text(), stdout.getvalue()
+
+    def assert_unverified(self, values: dict, summary: str, stdout: str) -> None:
+        self.assertEqual(values, {"runner": SMALL, "alternate": LARGE, "placement": "unverified"})
+        self.assertIn("::warning title=nightly sign runner::", stdout)
+        self.assertIn("unverified", stdout)
+        self.assertIn("unverified", summary)
+
+    def test_a_missing_snapshot_is_unverified_and_never_trusts_the_variable(self) -> None:
+        self.assert_unverified(*self.run_main(lambda t, r: None))
+
+    def test_a_stale_snapshot_is_unverified_and_never_trusts_the_variable(self) -> None:
+        # 60 minutes old: past QUEUE_SNAPSHOT_MINUTES, so it says nothing about 12 vCPU now.
+        values, summary, stdout = self.run_main(lambda t, r: snapshot({}, age_minutes=60))
+        self.assert_unverified(values, summary, stdout)
+        self.assertIn("stale", summary)
+
+    def test_an_unreadable_snapshot_is_retried_a_bounded_number_of_times(self) -> None:
+        calls = []
+
+        def broken(token: str, repo: str) -> dict:
+            calls.append(token)
+            raise OSError("rate limit")
+        values, summary, stdout = self.run_main(broken)
+        self.assert_unverified(values, summary, stdout)
+        self.assertEqual(len(calls), picker.SNAPSHOT_READS)
+        self.assertIn("rate limit", summary)
+
+    def test_the_retries_stop_at_the_deadline(self) -> None:
+        # A read that takes the whole budget is not retried: the 2-minute step must still write its outputs.
+        ticks = iter([0.0, picker.SNAPSHOT_READ_SECONDS + 1, picker.SNAPSHOT_READ_SECONDS + 1])
+        calls = []
+
+        def slow(token: str, repo: str) -> dict:
+            calls.append(token)
+            raise TimeoutError("timed out")
+        values, *_ = self.run_main(slow, clock=lambda: next(ticks))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(values["placement"], "unverified")
+
+    def test_a_read_that_recovers_is_verified(self) -> None:
+        answers = [OSError("reset"), snapshot({SMALL: 90})]
+
+        def flaky(token: str, repo: str) -> dict:
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        values, summary, _ = self.run_main(flaky)
+        self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "verified"})
+        self.assertNotIn("unverified", summary)
+
+    def test_a_full_rerun_without_a_snapshot_tries_the_other_size(self) -> None:
+        # Attempt 1 took 6 vCPU unverified; a full re-run picks again, still blind, and moves to 12 vCPU.
+        values, *_ = self.run_main(lambda t, r: None, attempt="2")
+        self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "unverified"})
+        values, *_ = self.run_main(lambda t, r: None, attempt="3")
+        self.assertEqual(values, {"runner": SMALL, "alternate": SMALL, "placement": "unverified"})
+
+    def test_no_token_is_unverified_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main({"CANDIDATE": LARGE, "GITHUB_OUTPUT": str(output)}, now=NOW), 0)
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
 
 
 class Workflow(unittest.TestCase):
@@ -292,6 +384,71 @@ class OwnedVerify(unittest.TestCase):
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
         self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
+
+
+class SnapshotReadToken(unittest.TestCase):
+    """The two nightly pickers read the pool snapshot with the routing App's own budget.
+
+    Run 41051244674 (2026-10-30, pick-nightly-sign-runner): with SNAPSHOT_TOKEN set to GITHUB_TOKEN,
+    every snapshot read got "HTTP 403 X-RateLimit-Remaining=0 ... API rate limit exceeded for
+    installation", the repo-wide GITHUB_TOKEN budget. The sign pick fell to "placement unverified",
+    signing_runner.py offered no owned Mac, and signing queued behind PR overflow on Blacksmith. The
+    pickers already mint GLAEDA_ROUTE_APP_KEY in ci-routing-agent, so each also mints an actions: read
+    token from it, as cmux-next.yml's macos-placement does, and falls back to GITHUB_TOKEN.
+    """
+
+    PICKERS = ("pick-nightly-build-runner", "pick-nightly-sign-runner")
+    READ = "${{ steps.snapshot-read-token.outputs.token || github.token }}"
+    KEY = "secrets.GLAEDA_ROUTE_APP_KEY"
+    # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
+    # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN).
+    KEYED_JOBS = {"pick-nightly-build-runner", "pick-nightly-sign-runner"}
+
+    def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
+        for name in self.PICKERS:
+            job = WORKFLOW["jobs"][name]
+            steps = job["steps"]
+            ids = [step.get("id") for step in steps]
+            readers = [index for index, step in enumerate(steps) if "SNAPSHOT_TOKEN" in (step.get("env") or {})]
+            with self.subTest(job=name):
+                self.assertTrue(readers)
+                mint_at = ids.index("snapshot-read-token")
+                self.assertLess(mint_at, min(readers))
+                for index in readers:
+                    self.assertEqual(steps[index]["env"]["SNAPSHOT_TOKEN"], self.READ, steps[index].get("name"))
+
+    def test_the_read_mint_asks_only_actions_read_of_the_routing_app(self) -> None:
+        for name in self.PICKERS:
+            job = WORKFLOW["jobs"][name]
+            mint = next(step for step in job["steps"] if step.get("id") == "snapshot-read-token")
+            route = next(step for step in job["steps"] if step.get("id") == "route-token")
+            with self.subTest(job=name):
+                self.assertEqual(mint["uses"], route["uses"])
+                self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+                self.assertEqual(mint["with"]["app-id"], "${{ vars.GLAEDA_ROUTE_APP_ID }}")
+                self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+                self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
+                                 {"permission-actions": "read"})
+                # A failed mint never blocks the pick: the reads fall back to GITHUB_TOKEN.
+                self.assertTrue(mint["continue-on-error"])
+                self.assertEqual(int(mint["timeout-minutes"]), 1)
+                # Minted only where the routing token already is (nightly-next push and dispatch).
+                self.assertEqual(mint["if"], route["if"])
+                # No widening: the job keeps actions: read and contents: read, in the routing environment.
+                self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
+                self.assertEqual(job["environment"], "ci-routing-agent")
+                budget = sum(int(step.get("timeout-minutes", 0)) for step in job["steps"])
+                self.assertGreaterEqual(int(job["timeout-minutes"]), budget)
+
+    def test_no_other_job_gains_the_routing_app_key(self) -> None:
+        keyed = {name for name, job in WORKFLOW["jobs"].items() if self.KEY in yaml.safe_dump(job)}
+        self.assertEqual(keyed, self.KEYED_JOBS)
+        for name, job in WORKFLOW["jobs"].items():
+            if name in self.KEYED_JOBS:
+                continue
+            with self.subTest(job=name):
+                self.assertNotIn("snapshot-read-token", yaml.safe_dump(job))
+
 
 if __name__ == "__main__":
     unittest.main()

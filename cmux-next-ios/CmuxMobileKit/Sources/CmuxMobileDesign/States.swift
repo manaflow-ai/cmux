@@ -12,6 +12,7 @@ public struct EmptyState: View {
     let primaryTitle: LocalizedStringKey?
     let isPrimaryLoading: Bool
     let primary: (() -> Void)?
+    let retry: (@MainActor () async -> Void)?
     let secondaryTitle: LocalizedStringKey?
     let secondary: (() -> Void)?
 
@@ -22,6 +23,7 @@ public struct EmptyState: View {
         primaryTitle: LocalizedStringKey? = nil,
         isPrimaryLoading: Bool = false,
         primary: (() -> Void)? = nil,
+        retry: (@MainActor () async -> Void)? = nil,
         secondaryTitle: LocalizedStringKey? = nil,
         secondary: (() -> Void)? = nil
     ) {
@@ -31,6 +33,7 @@ public struct EmptyState: View {
         self.primaryTitle = primaryTitle
         self.isPrimaryLoading = isPrimaryLoading
         self.primary = primary
+        self.retry = retry
         self.secondaryTitle = secondaryTitle
         self.secondary = secondary
     }
@@ -56,6 +59,9 @@ public struct EmptyState: View {
             if let primaryTitle, let primary {
                 PrimaryCapsule(primaryTitle, size: .inline, isLoading: isPrimaryLoading, action: primary)
                     .padding(.top, 20)
+            }
+            if let retry {
+                RetryButton(action: retry).padding(.top, 20)
             }
             if let secondaryTitle, let secondary {
                 TextCTA(secondaryTitle, action: secondary)
@@ -204,7 +210,7 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
 
-    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting to \(mac)…") }
+    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…") }
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
     public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "\(mac) is offline") }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")

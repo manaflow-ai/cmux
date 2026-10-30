@@ -383,6 +383,22 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "one-agent-two-commands": {
+      note: "One subagent and two background commands: the header reads exactly `1 subagent running · 2 commands` above the composer.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
+        if (title !== "1 subagent running · 2 commands") throw new Error(`unexpected tray title: ${title}`);
+      },
+      snapshot: chat(
+        [
+          user("Start the checks and have one reviewer inspect the tray", 2),
+          group([agent("Inspect the tray", 1.6, "running", { kind: "Explore", action: "Read SubagentTray.tsx" })], 1.6),
+          described,
+        ],
+        { isWorking: true },
+      ),
+    },
     "between-turns": {
       note: "After the turn: a background subagent and two chats the agent started still run. The tray says so above the composer; the transcript ends with the turn's footer.",
       play: async (ctx) => {

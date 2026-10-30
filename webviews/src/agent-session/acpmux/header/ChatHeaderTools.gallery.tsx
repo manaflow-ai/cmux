@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
+import { cloudMachineRows } from "../cloudMachineMenu";
+import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
@@ -46,9 +48,11 @@ const menuRows = (): ChatMenuItem[] => [
   "separator",
   { key: "sideChat", label: "New side chat", icon: "agent.chat.new", onSelect: () => undefined },
   { key: "fork", label: "Fork", icon: "agent.fork", onSelect: () => undefined },
+  { key: "forkTo", label: "Fork to…", icon: "agent.fork", onSelect: () => undefined },
+  "separator",
   {
     key: "continue",
-    label: "Continue in",
+    label: "Hand off to…",
     icon: "agent.handoff",
     children: [
       { key: "codex", label: "Codex", onSelect: () => undefined },
@@ -139,8 +143,9 @@ const groupTreatment =
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a fill, border or shadow. The open panel's toggle
-// reads as on through its ink and selected glyph, including on hover (Leo, 2026-10-27).
+// and the chat menu open, no header tool draws a border or shadow, and only a pressed one draws a fill:
+// the selection fill on its own square, hovered or not, so the open panel's toggle reads as on (Leo,
+// 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
@@ -150,8 +155,8 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (!clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle draws a fill on hover");
+  if (clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle loses its selection fill on hover");
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
   await ctx.hover({ role: "menuitem", name: "Rename" });
@@ -161,7 +166,11 @@ const plainIcons: Play = async (ctx) => {
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
-    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    const pressed = tool.getAttribute("aria-pressed") === "true";
+    if (pressed === clear(style.backgroundColor))
+      throw new Error(
+        `header tool ${name} ${pressed ? "is pressed with no fill" : "draws a fill"}: ${style.backgroundColor}`,
+      );
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
@@ -306,7 +315,7 @@ const keyboardMenu: Play = async (ctx) => {
 
 const keyboardSubmenu: Play = async (ctx) => {
   await openMenu(ctx);
-  await ctx.focus({ role: "menuitem", name: "Continue in" });
+  await ctx.focus({ role: "menuitem", name: "Hand off to…" });
   await ctx.press("ArrowRight");
   await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
   await ctx.press("Escape");
@@ -318,6 +327,18 @@ const keyboardSubmenu: Play = async (ctx) => {
       ctx.document.activeElement?.getAttribute("aria-label") === "Chat actions"
     );
   });
+};
+
+// A Cloud chat's machine rows (cloudMachineMenu.ts), placed as the App places them: before Archive's group.
+const noop = () => undefined;
+const noCall = async () => undefined;
+const noStop = async () => true;
+const noLive = () => ({ session: undefined, running: false });
+const galleryT = translate;
+const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
+  const rows = menuRows();
+  const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+  return [...rows.slice(0, archive), ...machine, "separator", ...rows.slice(archive)];
 };
 
 const base: HeaderToolsProps = {
@@ -367,12 +388,12 @@ export default componentEntry<HeaderToolsProps>({
     ),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
   // the shared popup surface, then the header's rules. With header.css alone every popup was
-  // see-through in the gallery and the "Continue in" submenu bug did not show as it does in the app.
+  // see-through in the gallery and the "Hand off to…" submenu bug did not show as it does in the app.
   styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   checks: {
     popupLayer: {
       value: true,
-      reason: "The chat menu and its Continue in submenu must each be the top, unclipped, opaque layer.",
+      reason: "The chat menu and its Hand off to… submenu must each be the top, unclipped, opaque layer.",
     },
     anchorMovePx: {
       value: 0,
@@ -575,13 +596,73 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: openMenu,
     },
+    "menu-cloud-machine-running": {
+      height: 860,
+      note: "A chat on a running Cloud machine (Labs > Preview features): Pause Machine sits before the tools rows (cloudMachineMenu.ts).",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "ready" },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
+    "menu-cloud-machine-working": {
+      height: 860,
+      note: "The same while its turn runs: the row says it stops the turn first.",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "ready" },
+              true,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
+    "menu-cloud-machine-paused": {
+      height: 860,
+      note: "A chat on a paused Cloud machine: Resume Machine.",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "paused" },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
     "keyboard-menu": {
       note: "Enter opens the menu, ArrowDown highlights a row, and Escape returns focus to Chat actions.",
       props: base,
       play: keyboardMenu,
     },
     "keyboard-submenu": {
-      note: "Continue in opens with ArrowRight; Escape closes the submenu and then the parent menu.",
+      note: "Hand off to… opens with ArrowRight; Escape closes the submenu and then the parent menu.",
       props: base,
       play: keyboardSubmenu,
     },

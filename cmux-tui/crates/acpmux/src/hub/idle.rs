@@ -33,6 +33,7 @@
 //! for good once shutdown starts (`stop_idle_reaper`).
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
@@ -97,6 +98,7 @@ impl Hub {
     /// `shutdown_all`): the idle reaper never stops a harness again.
     pub fn stop_idle_reaper(&self) {
         self.stopping.store(true, Ordering::SeqCst);
+        self.peer_notices_stop.send_replace(true);
         self.idle_wake.notify_one();
     }
 
@@ -300,7 +302,7 @@ impl Hub {
     /// `record` (a `resumed` one) with `"wake": true` when the start is a wake (`waking`).
     pub(super) fn wake_marked(&self, session: &Session, mut record: Value) -> Value {
         if self.waking(session) {
-            record["wake"] = json!(true);
+            record.set("wake", json!(true));
         }
         record
     }

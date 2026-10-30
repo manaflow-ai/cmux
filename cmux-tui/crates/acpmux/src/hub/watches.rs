@@ -230,7 +230,9 @@ fn commit(
         let Some(w) = saved.watches.get_mut(&old.id) else { return };
         if !w.active || w.cursors.get(key) != old.cursors.get(key) { return; }
         if !resolved && key.split_once('/').is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p)) { return; }
-        w.cursors.insert(key.into(), next.cursors[key].clone());
+        if let Some(cursor) = next.cursors.get(key) {
+            w.cursors.insert(key.into(), cursor.clone());
+        }
         if let Some((peer, _)) = key.split_once('/') {
             if next.offline.contains(peer) { w.offline.insert(peer.into()); }
             else { w.offline.remove(peer); }
@@ -243,7 +245,7 @@ fn commit(
                 "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
                     "watchId": w.id, "watchDone": resolved}}});
             saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                caller: w.caller.clone(), state: State::Queued, attempts: 0, error: None,
+                caller: w.caller.clone(), state: State::Queued, attempts: 0, never_sent: false, relay_post: None, error: None,
                 accepted: None, created_at: now, updated_at: now });
         }
     })

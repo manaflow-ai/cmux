@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_json::JsonSet as _;
 use ghostty_vt::{
     KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, StyledRun, UnderlineStyle,
     key_input_from_chord, rows_to_runs,
@@ -334,10 +335,10 @@ fn terminal_process_get(
         "foreground_executable":crate::platform::foreground_process_name(pid),
     });
     if let Some(executable) = executable {
-        value["executable"] = json!(executable);
+        value.set("executable", json!(executable));
     }
     if let Some(cwd) = surface.local_cwd() {
-        value["cwd"] = json!(cwd);
+        value.set("cwd", json!(cwd));
     }
     Ok(value)
 }
@@ -1119,16 +1120,19 @@ fn styled_run_json(run: &StyledRun) -> Value {
         "attrs":u32::from(run.attrs),
     });
     if let Some(underline) = run.underline {
-        value["underline"] = json!(match underline {
-            UnderlineStyle::Single => "single",
-            UnderlineStyle::Double => "double",
-            UnderlineStyle::Curly => "curly",
-            UnderlineStyle::Dotted => "dotted",
-            UnderlineStyle::Dashed => "dashed",
-        });
+        value.set(
+            "underline",
+            json!(match underline {
+                UnderlineStyle::Single => "single",
+                UnderlineStyle::Double => "double",
+                UnderlineStyle::Curly => "curly",
+                UnderlineStyle::Dotted => "dotted",
+                UnderlineStyle::Dashed => "dashed",
+            }),
+        );
     }
     if let Some(width_hint) = run.width_hint {
-        value["width_hint"] = json!(width_hint);
+        value.set("width_hint", json!(width_hint));
     }
     value
 }

@@ -106,6 +106,39 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     });
 
   for (const [engine] of engines) {
+    test(`${engine}: press-drag selection preserves the release modifier for Fork`, async () => {
+      const page = await open(engine, "agent-pane.header-tools", "idle");
+      try {
+        await page.evaluate(() => {
+          const picks: boolean[] = [];
+          Object.assign(window, { forkReleaseModifiers: picks });
+          document.addEventListener(
+            "click",
+            (event) => {
+              const row = (event.target as Element).closest('[role="menuitem"]');
+              if (row?.textContent?.trim() === "Fork") picks.push(event.altKey);
+            },
+            true,
+          );
+        });
+        const trigger = (await page.getByRole("button", { name: "Chat actions", exact: true }).boundingBox())!;
+        await page.mouse.move(trigger.x + trigger.width / 2, trigger.y + trigger.height / 2);
+        await page.mouse.down();
+        const row = page.getByRole("menuitem", { name: "Fork", exact: true });
+        await row.waitFor();
+        const box = (await row.boundingBox())!;
+        // Option can be pressed after opening: it is the release that chooses the action.
+        await page.keyboard.down("Alt");
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.up();
+        await page.keyboard.up("Alt");
+        expect(
+          await page.evaluate(() => (window as unknown as { forkReleaseModifiers: boolean[] }).forkReleaseModifiers),
+        ).toEqual([true]);
+      } finally {
+        await page.close();
+      }
+    });
     for (const [name, selector, popup] of [
       // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
       ["Model", chip("Model"), ".ui-popup.ui-menu"],

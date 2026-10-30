@@ -15,9 +15,12 @@
 //! that notices the expiry first) closes its bound connections in the same step (`settle`);
 //! expiry is one one-shot timer to the next `expires_at` (no polling).
 //!
-//! The hosted room (`room`, `provision_key`, `pending_room_ops`, the `provisioning` state) comes
-//! with the room bridge: until then a share is `active` from its create and `url` is null.
+//! With a hosted room configured (`agent_session_share_room.rs`), create provisions the share in
+//! the room first (`provisioning` until it answers) and answers the guest link; a revoke also
+//! goes to the room (`pending_room_ops`, retried until acknowledged). Without one a share is
+//! `active` from its create and `url` is null.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -33,6 +36,9 @@ use super::Teammate;
 use crate::apps::timer::{TimerId, Timers};
 use crate::mux::Mux;
 use crate::server::agent_transfer::state_file::{read_trusted, save};
+
+#[path = "agent_session_share_room.rs"]
+pub(in crate::server) mod room;
 
 pub(super) const GUEST_PREFIX: &str = "guest:";
 const FILE: &str = "agent-session-shares.json";
@@ -107,6 +113,18 @@ impl LinkShare {
         }
     }
 
+    /// A string member of the hosted room (`url`, `host_token`), if the share has one.
+    fn room_str(&self, field: &str) -> Option<&str> {
+        self.room.as_ref()?.get(field)?.as_str()
+    }
+
+    /// The room's `DELETE` is already queued.
+    fn delete_queued(&self) -> bool {
+        self.pending_room_ops
+            .iter()
+            .any(|op| op.get("op").and_then(Value::as_str) == Some("delete"))
+    }
+
     fn shown(&self, now: u64) -> Value {
         let guests: Vec<Value> = self
             .guests
@@ -119,7 +137,8 @@ impl LinkShare {
         json!({"share_id": self.share_id, "session": self.session, "surface": self.surface,
             "created_at": self.created_at, "expires_at": self.expires_at,
             "expires_in_secs": self.expires_at.saturating_sub(now) / 1000,
-            "uses_left": self.uses_left, "state": self.state, "room": self.room, "url": null,
+            "uses_left": self.uses_left, "state": self.state, "url": null,
+            "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
             "guests": guests})
     }
 }
@@ -134,13 +153,21 @@ pub(in crate::server) struct LinkShares {
     armed: Mutex<Option<(TimerId, u64)>>,
     /// Shares (`None`) and guests that ended since the last `settle`, whose connections close.
     ended: Mutex<Vec<(String, Option<String>)>>,
+    /// Room DELETE workers currently dispatched, one per share. Expiry can race a worker that is
+    /// still waiting for the room's response; do not start a second worker for the same record.
+    room_deletes: Mutex<HashSet<String>>,
     /// The daemon the timer's job runs for (set by the first verb or bind).
     mux: Mutex<Weak<Mux>>,
+    /// The hosted room each share is bridged to.
+    pub(in crate::server) bridge: room::Bridge,
     /// Added to the wall clock (tests move time with it).
     skew_ms: AtomicU64,
     /// Runs once between a guest bind's check and its registration (tests).
     #[cfg(test)]
     pub(super) bind_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Every write fails while set (tests).
+    #[cfg(test)]
+    pub(super) refuse_writes: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkShares {
@@ -228,6 +255,9 @@ struct Create {
     ttl_secs: Option<u64>,
     #[serde(default)]
     uses: Option<u32>,
+    /// The owner's cmux cloud access token, for the room's `PUT` only (never stored).
+    #[serde(default)]
+    owner_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -277,14 +307,16 @@ impl LinkShares {
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
         let shares = slot.get_or_insert_with(|| load(directory));
         let start = shares.clone();
+        // Expiry ends a share that is not yet active too: a late room answer never opens it.
         for share in shares.iter_mut() {
-            if share.state == ShareState::Active && now >= share.expires_at {
+            let open = matches!(share.state, ShareState::Active | ShareState::Provisioning);
+            if open && now >= share.expires_at {
                 share.state = ShareState::Expired;
             }
         }
         let before = shares.clone();
         let answer = match change(shares, now) {
-            Ok((value, true)) => match directory.map(|d| save(d, FILE, shares)) {
+            Ok((value, true)) => match self.save(directory, shares) {
                 Some(Err(error)) => {
                     *shares = before;
                     eprintln!("cmux-tui: link shares not written: {error}");
@@ -297,6 +329,22 @@ impl LinkShares {
         };
         self.note_ended(&start, shares);
         answer
+    }
+
+    fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
+        #[cfg(test)]
+        if self.refuse_writes.load(Ordering::Relaxed) {
+            return Some(Err(std::io::Error::other("writes refused (test)")));
+        }
+        directory.map(|d| save(d, FILE, &shares))
+    }
+
+    pub(super) fn claim_room_delete(&self, share_id: &str) -> bool {
+        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).insert(share_id.to_owned())
+    }
+
+    pub(super) fn release_room_delete(&self, share_id: &str) {
+        self.room_deletes.lock().unwrap_or_else(|e| e.into_inner()).remove(share_id);
     }
 
     /// Queues what was live in `start` and is not in `now`.
@@ -342,6 +390,7 @@ impl LinkShares {
     pub(in crate::server) fn settle(&self, mux: &Mux) {
         let ended = std::mem::take(&mut *self.ended.lock().unwrap_or_else(|e| e.into_inner()));
         if !ended.is_empty() {
+            room::ended(self, &ended);
             close(mux, |id| {
                 let Some((share, guest)) =
                     id.strip_prefix(GUEST_PREFIX).and_then(|rest| rest.split_once('.'))
@@ -354,7 +403,8 @@ impl LinkShares {
         self.rearm();
     }
 
-    /// A new share of `session`, shown on `surface`; answers the secret once.
+    /// A new share of `session`, shown on `surface` (`provisioning` until its room answers);
+    /// answers the secret once.
     pub(super) fn insert(
         &self,
         directory: Option<&Path>,
@@ -362,11 +412,17 @@ impl LinkShares {
         surface: u64,
         ttl_secs: u64,
         uses: u32,
+        provisioning: bool,
     ) -> Result<Value, &'static str> {
         let (share_id, secret, provision_key) = (token::<16>()?, token::<16>()?, token::<16>()?);
         self.with(directory, |shares, now| {
             if shares.len() >= MAX_SHARES {
-                shares.retain(|s| s.live().is_ok());
+                // An ended share goes, unless its room still has to hear of it.
+                shares.retain(|s| {
+                    s.live().is_ok()
+                        || s.state == ShareState::Provisioning
+                        || !s.pending_room_ops.is_empty()
+                });
             }
             if shares.len() >= MAX_SHARES {
                 return Err("share.limit");
@@ -379,7 +435,7 @@ impl LinkShares {
                 created_at: now,
                 expires_at,
                 uses_left: uses,
-                state: ShareState::Active,
+                state: if provisioning { ShareState::Provisioning } else { ShareState::Active },
                 secret_sha256: hex(&digest(&[&secret])),
                 provision_key: Some(provision_key),
                 room: None,
@@ -443,11 +499,18 @@ impl LinkShares {
 
     /// Revokes a share (`guest_id: None`) or kicks one guest of it.
     fn end(&self, directory: Option<&Path>, p: &Named) -> Result<Value, &'static str> {
-        self.with(directory, |shares, _| {
+        let mut schedule_delete = false;
+        let answer = self.with(directory, |shares, _| {
             let share = find(shares, &p.share_id)?;
             let Some(guest_id) = &p.guest_id else {
+                let was_live = share.live().is_ok();
+                let was_provisioning = share.state == ShareState::Provisioning;
                 let changed = share.state != ShareState::Revoked;
                 share.state = ShareState::Revoked;
+                if changed && (share.room.is_some() || was_provisioning) && !share.delete_queued() {
+                    share.pending_room_ops.push(json!({"op": "delete"}));
+                }
+                schedule_delete = !was_live && share.delete_queued();
                 return Ok((json!({"share_id": share.share_id, "state": share.state}), changed));
             };
             let guest =
@@ -458,7 +521,14 @@ impl LinkShares {
                 json!({"share_id": share.share_id, "guest_id": guest_id, "state": guest.state}),
                 changed,
             ))
-        })
+        });
+        if answer.is_ok() && schedule_delete {
+            let mut ended = self.ended.lock().unwrap_or_else(|e| e.into_inner());
+            if !ended.iter().any(|(share, guest)| share == &p.share_id && guest.is_none()) {
+                ended.push((p.share_id.clone(), None));
+            }
+        }
+        answer
     }
 
     /// The chat a live guest reaches: its share's session and surface, and the guest's author.
@@ -480,15 +550,22 @@ impl LinkShares {
         })
     }
 
-    /// Arms the one timer at the next active share's expiry (cancelling an earlier one). The
-    /// expiry is read and the timer replaced under the shares lock, so two callers never leave a
-    /// timer that does not match the shares.
+    /// Arms the one timer at the next active share or pending room operation's expiry (cancelling
+    /// an earlier one). The expiry is read and the timer replaced under the shares lock, so two
+    /// callers never leave a timer that does not match the shares.
     fn rearm(&self) {
+        let room_deletes = self.room_deletes.lock().unwrap_or_else(|e| e.into_inner());
         let shares = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        let now = self.now();
         let next = shares
             .iter()
             .flatten()
-            .filter(|s| s.state == ShareState::Active)
+            .filter(|s| {
+                !room_deletes.contains(&s.share_id)
+                    && s.expires_at > now
+                    && (matches!(s.state, ShareState::Active | ShareState::Provisioning)
+                        || !s.pending_room_ops.is_empty())
+            })
             .map(|s| s.expires_at)
             .min();
         let mut armed = self.armed.lock().unwrap_or_else(|e| e.into_inner());
@@ -523,6 +600,7 @@ impl LinkShares {
         }
         let directory = mux.session_state_directory();
         let _ = self.with(directory.as_deref(), |_, _| Ok(((), false)));
+        room::expired(self);
         self.settle(mux);
     }
 }
@@ -574,7 +652,19 @@ pub(super) fn handle(
                 return Err("share.bad_request");
             }
             let session = tab_session(mux, p.surface).ok_or("share.not_a_chat")?;
-            shares.insert(directory, session, p.surface, ttl, uses)
+            if shares.bridge.invalid() {
+                return Err("share.room_unreachable");
+            }
+            match shares.bridge.room() {
+                None => shares.insert(directory, session, p.surface, ttl, uses, false),
+                Some(room) => {
+                    let token = p.owner_token.map(zeroize::Zeroizing::new);
+                    let token = token.filter(|t| !t.is_empty() && t.len() <= 8192);
+                    let token = token.ok_or("share.needs_sign_in")?;
+                    let created = shares.insert(directory, session, p.surface, ttl, uses, true)?;
+                    room::provision(mux, created, room, token)
+                }
+            }
         }),
         "agent-session-share-list" => parse(params).and_then(|p: List| {
             let session = match p.surface {
@@ -626,6 +716,9 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.not_a_chat" => "not an agent chat with a session",
         "share.not_trusted" => "only the owner's own local connection manages shares",
         "share.unsaved" => "the share could not be saved",
+        "share.needs_sign_in" => "sharing a link needs the owner's cmux sign-in (owner_token)",
+        "share.room_unreachable" => "the share room did not answer; the share was not opened",
+        "share.room_refused" => "the share room refused this share (or sharing is off there)",
         _ => "bad request",
     };
     send_response(
@@ -697,7 +790,8 @@ pub(super) fn check_guest(
         let Some(client_id) = client_id else { return Err(Refusal::BadRequest) };
         let hash = digest(&[share_id, guest_id, client_id]);
         let prompt_id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hash);
-        object.insert("prompt_id".into(), json!(format!("g-{}", &prompt_id[..22])));
+        let prompt_id = prompt_id.get(..22).unwrap_or(&prompt_id);
+        object.insert("prompt_id".into(), json!(format!("g-{prompt_id}")));
     }
     if cmd == "agent-session-detach" {
         // This connection's attachment to the shared chat, on whatever surface it resolved to

@@ -45,7 +45,11 @@ const run = (items: AcpmuxActivity[], foldRun = true): AcpmuxRow => ({
   foldRun,
   items,
 });
-const drawn = (row: AcpmuxRow) => renderToStaticMarkup(<ToolRows row={row} />).replace(/<[^>]+>/g, " ");
+// Tags to spaces, then one space per gap: a row's verb sits in its own element (ToolVerb.tsx).
+const drawn = (row: AcpmuxRow) =>
+  renderToStaticMarkup(<ToolRows row={row} />)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ");
 const lines = (row: AcpmuxRow) => (renderToStaticMarkup(<ToolRows row={row} />).match(/aria-expanded/g) ?? []).length;
 
 const longThought = (topic: string) => thought(`Now I should look at ${topic} to see how the retry is wired up.`);
