@@ -779,6 +779,29 @@ class TabManager: ObservableObject {
                 workspaceCurrentDirectoryDidChange(workspaceId: workspaceId)
             }
         })
+        // Window Docks have no Workspace to re-filter them, so the manager
+        // re-applies its retained button list when built-in availability
+        // changes (the browser gate or a feature flag), mirroring the
+        // workspace bar. Removed with the other observers in deinit; Docks
+        // are held weakly, so a closed Dock is simply skipped.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: BrowserAvailabilityMonitor.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.reapplyWindowDockSurfaceTabBarButtons()
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.reapplyWindowDockSurfaceTabBarButtons()
+            }
+        })
 
         startAgentPIDSweepTimer()
         observers.append(NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
@@ -4832,11 +4855,18 @@ class TabManager: ObservableObject {
                 workspaceCommands: workspaceCommands
             )
         }
+        reapplyWindowDockSurfaceTabBarButtons()
+    }
+
+    /// Applies the retained surface-tab button list to every live window
+    /// Dock. Called on configuration changes and on availability changes.
+    private func reapplyWindowDockSurfaceTabBarButtons() {
+        guard let configuration = windowDockSurfaceTabBarConfiguration else { return }
         for dockStore in liveWindowDockStores {
             dockStore.applySurfaceTabBarButtons(
-                buttons,
-                sourcePath: sourcePath,
-                globalConfigPath: globalConfigPath
+                configuration.buttons,
+                sourcePath: configuration.sourcePath,
+                globalConfigPath: configuration.globalConfigPath
             )
         }
     }

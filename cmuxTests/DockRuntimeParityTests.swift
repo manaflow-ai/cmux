@@ -212,6 +212,61 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("A window Dock follows browser availability changes without a config re-apply")
+    func windowDockFollowsBrowserAvailabilityChanges() async throws {
+        try await withAppContext { _, manager, _, _ in
+            let defaults = UserDefaults.standard
+            let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+            let previousPolicyOverride = BrowserAvailabilitySettings.managedPolicyOverrideForTesting
+            defer {
+                BrowserAvailabilitySettings.managedPolicyOverrideForTesting = previousPolicyOverride
+                if let previousBrowserDisabled {
+                    defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+                } else {
+                    defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+                }
+                NotificationCenter.default.post(name: BrowserAvailabilitySettings.didChangeNotification, object: nil)
+            }
+            BrowserAvailabilitySettings.managedPolicyOverrideForTesting = false
+            // The app-wide monitor is what turns a settings write into the
+            // transition broadcast the managers observe.
+            BrowserAvailabilityMonitor.shared.activate()
+            BrowserAvailabilitySettings.setDisabled(true)
+            await Self.drainMainQueue()
+
+            manager.applySurfaceTabBarButtons(
+                [.builtIn(.newBrowser, id: "browser"), .builtIn(.splitDown, id: "down")],
+                sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            // Created while the browser is disabled, after configuration.
+            let dock = manager.makeWindowDockStore(windowId: UUID())
+            defer { dock.closeAllPanels() }
+            let ids = { dock.bonsplitController.configuration.appearance.splitButtons.map(\.id) }
+            #expect(ids() == ["down"])
+
+            // From here on only the real settings write and its notifications
+            // drive the Dock; nothing re-applies the configuration.
+            BrowserAvailabilitySettings.setDisabled(false)
+            await Self.drainMainQueue()
+            #expect(ids() == ["browser", "down"], "enabling the browser did not reach the window Dock")
+
+            BrowserAvailabilitySettings.setDisabled(true)
+            await Self.drainMainQueue()
+            #expect(ids() == ["down"], "disabling the browser did not reach the window Dock")
+        }
+    }
+
+    /// Lets main-queue notification delivery settle: the monitor re-reads the
+    /// gate in a main-actor task and its broadcast is delivered after that.
+    private static func drainMainQueue() async {
+        for _ in 0..<3 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+
     private static func expectConfiguredDockButtons(
         _ dock: DockSplitStore,
         after stage: String,
