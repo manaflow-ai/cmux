@@ -32,6 +32,7 @@ impl Mux {
     /// Commit one state mutation. Selector resolution belongs inside `apply`
     /// (it receives the locked state), so an idempotent replay returns its
     /// stored result before any selector is resolved.
+    #[track_caller]
     pub(crate) fn commit_state(
         &self,
         mutation: &WorkspaceMutation,
@@ -94,6 +95,7 @@ impl Mux {
 
     /// [`Self::commit_state`]'s replay or refusal before anything is
     /// applied (`WorkspaceRegistry::state_mutation_replay`).
+    #[track_caller]
     pub(crate) fn state_commit_replay(
         &self,
         mutation: &WorkspaceMutation,
@@ -110,6 +112,7 @@ impl Mux {
     }
 
     /// Read the registry under its lock.
+    #[track_caller]
     pub(crate) fn read_registry_state<T>(
         &self,
         read: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<T>,

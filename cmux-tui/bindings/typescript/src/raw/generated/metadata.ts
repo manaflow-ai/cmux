@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d. */
+/* cmux-tui mux protocol 12, IR 9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d" as const;
+export const SDK_IR_SHA256 = "9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2700,7 +2700,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, locks); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -10302,10 +10302,99 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockDetail": {
+    "additional_properties": false,
+    "constraints": [
+      "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
+      "sites counts the distinct acquiring source locations that released the lock since daemon start.",
+      "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
+    ],
+    "fields": {
+      "by_hold_p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockSiteDetail"
+          },
+          "kind": "array"
+        }
+      },
+      "by_hold_total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockSiteDetail"
+          },
+          "kind": "array"
+        }
+      },
+      "contended_acquisitions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "holder": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockHolder"
+        }
+      },
+      "last_stall": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockStall"
+        }
+      },
+      "sites": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "stalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
-      "site is the file:line that acquired the registry lock."
+      "site is the file:line that acquired the lock (the registry lock, or in locks also the mux state lock)."
     ],
     "fields": {
       "held_for_us": {
@@ -10366,6 +10455,79 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockSiteDetail": {
+    "additional_properties": false,
+    "constraints": [
+      "hold_p99_us and wait_p99_us are power-of-two bucket bounds: at most twice the true value and never above the matching maximum."
+    ],
+    "fields": {
+      "acquisitions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_max_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_p99_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "hold_total_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "wait_max_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_p99_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_total_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockStall": {
     "additional_properties": false,
     "constraints": [
@@ -10394,6 +10556,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLocks": {
+    "additional_properties": false,
+    "constraints": [
+      "registry is the workspace registry lock and state the mux state lock; sites are the source locations that acquired them."
+    ],
+    "fields": {
+      "registry": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockDetail"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockDetail"
         }
       }
     },
@@ -10623,7 +10810,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "journal_writer is null for ephemeral sessions without a durable journal.",
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
       "resource_projection is present only when the request names it in include.",
-      "write_path is present only when the request names it in include."
+      "write_path is present only when the request names it in include.",
+      "locks is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -10640,6 +10828,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsJournalWriter"
+        }
+      },
+      "locks": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLocks"
         }
       },
       "registry_lock": {
