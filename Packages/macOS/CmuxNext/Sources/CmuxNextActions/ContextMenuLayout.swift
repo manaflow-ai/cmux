@@ -212,8 +212,8 @@ public nonisolated struct ContextMenuLayout: Sendable, Hashable {
         if let anchor = before[sectionStart...].last(where: keys.contains), let at = keys.firstIndex(of: anchor) { return Insertion(index: at + 1) }
         // The first of its section here: a divider before it unless the row before is of its section.
         if let next = after[..<sectionEnd].first(where: keys.contains), let at = keys.firstIndex(of: next) {
-            let above = at > 0 ? keys[at - 1] : nil
-            return Insertion(index: at, dividerBefore: above != nil && above != separator && !section.contains(above!))
+            let other = at > 0 && keys[at - 1] != separator && !section.contains(keys[at - 1])
+            return Insertion(index: at, dividerBefore: other)
         }
         let present = { (key: String) in key != separator && keys.contains(key) }
         // A section of its own: after the run of rows that holds the nearest earlier row (at the
