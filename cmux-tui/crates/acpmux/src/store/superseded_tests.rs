@@ -210,7 +210,11 @@ fn an_update_that_clears_the_output_stays() {
             json!({"sessionUpdate": "tool_call_update", "toolCallId": "c", "status": "completed"}),
         ),
     ];
-    assert_eq!(read_back(&log), log);
+    let kept = read_back(&log);
+    // The clear stays; the output it clears may go, as nothing reads it after the clear.
+    assert_eq!(kept.iter().map(|r| r.seq).collect::<Vec<_>>(), [1, 2, 3]);
+    assert_eq!(kept[1..], log[1..]);
+    assert_eq!(fold(&kept), fold(&log), "the call ends with no output, as logged");
 }
 
 /// A native subagent numbers its calls apart from its chat's (`params._meta.acpmux.subagent`):
@@ -227,7 +231,7 @@ fn a_subagents_call_supersedes_nothing_of_its_chats_call_of_the_same_id() {
 /// supersedes nothing older.
 #[test]
 fn an_update_too_big_to_send_supersedes_nothing() {
-    let log = vec![output(1, "c", "small"), output(2, "c", "too big")];
+    let log = [output(1, "c", "small"), output(2, "c", "too big")];
     let mut superseded = Superseded::default();
     let (mut newest, mut older) = (log[1].clone(), log[0].clone());
     assert_eq!(superseded.read(&mut newest, 0, |_| false), None);
