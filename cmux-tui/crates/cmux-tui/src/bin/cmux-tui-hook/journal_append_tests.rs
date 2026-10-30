@@ -377,7 +377,7 @@ fn a_rejected_hook_event_does_not_hold_back_the_next() {
     };
     held.recv().unwrap();
     let second = {
-        let (socket, id) = (socket.clone(), next_id.clone());
+        let id = next_id.clone();
         std::thread::spawn(move || append_with_receipt(&socket, &id, &next, &|| {}).is_ok())
     };
     assert!(second.join().unwrap());
@@ -414,10 +414,11 @@ fn dropped_connections_are_retried_with_backoff_not_a_spin() {
     );
 }
 
-/// A terminal whose session socket is gone is not attached to a live
-/// cmux-tui: the hook stops at once and leaves nothing behind.
+/// No daemon on the session socket (stopped, restarting or crashed): the
+/// hook stops at once, so a synchronous provider is never delayed, and keeps
+/// the event queued for the session's next owner.
 #[test]
-fn a_missing_session_socket_fails_at_once_and_keeps_nothing() {
+fn a_missing_session_socket_fails_at_once_and_keeps_the_event() {
     let root = tempfile::tempdir().unwrap();
     let socket = root.path().join("missing.sock");
     let (id, encoded) = hook_request_in("terminal_gone");
@@ -425,8 +426,9 @@ fn a_missing_session_socket_fails_at_once_and_keeps_nothing() {
 
     assert!(append_with_receipt(&socket, &id, &encoded, &|| {}).is_err());
     assert!(started.elapsed() < Duration::from_secs(1));
-    let left: Vec<_> = std::fs::read_dir(root.path()).unwrap().collect();
-    assert!(left.is_empty(), "a hook for a gone session left {left:?}");
+    let queued = std::fs::read(spool_dir(&socket).join("missing_sock.terminal_gone.jsonl"))
+        .expect("the event was not kept");
+    assert_eq!(queued, encoded);
 }
 
 /// The hook queue directory beside `socket`, and the file the hook children
@@ -436,7 +438,7 @@ fn spool_dir(socket: &Path) -> PathBuf {
 }
 
 fn ended_session_events(socket: &Path) -> Option<String> {
-    std::fs::read_to_string(spool_dir(socket).join("ended-session-events")).ok()
+    std::fs::read_to_string(spool_dir(socket).join("reset-dropped-events")).ok()
 }
 
 /// Writes a queue of `lines` for `terminal` of the session whose socket file
@@ -457,33 +459,9 @@ fn queue_files(socket: &Path) -> Vec<String> {
             entries.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect()
         })
         .unwrap_or_default();
-    names.retain(|name| name != "ended-session-events");
+    names.retain(|name| name != "reset-dropped-events");
     names.sort();
     names
-}
-
-/// A session that ended (its daemon removed its socket) can never take its
-/// queued hook events. The next hook child, of any agent, deletes that queue
-/// and counts its events where the daemon's `server-stats` reads them; no
-/// timer decides it. A sent queue leaves no file behind.
-#[test]
-fn an_ended_sessions_queue_is_dropped_counted_and_deleted_by_the_next_hook() {
-    let root = tempfile::tempdir().unwrap();
-    let socket = root.path().join("live.sock");
-    let daemon =
-        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
-    let ended: Vec<Vec<u8>> = (0..2).map(|_| hook_request_in("terminal_ended").1).collect();
-    let ended_queue = leave_queue(&socket, "ended_sock", "terminal_ended", &ended);
-    let (id, encoded) = hook_request_in("terminal_live");
-
-    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
-    let (_, admitted) = daemon.stop();
-
-    result.unwrap();
-    assert_eq!(admitted, vec![id]);
-    assert!(!ended_queue.exists(), "the ended session's queue is still on disk");
-    assert_eq!(ended_session_events(&socket).as_deref().map(str::trim), Some("2"));
-    assert_eq!(queue_files(&socket), Vec::<String>::new(), "a sent queue left files");
 }
 
 /// A queue of the live session that nobody sends (its sender died, or its
@@ -507,30 +485,200 @@ fn an_orphaned_queue_of_the_live_session_is_sent_by_any_agents_next_hook() {
     assert_eq!(ended_session_events(&socket), None, "a sent event was counted as dropped");
 }
 
-/// The session ends while the sender waits on it: its queue is dropped and
-/// counted at once, not kept for a session that cannot come back.
+/// A stopped daemon (its owner removes the socket on every stop, upgrades
+/// and restarts included) or a crashed one (it leaves the socket) gives no
+/// definitive answer: the session comes back on the same socket. The line
+/// stays queued, nothing is counted as dropped, and the next owner gets it
+/// from the next hook of any agent of the session.
 #[test]
-fn a_sender_drops_and_counts_its_queue_when_the_session_ends() {
+fn a_stopped_daemon_keeps_the_queue_for_its_next_owner() {
     let root = tempfile::tempdir().unwrap();
-    let socket = root.path().join("ending.sock");
-    let mut daemon =
-        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Close));
-    let ender = {
-        let (socket, moved) = (socket.clone(), root.path().join("ended.sock"));
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(300));
-            // How a daemon ends its session: its socket file goes away.
-            std::fs::rename(&socket, &moved).unwrap();
-            moved
-        })
-    };
-    let (id, encoded) = hook_request_in("terminal_ending");
+    let socket = root.path().join("restart.sock");
+    let (kept_id, kept) = hook_request_in("terminal_kept");
+    let stopped = append_with_receipt(&socket, &kept_id, &kept, &|| {});
+    assert!(stopped.is_err(), "no daemon answered");
+    // A crashed owner: its socket file stays, nobody listens on it.
+    drop(UnixListener::bind(&socket).unwrap());
+    let crashed = append_with_receipt(&socket, &kept_id, &kept, &|| {});
+    assert!(crashed.is_err(), "no daemon answered");
+    std::fs::remove_file(&socket).unwrap();
+    assert_eq!(ended_session_events(&socket), None, "a restart is not a dropped event");
+
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let (id, encoded) = hook_request_in("terminal_next");
+    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
+    let (_, admitted) = daemon.stop();
+
+    result.unwrap();
+    assert!(
+        admitted.contains(&kept_id),
+        "the kept event never reached the next owner: {admitted:?}"
+    );
+    assert!(admitted.contains(&id));
+    assert_eq!(queue_files(&socket), Vec::<String>::new());
+}
+
+/// Another session's queues belong to that session: a hook of this session
+/// neither sends them here nor deletes them.
+#[test]
+fn another_sessions_queue_is_left_to_its_session() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("live.sock");
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let (other_id, other) = hook_request_in("terminal_other");
+    let other_queue = leave_queue(&socket, "other_sock", "terminal_other", &[other]);
+    let (id, encoded) = hook_request_in("terminal_live");
 
     let result = append_with_receipt(&socket, &id, &encoded, &|| {});
-    daemon.socket = ender.join().unwrap();
-    daemon.stop();
+    let (_, admitted) = daemon.stop();
 
-    assert!(result.is_err(), "the session ended before the event was answered");
-    assert_eq!(queue_files(&socket), Vec::<String>::new(), "the ended session's queue was kept");
-    assert_eq!(ended_session_events(&socket).as_deref().map(str::trim), Some("1"));
+    result.unwrap();
+    assert_eq!(admitted, vec![id], "another session's event {other_id} came here");
+    assert!(other_queue.exists(), "another session's queue was deleted");
+    assert_eq!(ended_session_events(&socket), None);
+}
+
+/// The provider waits only until its event is safe on disk: a daemon that
+/// refuses every connection before it reads (a broken pipe on the write)
+/// must not hold the agent's tool call.
+#[test]
+fn a_queued_event_releases_the_provider_at_once() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("closing.sock");
+    let closing_for = Duration::from_millis(1500);
+    let listener = UnixListener::bind(&socket).unwrap();
+    let started = Instant::now();
+    let closer = std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let stream = stream.unwrap();
+            if started.elapsed() >= closing_for {
+                let mut line = String::new();
+                let mut reader = BufReader::new(&stream);
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let id = serde_json::from_str::<Value>(&line).unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                (&stream).write_all(receipt_line(&id).as_bytes()).unwrap();
+                return;
+            }
+            // Closed unread: a request larger than the socket buffer then
+            // fails its write with a broken pipe.
+            drop(stream);
+        }
+    });
+    let mut live = serde_json::Map::new();
+    live.insert("live_prompt".into(), Value::String("x".repeat(1024 * 1024)));
+    let (id, encoded) = encode_request(
+        json!({"kind":"test","subjects":[{"kind":"terminal","id":"terminal_big"}]}),
+        live,
+    )
+    .unwrap();
+    let released = Arc::new(Mutex::new(None));
+    let result = {
+        let released = released.clone();
+        append_with_receipt(&socket, &id, &encoded, &move || {
+            released.lock().unwrap().get_or_insert(started.elapsed());
+        })
+    };
+    closer.join().unwrap();
+
+    result.unwrap();
+    let released = released.lock().unwrap().expect("the provider was never released");
+    assert!(
+        released < Duration::from_millis(500),
+        "the provider waited {released:?} for a queued event"
+    );
+}
+
+/// The hook queue lives only in a directory no other user can write: in a
+/// shared one (the socket's parent may be one, such as /tmp), the hook sends
+/// its event directly and leaves nothing there.
+#[cfg(unix)]
+#[test]
+fn a_shared_socket_directory_gets_no_queue_and_the_event_still_goes() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = tempfile::tempdir().unwrap();
+    let shared = root.path().join("shared");
+    std::fs::create_dir(&shared).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let socket = shared.join("s.sock");
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let (id, encoded) = hook_request_in("terminal_shared");
+
+    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
+    let (_, admitted) = daemon.stop();
+
+    result.unwrap();
+    assert_eq!(admitted, vec![id]);
+    assert!(!spool_dir(&socket).exists(), "a queue was made in a shared directory");
+}
+
+/// A planted symlink in place of a queue file is never followed.
+#[cfg(unix)]
+#[test]
+fn a_planted_symlink_is_not_followed() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("s.sock");
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let victim = root.path().join("victim.txt");
+    std::fs::write(&victim, "keep me\n").unwrap();
+    let dir = spool_dir(&socket);
+    let mut private = std::fs::DirBuilder::new();
+    std::os::unix::fs::DirBuilderExt::mode(&mut private, 0o700);
+    private.create(&dir).unwrap();
+    std::os::unix::fs::symlink(&victim, dir.join("s_sock.terminal_link.jsonl")).unwrap();
+    let (id, encoded) = hook_request_in("terminal_link");
+
+    let result = append_with_receipt(&socket, &id, &encoded, &|| {});
+    let (_, admitted) = daemon.stop();
+
+    result.unwrap();
+    assert_eq!(admitted, vec![id], "the event was not delivered");
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "keep me\n",
+        "the hook wrote through a symlink"
+    );
+}
+
+/// A hook that queues while the sender deletes the finished queue gets a
+/// sender: the old code unlinked the queue before the drain lock, so a child
+/// in between appended to a new queue file, found the old drain lock held
+/// and left its event with no sender.
+#[test]
+fn a_hook_that_queues_while_the_queue_is_deleted_still_gets_sent() {
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("s.sock");
+    let daemon =
+        Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
+    let (first_id, first) = hook_request_in("terminal_race");
+    let (late_id, late) = hook_request_in("terminal_race");
+    let late_hook = Arc::new(Mutex::new(None));
+    {
+        let (socket, late_id, late_hook) = (socket.clone(), late_id.clone(), late_hook.clone());
+        super::super::hook_spool::between_unlinks_for_test(Box::new(move || {
+            *late_hook.lock().unwrap() = Some(std::thread::spawn(move || {
+                append_with_receipt(&socket, &late_id, &late, &|| {}).map_err(|e| format!("{e:#}"))
+            }));
+            // Room for the late hook to reach its drain lock while this
+            // sender still holds its own.
+            std::thread::sleep(Duration::from_millis(200));
+        }));
+    }
+
+    let result = append_with_receipt(&socket, &first_id, &first, &|| {});
+    let late_result = late_hook.lock().unwrap().take().expect("the hook ran").join().unwrap();
+    let (_, admitted) = daemon.stop();
+
+    result.unwrap();
+    late_result.unwrap();
+    assert!(admitted.contains(&late_id), "the late hook's event got no sender: {admitted:?}");
+    assert_eq!(queue_files(&socket), Vec::<String>::new());
 }

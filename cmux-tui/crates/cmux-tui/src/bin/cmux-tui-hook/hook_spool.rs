@@ -164,13 +164,10 @@ impl Spool {
 
     /// Unlinks both files; the caller holds both locks.
     fn remove_files(&self) -> io::Result<()> {
-        for path in [&self.lines, &self.drain] {
-            match std::fs::remove_file(path) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                _ => {}
-            }
-        }
-        Ok(())
+        remove_if_present(&self.lines)?;
+        #[cfg(test)]
+        run_between_unlinks(&self.lines);
+        remove_if_present(&self.drain)
     }
 
     /// The queue file, opened and locked for this process until dropped.
@@ -271,6 +268,41 @@ fn names_this_file(path: &Path, file: &File) -> io::Result<bool> {
 #[cfg(not(unix))]
 fn names_this_file(_path: &Path, _file: &File) -> io::Result<bool> {
     Ok(true)
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
+}
+
+/// Test seam: runs once, between the two unlinks of a queue of the terminal
+/// `terminal_race` (tests run in parallel, so only that test's queue fires it).
+#[cfg(test)]
+type BetweenUnlinks = Box<dyn FnOnce() + Send>;
+
+#[cfg(test)]
+static BETWEEN_UNLINKS: std::sync::Mutex<Vec<BetweenUnlinks>> = std::sync::Mutex::new(Vec::new());
+
+/// Runs `hook` between the two unlinks of the next finished `terminal_race`
+/// queue.
+#[cfg(test)]
+pub(super) fn between_unlinks_for_test(hook: Box<dyn FnOnce() + Send>) {
+    BETWEEN_UNLINKS.lock().unwrap().push(hook);
+}
+
+#[cfg(test)]
+fn run_between_unlinks(lines: &Path) {
+    let racing =
+        lines.file_name().is_some_and(|name| name.to_string_lossy().contains(".terminal_race."));
+    if !racing {
+        return;
+    }
+    let hook = BETWEEN_UNLINKS.lock().unwrap().pop();
+    if let Some(hook) = hook {
+        hook();
+    }
 }
 
 fn ends_with_newline(file: &mut File, length: u64) -> io::Result<bool> {
