@@ -14,7 +14,7 @@
 //! - `autoResumeDelaysMs` in the config is the whole loop: one entry per attempt, each the wait
 //!   before it, so its length says how many attempts run ([`configured_attempts`]) on every path
 //!   that continues a cut turn, a chain of daemon restarts included (`restart_resume.rs`). The
-//!   default [`DEFAULT_DELAYS_MS`] is four attempts spanning about 26 minutes; `[]` turns it off.
+//!   default [`DEFAULT_DELAYS_MS`] is twelve capped exponential waits spanning about two hours; `[]` turns it off.
 //!   At most [`MAX_CONFIGURED_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not
 //!   a whole number of milliseconds of 0 or more is refused with a warning and the default
 //!   waits apply.
@@ -49,10 +49,11 @@
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
 //!   to the turn the connection first cut, and resumes what each of those held.
-//! - Usage limits and sign-in failures are not transport errors: the fallback profile handles
-//!   those (`turns.rs`). A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
+//! - The fallback profile handles account failures first (`turns.rs`). A remaining usage
+//!   limit retries after its reset hint; a sign-in failure never retries by itself. A daemon restart mid-turn settles the turn `outcome_unknown` (`mod.rs`)
 //!   and queues its continuation first in the chat's queue (`restart_resume.rs`).
-//! - A wait in progress is not persisted: a daemon restart during it drops the attempt.
+//! - A wait is restored from its scheduled event after a restart, at the same deadline.
+//!   Stop, close, newer turns and explicit retry decisions prevent restoring it.
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
 
@@ -75,18 +76,21 @@ use crate::protocol::session::{RetryReason, RetrySummary};
 
 /// `_acpmux/retry`: a failed turn retried on demand.
 pub(crate) mod retry_turn;
+mod pending;
+pub(super) mod reset_hint;
 
-/// Waits before attempts 1, 2, 3 and 4, in milliseconds.
-pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
+/// Exponential waits from 10 seconds, capped at 20 minutes; about two hours in total.
+/// Explicit provider reset hints can extend a wait beyond this backoff window.
+pub const DEFAULT_DELAYS_MS: [u64; 12] = [
+    10_000, 20_000, 40_000, 80_000, 160_000, 320_000,
+    640_000, 1_200_000, 1_200_000, 1_200_000, 1_200_000, 1_200_000,
+];
 
-/// Most attempts `autoResumeDelaysMs` may set. The default's four span about 26 minutes, which a
-/// capacity outage outlives; twelve entries of up to an hour each let a configured loop ride one
-/// out, and still bound the attempt a prompt id's suffix carries and what one cut turn writes to
-/// the log. Never a floor on the default, which stays four.
+/// The configured loop stays bounded, including attempts resumed after daemon restarts.
 pub const MAX_CONFIGURED_ATTEMPTS: usize = 12;
 
 /// How many attempts the configured waits allow, for a chain of daemon restarts as for a turn a
-/// transport cut: one per wait, or the default's four when the config says nothing. 0 (`[]`)
+/// transport cut: one per wait, or the default when the config says nothing. 0 (`[]`)
 /// turns it off.
 pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
     delays.map_or(DEFAULT_DELAYS_MS.len(), Vec::len)
@@ -175,6 +179,7 @@ pub(super) struct CutTurn<'a> {
     pub control: Control,
     pub trust_gate: bool,
     pub error: &'a str,
+    pub not_before: Option<u64>,
 }
 
 /// A waiting continuation's timer: its mark going wakes it (`Drop`), so Stop, close or a turn
@@ -366,6 +371,16 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
+        self.schedule_auto_resume_at(session, turn_id, cut, None);
+    }
+
+    fn schedule_auto_resume_at(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Option<CutTurn<'_>>,
+        restored_at: Option<u64>,
+    ) {
         let mut pending = self.auto_resumes.lock();
         let ending = match pending.get(&session.id) {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
@@ -393,7 +408,7 @@ impl Hub {
         let (root, done) = split_attempt(cut.prompt_id);
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
-        let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
@@ -405,25 +420,42 @@ impl Hub {
             let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
-                    let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
+                    let message = format!("Automatic recovery stopped after {done} attempts: {error}. Retry this turn when the service is available.");
+                    let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str(), "error": message});
                     hub.append(&session, "mux", "auto_resume_exhausted", msg);
+                    // A turn_error is displayed in the chat, so exhaustion cannot look idle.
+                    hub.append(&session, "mux", "turn_error", json!({"turnId": turn_id, "error": message}));
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }
                 return;
             };
             let attempt = done + 1;
-            let delay = staggered(delay, &session.id);
+            let now = super::now_ms();
+            let limits = session.meta().usage_limits;
+            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            // A named weekly reset is not clamped to the config's one-hour backoff cap.
+            // Jitter only the backoff, never a percentage of a week-long reset.
+            let next_at = restored_at.unwrap_or_else(|| {
+                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now))
+            });
+            let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
                 of: delays.len() as u64,
                 reason,
-                next_at: super::now_ms().saturating_add(delay),
+                next_at,
                 prompt_id: root.clone(),
                 turn_id: turn_id.clone(),
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
             msg.set("delayMs", json!(delay));
+            msg.set("error", json!(error));
+            msg.set("control", json!(control.as_str()));
+            msg.set("trustGate", json!(trust_gate));
+            if let Some(from) = &from {
+                msg.set("from", json!(from));
+            }
             if hub.set_retry(&session, &turn_id, retry) {
                 hub.append(&session, "mux", "auto_resume_scheduled", msg);
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
@@ -439,6 +471,7 @@ impl Hub {
                 control,
                 trust_gate,
                 error: &error,
+                not_before: None,
             };
             hub.auto_resume(&session, cut, attempt).await;
         });
@@ -853,7 +886,7 @@ mod tests {
         assert_eq!(checked_delays(&json!([])), Some(vec![]));
         assert_eq!(checked_delays(&json!([5000, 60000])), Some(vec![5000, 60000]));
         assert_eq!(checked_delays(&json!([0, 99_999_999])), Some(vec![1_000, 3_600_000]));
-        // A loop longer than the default's four is kept: the key configures the whole loop.
+        // A configured loop determines the attempts: the key configures the whole loop.
         assert_eq!(checked_delays(&json!(vec![1000; 5])).unwrap().len(), 5);
         assert_eq!(checked_delays(&json!(vec![1000; 12])).unwrap().len(), 12);
         assert_eq!(checked_delays(&json!([1000, -5])), None);

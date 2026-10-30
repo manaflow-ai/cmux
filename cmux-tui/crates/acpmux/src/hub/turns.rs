@@ -894,6 +894,10 @@ impl Hub {
                 control,
                 trust_gate,
                 error: super::turn_errors::continuation_error(agent_error.as_deref(), &e.message),
+                not_before: super::auto_resume::reset_hint::error_reset_at(
+                    e.data.as_ref(),
+                    now_ms(),
+                ),
             }),
             _ => None,
         };
