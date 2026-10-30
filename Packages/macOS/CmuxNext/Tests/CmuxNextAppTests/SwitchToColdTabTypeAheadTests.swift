@@ -72,9 +72,7 @@ struct SwitchToColdTabTypeAheadTests {
             work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppActions.bind(services)
+        let services = TestHosts.liveDaemonApp()
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
