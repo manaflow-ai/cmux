@@ -125,6 +125,8 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
+    /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
+    var onTabSession: @MainActor () -> Void = {}
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
@@ -426,7 +428,9 @@ final class AgentTabStore {
             // The first session is the outside chat's resume; a later switch shows another chat,
             // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
             if let shown = sessions[key], shown != session { adoptions = adoptions.filter { $0.value != key } }
+            let switched = sessions[key] != session
             sessions[key] = session
+            if switched { onTabSession() }
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key) { sendSession(session, for: key) }

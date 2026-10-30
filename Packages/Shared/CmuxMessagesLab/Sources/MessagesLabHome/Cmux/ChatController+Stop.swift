@@ -25,6 +25,7 @@ extension ChatController {
 
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if handlesHistoryCommand(commandSelector, in: textView) { return true }
+        if handlesLineEdgeCommand(commandSelector, in: textView) { return true }
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)), isWorking, picker == nil else { return false }
         onStop?()
         return true
