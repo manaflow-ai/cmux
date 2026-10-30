@@ -1022,18 +1022,18 @@ mod tests {
         assert_eq!(activity.foreground_check_due(), None, "two Returns no prompt paid");
     }
 
-    /// kitty marks the second line of a multi-line PS1 `A;k=s`, the same mark
-    /// as a continuation prompt: such a prompt never reads idle (fails safe;
-    /// review 4 of cp/fix-tip-continuation-prompt-idle-2 showed no mark tells
-    /// the two apart for sure).
+    /// Review of cp/fix-tip-continuation-prompt-idle, finding 1: kitty marks
+    /// the second line of a multi-line PS1 `A;k=s`; with no line typed it is
+    /// part of the prompt, which reads idle.
     #[test]
-    fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_not_idle() {
+    fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_idle() {
         let mut activity = ShellActivity::default();
         activity.observe(ShellMark::PromptStart, 1_000);
         activity.observe(ShellMark::SecondaryPromptStart, 1_001);
         activity.observe(ShellMark::InputStart, 1_002);
-        assert_eq!(activity.foreground_check_due(), None);
-        assert_eq!(activity.idle_since(), None);
+        let epoch = activity.foreground_check_due().expect("the prompt asks for a check");
+        activity.record_foreground(epoch, true);
+        assert_eq!(activity.idle_since(), Some(1_000));
     }
 
     /// The same prompt after a line typed ahead into an open quote: the
