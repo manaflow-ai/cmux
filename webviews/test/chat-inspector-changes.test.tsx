@@ -14,9 +14,11 @@ import {
   ChangesSection,
   changesOrder,
   glyphState,
+  visibleChanges,
   type InspectorPullRequestStatus,
 } from "../src/agent-session/acpmux/inspector/ChangesSection";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
+import { transcriptPullRequests } from "../src/agent-session/acpmux/summary/transcriptPullRequests";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -230,4 +232,40 @@ test("open ones come first, the most recently touched first, then the merged and
   expect(changesOrder(touched, {}).map((item) => item.number)).toEqual([1, 2, 4, 3]);
   expect(glyphState(pr("a/x", 5), { mergeable: "conflicting" })).toBe("conflicting");
   expect(glyphState(pr("a/x", 6, "merged"), { mergeable: "conflicting" })).toBe("merged");
+});
+
+test("visible Changes excludes read-only PR references", () => {
+  const created = { ...pr("a/x", 1), changed: true };
+  const inspected = transcriptPullRequests([
+    {
+      id: "read-only",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [
+        {
+          tool: {
+            id: "view",
+            kind: "execute",
+            status: "completed",
+            exitCode: 0,
+            title: "gh pr view",
+            command: "gh pr view 2 -R a/x",
+            output: "",
+          },
+        },
+      ],
+    },
+  ] as never)[0]!;
+  const edited = { ...pr("a/x", 3), opened: false, changed: true };
+  const mutatedIssue = {
+    url: "https://github.com/a/x/issues/4",
+    repo: "a/x",
+    number: 4,
+    kind: "issue" as const,
+    opened: false,
+    changed: true,
+    state: "open" as const,
+  };
+  expect(visibleChanges([created, inspected, edited, mutatedIssue], {})).toEqual([created, edited]);
 });

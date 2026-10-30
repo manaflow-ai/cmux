@@ -4,8 +4,8 @@ name: PR checks
 # starts one run instead of three: the review link, the PR size check and the
 # split-plan advisory. Their jobs, permissions and steps are the ones their own
 # workflows had (gallery-link.yml, pr-size-advisory.yml, cmux-next-split-guard.yml).
-# The link and split-plan never fail a pull request. PR size fails one over 800
-# lines with no `Size:` line and runs on every push, a base-only one included.
+# None of them fails a pull request. PR size warns on one over 800 lines with
+# no `Size:` line and runs on every push, a base-only one included.
 # pr-capture-check keeps its own workflow.
 #
 # Base-only updates: a push that only merged feat-cmux-next into the branch
@@ -188,14 +188,14 @@ jobs:
           python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
             --body-file "$RUNNER_TEMP/review.md" --legacy "<!-- cmux-gallery-link -->"
 
-  # Fails a feat-cmux-next pull request that changes more than about 800 lines
+  # Warns on a feat-cmux-next pull request that changes more than about 800 lines
   # (added + deleted), not counting the generated, lockfile, localization and
   # fixture paths in scripts/ci/pr_size_exclusions.json, unless its body has a
-  # line starting `Size:` with the reason (the check then prints the reason and
-  # passes). The error carries a hint on how to split. Rulebook (Leo, 2026-10-21):
-  # "Keep a PR under about 800 changed lines; split a larger one into PRs that each
-  # land on their own." Its red is the PR's own: next-autoland never excuses it as
-  # a base red, and it is not a ruleset required check.
+  # line starting `Size:` with the reason (the check then prints the reason). The
+  # warning carries a hint on how to split and asks a pull request over about 800
+  # lines to say in its body why it isn't split. It never fails: Leo, 2026-10-28,
+  # "as long as you're mindful about it, I feel like it's reasonable, but you
+  # don't need to make it, like, a hard gate". It is not a ruleset required check.
   #
   # Cheap by design: one paginated pulls/N/files call with the read-only
   # GITHUB_TOKEN, the body from the event payload, and the script from the base
@@ -203,7 +203,7 @@ jobs:
   # runs it again. Drafts skip until marked ready, and CI_QUOTA_HOLD=1 pauses it
   # while the token budget is reserved for the nightly
   # (tests/test_ci_quota_hold_gate.py). An API error or a script crash warns and
-  # passes: only a measured size fails it.
+  # passes, and so does a measured size over the limit.
   size:
     name: PR size
     # Every edit runs it, a title-only one too: edits share one cancelling group, so a
@@ -248,7 +248,7 @@ jobs:
             echo "::notice title=PR size::the base predates the size check; skipped"
             exit 0
           fi
-          # An API error (rate limit, outage) warns and passes: only a measured size fails.
+          # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
           if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
             --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/files.jsonl"; then
             echo "::warning title=PR size::could not read the pull request's files; size not measured"
@@ -267,7 +267,7 @@ jobs:
           python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/files.jsonl" --event "$event" || status=$?
           case "$status" in
             0) ;;
-            3) exit 1 ;;  # over the limit with no `Size:` line: the pull request's own red
+            3) ;;  # over the limit with no `Size:` line: the script printed the warning; never a gate
             *) echo "::warning title=PR size::the size script failed (exit $status); size not measured" ;;
           esac
 

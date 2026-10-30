@@ -40,6 +40,7 @@
 use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, HostRecord, Liveness};
+use cmux_json::JsonSet as _;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
@@ -804,7 +805,7 @@ impl Hub {
             "hostBuild": p.record.host_build.clone()
         });
         if session.meta().remote_origin {
-            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+            started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
@@ -850,7 +851,7 @@ impl Hub {
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.agent_session_id = state.session_id;
+            m.set_agent_session_id(state.session_id, "claude");
             // The pooled process started a fresh conversation: unstored
             // until its first turn ends.
             m.claude_unstored = true;
@@ -862,7 +863,11 @@ impl Hub {
             );
         } else if let Some(res) = &p.new_result {
             let sid = res.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = sid;
+            session
+                .meta
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set_agent_session_id(sid, "non-claude");
             self.absorb_session_response(session, res);
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));

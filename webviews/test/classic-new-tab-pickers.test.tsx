@@ -230,8 +230,9 @@ test("a classic New Tab starts its deferred chat before changing model", async (
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  await pick("Effort");
-  await pick("High");
+  const high = popup().querySelector<HTMLElement>('.acpmux-quick-effort-segment[aria-label="Opus 5.5 · High"]');
+  expect(high).not.toBeNull();
+  await act(async () => high!.click());
   await open();
   await pick("Fast mode");
   expect(chatCalls()).toEqual([

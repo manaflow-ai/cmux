@@ -8,6 +8,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-subsessions";
@@ -266,7 +267,7 @@ async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
         tracing::info!(session = %session, "{line}");
     })
     .await?;
-    args["attachments"] = Value::Array(blocks);
+    args.set("attachments", Value::Array(blocks));
     Ok(args)
 }
 
@@ -275,7 +276,7 @@ fn retry_params(args: &Value) -> Value {
     let session = args.get("session").or_else(|| args.get("sessionId"));
     let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
     if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
-        params["subagentId"] = subagent.clone();
+        params.set("subagentId", subagent.clone());
     }
     params
 }

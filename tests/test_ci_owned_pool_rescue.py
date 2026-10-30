@@ -2130,7 +2130,8 @@ class Workflow(unittest.TestCase):
              "cmux-next frame pacing", "cmux-next media", "cmux-next PR autofix", "cmux-next CEF shim C++ tests",
              "cmux-next", "cmux-tui artifacts", "cmux NEXT DEV daily",
              "cmux-next", "cmux-tui", "IROH v2", "Relay TLS system trust", "reload-build",
-             "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification"},
+             "SSH remote daemon", "Terminal hang diagnostics", "Feed reply provider verification",
+             "nightly-next launch smoke"},
         )
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
         self.assertEqual(

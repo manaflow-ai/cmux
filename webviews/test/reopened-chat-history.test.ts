@@ -355,8 +355,8 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// happened and not by how long ago. Either of two things is enough:
   ///
   /// - acpmux has served the chat's oldest record, so nothing older is left to read; or
-  /// - the transcript holds two viewports of history, which is where the older-history loader
-  ///   stops asking (`node.scrollTop >= node.clientHeight * 2`, App.tsx). A view with that much
+  /// - the transcript holds six viewports of history, which is where the older-history loader
+  ///   stops asking (`node.scrollTop >= node.clientHeight * OLDER_AHEAD_VIEWPORTS`, App.tsx). A view with that much
   ///   below it has been placed at its latest row and is pinned there as each page lands
   ///   (`didOpenAtLatest`, `settleFollowBottom`), so records arriving above the first row move the
   ///   rows above the reader and not the last one off the composer.
@@ -375,7 +375,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     const until = Date.now() + 25_000 + 20 * LATENCY_MS;
     for (let pass = 0; pass < 600 && Date.now() < until; pass += 1) {
       const now = (await page.evaluate(`(${progress.toString()})()`)) as ReturnType<typeof progress>;
-      if (now.rows > 0 && (servedOldest || now.scrollable > 2 * now.view)) return true;
+      if (now.rows > 0 && (servedOldest || now.scrollable > 6 * now.view)) return true;
       // The next look comes a frame later, once the page has drawn what it has.
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
     }
