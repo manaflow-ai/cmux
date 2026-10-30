@@ -460,3 +460,7 @@ pub(super) fn remove_all(directory: &Path) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "segments_tests.rs"]
+mod tests;
