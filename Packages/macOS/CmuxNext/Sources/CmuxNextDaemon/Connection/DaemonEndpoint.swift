@@ -570,7 +570,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
         !notAdvertised.contains($0)
     }
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing]))
+                                                               .sharedSizing, .agentSessionPresence]))
 
     /// What a connection echoes in `set-client-info`.
     ///
