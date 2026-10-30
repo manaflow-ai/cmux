@@ -411,13 +411,13 @@ mod tests {
         rows.push(json!({"sessionId": "m5", "name": "claude-sr2/mac-ci-3", "harness": "claude"}));
         rows.push(json!({"sessionId": "m6", "name": "hb/claude-sr2/mac-ci-4", "peer": "hb",
                          "harness": "claude"}));
-        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "big-red")), ["m5"]);
-        assert_eq!(ids(&by_key(&rows, "mac-ci-4", "big-red")), ["m6"]);
-        assert_eq!(ids(&by_key(&rows, "hb/mac-ci-4", "big-red")), ["m6"]);
-        assert_eq!(ids(&by_key(&rows, "big-red/mac-ci-3", "big-red")), ["m5"]);
-        assert!(by_key(&rows, "ci-3", "big-red").is_empty());
+        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "mac-a")), ["m5"]);
+        assert_eq!(ids(&by_key(&rows, "mac-ci-4", "mac-a")), ["m6"]);
+        assert_eq!(ids(&by_key(&rows, "hb/mac-ci-4", "mac-a")), ["m6"]);
+        assert_eq!(ids(&by_key(&rows, "mac-a/mac-ci-3", "mac-a")), ["m5"]);
+        assert!(by_key(&rows, "ci-3", "mac-a").is_empty());
         rows.push(json!({"sessionId": "m7", "name": "mac-ci-3", "harness": "claude"}));
-        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "big-red")), ["m7"], "a whole name wins");
+        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "mac-a")), ["m7"], "a whole name wins");
     }
 
     /// Review of #27791: a host-qualified key keeps that host's exact name first, and a short
