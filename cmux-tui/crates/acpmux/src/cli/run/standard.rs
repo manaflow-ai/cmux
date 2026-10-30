@@ -382,8 +382,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let setup_name = launch.name.as_deref().unwrap_or("new");
             let client = before_deadline(deadline, setup_name, connect(true)).await?;
-            let host = match crate::cli::place::auto_work(args.host.as_deref()) {
-                Some(work) => {
+            // A machine a person works at places command-line sessions on a fleet host
+            // (`cli/place.rs` `new_target`); the app's chats never come through here.
+            let interactive = crate::cli::place::here_is_interactive();
+            let folder_named = args.cwd.is_some() || launch.worktree.is_some();
+            let target =
+                crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let host = match target {
+                crate::cli::place::Target::Place(work) => {
                     before_deadline(
                         deadline,
                         setup_name,
@@ -392,11 +398,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             work,
                             launch.name.as_deref(),
                             launch.reuse,
+                            interactive,
+                            args.host.is_none(),
                         ),
                     )
                     .await?
                 }
-                None => args.host.clone(),
+                crate::cli::place::Target::Host(h) => Some(h),
+                crate::cli::place::Target::Here => None,
+                crate::cli::place::Target::HereForFolder => {
+                    eprintln!("{}", crate::cli::place::FOLDER_HERE);
+                    None
+                }
             };
             let cwd = match &launch.worktree {
                 Some((_, repo)) => Some(repo.clone()),
@@ -536,17 +549,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(session_id)
                 .to_owned();
-            // A failed sidebar step only warns: the prompt is still sent.
-            let show = || {
+            // A failed sidebar step is an error after the session has been
+            // created, so scripts can retry only the exact open command.
+            let daemon_cli_path = client.daemon_cli_path();
+            let show = || -> Result<()> {
                 if let Some(group) = &args.group {
                     // Only explicit names opt into the app's predecessor-row reuse.
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    if let Err(e) = launch::show_in_group(&id, title, group) {
-                        eprintln!("acpmux: {e:#}");
-                    }
+                    launch::show_in_group(&id, &name, title, group, daemon_cli_path.as_deref())?;
                 }
+                Ok(())
             };
             if let Some(info) = &reused {
                 launch::check_reusable(
@@ -571,7 +585,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         warn_host_pressure(&accepted);
                     }
                 }
-                show();
+                show()?;
                 if json_out {
                     let mut info = info.clone();
                     info["reused"] = json!(true);
@@ -592,6 +606,50 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return Ok(());
             }
             let first = launch.first_prompt(&args, &v);
+            // A detached launch must already have its instructions if the CLI
+            // is interrupted while the app is opening its workspace.
+            let queue_before_open = args.detach && !one_shot;
+            if queue_before_open && let Some(text) = &first {
+                let prompt = PromptId::new(args.prompt_id.clone());
+                let accepted = before_deadline(
+                    deadline,
+                    route_id,
+                    queue_prompt(client.clone(), route_id, text, false, None, &prompt),
+                )
+                .await?;
+                if !json_out {
+                    warn_host_pressure(&accepted);
+                }
+            }
+            if let Err(mut open_error) = show() {
+                if !queue_before_open && let Some(text) = &first {
+                    let prompt = PromptId::new(args.prompt_id.clone());
+                    if let Err(error) = before_deadline(
+                        deadline,
+                        route_id,
+                        queue_prompt(client.clone(), route_id, text, false, None, &prompt),
+                    )
+                    .await
+                    {
+                        open_error =
+                            anyhow!("{open_error}; first prompt was not confirmed: {error}");
+                    }
+                }
+                if ephemeral
+                    && host.is_none()
+                    && let Err(error) = before_deadline(
+                        deadline,
+                        route_id,
+                        client.request(method::MUX_KEEP, json!({"sessionId": route_id})),
+                    )
+                    .await
+                {
+                    open_error = anyhow!(
+                        "{open_error}; the ephemeral session could not be retained: {error}; retry the launch without --ephemeral"
+                    );
+                }
+                return Err(open_error);
+            }
             if json_out && !one_shot {
                 let mut info = before_deadline(deadline, route_id, async {
                     Ok(client
@@ -642,7 +700,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         retries: args.retries,
                         steer: false,
                     };
-                    show();
                     let outcome =
                         collect_reply(client.clone(), route_id, &text, opts, &prompt).await;
                     if ephemeral {
@@ -673,18 +730,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     return Ok(());
                 }
                 if args.detach {
-                    // The prompt is queued before the sidebar step, so a
-                    // session never runs without its instructions.
-                    let accepted = before_deadline(
-                        deadline,
-                        route_id,
-                        queue_prompt(client, route_id, &text, false, None, &prompt),
-                    )
-                    .await?;
-                    if !json_out {
-                        warn_host_pressure(&accepted);
-                    }
-                    show();
                     return Ok(());
                 }
                 let opts = CollectOpts {
@@ -695,7 +740,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     retries: args.retries,
                     steer: false,
                 };
-                show();
                 return stream_prompt(
                     client,
                     route_id,
@@ -709,7 +753,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
-            show();
             if args.detach || json_out {
                 return Ok(());
             }
@@ -729,6 +772,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             from,
             status,
             supersede,
+            class,
             attach,
         } => {
             if let Some(delivery) = status {
@@ -746,14 +790,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
+            let classed = class.is_some();
+            prompt_id.class = class;
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
-            if session.starts_with('@') {
-                if !attach.is_empty() || superseding {
+            // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
+            // session (`orchestrate::expand_session_key`), never the team path.
+            if session.strip_prefix('@').is_some_and(|rest| !rest.is_empty()) {
+                if !attach.is_empty() || superseding || classed {
                     return Err(anyhow!(
-                        "team messages currently carry text only and do not support --supersede"
+                        "team messages currently carry text only and do not support --supersede or --class"
                     ));
                 }
                 let client = connect(true).await?;

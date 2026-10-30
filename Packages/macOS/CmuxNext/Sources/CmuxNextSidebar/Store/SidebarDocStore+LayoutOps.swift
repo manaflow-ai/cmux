@@ -25,7 +25,8 @@ extension SidebarDocStore {
     /// bands as shown). Anchors follow the earlier ops of the same list,
     /// so several adds at consecutive indexes keep their order.
     public func docOps(for ops: [SidebarLayoutOp], layout: SidebarLayoutDocument) throws(LayoutOpGap) -> [[String: Any]] {
-        var planner = LayoutOpPlanner(records: records, shown: shown, layout: layout, room: newItemRoom())
+        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: settledRecords, shown: shown, layout: layout,
+                                      room: newItemRoom())
         var out: [[String: Any]] = []
         for op in ops { out += try planner.ops(for: op) }
         return out
@@ -45,7 +46,10 @@ extension SidebarDocStore {
 /// the earlier ops of one list change it.
 @MainActor
 private struct LayoutOpPlanner {
+    /// The records as drawn: a pending Chief too (it moves and comes off before its echo).
     let records: SidebarDocRecords
+    /// The confirmed records: an edit of an item's own fields waits for its echo (a pending Chief's record is only its row).
+    let confirmed: SidebarDocRecords
     let shown: SidebarDocProjection?
     let layout: SidebarLayoutDocument
     /// The space a new Pinned item is made in (`SidebarDocStore.newItemRoom`).
@@ -54,9 +58,11 @@ private struct LayoutOpPlanner {
     var siblings: [String: [String]]
     typealias Gap = SidebarDocStore.LayoutOpGap
 
-    init(records: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument, room: String? = nil) {
+    init(records: SidebarDocRecords, confirmed: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument,
+         room: String? = nil) {
         self.room = room
         self.records = records
+        self.confirmed = confirmed
         self.shown = shown
         self.layout = layout
         siblings = Dictionary(layout.sections.map { ($0.id.rawValue, $0.items.map(\.id.rawValue)) }, uniquingKeysWith: { a, _ in a })
@@ -139,7 +145,7 @@ private struct LayoutOpPlanner {
             for key in siblings.keys { siblings[key]?.removeAll { gone.contains($0) } }
             return [["op": "item.remove_ref", "ref": ["kind": ref.kind, "value": ref.value]]]
         case let .itemUpdate(id, showsLabel):
-            guard records.items[id.rawValue] != nil else { throw .unknownItem }
+            guard confirmed.items[id.rawValue] != nil else { throw .unknownItem }
             return [["op": "item.update", "id": id.rawValue, "patch": ["shows_label": showsLabel]]]
         case .reset:
             // The default sections again; the daemon's inverse makes it one undo step. The planner does not follow

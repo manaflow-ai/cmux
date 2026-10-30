@@ -360,7 +360,9 @@ impl Hub {
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
-            moving: session.moving().is_some(),
+            moving: session.moving().is_some() && m.moved_to.is_none(),
+            // Moved away for good (`transfer_out.rs` commit): where it runs now.
+            moved_to: m.moved_to.clone(),
             // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
             watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
@@ -396,6 +398,11 @@ impl Hub {
                     queued_at: q.queued_at,
                     held: q.held,
                     from_agent: q.run.agent.clone(),
+                    // The sending session and its harness, as the daemon bound them.
+                    from_session_id: crate::prompt_provenance::sender_of(q.run.provenance.as_ref())
+                        .0,
+                    from_harness: crate::prompt_provenance::sender_of(q.run.provenance.as_ref()).1,
+                    class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)

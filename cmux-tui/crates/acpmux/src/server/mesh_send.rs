@@ -11,6 +11,7 @@
 
 use super::*;
 use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Target};
+use crate::prompt_class::PromptClass;
 
 /// The prefix of a delivery id the hub holds.
 pub(super) const PREFIX: &str = "mesh:";
@@ -81,6 +82,14 @@ pub(super) async fn send(
             "{target:?} is reached only through the mesh relay, which cannot carry --supersede: send it without one"
         ))
         .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
+    }
+    // Nor a class (`prompt_class.rs`): the target would read it as a result, the default, so a
+    // block, a question or an FYI is refused rather than delivered as something else.
+    if crate::prompt_class::declared(request)?.is_some_and(|c| c != PromptClass::Result) {
+        return Err(RpcError::invalid_params(format!(
+            "{target:?} is reached only through the mesh relay, which cannot carry --class: send it without one"
+        ))
+        .with_data(json!({"reason": "mesh.no_class", "session": target})));
     }
     let prompt_id = field("promptId")
         .and_then(Value::as_str)

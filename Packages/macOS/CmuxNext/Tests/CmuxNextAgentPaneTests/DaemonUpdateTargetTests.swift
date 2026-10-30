@@ -105,12 +105,15 @@ import Testing
     }
 
     /// A recorded failure or rollback the policy asks a notice for shows a toast naming the
-    /// machine; the same state without the ask, or any other state, shows none.
+    /// machine; the same state without the ask, or any other state, shows none. A successful
+    /// update never shows one (Leo, 2026-10-30: "i dont think i need to see this").
     @Test @MainActor func aFailureTheBoardIsAskedToNoticeShowsOneToast() {
         let board = DaemonUpdateBoard()
         var shown: [String] = []
         board.showNotice = { shown.append($0.toast.message); return nil }
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16", state: .updating, notify: true))
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
+                                      state: .updated(build: "46c97e9"), notify: true, build: "46c97e9"))
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false)))
         #expect(shown.isEmpty)
@@ -119,6 +122,8 @@ import Testing
         #expect(shown.count == 1)
         #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
         #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)], details: true) == nil)
+        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updated(build: "46c97e9"), notify: true)],
+                                              details: true) == nil)
     }
 
     /// Leo's screen: three toasts stacked over the chat list and composer, one per machine (a
