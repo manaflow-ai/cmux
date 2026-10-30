@@ -536,49 +536,84 @@ impl ArtifactsSync {
             return Ok(request.changes.len());
         }
 
-        // The server's ref CAS rejected our old head. Read each remote file and
-        // resolve it against the last synced base before retrying once at the new head.
+        // The server's ref CAS rejected our old head. Read each remote file and resolve it
+        // against the last synced base, then retry once at the new head. Nothing counts as
+        // synced and no local file changes until that retry is saved: a failed retry leaves
+        // every local edit to be sent again by the next pass.
         let conflict: ConflictResponse =
             response.json().await.unwrap_or(ConflictResponse { current_head_sha: None });
         let current_head = conflict.current_head_sha.or_else(|| self.state.head_sha.clone());
         let mut resolved = Vec::new();
+        // (remote path, bytes) that become the synced base once the retry is saved.
+        let mut synced = Vec::new();
+        // (remote path, bytes this pass read, bytes to write) for the local copies.
+        let mut writes = Vec::new();
         for (path, local) in files {
             // A failed read fails the pass: read as empty, it would merge to an empty file.
             let remote = self.remote_file(&path, &token).await?;
             let base = self.state.base.get(&path).map(Vec::as_slice).unwrap_or(&[]);
             if path.to_ascii_lowercase().ends_with(".md") {
-                let merged = merge_markdown(base, &local, &remote);
-                if let Some(destination) = self.local_for_remote(&path) {
-                    replace_if_unchanged(&destination, Some(local.as_slice()), &merged)?;
-                }
-                self.state.base.insert(path.clone(), merged.clone());
-                resolved.push(self.change_for(path, merged, &token).await?);
+                let merged = merge_markdown(base, &local, remote.as_deref().unwrap_or_default());
+                resolved.push(self.change_for(path.clone(), merged.clone(), &token).await?);
+                writes.push((path.clone(), Some(local), merged.clone()));
+                synced.push((path, merged));
             } else {
-                let sibling = conflict_sibling(&path);
-                if let Some(destination) = self.local_for_remote(&sibling) {
-                    replace_if_unchanged(&destination, None, &local)?;
+                match remote {
+                    Some(remote) if remote == local => synced.push((path, local)),
+                    // Changed on both sides: ours goes beside it as a conflict copy, and the
+                    // original takes the remote bytes as its synced version, so the next pass
+                    // does not send ours over theirs.
+                    Some(remote) => {
+                        let sibling = conflict_sibling(&path);
+                        resolved
+                            .push(self.change_for(sibling.clone(), local.clone(), &token).await?);
+                        writes.push((sibling.clone(), None, local.clone()));
+                        writes.push((path.clone(), Some(local.clone()), remote.clone()));
+                        synced.push((sibling, local));
+                        synced.push((path, remote));
+                    }
+                    // Gone remotely: ours is the only version.
+                    None => {
+                        resolved.push(self.change_for(path.clone(), local.clone(), &token).await?);
+                        synced.push((path, local));
+                    }
                 }
-                resolved.push(self.change_for(sibling, local, &token).await?);
             }
         }
-        let retry = SaveRequest {
-            expected_head_sha: current_head.clone(),
-            branch: "main",
-            message: "Resolve concurrent artifact sync".into(),
-            trailers: trailers.clone(),
-            changes: resolved,
+        let head = if resolved.is_empty() {
+            current_head
+        } else {
+            let retry = SaveRequest {
+                expected_head_sha: current_head,
+                branch: "main",
+                message: "Resolve concurrent artifact sync".into(),
+                trailers: trailers.clone(),
+                changes: resolved,
+            };
+            let response = self
+                .client
+                .post(self.url("/v1/artifacts/save"))
+                .bearer_auth(&token)
+                .json(&retry)
+                .send()
+                .await?;
+            ensure_success(response.status(), "artifact conflict resolution save")?;
+            let saved: SaveResponse =
+                response.json().await.context("decode conflict save response")?;
+            Some(saved.head_sha)
         };
-        let response = self
-            .client
-            .post(self.url("/v1/artifacts/save"))
-            .bearer_auth(&token)
-            .json(&retry)
-            .send()
-            .await?;
-        ensure_success(response.status(), "artifact conflict resolution save")?;
-        let saved: SaveResponse = response.json().await.context("decode conflict save response")?;
-        self.state.head_sha = Some(saved.head_sha);
-        Ok(retry.changes.len())
+        self.state.head_sha = head;
+        let count = synced.len();
+        for (path, bytes) in synced {
+            self.state.base.insert(path, bytes);
+        }
+        for (path, read, bytes) in writes {
+            if let Some(destination) = self.local_for_remote(&path) {
+                // A file edited again since this pass read it keeps that edit for the next pass.
+                replace_if_unchanged(&destination, read.as_deref(), &bytes)?;
+            }
+        }
+        Ok(count)
     }
 
     async fn make_changes(&self, files: &[(String, Vec<u8>)], token: &str) -> Result<Vec<Change>> {
@@ -616,7 +651,8 @@ impl ArtifactsSync {
         })
     }
 
-    async fn remote_file(&self, path: &str, token: &str) -> Result<Vec<u8>> {
+    /// A remote file's bytes, or `None` when the server has no such file.
+    async fn remote_file(&self, path: &str, token: &str) -> Result<Option<Vec<u8>>> {
         let response = self
             .client
             .get(with_query(&self.url("/v1/artifacts/file"), &[("path", path), ("ref", "main")])?)
@@ -624,10 +660,10 @@ impl ArtifactsSync {
             .send()
             .await?;
         if response.status() == StatusCode::NOT_FOUND {
-            return Ok(Vec::new());
+            return Ok(None);
         }
         ensure_success(response.status(), "artifact conflict file read")?;
-        Ok(response.bytes().await?.to_vec())
+        Ok(Some(response.bytes().await?.to_vec()))
     }
 
     /// Pull the indexed paths and apply remote bytes to the corresponding local root.
@@ -849,21 +885,37 @@ pub fn should_skip(path: &str, bytes: &[u8]) -> bool {
     {
         return true;
     }
-    let text = String::from_utf8_lossy(bytes).to_ascii_lowercase();
-    [
-        "begin rsa private key",
-        "begin openssh private key",
-        "begin private key",
-        "api_key=",
-        "api-key:",
-        "access_token=",
-        "password=",
-        "aws_secret_access_key",
-        "secret_key",
-    ]
-    .iter()
-    .any(|needle| text.contains(needle))
+    let text = String::from_utf8_lossy(bytes);
+    // The daemon's secret scanner (gitleaks' rules and cmux's own) finds keys and tokens by
+    // shape; a credential-named key with a value (`password: x`, `apiKey = "…"`) is caught here
+    // whatever the value looks like. A false hit only leaves a file unsynced.
+    !crate::secret_scan::find(&text).is_empty()
+        || CREDENTIAL_ASSIGNMENT.as_ref().is_none_or(|pattern| pattern.is_match(&text))
+        || {
+            let lower = text.to_ascii_lowercase();
+            [
+                "private key-----",
+                "api_key=",
+                "api-key:",
+                "access_token=",
+                "password=",
+                "aws_secret_access_key",
+                "secret_key",
+            ]
+            .iter()
+            .any(|needle| lower.contains(needle))
+        }
 }
+
+/// `None` only if the pattern failed to build, and then every file is skipped (the safe side).
+static CREDENTIAL_ASSIGNMENT: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(
+    || {
+        regex::Regex::new(
+        r#"(?i)(?:password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|bearer[_-]?token|private[_-]?key|secret[_-]?key)["']?\s*[:=]\s*["']?[^\s"',;]{4,}"#,
+    )
+    .ok()
+    },
+);
 
 /// A line-oriented 3-way merge. Non-overlapping changes are retained; an
 /// overlapping edit is represented with standard conflict markers for review.
@@ -914,9 +966,9 @@ mod tests {
     use serde_json::json;
 
     /// A fake platform: answers each request by the first route whose `METHOD /path` starts its
-    /// request line, until the test drops it.
+    /// request line, until the test drops it. A route listed again answers the next such request.
     fn serve(
-        routes: Vec<(&'static str, &'static str, String)>,
+        mut routes: Vec<(&'static str, &'static str, String)>,
     ) -> (String, tokio::task::JoinHandle<()>) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -945,10 +997,13 @@ mod tests {
                     let size = stream.read(&mut buffer).await.unwrap();
                     request.extend_from_slice(&buffer[..size]);
                 }
-                let (_, status, body) = routes
+                let matches = |route: &&'static str| head.starts_with(&route.to_ascii_lowercase());
+                let at = routes
                     .iter()
-                    .find(|(route, _, _)| head.starts_with(&route.to_ascii_lowercase()))
+                    .position(|(route, _, _)| matches(route))
                     .unwrap_or_else(|| panic!("unexpected request: {head}"));
+                let again = routes[at + 1..].iter().any(|(route, _, _)| matches(route));
+                let (_, status, body) = if again { routes.remove(at) } else { routes[at].clone() };
                 let response = format!(
                     "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
@@ -1010,6 +1065,60 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.path().join("a.md")).unwrap(), "keep me\n");
     }
 
+    /// A conflict retry that fails records nothing as synced and changes no local file, so the
+    /// pull after it cannot replace the merge and the next pass sends the edit again.
+    #[tokio::test]
+    async fn a_failed_conflict_retry_keeps_the_local_edit_unsynced() {
+        let conflict = json!({"currentHeadSha":"h2"}).to_string();
+        let (url, server) = serve(vec![
+            ("POST /v1/artifacts/save", "409 Conflict", conflict.clone()),
+            ("POST /v1/artifacts/save", "409 Conflict", conflict),
+            ("GET /v1/artifacts/file", "200 OK", "remote\n".into()),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.md"), "local\n").unwrap();
+        let mut sync = sync_at(url, dir.path());
+        sync.state.base.insert("memory/codex/a.md".into(), b"base\n".to_vec());
+        let files = vec![("memory/codex/a.md".to_owned(), b"local\n".to_vec())];
+        assert!(sync.push_batch(files, &Trailers::default()).await.is_err());
+        server.abort();
+        assert_eq!(sync.state.base["memory/codex/a.md"], b"base\n");
+        assert_eq!(fs::read_to_string(dir.path().join("a.md")).unwrap(), "local\n");
+    }
+
+    /// A binary file changed on both sides: ours goes beside it as a conflict copy, and the
+    /// original takes the remote bytes as synced, so the next pass never sends ours over theirs.
+    #[tokio::test]
+    async fn a_binary_conflict_keeps_both_versions() {
+        let (url, server) = serve(vec![
+            ("POST /v1/artifacts/save", "409 Conflict", json!({"currentHeadSha":"h2"}).to_string()),
+            (
+                "POST /v1/artifacts/save",
+                "200 OK",
+                json!({"headSha":"h3","commit":"c3"}).to_string(),
+            ),
+            ("GET /v1/artifacts/file", "200 OK", "theirs".into()),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("data.bin"), "ours").unwrap();
+        let mut sync = sync_at(url, dir.path());
+        sync.state.base.insert("memory/codex/data.bin".into(), b"old".to_vec());
+        let files = vec![("memory/codex/data.bin".to_owned(), b"ours".to_vec())];
+        sync.push_batch(files, &Trailers::default()).await.unwrap();
+        server.abort();
+        assert_eq!(sync.state.head_sha.as_deref(), Some("h3"));
+        assert_eq!(sync.state.base["memory/codex/data.bin"], b"theirs");
+        assert_eq!(fs::read_to_string(dir.path().join("data.bin")).unwrap(), "theirs");
+        let copies: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.starts_with("data.conflict-"))
+            .collect();
+        assert_eq!(copies.len(), 1, "{copies:?}");
+        assert_eq!(fs::read_to_string(dir.path().join(&copies[0])).unwrap(), "ours");
+        assert_eq!(sync.state.base[&format!("memory/codex/{}", copies[0])], b"ours");
+    }
+
     #[cfg(unix)]
     #[test]
     fn symlinks_below_a_root_are_never_followed() {
@@ -1061,6 +1170,16 @@ mod tests {
         assert!(should_skip("memory/claude/scope/server.pem", b"x"));
         assert!(should_skip("memory/claude/scope/notes.md", b"AWS_SECRET_ACCESS_KEY=abc"));
         assert!(!should_skip("memory/claude/scope/notes.md", b"safe notes"));
+        for text in [
+            "password: hunter22",
+            "apiKey: 9f8e7d6c5b4a",
+            "access_token: abcd1234efgh",
+            "client_secret = \"s3cr3tvalue\"",
+            "-----BEGIN EC PRIVATE KEY-----",
+        ] {
+            assert!(should_skip("memory/codex/notes.md", text.as_bytes()), "{text}");
+        }
+        assert!(!should_skip("memory/codex/notes.md", b"Rotate the password every quarter."));
     }
 
     #[test]
