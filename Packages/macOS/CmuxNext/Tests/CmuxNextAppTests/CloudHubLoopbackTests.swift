@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextRemoteLocalhost
 @testable import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
@@ -16,14 +17,23 @@ import Testing
 struct CloudHubLoopbackTests {
     /// The hub names its socket; a path that does not fit a Unix socket address (`sun_path`) is
     /// refused as an unavailable tunnel, never handed to the Network framework, which traps on one
-    /// (issue #28492).
-    @Test func aHubSocketPathPastTheUnixLimitIsRefusedNotATrap() async throws {
-        let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
-        let made = HubLoopbackOpener(hub: { .init(socket: socket, token: FakeHub.token) }, address: "10.0.0.2")
-        let opener = try #require(made)
-        await #expect(throws: LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable")) {
-            _ = try await opener.openTunnel(host: "127.0.0.1", port: 8080)
+    /// (issue #28492). The open runs in an exit test's child, so a trap fails this test with its
+    /// frames (``ChildCrashFrames``) and no other test.
+    @Test func aHubSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
+        let result = await #expect(processExitsWith: .success, observing: [\.standardErrorContent]) {
+            ChildCrashFrames.printOnFatalSignal()
+            let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
+            guard let opener = HubLoopbackOpener(hub: { .init(socket: socket, token: "t") }, address: "10.0.0.2") else {
+                exit(EXIT_FAILURE)
+            }
+            do {
+                _ = try await opener.openTunnel(host: "127.0.0.1", port: 8080)
+                exit(EXIT_FAILURE)
+            } catch {
+                guard error == .unavailable("Cloud tunnel unavailable") else { exit(EXIT_FAILURE) }
+            }
         }
+        ChildCrashFrames.record(result)
     }
 
     /// One connection's SOCKS5 server: greeting, the token `cmux-hub-token`, then CONNECT, answered
