@@ -80,7 +80,11 @@ impl Hub {
         let mut stopped_turns = HashSet::new();
         let mut started = false;
         let mut ended: Option<Value> = None;
+        // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
+        // digest's only once the digest's turn starts: one that never did gave it back.
+        let mut digest: Option<String> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
             // Admission installs the live turn before user_message is durable. Stop can
             // therefore be journaled before we learn which turn owns this prompt.
             if rec.kind == "turn_stop_requested"
@@ -131,6 +135,8 @@ impl Hub {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
                     started = false;
                     ended = None;
+                    // Out of an inbox digest that failed too (`inbox_digest.rs`).
+                    digest = None;
                 }
                 ("turn_stop_requested", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
@@ -159,6 +165,48 @@ impl Hub {
                     // Joined prompts run inside the existing turn and therefore do not
                     // receive their own turn_started record.
                     started = true;
+                }
+                // Taken into an inbox digest (`inbox_digest.rs`): its `dequeued` record names it,
+                // and so does the digest's own `queued` record, logged first.
+                ("dequeued", Some(id))
+                    if field("turnId") == Some(id.as_str())
+                        && field("digestPromptId").is_some() =>
+                {
+                    digest = field("digestPromptId").map(str::to_owned);
+                }
+                ("queued", Some(_))
+                    if digest.is_none()
+                        && super::digest::inbox_digest::took(&rec.msg)
+                            .iter()
+                            .any(|id| id == prompt_id) =>
+                {
+                    digest = field("promptId").map(str::to_owned);
+                }
+                // The digest it went into was withdrawn before its turn: so was it.
+                ("queue_removed", Some(_))
+                    if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
+                    return false;
+                }
+                // The digest's turn started, as the queue's restore reads it (`queue_waiting.rs`
+                // `Digests`): its `turn_started`, or its steer's `user_message` (a steer goes into
+                // the turn that ran then). That turn is this prompt's.
+                ("turn_started", Some(_))
+                    if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    turn_id = field("turnId").map(str::to_owned);
+                    started = true;
+                    ended = None;
+                }
+                ("user_message", Some(_))
+                    if digest.is_some()
+                        && field("promptId") == digest.as_deref()
+                        && rec.msg.get("steer") == Some(&Value::Bool(true)) =>
+                {
+                    turn_id = field("turnId").map(str::to_owned);
+                    started = true;
+                    ended = None;
                 }
                 _ => {}
             }

@@ -379,15 +379,35 @@ final class ShellModel {
         lastOpen.save(location)
     }
 
-    /// The drawer pan only opens from a tab root (stack depth 1).
-    private func updateInteractiveOpen() {
-        let depth = switch tab {
+    /// How many screens are pushed on `tab`'s stack.
+    private func depth(of tab: RootTab) -> Int {
+        switch tab {
         case .home: homePath.count
         case .workspaces: workspacesPath.count
         case .feed: feedPath.count
         case .settings: settingsPath.count
         }
-        sidebar.allowsInteractiveOpen = depth == 0
+    }
+
+    /// Whether the root tab bar shows while `tab` is selected: the only place
+    /// that decides it (`ShellTabs` applies it to each tab). A screen pushed on
+    /// Home, Workspaces or the Feed (a workspace and its pages, a chat, a
+    /// conversation) owns the bottom edge (SPEC 3.1), so the bar hides while
+    /// that stack is not at its root; Settings pages keep it.
+    ///
+    /// Pushed screens never hide it themselves: SwiftUI applied a pushed
+    /// screen's `.toolbar(.hidden, for: .tabBar)` only when it was pushed on
+    /// the tab already on screen, so a workspace opened from another tab in
+    /// one update (a link, a notification, the Feed, the launch restore)
+    /// showed over the bar, and a screen that hid it in some branches only
+    /// (a conversation still loading) showed it in the others.
+    func showsTabBar(on tab: RootTab) -> Bool {
+        tab == .settings || depth(of: tab) == 0
+    }
+
+    /// The drawer pan only opens from a tab root (stack depth 1).
+    private func updateInteractiveOpen() {
+        sidebar.allowsInteractiveOpen = depth(of: tab) == 0
     }
 
     /// A team switch (a tap or a follow): screens that show the old team's Macs close (an
