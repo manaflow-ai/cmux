@@ -2,7 +2,8 @@ import type { Env } from "../env.ts"
 import type { ProviderId } from "./catalog.ts"
 
 /**
- * Provider adapters of the model router (open-source models only). Five providers speak OpenAI chat/completions, so their
+ * Provider adapters of the model router (open-source models only). Vercel AI Gateway, OpenRouter,
+ * Fireworks, Baseten, DeepInfra, Azure AI Foundry, OpenAI and our own endpoint speak OpenAI chat/completions, so their
  * adapter is a base URL, a key and a few body fields. Workers AI is reached through the Worker's
  * AI binding (no key) and is translated in workers-ai.ts.
  *
@@ -13,6 +14,8 @@ export interface OpenAiCompatible {
   readonly kind: "openai"
   readonly url: string
   readonly key: string
+  /** How the key is sent: `Authorization: Bearer` (default) or Azure's `api-key` header. */
+  readonly auth?: "bearer" | "api-key"
   /** Fields this provider needs on every request (privacy and cost reporting). */
   readonly extraBody: Readonly<Record<string, unknown>>
   readonly extraHeaders: Readonly<Record<string, string>>
@@ -21,6 +24,8 @@ export interface OpenAiCompatible {
 export interface WorkersAi {
   readonly kind: "workers-ai"
   readonly ai: Ai
+  /** Cloudflare AI Gateway id the binding routes through (logs, caching, analytics); unset = direct. */
+  readonly gateway?: string
 }
 
 export type ProviderTarget = OpenAiCompatible | WorkersAi
@@ -37,6 +42,9 @@ export const providerTarget = (env: Env, provider: ProviderId): ProviderTarget |
       // and max_price at our card, so no sub-provider costs more than the reservation assumed.
       return openai("https://openrouter.ai/api/v1/chat/completions", env.INFERENCE_OPENROUTER_KEY, { usage: { include: true } }, { "X-Title": "cmux" })
     case "vercel":
+      // OIDC first: the relay in the dashboard's Vercel project calls AI Gateway with its own
+      // Vercel OIDC token (no gateway key held here). A static gateway key is the fallback.
+      if (env.INFERENCE_VERCEL_RELAY_URL && env.INFERENCE_VERCEL_RELAY_KEY) return openai(env.INFERENCE_VERCEL_RELAY_URL, env.INFERENCE_VERCEL_RELAY_KEY)
       return openai("https://ai-gateway.vercel.sh/v1/chat/completions", env.INFERENCE_VERCEL_GATEWAY_KEY)
     case "fireworks":
       return openai("https://api.fireworks.ai/inference/v1/chat/completions", env.INFERENCE_FIREWORKS_KEY)
@@ -45,7 +53,18 @@ export const providerTarget = (env: Env, provider: ProviderId): ProviderTarget |
     case "deepinfra":
       return openai("https://api.deepinfra.com/v1/openai/chat/completions", env.INFERENCE_DEEPINFRA_KEY)
     case "workers-ai":
-      return env.AI ? { kind: "workers-ai", ai: env.AI } : undefined
+      return env.AI ? { kind: "workers-ai", ai: env.AI, ...(env.INFERENCE_CF_GATEWAY_ID ? { gateway: env.INFERENCE_CF_GATEWAY_ID } : {}) } : undefined
+    case "azure":
+      // Azure AI Foundry Models' OpenAI-compatible v1 endpoint; the route id is our deployment name.
+      return env.INFERENCE_AZURE_ENDPOINT && env.INFERENCE_AZURE_KEY
+        ? { kind: "openai", url: `${env.INFERENCE_AZURE_ENDPOINT.replace(/\/$/, "")}/openai/v1/chat/completions`, key: env.INFERENCE_AZURE_KEY, auth: "api-key", extraBody: {}, extraHeaders: {} }
+        : undefined
+    case "openai":
+      // OpenAI's own API. GPT-5 models take max_completion_tokens, not max_tokens (upstream.ts).
+      return openai("https://api.openai.com/v1/chat/completions", env.INFERENCE_OPENAI_KEY)
+    case "custom":
+      // Our own OpenAI-compatible endpoint (a self-hosted model server, or any other router).
+      return env.INFERENCE_CUSTOM_URL ? openai(env.INFERENCE_CUSTOM_URL, env.INFERENCE_CUSTOM_KEY) : undefined
   }
 }
 

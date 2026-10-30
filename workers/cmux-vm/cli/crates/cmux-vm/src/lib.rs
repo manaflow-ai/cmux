@@ -114,6 +114,9 @@ enum Command {
     /// Create, list, show and delete snapshots
     #[command(subcommand)]
     Snapshot(SnapshotCommand),
+    /// Mint and manage SSH client sessions for a VM
+    #[command(name = "client-session", subcommand)]
+    ClientSession(ClientSessionCommand),
     /// List approved service boot images
     #[command(subcommand)]
     Image(ImageCommand),
@@ -241,6 +244,45 @@ enum SnapshotCommand {
     List(SnapshotListArgs),
     /// Delete a snapshot permanently (asks to type the snapshot id, or needs --yes without a terminal)
     Delete(SnapshotDeleteArgs),
+}
+
+#[derive(Subcommand, Debug)]
+enum ClientSessionCommand {
+    /// Mint a one-time provider token and SSH line
+    Create(ClientSessionCreateArgs),
+    /// List live sessions without tokens
+    List(ClientSessionVmArgs),
+    /// Revoke one session
+    Revoke(ClientSessionRevokeArgs),
+}
+
+#[derive(Args, Debug)]
+struct ClientSessionVmArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+}
+
+#[derive(Args, Debug)]
+struct ClientSessionCreateArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Linux user for the SSH grant (defaults to ubuntu)
+    #[arg(long)]
+    user: Option<String>,
+    /// Write the one-time token to this new file with mode 0600
+    #[arg(long, value_name = "PATH")]
+    token_file: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct ClientSessionRevokeArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Client session id (vcs_...)
+    session_id: String,
+    /// Revoke without an interactive confirmation
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -634,7 +676,7 @@ async fn dispatch(
             let response =
                 fetch_body(client.vms_resize_vm(vm_id.as_str(), Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_retry_key(&key_text))?;
+                    .map_err(|e| e.with_retry_key(&key_text).for_vm(vm_id.as_str(), "resize"))?;
             let confirmed = serde_json::from_slice::<types::Vm>(&response)
                 .ok()
                 .is_some_and(|actual| {
@@ -712,7 +754,9 @@ async fn dispatch(
             out.image_list(&images)
         }
         Command::Get(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_get_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "get"))?;
             out.vm(&vm)
         }
         Command::List(args) => {
@@ -735,7 +779,9 @@ async fn dispatch(
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "start"))?;
             out.vm(&vm)
         }
         Command::Identity(IdentityArgs {
@@ -765,11 +811,15 @@ async fn dispatch(
             out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "stop"))?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "pause"))?;
             out.vm(&vm)
         }
         Command::Retire(DeleteArgs { vm_id, yes }) => {
@@ -779,7 +829,9 @@ async fn dispatch(
             if !yes {
                 confirm(prompt, Destroy::RetireVm, id.as_str())?;
             }
-            let response = fetch_body(client.vms_retire_vm(id.as_str(), None)).await?;
+            let response = fetch_body(client.vms_retire_vm(id.as_str(), None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "retire"))?;
             let receipt: serde_json::Value = serde_json::from_slice(&response).map_err(|_| {
                 CliError::unexpected("retirement is unconfirmed; retry retire for the same VM")
             })?;
@@ -798,11 +850,15 @@ async fn dispatch(
                 "command": args.command.join(" "),
                 "timeoutMs": args.timeout_ms,
             }))?;
-            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body)).await?;
+            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
+                .await
+                .map_err(|e| e.for_vm(&args.vm_id, "exec"))?;
             out.exec(&result)
         }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "resume"))?;
             out.vm(&vm)
         }
         Command::Fork(args) => {
@@ -814,16 +870,22 @@ async fn dispatch(
             let key = parse_key::<types::VmsForkVmIdempotencyKey>(&key_text)?;
             let vm = fetch_body(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
                 .await
-                .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                .map_err(|e| {
+                    e.with_idempotency_hint(&key_text)
+                        .for_vm(&args.vm_id, "fork")
+                })?;
             out.vm(&vm)
         }
         Command::Delete(DeleteArgs { vm_id, yes }) => {
             if !yes {
                 confirm(prompt, Destroy::DeleteVm, &vm_id)?;
             }
-            call(client.vms_delete_vm(&vm_id, None)).await?;
+            call(client.vms_delete_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "delete"))?;
             out.deleted(&vm_id)
         }
+        Command::ClientSession(command) => client_session(client, command, prompt, out).await,
         Command::Snapshot(command) => snapshot(client, command, prompt, out).await,
         Command::Device(DeviceCommand::OverlayPolicy(args)) => {
             let id = args
@@ -935,8 +997,84 @@ async fn dispatch(
                 .path
                 .parse::<types::GuestPath>()
                 .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
             out.file_stat(&body)
+        }
+    }
+}
+
+async fn client_session(
+    client: &Client,
+    command: ClientSessionCommand,
+    prompt: &mut dyn Prompt,
+    mut out: output::Printer<'_>,
+) -> Result<(), CliError> {
+    match command {
+        ClientSessionCommand::Create(args) => {
+            let body: types::CreateClientSessionRequest = request_body(json!({
+                "linuxUser": args.user,
+            }))?;
+            let reserved = match args.token_file.as_ref() {
+                Some(path) => {
+                    if path.to_str().is_none() {
+                        return Err(CliError::usage(
+                            "--token-file must be a UTF-8 path so JSON output can name it",
+                        ));
+                    }
+                    Some((path.clone(), output::reserve_token_file(path)?))
+                }
+                None => None,
+            };
+            let response =
+                match fetch_body(client.agents_create_client_session(&args.vm_id, None, &body))
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        // Keep the empty 0600 reservation in place. Removing
+                        // by pathname after a network wait could unlink a
+                        // different file if a parent was replaced.
+                        return Err(error.for_vm(&args.vm_id, "client-session create"));
+                    }
+                };
+            out.client_session_create(&response, reserved, &args.vm_id)
+        }
+        ClientSessionCommand::List(ClientSessionVmArgs { vm_id }) => {
+            let response = fetch_body(client.agents_list_client_sessions(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "client-session list"))?;
+            out.client_session_list(&response, &vm_id)
+        }
+        ClientSessionCommand::Revoke(ClientSessionRevokeArgs {
+            vm_id,
+            session_id,
+            yes,
+        }) => {
+            if !yes {
+                if !prompt.is_interactive() {
+                    return Err(CliError::usage(format!(
+                        "client-session revoke for VM {vm_id} session {session_id} requires --yes without a terminal"
+                    )));
+                }
+                let answer = prompt
+                    .ask(&format!(
+                        "Revoke client session {session_id} on VM {vm_id}? Type the session id to confirm: "
+                    ))
+                    .map_err(|e| {
+                        CliError::cancelled(format!("could not read confirmation: {e}"))
+                    })?;
+                if answer.trim() != session_id {
+                    return Err(CliError::cancelled(format!(
+                        "revocation of client session {session_id} on VM {vm_id} was not confirmed"
+                    )));
+                }
+            }
+            call(client.agents_revoke_client_session(&vm_id, &session_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "client-session revoke"))?;
+            out.revoked_session(&vm_id, &session_id)
         }
     }
 }
@@ -959,7 +1097,10 @@ async fn snapshot(
             let snapshot =
                 fetch_body(client.snapshots_create_snapshot(&args.vm_id, Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                    .map_err(|e| {
+                        e.with_idempotency_hint(&key_text)
+                            .for_vm(&args.vm_id, "snapshot")
+                    })?;
             out.snapshot(&snapshot)
         }
         SnapshotCommand::Get(SnapshotArg { snapshot_id }) => {

@@ -86,14 +86,17 @@ class SidebarItemRowView: NSView {
     }
     private var pointerHover: PointerHover?
     private var isPressed = false { didSet { if isPressed != oldValue { pointerChanged() } } }
-    /// The profile control's menu is open over it: the pill holds the
-    /// selected step (between hover and pressed) until the menu closes.
+    /// A menu opened from this row is open. The profile control's (the whole pill is that control): the pill holds
+    /// the selected step (between hover and pressed) until the menu closes. A workspace tile's hover more button's: the
+    /// hover controls stay shown and only that button lights, never the pill (Leo 2026-10-27: "why are you giving it
+    /// the entire row when it's only this small little section?").
     var showsMenu = false {
         didSet {
             guard showsMenu != oldValue else { return }
             // The menu's tracking takes the release: no mouseUp ends the press.
             isPressed = false
             pointerChanged()
+            needsLayout = true
         }
     }
     /// The next fill change came from the pointer, so it fades.
@@ -126,7 +129,7 @@ class SidebarItemRowView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
-    var onDragEnded: (() -> Void)?
+    var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
@@ -141,7 +144,7 @@ class SidebarItemRowView: NSView {
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
         // A selection change paints at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
-        if info.isActive != self.info.isActive { fadesNextFill = false }
+        if info.isActive != self.info.isActive || info.isSecondarySelected != self.info.isSecondarySelected { fadesNextFill = false }
         self.info = info
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
@@ -161,7 +164,7 @@ class SidebarItemRowView: NSView {
         themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
         setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
-        setAccessibilitySelected(info.isActive)
+        setAccessibilitySelected(info.isActive || info.isSecondarySelected)
         alphaValue = info.isMissing ? 0.5 : 1
         needsLayout = true
         needsDisplay = true
@@ -201,11 +204,14 @@ class SidebarItemRowView: NSView {
     /// step past hover: `selectionFill`, or `pressedFill` over a fill that is
     /// already that (cx-wqn5).
     var fill: NSColor? {
-        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || showsMenu)
+        // A menu from the hover more button lights that button alone (`layoutHoverActions`), not the pill.
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive || (showsMenu && !showsHoverActions))
         return performWithTheme {
             if showsKeyFocus, !isPressed {
                 return info.isActive || style == .tile ? Palette.pressedFill : Palette.selectionFill
             }
+            // In the multi-selection (Shift- or Cmd-click), as a selected list row draws.
+            if info.isSecondarySelected, !isPressed { return Palette.secondarySelectionFill }
             guard style == .tile else { return ChromeHover.fillColor(state) }
             return ChromeHover.fillColor(state, rest: Palette.hoverFill)
         }
@@ -234,12 +240,13 @@ class SidebarItemRowView: NSView {
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
         // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
         let bare = info.textOnly && !style.isIconOnly
-        // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
-        // A pinned workspace row's pin leads, and its icon and title follow it.
-        let pinSide = Metrics.smallIconSize
-        let pinFrame = info.leadingPin ? pinGlyphFrame(side: pinSide, leading: inset * 2, height: b.height) : .zero
-        let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinFrame.maxX - inset * 2 + Metrics.space2 : 0)
-            + (style == .chip ? 0 : CGFloat(info.indent) * Metrics.space3)
+        // One leading inset for every row (Lawrence 2026-10-28, "home and pinned are not aligned"): the first ink
+        // (a band row's glyph, a pinned row's pin) starts where a workspace row's text starts (its inset plus the
+        // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
+        // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
+        let rowLead = inset * 2 + CGFloat(info.indent) * Metrics.space3
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: rowLead, height: b.height) : .zero
+        let lead = style == .chip ? Metrics.space2 : info.leadingPin ? SidebarStyle.leadingTextX(leading: rowLead) : rowLead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
@@ -272,7 +279,10 @@ class SidebarItemRowView: NSView {
             icon.frame = frame
         } else {
             icon.image = glyphImage(side: glyphSide)
-            icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+            // A bare glyph beside a title (Home, the band's rows) centers its ink on the icon column, as the pin and a
+            // workspace row's icon do (Leo 2026-10-28: "the alignment"); a glyph in a well or a tile centers its square.
+            icon.frame = style == .builtIn && !isRailButton ? inkCenteredGlyphFrame(side: glyphSide, centeredIn: iconFrame)
+                : alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
         }
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
@@ -296,7 +306,9 @@ class SidebarItemRowView: NSView {
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = showsSwatchDot ? chip.frame.maxX + Metrics.space3
-            : bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
+            : bare ? iconFrame.minX
+            : style == .builtIn && !isRailButton ? SidebarStyle.titleTextX(leading: iconFrame.minX, iconSide: iconFrame.width)
+            : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
@@ -312,8 +324,9 @@ class SidebarItemRowView: NSView {
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         if !rowBadge.isHidden {
             let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
-            rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
+            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2, scale = window?.backingScaleFactor ?? 2
+            rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(x, scale: scale), y: SidebarStyle.pixelSnapped((b.height - side) / 2, scale: scale),
+                                    width: width, height: side)
             guard style != .chip else { return rowBadge.frame.minX }
             return min(rowBadge.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
         }
@@ -350,24 +363,39 @@ class SidebarItemRowView: NSView {
     }
 
     /// The cache key of the pin's ink (`SidebarGlyphInk`).
-    private static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+    static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
 
-    /// The leading pin's frame: its drawn ink, not its square, starts at `leading` (where an unpinned workspace
-    /// row's icon or title starts) and centers on the row, on the device pixel grid. The pin's square leaves a
-    /// margin on each side of its ink, so the square at the rows' inset drew the pin in from them (Leo 2026-10-21).
+    /// The leading pin's frame: its drawn ink, not its square, centers on the icon column of a slot starting at
+    /// `leading` (where an unpinned workspace row's icon starts, `SidebarStyle.iconColumnCenterX`) and on the row,
+    /// on the device pixel grid. The pin's square leaves a margin around its ink (Leo 2026-10-21), and its ink is
+    /// narrower than a row icon, so ink-leading drew it left of the icons' center (Leo 2026-10-28: "the alignment").
     private func pinGlyphFrame(side: CGFloat, leading: CGFloat, height: CGFloat) -> NSRect {
         let scale = window?.backingScaleFactor ?? 2
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        let column = SidebarStyle.iconColumnCenterX(leading: leading)
         guard let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else {
-            return NSRect(x: leading, y: snap((height - side) / 2), width: side, height: side)
+            return NSRect(x: snap(column - side / 2), y: snap((height - side) / 2), width: side, height: side)
         }
-        return NSRect(x: snap(leading - ink.minX), y: snap(height / 2 - ink.midY), width: side, height: side)
+        return NSRect(x: snap(column - ink.midX), y: snap(height / 2 - ink.midY), width: side, height: side)
     }
 
     /// The pin's drawn ink in the row's coordinates; nil without a pin (tests).
     var pinInkFrame: CGRect? {
         guard !pin.isHidden, let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else { return nil }
         return ink.offsetBy(dx: pin.frame.minX, dy: pin.frame.minY)
+    }
+
+    /// The drawn ink of the item's glyph in the row's coordinates; nil when no glyph draws (tests).
+    var glyphInkFrame: CGRect? {
+        guard !icon.isHidden, let image = icon.image, icon.frame.width > 0,
+              let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey) else { return nil }
+        return ink.offsetBy(dx: icon.frame.minX, dy: icon.frame.minY)
+    }
+
+    /// The cache key of the item's glyph ink (`SidebarGlyphInk`): what draws it, not its size.
+    var glyphKey: String {
+        let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
+        return "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)|\(info.favicon == nil ? "" : info.title)"
     }
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
@@ -432,6 +460,17 @@ class SidebarItemRowView: NSView {
         return NSRect(x: snap(box.midX - side / 2), y: snap(box.midY - side / 2), width: side, height: side)
     }
 
+    /// A `side` square whose drawn ink, not its square, centers in `box` on both axes, on the device pixel grid: a
+    /// glyph with uneven margins still lands on the icon column and its title's center line. Falls back to centering
+    /// the square when the glyph draws nothing measurable.
+    private func inkCenteredGlyphFrame(side: CGFloat, centeredIn box: NSRect) -> NSRect {
+        let centered = alignedGlyphFrame(side: side, centeredIn: box)
+        guard let image = icon.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: glyphKey) else { return centered }
+        let scale = window?.backingScaleFactor ?? 2
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        return NSRect(x: snap(box.midX - ink.midX), y: snap(box.midY - ink.midY), width: side, height: side)
+    }
+
     /// The glyph drawn now (tests).
     var glyphImage: NSImage? { icon.image }
     /// The caption's frame (tests).
@@ -478,7 +517,7 @@ class SidebarItemRowView: NSView {
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
         let activated = activatedOnPress
-        if dragged { onDragEnded?() }
+        if dragged { onDragEnded?(event.locationInWindow) }
         pressLocation = nil
         didDrag = false
         activatedOnPress = false
