@@ -122,6 +122,7 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
+        terminalTabs.accountUserIDProvider = { [weak auth] in auth?.user?.id }
         // Mock content only in DEBUG mock mode (mock auth); a live account
         // never falls back to it.
         let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock

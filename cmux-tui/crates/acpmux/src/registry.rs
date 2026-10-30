@@ -601,6 +601,7 @@ pub fn save(home: &Path, body: &[u8]) -> Result<bool, String> {
     if std::fs::read(&path).is_ok_and(|old| old == body) {
         return Ok(false);
     }
+    crate::config::refuse_lost_home(&dir).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
