@@ -56,9 +56,11 @@ async fn connect(hub: &Arc<Hub>, config_dir: &std::path::Path) -> TestClient {
     c
 }
 
-fn adopt(harness: &str, id: &str) -> Value {
+/// The adopt the app's open plan sends (`chats/open.rs` `plan_open`): the chat's folder, and the
+/// profile it names.
+fn adopt(harness: &str, id: &str, cwd: &std::path::Path) -> Value {
     let acpmux = json!({"harness": harness, "adopt": {"agentSessionId": id}});
-    json!({"mcpServers": [], "_meta": {"acpmux": acpmux}})
+    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": acpmux}})
 }
 
 /// Red on the base: after a restart, adopting the chat as plain `claude` (what a client that only
@@ -101,7 +103,7 @@ async fn a_restart_and_adopt_bring_a_claude_sr2_chat_back_on_claude_sr2() {
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &state).unwrap());
     let mut c = connect(&hub, &config_dir).await;
     for asked in ["claude", "claude-sr2"] {
-        let again = c.request(method::SESSION_NEW, adopt(asked, &chat)).await;
+        let again = c.request(method::SESSION_NEW, adopt(asked, &chat, &project)).await;
         let again = again.unwrap_or_else(|e| panic!("adopt as {asked}: {e}"));
         assert_eq!(again["sessionId"], id.as_str(), "adopt as {asked} opens the chat's session");
     }
@@ -130,7 +132,7 @@ async fn adopt_names_a_claude_profile_of_another_family_and_runs_on_it() {
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let mut c = connect(&hub, &config_dir).await;
-    let s = c.request(method::SESSION_NEW, adopt("claude-sr2", &chat)).await.unwrap();
+    let s = c.request(method::SESSION_NEW, adopt("claude-sr2", &chat, &project)).await.unwrap();
     let meta = hub.resolve(s["sessionId"].as_str().unwrap()).unwrap().meta();
     assert_eq!(meta.harness, "claude-sr2");
     assert_eq!(meta.agent_session_id.as_deref(), Some(chat.as_str()));
