@@ -95,8 +95,11 @@ export function UserBubble({
       ? orderedParts!.some((part) => !isStripMedia(part))
       : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
   const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
-  const stripMedia = strip ? orderedParts!.filter(isStripMedia) : [];
-  const shownParts = strip ? orderedParts!.filter((part) => !isStripMedia(part)) : orderedParts;
+  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
+  const unplaced = (part: PromptContentPart) => placed && isStripMedia(part) && part.placed !== true;
+  const banded = (part: PromptContentPart) => (strip ? isStripMedia(part) : hasInterleaved && unplaced(part));
+  const stripMedia = orderedParts?.filter(banded) ?? [];
+  const shownParts = orderedParts?.filter((part) => !banded(part));
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the

@@ -38,6 +38,8 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       continue;
     }
     const a = run.attachment;
+    // Only an attachment the composer put in the text is placed; the strip's goes after it, unmarked.
+    const placed = run.strip ? {} : { placed: true as const };
     const kind = a.kind === "link" || a.kind === "text" ? "file" : a.kind;
     const text = a.kind === "text" ? promptText("", [a]) : a.kind === "pasted" ? a.text : undefined;
     const blocks: PromptBlock[] = text ? [{ type: "text", text }] : attachmentBlocks(a);
@@ -45,7 +47,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     display.push({
       kind,
       blockIndex,
-      placed: true,
+      ...placed,
       name: a.name,
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       size: a.size,
@@ -59,7 +61,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         blockIndex,
         mimeType: a.mimeType,
         name: a.name,
-        placed: true,
+        ...placed,
         ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
       });
     else {
@@ -70,7 +72,7 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         name: a.name,
         mimeType: a.mimeType,
         size: a.size,
-        placed: true,
+        ...placed,
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
         ...("uri" in first ? { uri: first.uri } : {}),
@@ -79,11 +81,11 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     }
     if (a.kind === "image" && blocks[1]?.type === "resource_link") {
       const original = blocks[1];
-      parts.push({ kind: "file", name: original.name, uri: original.uri, companionOf: blockIndex, placed: true });
+      parts.push({ kind: "file", name: original.name, uri: original.uri, companionOf: blockIndex, ...placed });
       display.push({
         kind: "file",
         blockIndex: blockIndex + 1,
-        placed: true,
+        ...placed,
         name: original.name,
         companionOf: blockIndex,
       });
