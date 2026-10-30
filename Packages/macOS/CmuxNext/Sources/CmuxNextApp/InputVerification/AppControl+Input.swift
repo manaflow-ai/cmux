@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 
@@ -30,6 +31,13 @@ extension AppControl {
         service?.router.register([
             // This app's own light/dark override (never the system's).
             .mainActor("debug.appearance") { call in .value(DebugAppearance.handle(call.params)) },
+            // A patterned window behind one of the app's windows, for captures of its translucency.
+            .async("debug.capture_backdrop") { [weak services] call in
+                let pattern = call.params["pattern"]?.stringValue.flatMap(CaptureBackdropPattern.init(name:))
+                let image = await pattern?.imageData()
+                guard let services = await MainActor.run(body: { services }) else { return .null }
+                return await DebugWindowSnapshot.captureBackdrop(call.params, pattern: pattern, image: image, services: services)
+            },
             .mainActor("debug.mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugMouse.send(call.params, services: services))
