@@ -13,6 +13,10 @@ extension AgentPaneModel {
     ]
     /// The arguments a connect action runs with.
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
+    /// The command palette pages any agent tab may open: the chats page (Show all, the + menu's
+    /// Search chats) and the History search page (the + menu's Search pages). They open the app's own
+    /// palette, as Cmd-K does, so they need no gesture credit.
+    static let paletteActions: Set<String> = ["agentPane.searchChats", "history.search"]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -33,7 +37,7 @@ extension AgentPaneModel {
     /// then stopped reports itself in the app (its refusal or toast).
     func runAction(_ id: String, session: String? = nil) -> [String: Any] {
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
-        guard id == "newTab.page" || id == "agentPane.searchChats" || gated, let onRunAction else {
+        guard id == "newTab.page" || Self.paletteActions.contains(id) || gated, let onRunAction else {
             return Self.unsupported("action.run")
         }
         // Bound to the chat whose menu offered it: a tab that shows another chat by now runs nothing.

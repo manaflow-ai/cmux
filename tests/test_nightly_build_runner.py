@@ -179,6 +179,24 @@ class BlacksmithRoute(unittest.TestCase):
                 self.assertTrue(picker.blacksmith_route(variable, None, NOW)[0].startswith("blacksmith-"))
 
 
+class DeadLabel(unittest.TestCase):
+    """A stale snapshot still shows a dead label (nightly_sign_runner.dead()): the route never takes it."""
+
+    @staticmethod
+    def stale(dead: str) -> dict:
+        generated = NOW - dt.timedelta(minutes=38)
+        alive = SMALL if dead == LARGE else LARGE
+        stamp = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "pools": {dead: {"queued": 0, "running": 0}, alive: {"queued": 0, "running": 4}},
+                "label_started": {alive: stamp}}
+
+    def test_a_stale_snapshot_keeps_the_route_off_a_dead_label(self):
+        self.assertEqual(picker.blacksmith_route(LARGE, self.stale(LARGE), NOW)[0], SMALL)
+        # The excluded label's only alternative is dead: the route keeps the excluded one.
+        self.assertEqual(picker.blacksmith_route(SMALL, self.stale(LARGE), NOW, exclude=SMALL)[0], SMALL)
+
+
 class Main(unittest.TestCase):
     def run_main(self, env: dict, argv: tuple = (), **reads) -> dict:
         with tempfile.TemporaryDirectory() as tmp:
