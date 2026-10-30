@@ -64,6 +64,12 @@ TRANSPORT = (OSError, http.client.HTTPException)
 API_ATTEMPTS = 3
 API_RETRY_PAUSES = (2.0, 5.0)
 RETRYABLE_STATUS = {403, 408, 429, 500, 502, 503, 504}
+# The one read where a 404 is an answer, not an outage: the compare API 404s for
+# a head it cannot compare, and next_carries_tip reads that as "does not carry
+# the tip". Everywhere else the resource always exists (the nightly-next
+# release, the branch ref, a commit, a run's jobs, the issue list), so a 404 is
+# GitHub hiding what the token cannot see and is recorded like any failure.
+ANSWER_404 = ("/compare/",)
 # Exit status when the GitHub API failed and a measurement or guard was skipped.
 RELEASE_HEALTH_UNKNOWN = 3
 
@@ -238,9 +244,10 @@ class GitHub:
         self.token = token
         self.dry_run = dry_run
         self.unavailable = False  # a read already failed every attempt
-        # Every call that still failed in transit or with a retryable status. Some
-        # helpers swallow their own errors (published_commit, ref_commit, started), so
-        # the exit decision reads this list, not only what propagates.
+        # Every call that failed for good: in transit or with an HTTP status after its
+        # retries, or with a body that is not JSON (ANSWER_404 aside). Helpers swallow
+        # their own errors (published_commit, ref_commit, started), so the exit decision
+        # reads this list, not only what propagates.
         self.failures: list[str] = []
 
     def call(self, method: str, path: str, body: dict | None = None):
@@ -256,17 +263,27 @@ class GitHub:
             try:
                 with urllib.request.urlopen(request, timeout=30) as response:
                     data = response.read()
-                return json.loads(data) if data else None
             except TRANSPORT as error:
                 if isinstance(error, urllib.error.HTTPError) and error.code not in RETRYABLE_STATUS:
+                    if not (error.code == 404 and path.startswith(ANSWER_404)):
+                        self.record(method, path, error)
                     raise
                 if attempt == attempts:
                     if method == "GET":
                         self.unavailable = True
-                    self.failures.append(f"{method} {path.split('?', 1)[0]} ({error})")
+                    self.record(method, path, error)
                     raise
                 print(f"::notice::GitHub {method} {path} failed ({error}); retry {attempt} of {attempts - 1}")
                 time.sleep(API_RETRY_PAUSES[min(attempt, len(API_RETRY_PAUSES)) - 1])
+                continue
+            try:
+                return json.loads(data) if data else None
+            except ValueError as error:
+                self.record(method, path, f"not JSON: {error}")
+                raise
+
+    def record(self, method: str, path: str, error) -> None:
+        self.failures.append(f"{method} {path.split('?', 1)[0]} ({error})")
 
     def runs_page(self, workflow: str, branch: str, created: str | None = None, per_page: int = 100, page: int = 1, **extra) -> dict:
         query = {"branch": branch, "event": "push", "per_page": per_page, "page": page, **extra}
