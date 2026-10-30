@@ -4,6 +4,16 @@ import Foundation
 import os
 import Testing
 
+/// The cmux-tui the suite runs, or nil to skip it. A file-level value, not a static of the suite:
+/// a `@Suite` trait that names the type it decorates is a circular macro reference.
+private let chiefOwnerHandoffBinary: URL? = {
+    let environment = ProcessInfo.processInfo.environment
+    return ["CMUX_NEXT_TUI_TREE_PATH", DaemonLauncher.binaryOverrideKey]
+        .compactMap { environment[$0] }
+        .first { !$0.isEmpty && FileManager.default.isExecutableFile(atPath: $0) }
+        .map(URL.init(fileURLWithPath:))
+}()
+
 /// A real owner through `ChiefConversationOwner.restartIfReplaced`: an owner whose binary an update
 /// removed (its `cli_path` names a file that is gone) is handed off to the bundled build, and only
 /// while it is idle. Under an open `cmux chief` chat (a client of kind `chief-chat`) it waits; once
@@ -11,18 +21,10 @@ import Testing
 /// and build is never handed off. Runs where the suite runner resolved the tree's cmux-tui
 /// (`CMUX_NEXT_TUI_TREE_PATH`) or an override names one (`CMUX_NEXT_TUI_BIN`).
 @MainActor
-@Suite(.enabled(if: ChiefOwnerReplacedHandoffLiveTests.binary != nil, "no cmux-tui binary available"))
+@Suite(.enabled(if: chiefOwnerHandoffBinary != nil, "no cmux-tui binary available"))
 struct ChiefOwnerReplacedHandoffLiveTests {
-    nonisolated static let binary: URL? = {
-        let environment = ProcessInfo.processInfo.environment
-        return ["CMUX_NEXT_TUI_TREE_PATH", DaemonLauncher.binaryOverrideKey]
-            .compactMap { environment[$0] }
-            .first { !$0.isEmpty && FileManager.default.isExecutableFile(atPath: $0) }
-            .map(URL.init(fileURLWithPath:))
-    }()
-
     @Test func aReplacedOwnerHandsOffOnlyOnceTheChatDetaches() async throws {
-        let binary = try #require(Self.binary)
+        let binary = try #require(chiefOwnerHandoffBinary)
         let id = UUID().uuidString.prefix(8).lowercased()
         let root = URL(fileURLWithPath: "/tmp/che-upd-\(id)")
         defer { try? FileManager.default.removeItem(at: root) }
