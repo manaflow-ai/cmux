@@ -82,3 +82,30 @@ test("a queued message with a waiting steer's words is not hidden behind the ste
   const same = queuedMessageRows(mergeQueue([], [{ promptId: "s1", prompt: words, fromAgent: "nx-sidebar" }]));
   expect(pendingMessagesRow([steer], same)!.pendingMessages!.rows.map((row) => row.id)).toEqual(["steer-s1"]);
 });
+
+// Review at 08d5800d46ab: a duplicate that arrives after its shown copy mounted changed the copy's
+// `twins` but not its version, so the memoized row (App.tsx QueuedMessageRow, by id and version) kept
+// Dismiss and Send now closures without the newcomer, which stayed queued. A member whose twins change
+// is a new version; the same twins give the same row back.
+test("a duplicate that arrives later gives the shown copy a new version", () => {
+  const words = "#27128 own red fixed and pushed exact d60a3ddc";
+  const first = mergeQueue([], [{ promptId: "p1", prompt: words, fromAgent: "nx-sidebar" }]);
+  const rows1 = queuedMessageRows(first);
+  const before = pendingMessagesRow([], rows1)!.pendingMessages!.rows[0]!;
+  const second = mergeQueue(first, [
+    { promptId: "p1", prompt: words, fromAgent: "nx-sidebar" },
+    { promptId: "p2", prompt: words, fromAgent: "nx-sidebar" },
+  ]);
+  const rows2 = queuedMessageRows(second);
+  const group2 = pendingMessagesRow([], rows2)!;
+  const after = group2.pendingMessages!.rows[0]!;
+  expect(after.id).toBe(before.id);
+  expect(after.queuedMessage?.twins).toEqual(["p2"]);
+  expect(after.version).not.toBe(before.version);
+  // Rebuilt from the same rows, the copy is the same row, so nothing draws again.
+  expect(pendingMessagesRow([], [...rows2])!.pendingMessages!.rows[0]).toBe(after);
+  // The duplicate goes: the copy is new again, with no twins.
+  const gone = pendingMessagesRow([], rows1)!.pendingMessages!.rows[0]!;
+  expect(gone.queuedMessage?.twins).toBeUndefined();
+  expect(gone.version).not.toBe(after.version);
+});
