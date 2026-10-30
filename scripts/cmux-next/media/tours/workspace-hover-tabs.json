@@ -14,6 +14,6 @@
     {"title": "Move into the popover", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 50, "action": "move"}}, "wait": 2},
     {"title": "Click the first inner tab from the second", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 50, "action": "click"}}, "wait": 3},
     {"title": "Focused first tab and workspace after the click", "rpc": {"method": "debug.focus"}, "wait": 1, "expect": {"method": "debug.focus", "fields": {"windows.0.workspace_name": "Hover tab demo", "windows.0.topology.0.tab_count": 2, "windows.0.topology.0.selected_index": 0}}},
-    {"title": "Popover state after focusing", "rpc": {"method": "debug.hover_cards"}, "wait": 0}
+    {"title": "Popover state after focusing", "rpc": {"method": "debug.hover_cards"}, "wait": 0, "expect": {"method": "debug.hover_cards", "fields": {"card_showing": "false"}}}
   ]
 }

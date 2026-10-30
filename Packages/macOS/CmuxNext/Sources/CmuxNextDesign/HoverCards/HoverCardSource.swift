@@ -18,15 +18,18 @@ public struct HoverCardBody {
     public var placement: HoverCardPlacement
     public weak var themeAnchor: NSView?
     public var applyTheme: () -> Void
-    /// An interactive body receives mouse events inside the card and may consume
-    /// keyboard navigation before the coordinator dismisses the card.
+    /// Interactive controls receive mouse events and keyboard navigation over the card.
     public var interactive: Bool
+    /// A tab card takes the tab's corners; nil keeps the floating panel radius.
+    public var cornerRadius: CGFloat?
     public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
+                cornerRadius: CGFloat? = nil,
                 applyTheme: @escaping () -> Void) {
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
         self.interactive = interactive
+        self.cornerRadius = cornerRadius
         self.applyTheme = applyTheme
     }
 }

@@ -207,7 +207,14 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected == nil)
         #expect(view.handleHoverCardKeyDown(down))
         #expect(view.handleHoverCardKeyDown(enter))
+        #expect(selected == TabID("shell"), "the first arrow reveals the current selection without skipping a tab")
+        #expect(view.handleHoverCardKeyDown(down))
+        #expect(view.handleHoverCardKeyDown(enter))
         #expect(selected == TabID("claude"))
+        view.resetInteraction()
+        view.configure(title: "app", tabs: [SidebarTab(id: TabID("shell"), title: "app"),
+                                           SidebarTab(id: TabID("claude"), title: "Claude Code")])
+        #expect(!view.handleHoverCardKeyDown(enter), "reopening the card must not retain keyboard selection")
     }
 
     @Test func aSingleTabStillProducesAUsefulCard() {

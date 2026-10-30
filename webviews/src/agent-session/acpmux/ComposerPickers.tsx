@@ -54,6 +54,7 @@ import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { useScrollEdges } from "./summary/scrollEdges";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -501,6 +502,10 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    const pickEffort = (value: string) => {
+      if (presession && harness) setHeldPick({ harness, value });
+      onEffort(effort?.id ?? HELD_EFFORT_ID, value);
+    };
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current =
@@ -508,13 +513,13 @@ export function ComposerPickers({
           ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
           : undefined;
       onModel(pickedModel);
-      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      if (pickedEffort && presession) pickEffort(pickedEffort);
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
       (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      pickEffort(pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
@@ -534,6 +539,10 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
+      // The chip's held level follows the pick to its harness: the combo's own, or none (a level an
+      // earlier pick held there would name an effort this combo does not send).
+      if (picked.effort) setHeldPick({ harness: picked.harness, value: picked.effort });
+      else setHeldPick((held) => (held?.harness === picked.harness ? undefined : held));
       // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
       // switch) runs its first turn on the whole combo; the effect below only fills in what the new
       // session still reports otherwise.
@@ -1594,12 +1603,16 @@ export function Picker({
   // No room above or below its button in the pane: past the window's edge (popupHost.ts).
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  // Marks the menu's edges that rows scroll past (data-fade-top, data-fade-bottom); the composer's
+  // + styles them as the shared scroll-edge fade (styles.css). It stops when the menu unmounts.
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
+      edges(node);
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
   );
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",

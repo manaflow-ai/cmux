@@ -151,9 +151,18 @@ final class WorkspaceTabHoverCardView: NSView, HoverCardInteractiveBody, HoverCa
         return false
     }
 
+    func resetInteraction() {
+        expanded = false
+        showsKeyboardSelection = false
+        selectedIndex = 0
+        rowViews.forEach { $0.resetInteraction() }
+        updateRows()
+        scrollView.contentView.scroll(to: .zero)
+    }
+
     private func moveSelection(by delta: Int) {
+        if showsKeyboardSelection { selectedIndex = (selectedIndex + delta + tabs.count) % tabs.count }
         showsKeyboardSelection = true
-        selectedIndex = (selectedIndex + delta + tabs.count) % tabs.count
         if selectedIndex >= visibleCount { expandTabs() }
         updateSelection()
         rowViews[selectedIndex].scrollToVisible(rowViews[selectedIndex].bounds)

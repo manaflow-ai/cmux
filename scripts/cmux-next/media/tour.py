@@ -105,7 +105,7 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
 MAX_STEPS = 30
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
-    "debug.pane_chrome", "debug.notifications", "debug.themes",
+    "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog", "debug.hover_cards",
 }
 # The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
 # Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'

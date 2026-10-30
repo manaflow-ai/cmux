@@ -548,7 +548,8 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (path === "/v1/teams" && method === "POST") {
     // Create team (PROTOCOL.md): Stack's client API refuses it, so the Worker creates the team with the
-    // caller's project server key and the caller as its creator and first member.
+    // caller's project server key and the caller as its creator and first member, then grants the caller
+    // team_admin (rolled back by deleting the team when the grant fails; see createTeam).
     const b = await readJson(req)
     const name = typeof b.name === "string" ? b.name.trim() : ""
     if (!name || name.length > 64 || /\p{Cc}/u.test(name)) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters, no control characters")

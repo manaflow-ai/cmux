@@ -71,7 +71,7 @@ final class MacSession {
         guard let tree else { return nil }
         for workspace in tree.workspaces + tree.homeWorkspaces {
             for tab in workspace.tabs where tree.agentTabs[tab.id]?.session == sessionID {
-                return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title)
+                return LiveFeed.Place(workspaceID: workspace.id, tabID: tab.id, workspaceTitle: workspace.title, tabTitle: tab.title)
             }
         }
         return nil

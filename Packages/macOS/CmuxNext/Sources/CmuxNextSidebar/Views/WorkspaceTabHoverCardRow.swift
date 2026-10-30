@@ -76,8 +76,8 @@ final class WorkspaceTabHoverCardRow: NSView {
         if !sameTab {
             pressed = false
             pressedTabID = nil
+            isHovered = false
         }
-        isHovered = false
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: Metrics.iconSize, height: Metrics.iconSize)) }
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
             ?? NSImage.icon(tab.kind.icon, size: Metrics.iconSize)
@@ -93,6 +93,13 @@ final class WorkspaceTabHoverCardRow: NSView {
         setAccessibilityLabel("\(tab.title), \(status)")
         reportedLine = [tab.title, tab.folder, status].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         paint()
+    }
+
+    func resetInteraction() {
+        pressed = false
+        pressedTabID = nil
+        isHovered = false
+        isKeyboardSelected = false
     }
 
     func applyColors() {

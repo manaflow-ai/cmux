@@ -207,6 +207,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
         body?.resetResourceHistory()
+        body?.tabList.resetInteraction()
         body?.tabList.onSelect = nil
         body?.tabList.onResize = nil
         body?.onDetailsChanged = nil
