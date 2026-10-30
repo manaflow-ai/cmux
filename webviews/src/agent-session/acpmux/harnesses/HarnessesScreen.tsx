@@ -109,7 +109,7 @@ export function HarnessesScreen({
       }
       return changed ? next : current;
     });
-  }, [health]);
+  }, [health, progress]);
   const installed = useMemo(
     () =>
       catalog.harnesses
@@ -307,7 +307,7 @@ export function HarnessesScreen({
                   ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
                   : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
               : undefined;
-          const label = doing?.kind === "installing" ? undefined : (failedFix?.label ?? action(row));
+          const label = doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
           const status =
             doing?.kind === "installing"
