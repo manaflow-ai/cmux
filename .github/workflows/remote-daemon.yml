@@ -101,13 +101,14 @@ jobs:
       # Go module and build caches through actions/cache (Blacksmith serves it on its
       # runners), in place of setup-go's own cache, which saves on every event. Restored
       # on every run; saved only by a successful push or dispatch on main or
-      # feat-cmux-next, never a pull request or a fork. The key is the OS, arch, exact
-      # Go, ISO week and daemon/remote/go.sum, never github.sha: the first trusted run
-      # for a key seeds an immutable entry, later runs build on it incrementally (the
-      # race-instrumented standard library and the dependencies compile once), and the
-      # week rolls it so the daemon's own packages stay current. An owned mini (a glaeda
-      # runner) skips both: it keeps ~/go/pkg/mod and its Go build cache between jobs,
-      # and untarring over Go's read-only module tree fails there (see cmux-tui.yml).
+      # feat-cmux-next of manaflow-ai/cmux, never a pull request or a fork. The key is
+      # the OS, arch, exact Go, ISO week and daemon/remote/go.sum, never github.sha:
+      # the first trusted run for a key seeds an immutable entry, later runs build on it
+      # incrementally (the race-instrumented standard library and the dependencies
+      # compile once), and the week rolls it so the daemon's own packages stay current.
+      # An owned mini (a glaeda runner) skips both: it keeps ~/go/pkg/mod and its Go
+      # build cache between jobs, and untarring over Go's read-only module tree fails
+      # there (see cmux-tui.yml).
       - name: Go cache key
         id: go-cache
         if: ${{ !contains(runner.name, '-glaeda') }}
@@ -141,7 +142,7 @@ jobs:
       - name: Test daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
       - name: Save Go module and build caches
-        if: ${{ success() && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
+        if: ${{ success() && github.repository == 'manaflow-ai/cmux' && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
@@ -200,7 +201,7 @@ jobs:
       - name: Test native macOS daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
       - name: Save Go module and build caches
-        if: ${{ success() && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
+        if: ${{ success() && github.repository == 'manaflow-ai/cmux' && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
