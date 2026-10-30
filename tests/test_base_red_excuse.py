@@ -98,6 +98,24 @@ class InProgressJobLogGitHub(FakeGitHub):
         raise AssertionError(args)
 
 
+
+class OldGhJobLogGitHub(InProgressJobLogGitHub):
+    """A gh older than --allow-escape-sequences: it rejects the flag and prints any log without it."""
+
+    def __init__(self, error="GitHub evidence request failed: unknown flag: --allow-escape-sequences\n\nUsage:  gh api <endpoint> [flags]"):
+        super().__init__()
+        self.error = error
+
+    def run(self, args):
+        if "--allow-escape-sequences" in args:
+            self.log_requests.append(args)
+            raise excuse.Refused(self.error)
+        if args[:1] == ["api"]:
+            text = super().run(["api", "--allow-escape-sequences", *args[1:]])
+            self.log_requests[-1] = args
+            return text
+        return super().run(args)
+
 class JobLogEndpoint(unittest.TestCase):
     def test_finished_red_job_is_classified_while_its_run_is_in_progress(self):
         github = InProgressJobLogGitHub()
@@ -115,6 +133,20 @@ class JobLogEndpoint(unittest.TestCase):
         github = InProgressJobLogGitHub()
         excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertTrue(all("--allow-escape-sequences" in r for r in github.log_requests))
+
+    def test_job_logs_are_read_with_a_gh_older_than_the_flag(self):
+        # gh before the flag (2.45 on the agent hosts) rejects it as unknown, and it never refused
+        # escape sequences, so the same request without the flag reads the log.
+        github = OldGhJobLogGitHub()
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+        self.assertIn(["api", f"repos/{REPO}/actions/jobs/1/logs"], github.log_requests)
+
+    def test_other_log_failures_are_not_retried_without_the_flag(self):
+        github = OldGhJobLogGitHub(error="GitHub evidence request failed: HTTP 404: Not Found")
+        with self.assertRaisesRegex(excuse.Refused, "HTTP 404"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertFalse([r for r in github.log_requests if r[:1] == ["api"] and "--allow-escape-sequences" not in r])
 
     def test_new_failure_in_finished_job_still_blocks(self):
         github = InProgressJobLogGitHub()
