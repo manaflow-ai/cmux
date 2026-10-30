@@ -11,6 +11,7 @@ python3; seconds). Not a CI test: run it yourself after a harness change (README
 - hog.py stops by itself at its deadline.
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -59,6 +60,8 @@ class FakeClaude(unittest.TestCase):
             self.assertEqual(sum(1 for k in kinds if k == ("hook", "PreToolUse")), tools)
             self.assertEqual(sum(1 for k in kinds if k == ("hook", "PostToolUse")), tools)
             self.assertTrue(all(r["code"] == "server.busy" for r in records if r["kind"] == "cli"))
+            # Each tool call says which command it ran (a Read has none).
+            self.assertTrue(all(r["argv"] for r in records if r["kind"] == "tool" and r["event"] != "Read"))
             hooks = [r for r in records if r["kind"] == "hook" and r["event"] in ("PreToolUse", "PostToolUse")]
             self.assertTrue(all(isinstance(r["cpu_ms"], float) and r["rc"] == 0 for r in hooks), hooks[:2])
             prompts = [r for r in records if r["kind"] == "hook" and r["event"] == "UserPromptSubmit"]
@@ -382,6 +385,289 @@ class ClientList(unittest.TestCase):
         self.assertEqual(entries({"value": sample}), sample)
         self.assertIsNone(entries(None))
         self.assertIsNone(entries({"error": "usage.invalid"}))
+
+
+class LockHeldShare(unittest.TestCase):
+    def test_held_share_is_the_change_of_count_times_mean_over_the_window(self):
+        sys.path.insert(0, HERE)
+        try:
+            import importlib
+            summarize_module = importlib.import_module("summarize")
+        finally:
+            sys.path.remove(HERE)
+        share = summarize_module.lock_held_share
+        first = {"registry_lock": {"hold_us": {"count": 1000, "mean": 500}}}       # 0.5 s held
+        last = {"registry_lock": {"hold_us": {"count": 101000, "mean": 4250}}}     # 429.25 s held
+        # (429.25 - 0.5) s over a 500 s window.
+        self.assertEqual(share(first, last, 500.0), round(428.75 / 500, 4))
+        self.assertIsNone(share(first, last, None))
+        self.assertIsNone(share(first, {}, 500.0))
+        # A daemon restart in the window (counters reset below the first read): clamped at 0, never negative.
+        self.assertEqual(share(last, first, 500.0), 0)
+
+
+class Scenario(unittest.TestCase):
+    def test_the_arm_is_named_and_mixed_cli_rates_are_refused(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in (1, 2):
+                for arm in ("base", "head"):
+                    d = write_run(tmp, f"{arm}-{r}", arm, head, r)
+                    path = os.path.join(d, "run.json")
+                    with open(path) as f:
+                        run_ = json.load(f)
+                    run_["opts"] = {"cli_every": 0}
+                    with open(path, "w") as f:
+                        json.dump(run_, f)
+                    dirs.append(d)
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertEqual(summary["scenario_note"], "main arm: no agent cmux CLI calls (hooks and the app only)")
+            self.assertIsNone(summary["invalid"])
+            path = os.path.join(dirs[-1], "run.json")
+            with open(path) as f:
+                run_ = json.load(f)
+            run_["opts"] = {"cli_every": 3}
+            with open(path, "w") as f:
+                json.dump(run_, f)
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertTrue(summary["invalid"].startswith("invalid: the runs use different agent CLI rates"), summary["invalid"])
+
+
+class AAPerScenario(unittest.TestCase):
+    def test_a_scenario_without_an_aa_is_marked_on_every_verdict(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in (1, 2, 3):
+                for arm in ("base", "head"):
+                    d = write_run(tmp, f"{arm}-{r}", arm, head, r)
+                    path = os.path.join(d, "run.json")
+                    with open(path) as f:
+                        run_ = json.load(f)
+                    run_["opts"] = {"cli_every": 0}  # the main arm: no A/A recorded for it in this test's checkout
+                    with open(path, "w") as f:
+                        json.dump(run_, f)
+                    dirs.append(d)
+            with open(os.path.join(HERE, "aa-failures.json")) as f:
+                recorded = json.load(f).get("scenarios", {})
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            verdicts = [row["verdict"] for row in summary["comparison"]["metrics"].values()]
+            if "0" in recorded:
+                self.assertNotIn("aa_note", summary)
+            else:
+                self.assertTrue(summary["aa_note"].startswith("no A/A yet for this scenario (agent CLI rate 0)"))
+                self.assertTrue(all(v.startswith("not A/A-checked: ") for v in verdicts), verdicts[:3])
+
+
+class RevertPair(unittest.TestCase):
+    def test_only_the_head_plus_a_real_revert_is_a_revert_pair(self):
+        """B3 1d: before = after + one commit that reverts a commit of after's history. Built in a scratch repo,
+        with the wrong bases the review of 2ea5ef95cc4 found: a merge, and an empty "Revert" commit."""
+        sys.path.insert(0, HERE)
+        try:
+            import importlib
+            sm = importlib.import_module("summarize")
+        finally:
+            sys.path.remove(HERE)
+        with tempfile.TemporaryDirectory() as tmp:
+            g = lambda *a: run("git", "-c", "user.name=a", "-c", "user.email=a@b", *a, cwd=tmp)
+            sha = lambda ref="HEAD": run("git", "rev-parse", ref, cwd=tmp).stdout.strip()
+            g("init", "-q", "-b", "main")
+            with open(os.path.join(tmp, "f"), "w") as f:
+                f.write("one\n")
+            g("add", "f"); g("commit", "-q", "-m", "base")
+            with open(os.path.join(tmp, "f"), "w") as f:
+                f.write("two\n")
+            g("commit", "-q", "-am", "the fix")
+            fix = sha()
+            with open(os.path.join(tmp, "g"), "w") as f:
+                f.write("x\n")
+            g("add", "g"); g("commit", "-q", "-m", "later work")
+            head = sha()
+            g("revert", "--no-edit", fix)
+            before = sha()
+            self.assertFalse(sm.base_is_ancestor(before, head, repo=tmp))
+            self.assertTrue(sm.is_revert_pair(before, head, repo=tmp))
+            # An empty commit titled "Revert ..." on the head reverts nothing.
+            g("checkout", "-q", head)
+            g("commit", "-q", "--allow-empty", "-m", "Revert \"the fix\"", "-m", f"This reverts commit {fix}.")
+            self.assertFalse(sm.is_revert_pair(sha(), head, repo=tmp))
+            # A merge whose first parent is the head.
+            g("checkout", "-q", "-b", "side", fix)
+            with open(os.path.join(tmp, "h"), "w") as f:
+                f.write("y\n")
+            g("add", "h"); g("commit", "-q", "-m", "side work")
+            g("checkout", "-q", head)
+            g("merge", "-q", "--no-ff", "-m", "Revert by merge", "side")
+            self.assertFalse(sm.is_revert_pair(sha(), head, repo=tmp))
+
+
+class NamedSites(unittest.TestCase):
+    def test_a_site_moved_within_its_function_pairs_and_a_listed_absence_is_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def lock_run(name, registry):
+                run_ = synthetic_run()
+                run_["series"]["locks"] = [{"t": 400.0, "code": None, "locks": {"registry": registry, "state": {}}}]
+                d = os.path.join(tmp, name)
+                os.makedirs(d)
+                with open(os.path.join(d, "run.json"), "w") as f:
+                    json.dump(run_, f)
+                return summarize(os.path.join(tmp, name + ".json"), [d])["runs"][0]["metrics"]["lock_sites"]
+            site = lambda line, total: {"site": f"crates/cmux-tui-core/src/mux/frontend_projection.rs:{line}", "acquisitions": 3,
+                                        "hold_total_us": total, "hold_max_us": 9, "hold_p99_us": 8}
+            before = lock_run("before", {"sites": 2, "by_hold_total": [site(9, 5000), site(13, 1)], "by_hold_p99": []})
+            after = lock_run("after", {"sites": 2, "by_hold_total": [site(20, 40), site(24, 1)], "by_hold_p99": []})
+            listed_absent = lock_run("absent", {"sites": 1, "by_hold_total": [site(24, 1)], "by_hold_p99": []})
+            unknown = lock_run("unknown", {"sites": 30, "by_hold_total": [site(24, 1)], "by_hold_p99": []})
+        key = "registry:terminal_registry_revision"
+        self.assertEqual(before[key]["hold_total_us"], 5000)
+        self.assertEqual(after[key]["hold_total_us"], 40)
+        self.assertEqual(after[key]["sites"], ["crates/cmux-tui-core/src/mux/frontend_projection.rs:20"])
+        self.assertEqual(listed_absent[key]["hold_total_us"], 0)
+        self.assertIsNone(unknown[key]["hold_total_us"])
+        # Absent from a full list: an upper bound, the smallest listed total (1 µs here), kept apart.
+        self.assertEqual(unknown[key]["hold_total_us_at_most"], 1)
+        self.assertIsNone(before[key]["hold_total_us_at_most"])
+
+    def test_the_bound_on_the_text_line_is_rounded_up(self):
+        """Review of 748dc589635: a 40,000 us bound printed as "at most 0.0 s"."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            listed = {"site": "crates/cmux-tui-core/src/mux/other.rs:5", "acquisitions": 1, "hold_total_us": 40_000,
+                      "hold_max_us": 1, "hold_p99_us": 1}
+            run_["series"]["locks"] = [{"t": 400.0, "code": None, "locks": {
+                "registry": {"sites": 30, "by_hold_total": [listed], "by_hold_p99": [listed]}, "state": {}}}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            summarize(os.path.join(tmp, "s.json"), [d])
+            with open(os.path.join(tmp, "s.txt")) as f:
+                text = f.read()
+        self.assertIn("registry:terminal_registry_revision: total hold absent from the top 20, so at most 0.1 s", text)
+
+
+class ProcessKinds(unittest.TestCase):
+    def test_the_holder_sample_names_what_its_processes_run(self):
+        source = open(os.path.join(HERE, "driver.py")).read()
+        start = source.index("def connection_holders(")
+        end = source.index("def sampler(")
+        app = "/Users/Shared/cmux-capture/slots/1/lease-x/app/cmux DEV t.app"
+        namespace = {"re": re, "opts": type("O", (), {"app": app})(), "CLI": app + "/Contents/Resources/bin/cmux",
+                     "CLI_TUI": app + "/Contents/Resources/bin/cmux-tui", "cli": None, "client_list_entries": None,
+                     "HOLDERS_ERROR": [], "note": None, "json": json}
+        exec(compile(source[start:end], "driver.py", "exec"), namespace)
+        rows = [(1, 1, 1, app + "/Contents/Resources/bin/cmux --socket /tmp/s --json workspace list"),
+                (2, 1, 1, app + "/Contents/Resources/bin/cmux --socket /tmp/s --json workspace list"),
+                (3, 1, 1, app + "/Contents/Resources/bin/cmux __hook-append term_0123456789abcdef"),
+                (4, 1, 1, "/home/x/.local/share/cmux-tui/bin/cmux-tui-hook claude PreToolUse"),
+                # The hook helper beside the bundle binary: its path has spaces.
+                (5, 1, 1, app + "/Contents/Resources/bin/cmux-tui-hook claude Stop")]
+        out = namespace["connection_holders"](rows, ask_daemon=False)
+        self.assertEqual(out["processes"], {"hook_helper": 2, "cli": 3, "other_bundle": 0})
+        self.assertIn("<app>/Contents/Resources/bin/cmux-tui-hook claude Stop", out["process_kinds"]["hook_helper"])
+        self.assertEqual(out["process_kinds"]["cli"], {"cmux workspace list": 2, "cmux __hook-append": 1})
+
+
+class FirstAnswer(unittest.TestCase):
+    def test_the_first_answer_is_session_new_plus_the_prompts_first_chunk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            run_["series"]["waves"] = [{"answers": [], "chats": [
+                [{"method": "session/new", "ms": 2000.0, "error": None},
+                 {"method": "session/prompt", "ms": 2900.0, "first_chunk_ms": 300.0, "error": None}],
+                [{"method": "session/new", "ms": 4000.0, "error": None},
+                 {"method": "session/prompt", "ms": 4900.0, "first_chunk_ms": 700.0, "error": None}],
+                # A chat whose agent never started: no answer, not in the distribution.
+                [{"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}],
+                # acpmux restarted after session/new: the prompt is lost (review of bcbeee46824).
+                [{"method": "session/new", "ms": 2000.0, "error": None},
+                 {"method": "connection", "ms": None, "error": "OSError: closed"}],
+                # A refused connect.
+                [{"method": "connection", "ms": None, "error": "ConnectionRefusedError: [Errno 61]"}]]}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            m = summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]
+        self.assertEqual(m["acpmux_answered_chats"], 2)
+        self.assertEqual(m["acpmux_first_answer_ms"]["p50"], 2300.0)
+        self.assertEqual(m["acpmux_first_answer_ms"]["max"], 4700.0)
+        # All chats: every unanswered chat ranks last at 150 s, however it failed.
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["n"], 5)
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["p50"], 150000.0)
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["max"], 150000.0)
+
+    def test_the_driver_times_the_first_answer_chunk(self):
+        """The driver's own acpmux_call against a tiny ACP server that streams one chunk, then answers."""
+        import socket as socket_module
+        import threading as threading_module
+        source = open(os.path.join(HERE, "driver.py")).read()
+        start = source.index("def acpmux_call(")
+        end = source.index("def one_chat(")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.sock")
+            server = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+            server.bind(path)
+            server.listen(1)
+
+            def serve():
+                conn, _ = server.accept()
+                buf = b""
+                while True:
+                    data = conn.recv(65536)
+                    if not data:
+                        return
+                    buf += data
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        req = json.loads(line)
+                        if req["method"] == "session/prompt":
+                            update = {"jsonrpc": "2.0", "method": "session/update",
+                                      "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"text": "t"}}}}
+                            conn.sendall((json.dumps(update) + "\n").encode())
+                            time.sleep(0.2)
+                        conn.sendall((json.dumps({"jsonrpc": "2.0", "id": req["id"], "result": {}}) + "\n").encode())
+            thread = threading_module.Thread(target=serve, daemon=True)
+            thread.start()
+            namespace = {"socket": socket_module, "time": time, "json": json, "ACPMUX_HOME": tmp,
+                         "acpmux_socket_of": lambda home: path}
+            exec(compile(source[start:end], "driver.py", "exec"), namespace)
+            answers = namespace["acpmux_call"]([("session/prompt", {"sessionId": "s"})], timeout=10)
+            server.close()
+        prompt = answers[-1]
+        self.assertEqual(prompt["method"], "session/prompt")
+        self.assertIsNotNone(prompt["first_chunk_ms"])
+        self.assertLess(prompt["first_chunk_ms"], prompt["ms"])
+
+
+class LockDetail(unittest.TestCase):
+    def test_the_lock_detail_after_the_load_is_kept_by_lock_and_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            site = {"site": "crates/cmux-tui-core/src/mux/resource_api.rs:551", "acquisitions": 9, "hold_total_us": 25_700_000,
+                    "hold_max_us": 900_000, "hold_p99_us": 524_288, "wait_total_us": 1, "wait_max_us": 1, "wait_p99_us": 1}
+            run_["series"]["locks"] = [{"t": 400.0, "code": None, "locks": {"registry": {"by_hold_total": [site], "by_hold_p99": [site]},
+                                                                             "state": {"by_hold_total": [], "by_hold_p99": []}}}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            summary = summarize(os.path.join(tmp, "s.json"), [d])
+            top = summary["runs"][0]["metrics"]["lock_top_sites"]
+            self.assertEqual(top["registry"]["by_hold_total"][0]["hold_total_us"], 25_700_000)
+            self.assertEqual(top["state"]["by_hold_p99"], [])
+            with open(os.path.join(tmp, "s.txt")) as f:
+                self.assertIn("registry lock, top holders by total hold (since the daemon started; read after the load): "
+                              "resource_api.rs:551 25.7 s p99 524.3 ms", f.read())
+        # Runs before this harness have no lock detail.
+        with tempfile.TemporaryDirectory() as tmp:
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(synthetic_run(), f)
+            self.assertIsNone(summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]["lock_top_sites"])
 
 
 class AgentFaults(unittest.TestCase):

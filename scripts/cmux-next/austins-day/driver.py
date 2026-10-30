@@ -60,7 +60,11 @@ parser.add_argument("--seconds", type=float, default=300, help="load phase lengt
 parser.add_argument("--agents", type=int, default=80)
 parser.add_argument("--per-workspace", type=int, default=4)
 parser.add_argument("--tool-gap", type=float, default=3.0, help="mean seconds between an agent's tool calls")
-parser.add_argument("--cli-every", type=int, default=3, help="an agent `cmux` CLI call every N tool calls (0: none)")
+# Main arm (lead 2026-10-30): no agent `cmux` CLI calls. No shipped hook, plugin or status line calls `cmux
+# workspace list` per turn (hooks send only session.journal.append), so the old default of one per 3 tool
+# calls had no evidence and drove 43 % of the registry lock busy share. `--cli-every 3` is kept as the
+# labeled "assumed" sensitivity arm.
+parser.add_argument("--cli-every", type=int, default=0, help="an agent `cmux` CLI call every N tool calls (0: none, the main arm)")
 parser.add_argument("--wave-size", type=int, default=25)
 parser.add_argument("--wave-period", type=float, default=60)
 parser.add_argument("--swap-gb", type=float, default=14.0, help="hog target: swap used this much above the start (0: no hog)")
@@ -74,7 +78,7 @@ os.makedirs(opts.out, exist_ok=True)
 T0 = time.time()
 LOCK = threading.Lock()
 STOP = threading.Event()
-SERIES = {"samples": [], "server_stats": [], "holders": [], "person_cli": [], "app_control": [], "closes": [], "waves": [],
+SERIES = {"samples": [], "server_stats": [], "holders": [], "locks": [], "person_cli": [], "app_control": [], "closes": [], "waves": [],
           "acpmux_pids": [], "notes": []}
 
 
@@ -142,6 +146,9 @@ if not isinstance(identity, dict) or not identity.get("pid"):
     raise SystemExit(f"austins-day: the app does not answer on {opts.socket}: {identity}")
 APP_PID = int(identity["pid"])
 CLI = os.path.join(opts.app, "Contents", "Resources", "bin", "cmux")
+# `client` (and `raw`) are scopes only the cmux-tui name accepts (cli.rs CMUX_TUI_ONLY_SCOPES): `cmux client
+# list` is refused as usage.invalid by design. The app bundles cmux-tui beside cmux.
+CLI_TUI = os.path.join(opts.app, "Contents", "Resources", "bin", "cmux-tui")
 
 
 def app_env():
@@ -203,13 +210,13 @@ def acpmux_pid(home):
         return None
 
 
-def cli(*args, timeout=30, sock=None):
+def cli(*args, timeout=30, sock=None, binary=None):
     """The bundled CLI on the daemon socket, --json: (ms, parsed or None, error code or None)."""
     sock = sock or DAEMON_SOCK
     env = {"HOME": APP_HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
     start = time.monotonic()
     try:
-        done = subprocess.run([CLI, "--socket", sock, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env)
+        done = subprocess.run([binary or CLI, "--socket", sock, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return (time.monotonic() - start) * 1000, None, "timeout"
     ms = (time.monotonic() - start) * 1000
@@ -297,15 +304,19 @@ def client_list_entries(parsed):
     return None
 
 
-def connection_holders(rows):
-    """Who holds or waits for the daemon's connections now: the daemon's own client list (`list-clients`:
+def connection_holders(rows, ask_daemon=True):
+    """Who holds or waits for the daemon's connections now: the daemon's own client list (`cmux-tui client list`:
     each connection's name, kind, transport and age) by name and kind, and the live client processes on the
     host by role (hook helpers, `cmux` CLI calls, the app). A `cmux` process here is one of the bundle's CLI
     or hook binaries; each holds at most one connection or is waiting for one."""
-    # `cmux client list` (the resource operation client.list): one object per connection with name,
-    # client_kind, transport and connected_seconds. (`raw command list-clients` was refused: usage.invalid.)
-    _, parsed, code = cli("client", "list", timeout=15)
-    clients = client_list_entries(parsed)
+    # `cmux-tui client list` (the resource operation client.list; `client` is a cmux-tui-only scope): one
+    # object per connection with name, client_kind, transport and connected_seconds. Asked only after the
+    # load (ask_daemon): during it this sample counts processes only, as in the A/As.
+    if ask_daemon:
+        _, parsed, code = cli("client", "list", timeout=15, binary=CLI_TUI)
+        clients = client_list_entries(parsed)
+    else:
+        parsed, code, clients = None, "not asked during the load", None
     by_label = {}
     ages = {}
     for client in clients or []:
@@ -318,16 +329,40 @@ def connection_holders(rows):
         except (TypeError, ValueError):
             pass
     roles = {"hook_helper": 0, "cli": 0, "other_bundle": 0}
+    # What each role's processes are: their arguments after the binary, by count (the main-arm A/A of
+    # 2026-10-30 had a median of 48 'cli' processes with no agent CLI calls, and the role alone did not say
+    # what they run). From the same `ps` read: no extra command on the host.
+    kinds = {"hook_helper": {}, "cli": {}}
     for _, _, _, args in rows:
+        role = None
         if "cmux-tui-hook" in args or "__agent-hook" in args:
-            roles["hook_helper"] += 1
+            role = "hook_helper"
         elif args.startswith(CLI + " ") or args == CLI:
-            roles["cli"] += 1
+            role = "cli"
         elif args.startswith(opts.app + "/") and "--headless" not in args:
             roles["other_bundle"] += 1
+        if role:
+            roles[role] += 1
+            # The binary's name, then the command words without --socket VALUE, --json and ids.
+            # The app path has spaces ("cmux DEV <tag>.app"): replace it before splitting (review of 59ea3fdb421).
+            rest = (args[len(CLI):] if role == "cli" else args).replace(opts.app + "/", "<app>/")
+            words, skip = [], False
+            for w in rest.split():
+                if skip:
+                    skip = False
+                    continue
+                if w == "--socket":
+                    skip = True
+                    continue
+                if w == "--json" or re.match(r"^(term|ws|pane|tab|session|machine)_[0-9a-f]{8,}$", w):
+                    continue
+                words.append(w)
+            shape = (("cmux " if role == "cli" else "") + " ".join(words[:4]))[:120]
+            kinds[role][shape] = kinds[role].get(shape, 0) + 1
     return {"list_code": code, "listed": len(clients) if clients is not None else None, "by_label": by_label,
             "max_age_s": {k: max((a for a in v if isinstance(a, (int, float))), default=None) for k, v in ages.items()},
-            "processes": roles}
+            "processes": roles,
+            "process_kinds": {role: dict(sorted(k.items(), key=lambda kv: -kv[1])[:8]) for role, k in kinds.items()}}
 
 
 def sampler():
@@ -352,7 +387,10 @@ def sampler():
         record("samples", sample)
         if tick % 3 == 0:
             record("server_stats", {**server_stats(), "phase": PHASE["name"]})
-            record("holders", {"t": round(time.time() - T0, 2), "phase": PHASE["name"], **connection_holders(rows)})
+            # During the load only the process count (as in the A/As): the daemon's own client list is read
+            # once, right after the load (connection_holders(rows, ask_daemon=True) in main), so this sample
+            # adds no connection, registry-lock acquisition or wait to the measured window.
+            record("holders", {"t": round(time.time() - T0, 2), "phase": PHASE["name"], **connection_holders(rows, ask_daemon=False)})
         tick += 1
         STOP.wait(5)
 
@@ -492,6 +530,7 @@ def acpmux_call(calls, timeout=60):
             begin = time.monotonic()
             conn.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
             message = None
+            first_chunk_ms = None
             while message is None:
                 while b"\n" in buf and message is None:
                     line, buf = buf.split(b"\n", 1)
@@ -501,12 +540,17 @@ def acpmux_call(calls, timeout=60):
                         continue
                     if parsed.get("id") == rid and ("result" in parsed or "error" in parsed):
                         message = parsed
+                    elif (first_chunk_ms is None and parsed.get("method") == "session/update"
+                          and ((parsed.get("params") or {}).get("update") or {}).get("sessionUpdate") == "agent_message_chunk"):
+                        # The agent's first answer text for this request (#28442: time to first answer).
+                        first_chunk_ms = round((time.monotonic() - begin) * 1000, 2)
                 if message is None:
                     chunk = conn.recv(1 << 20)
                     if not chunk:
                         raise OSError("closed")
                     buf += chunk
             answers.append({"method": method, "ms": round((time.monotonic() - begin) * 1000, 2),
+                            "first_chunk_ms": first_chunk_ms,
                             "error": (message.get("error") or {}).get("message") if message.get("error") else None,
                             "result": message.get("result")})
         conn.close()
@@ -545,9 +589,17 @@ def waves(deadline):
             thread.start()
         for thread in threads:
             thread.join(timeout=150)
-        flat = [a for chat in results for a in chat]
+        # A chat still running when the wave stops waiting is recorded as such (it got no answer in 150 s);
+        # before, it was left out (review of bcbeee46824: survivor bias for the slowest chats).
+        # Snapshot the finished chats first, then count the threads still alive: a late chat appends to
+        # `results` after this point, which this wave's record never reads again (it is a copy).
+        finished = [list(chat) for chat in list(results)]
+        still_running = opts.wave_size - len(finished)
+        chats = finished + [[{"method": "connection", "ms": None, "error": "still running at the 150 s wave limit",
+                              "result": None}] for _ in range(still_running)]
+        flat = [a for chat in chats for a in chat]
         # `chats`: one list per chat attempt (its first entry is its session/new, or the failed connection).
-        record("waves", {"t": round(start - T0, 2), "wave": wave, "chats": [list(chat) for chat in results], "answers": flat,
+        record("waves", {"t": round(start - T0, 2), "wave": wave, "chats": chats, "answers": flat,
                          "took_s": round(time.time() - start, 2)})
         errors = [a["error"] for a in flat if a.get("error")]
         say(f"wave {wave}: {len(flat)} answers, {len(errors)} errors in {time.time() - start:.1f}s")
@@ -754,9 +806,19 @@ def main():
                 hog.kill()
                 hog.wait(timeout=30)
     record("server_stats", {**server_stats(), "phase": "end"})
+    # Stop the samplers and probes first, so the end read stays the last server-stats sample and no sample
+    # falls in the post-load calls below (review of 3bf19c209e0, note 1).
     STOP.set()
     for thread in load_threads + threads:
         thread.join(timeout=30)
+    # After the load (outside every measured window): the daemon's lock detail (server-stats `locks`: the
+    # registry lock and mux.state, the top 20 sites by total hold and by p99 hold, counted since the daemon
+    # started, so setup and the baseline are in them; #28147 and later), and its own client list.
+    _, locks, locks_code = cli("raw", "command", "--request-json",
+                               json.dumps({"id": 1, "cmd": "server-stats", "include": ["locks"]}), timeout=30, binary=CLI_TUI)
+    record("locks", {"t": round(time.time() - T0, 2), "code": locks_code,
+                     "locks": locks.get("locks") if isinstance(locks, dict) else None})
+    record("holders", {"t": round(time.time() - T0, 2), "phase": "end", **connection_holders(processes(), ask_daemon=True)})
     hangs = rpc("debug.hangs", timeout=60)
     app_probe_end = rpc("debug.daemon_requests", timeout=20)
     log_summary = app_log(time.time() - load_start)
