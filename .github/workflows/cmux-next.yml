@@ -200,7 +200,6 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
-      - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_fold.py
@@ -465,7 +464,6 @@ on:
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
-      - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_fold.py

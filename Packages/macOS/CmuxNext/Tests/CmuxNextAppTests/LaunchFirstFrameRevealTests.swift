@@ -91,6 +91,17 @@ import Testing
         #expect(launch.pane.launchImageView == nil)
     }
 
+    @Test func resizingThePaneDropsTheOldSizeFrame() {
+        let launch = LaunchWindow()
+        defer { launch.tearDown() }
+        launch.pane.showLaunchImage(Self.lastFrame())
+        #expect(launch.pane.launchImageView != nil)
+        launch.pane.setFrameSize(NSSize(width: 700, height: 600))
+        launch.pane.layoutSubtreeIfNeeded()
+        #expect(launch.pane.launchImageView == nil,
+                "a launch snapshot from the old pane width remained visible after resize")
+    }
+
     @Test(arguments: [false, true])
     func aPageThatLeavesThePaneTakesItsUnpaintedFrameWithIt(parks: Bool) {
         let launch = LaunchWindow()
