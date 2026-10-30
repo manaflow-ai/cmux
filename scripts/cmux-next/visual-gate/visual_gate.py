@@ -560,8 +560,11 @@ def read_boxes(directory: Path) -> tuple[dict[str, Any] | None, list[dict[str, A
     return {Path(key).name: value for key, value in data.items()}, []
 
 
-def gate_capture(directory: Path, *, require_2x: bool = False) -> dict[str, Any]:
-    """Every check on one state's capture directory."""
+def gate_capture(directory: Path, *, require_2x: bool = False,
+                 findings: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Every check on one state's capture directory. Findings go into `findings` as they are
+    made, so a caller that catches a later error still has the ones found before it."""
+    findings = [] if findings is None else findings
     result_path = directory / "result.json"
     # No result.json: the capture of the state never finished, which fails it. One the gate
     # cannot read is the capture tool's fault, not the build's: BadInput, and judge() keeps it.
@@ -569,7 +572,7 @@ def gate_capture(directory: Path, *, require_2x: bool = False) -> dict[str, Any]
     if not isinstance(result, dict):
         raise BadInput("result.json is not an object")
     stills = {name: (directory / name).is_file() for name in ("light.png", "dark.png")}
-    findings = check_steps(result, stills)
+    findings += check_steps(result, stills)
     images = {name: read_png(directory / name) for name, present in stills.items() if present}
     boxes_by_name, box_findings = read_boxes(directory)
     findings += box_findings
@@ -595,11 +598,13 @@ def report(directory: Path, state: str, host: Any, findings: list[dict[str, Any]
 def judge(directory: Path, *, require_2x: bool = False) -> dict[str, Any]:
     """gate_capture(), with any error reading the state's files kept as that state's finding, so
     one bad still never stops the others from being judged."""
+    found: list[dict[str, Any]] = []
     try:
-        return gate_capture(directory, require_2x=require_2x)
+        return gate_capture(directory, require_2x=require_2x, findings=found)
     except Exception as error:  # noqa: BLE001 - one state's bad file must not end the gate
+        # Keep what was found before the error: a failed step stays `fail`, never `error`.
         return report(directory, directory.name, None,
-                      [finding("gate", "error", f"could not judge this state: {type(error).__name__}: {error}")])
+                      found + [finding("gate", "error", f"could not judge this state: {type(error).__name__}: {error}")])
 
 
 def never_captured(captures: list[Path], states: Path) -> list[dict[str, Any]]:
