@@ -342,12 +342,12 @@ def read_bun(lines: list[str], result: Result) -> None:
             flush()
         if BUN_RUN.match(text):
             end_run("the next bun test run started")
-            open_run = True
+            open_run = result.ran = True  # a started run is tests, whatever the job is named
         elif BUN_RECAP.match(text):
             recap, last = True, None
         elif match := BUN_FILE.match(text):
             file, said, where, last, recap, open_run = BUN_PACKAGE.sub("", match.group(1)), [], "", None, False, True
-            run_file, block = file, False
+            run_file, block, result.ran = file, False, True
         elif text == WEB_RETRY and run_file:
             end_run("the wrapper ran its file again")
             # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
