@@ -31,6 +31,31 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
     await server?.close();
   });
 
+  test("a headed tray starts folded, its chevron at the right edge (#27908)", async () => {
+    const port = (server.httpServer!.address() as { port: number }).port;
+    const page = await browser.newPage({ viewport: { width: 760, height: 560 }, reducedMotion: "reduce" });
+    try {
+      // The at-rest variant's play opens nothing: the tray as it first shows.
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "panel-two-at-rest" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const head = page.locator(".acpmux-running-tray__head");
+      await head.waitFor();
+      expect(await head.getAttribute("aria-expanded")).toBe("false");
+      expect(await page.locator(".acpmux-running-tray__list").count()).toBe(0);
+      const edge = await page.evaluate(() => {
+        const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect();
+        const chevron = document.querySelector<HTMLElement>(".acpmux-running-tray__status svg")!.getBoundingClientRect();
+        return tray.right - chevron.right;
+      });
+      expect(edge).toBeCloseTo(8, 1);
+      await head.click();
+      expect(await head.getAttribute("aria-expanded")).toBe("true");
+      await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
     test(`expanded tray keeps fixed trailing columns with empty slots (${theme})`, async () => {
       const port = (server.httpServer!.address() as { port: number }).port;
@@ -43,11 +68,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const head = page.locator(".acpmux-running-tray__head");
         await head.waitFor();
-        // A headed tray starts folded to its header (#27908); its chevron opens it.
-        expect(await head.getAttribute("aria-expanded")).toBe("false");
-        expect(await page.locator(".acpmux-running-tray__list").count()).toBe(0);
-        await head.click();
-        expect(await head.getAttribute("aria-expanded")).toBe("true");
+        if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
         await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
         await page.evaluate(() => {
           for (const animation of document.getAnimations()) {

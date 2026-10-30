@@ -325,6 +325,8 @@ describe("subagent tray motion edges", () => {
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
     await draw(root, shown, [item("A"), item("B")], false);
+    // A headed tray starts folded to its header (#27908): open it.
+    await act(async () => card()!.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
     const list = card()!.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
     list.scrollTop = 40;
     await draw(root, shown, [], false);
@@ -339,6 +341,7 @@ describe("subagent tray motion edges", () => {
     const shown = { current: "chat-a" as string | undefined };
     const { root } = mount();
     await draw(root, shown, [item("A"), item("B")], false);
+    await act(async () => card()!.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
     const fold = card()!.querySelector<HTMLElement>(".acpmux-running-tray__fold")!;
     // Midway through a collapse: useFold clips the fold, and its drawn box is 37px at 40% opacity.
     fold.style.overflow = "hidden";

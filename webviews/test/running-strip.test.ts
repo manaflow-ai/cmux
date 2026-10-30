@@ -186,6 +186,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
       await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
       await page.evaluate(() => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(34));
+      // A headed tray starts folded to its header (#27908): open it first.
+      await page.click(".acpmux-running-tray__head");
       await page.waitForSelector(".acpmux-running-tray__finished");
       await page.evaluate(() => {
         for (const animation of document.getAnimations())

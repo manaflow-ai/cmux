@@ -319,7 +319,6 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // The turn is over: an agent left "running" by a cancel or a reconnect pins no running row; the
     // tray keeps it only as a stopped card (49acdd1d589d keeps ended cards).
     const stale = await open(STUCK, "Review the branch with a few agents", true);
-    await openTray(stale);
     expect(await tray(stale).locator("li:not([data-finished])").count()).toBe(0);
     expect(await tray(stale).locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]').count()).toBe(1);
     await stale.close();
