@@ -6323,10 +6323,12 @@ export class AcpmuxDirectClient {
   /// session keeps running in acpmux; only this client's attach ends.
   leave(): void {
     const previous = this.selectedSessionId;
-    const pending = this.pendingPeerTrust || this.refusedPeerTrust;
+    // First Send reveals a deferred local switch through leave(). With no selected chat,
+    // that is still the same start: preserve its refusal route and retry callback.
+    const pendingPeer = this.pendingPeerTrust?.peer || this.refusedPeerTrust?.peer;
+    if (!previous && !pendingPeer) return;
     this.pendingPeerTrust = undefined;
     this.refusedPeerTrust = undefined;
-    if (!previous && !pending) return;
     this.selectedSessionId = undefined;
     this.selectionGeneration += 1;
     this.resetSessionState();
