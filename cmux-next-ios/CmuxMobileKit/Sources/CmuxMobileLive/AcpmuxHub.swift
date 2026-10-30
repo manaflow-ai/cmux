@@ -96,6 +96,7 @@ public final class AcpmuxHub {
         isReady = false
         lastError = nil
         fullAccess = false
+        lastError = nil
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel)
@@ -452,12 +453,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
                     // The menu's check follows the pick (no record carries the model change).
                     if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: id)) }
-                case .retryWithModel(let model, let text, let promptID):
+                case .retryWithModel(let model, let text, let attachments, let promptID):
                     // As the Mac's Retry with another model: the move first; a refusal (acpmux's
                     // own words, e.g. a Claude chat the Mac started) sends nothing.
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(model)]))
                     if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: model)) }
-                    self.send(.prompt(text: text, attachments: [], steer: false, promptID: promptID, resend: false))
+                    self.send(.prompt(text: text, attachments: attachments, steer: false, promptID: promptID, resend: false))
                 case .setMode(let id):
                     _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
                 case .setConfigOption(let id, let value):
@@ -564,7 +565,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     // MARK: Parity
 
     public func checkpoints() async throws -> [AgentCheckpoint] {
-        throw AgentFeatureUnavailable("Checkpoints are kept by the cmux app on \(summary.macName), and the phone link doesn't carry them yet. Open Changes on the Mac to restore one.")
+        throw AgentFeatureUnavailable("Checkpoints are kept by cmux on \(summary.macName). Open Changes on the Mac to restore one.")
     }
 
     public func restore(_ checkpoint: AgentCheckpoint) async throws -> String {
@@ -621,7 +622,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         switch error.reason {
         case "source_busy": "Wait for the agent to finish (no turn running, nothing queued or waiting) before continuing elsewhere."
         case "checkpoint_required": "Save a repository checkpoint first."
-        case "permission.person_required": "Confirm this on your Mac. The phone can't start a continuation by itself yet."
+        case "permission.person_required": "Confirm this on your Mac to continue."
         default: error.message
         }
     }
@@ -702,7 +703,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         if let error = error as? AcpmuxConnection.RPCError {
             switch error.reason {
             case "permission.person_required":
-                return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
+                return "Allow this iPhone in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
             case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
             case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."
