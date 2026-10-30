@@ -25,18 +25,32 @@ fn clean_stripped_line(line: &str) -> String {
 }
 
 /// Whether `text` ends inside a string control (DCS, OSC, SOS, PM, APC) that has not reached its
-/// ST or BEL yet: the lines after it are still that control's payload.
+/// terminator yet: the lines after it are still that control's payload.
 pub(crate) fn ends_inside_string_control(text: &str) -> bool {
+    open_string_control(text).is_some()
+}
+
+/// The string control `text` ends inside, if any.
+pub(crate) fn open_string_control(text: &str) -> Option<StringControl> {
     strip(text).1
 }
 
-/// The byte offset just past the first string-control terminator in `line` (BEL, C1 ST or
-/// ESC \\), for a line that continues an open string control; None when it has none.
-pub(crate) fn string_control_end(line: &str) -> Option<usize> {
+/// A string control's kind, which decides its terminators: OSC ends at ST or BEL; DCS, SOS, PM
+/// and APC end only at ST (ECMA-48), so a BEL in their payload is payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StringControl {
+    Osc,
+    Other,
+}
+
+/// The byte offset just past the first terminator of `control` in `line` (C1 ST or ESC \\, and
+/// BEL for OSC), for a line that continues that open control; None when it has none.
+pub(crate) fn string_control_end(line: &str, control: StringControl) -> Option<usize> {
     let mut chars = line.char_indices().peekable();
     while let Some((at, ch)) = chars.next() {
         match ch {
-            '\x07' | '\u{009c}' => return Some(at + ch.len_utf8()),
+            '\u{009c}' => return Some(at + ch.len_utf8()),
+            '\x07' if control == StringControl::Osc => return Some(at + 1),
             '\x1b' if chars.peek().is_some_and(|&(_, next)| next == '\\') => return Some(at + 2),
             _ => {}
         }
@@ -48,9 +62,9 @@ fn strip_ansi(input: &str) -> String {
     strip(input).0
 }
 
-/// The text without control sequences, and whether it ends inside an unterminated string control.
-fn strip(input: &str) -> (String, bool) {
-    let mut open = false;
+/// The text without control sequences, and the string control it ends inside, if any.
+fn strip(input: &str) -> (String, Option<StringControl>) {
+    let mut open = None;
     let mut output = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
@@ -61,10 +75,13 @@ fn strip(input: &str) -> (String, bool) {
                     chars.next();
                     skip_through_final(&mut chars, '@'..='~');
                 }
-                // OSC, and the string controls DCS, SOS, PM and APC: their payload runs to ST or BEL.
-                Some(']' | 'P' | 'X' | '^' | '_') => {
+                // OSC, and the string controls DCS, SOS, PM and APC: their payload runs to their
+                // terminator.
+                Some(kind @ (']' | 'P' | 'X' | '^' | '_')) => {
                     chars.next();
-                    open = !skip_string(&mut chars);
+                    let control =
+                        if kind == ']' { StringControl::Osc } else { StringControl::Other };
+                    open = (!skip_string(&mut chars, control)).then_some(control);
                 }
                 Some(next) if ('0'..='~').contains(&next) => {
                     // A two-byte escape sequence (for example, ESC 7 or ESC c).
@@ -92,7 +109,9 @@ fn strip(input: &str) -> (String, bool) {
             },
             '\u{009b}' => skip_through_final(&mut chars, '@'..='~'),
             '\u{009d}' | '\u{0090}' | '\u{0098}' | '\u{009e}' | '\u{009f}' => {
-                open = !skip_string(&mut chars);
+                let control =
+                    if ch == '\u{009d}' { StringControl::Osc } else { StringControl::Other };
+                open = (!skip_string(&mut chars, control)).then_some(control);
             }
             '\u{009c}' | '\r' => {}
             _ => output.push(ch),
@@ -120,13 +139,17 @@ fn skip_through_final(
     }
 }
 
-/// Skips a string control's payload through its terminator: ST (ESC \\ or C1 ST) or BEL. False
-/// when the text ended first.
-fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+/// Skips a string control's payload through its terminator: ST (ESC \\ or C1 ST), or BEL for
+/// OSC. False when the text ended first.
+fn skip_string(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    control: StringControl,
+) -> bool {
     loop {
         match chars.next() {
             None => return false,
-            Some('\x07') | Some('\u{009c}') => return true,
+            Some('\u{009c}') => return true,
+            Some('\x07') if control == StringControl::Osc => return true,
             Some('\x1b') if chars.peek() == Some(&'\\') => {
                 chars.next();
                 return true;
@@ -243,6 +266,17 @@ mod tests {
         assert_eq!(clean_stderr_line("\x1b(\x1b]secret\x07error"), "error");
         assert_eq!(clean_stderr_line("\u{009b}1\u{009d}secret\u{009c}error"), "error");
         assert_eq!(clean_stderr_line("\x1b[1mbold\x1b[0m error"), "bold error");
+    }
+
+    #[test]
+    fn only_osc_ends_at_bel() {
+        use super::{StringControl, ends_inside_string_control, string_control_end};
+        assert_eq!(clean_stderr_line("\x1bPsecret\x07still-secret\x1b\\visible"), "visible");
+        assert_eq!(clean_stderr_line("\x1b_Ga\x07b\u{009c}visible"), "visible");
+        assert_eq!(clean_stderr_line("\x1b]title\x07visible"), "visible");
+        assert!(ends_inside_string_control("\x1bPsecret\x07more"));
+        assert_eq!(string_control_end("a\x07b\x1b\\c", StringControl::Other), Some(5));
+        assert_eq!(string_control_end("a\x07b", StringControl::Osc), Some(2));
     }
 
     #[test]

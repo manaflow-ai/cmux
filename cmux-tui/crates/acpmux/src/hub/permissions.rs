@@ -1546,12 +1546,12 @@ fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
     // A line inside a string control's payload (DCS, OSC, ...) joins the line that opened it, so the
     // two are cleaned and evicted together and none of the payload reads as an explanation.
     if let Some(last) = tail.back_mut()
-        && crate::stderr::ends_inside_string_control(last)
+        && let Some(control) = crate::stderr::open_string_control(last)
     {
         last.push('\n');
         if last.len() < STDERR_PAYLOAD_CAP {
             last.push_str(line);
-        } else if let Some(end) = crate::stderr::string_control_end(line) {
+        } else if let Some(end) = crate::stderr::string_control_end(line, control) {
             // Past the cap the payload is dropped, but its end still closes the control, so the
             // text after it is kept and the lines after it are their own again.
             last.push_str("\x1b\\");
