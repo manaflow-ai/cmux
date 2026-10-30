@@ -14,6 +14,9 @@ public struct AgentShareActions {
     public static let revoke: ActionID = "agent.share.revoke"
     public static let kick: ActionID = "agent.share.kick"
 
+    /// How long a create waits for the daemon: the room's 15 s provisioning budget and some margin.
+    static let createDeadline: Duration = .seconds(20)
+
     let host: any AgentShareHost
 
     public init(host: any AgentShareHost) { self.host = host }
@@ -39,7 +42,9 @@ public struct AgentShareActions {
                 // The session pins the chat: the daemon refuses if the surface shows another one by now.
                 let request = AgentSessionShareCreateRequest(surface: chat.surface, session: chat.session, ttlSecs: ttl, uses: uses,
                                                              ownerToken: token)
-                let created = try await Self.connected(chat.connection).request(request)
+                // Create waits out the hosted room's provisioning (its request budget is 15 s,
+                // agent_session_share_room.rs): its answer is the only copy of the link's secret.
+                let created = try await Self.connected(chat.connection).request(request, timeout: Self.createDeadline)
                 // A person's palette or menu run copies the link at once; a script gets it back.
                 if person { Self.announce(created, host: host) }
                 return AgentShareResults.created(created)
