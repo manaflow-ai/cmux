@@ -20,6 +20,8 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/cmux-next/visual-gate"
+sys.path.insert(0, str(ROOT / "tests"))
+from nightly_workflow_text import nightly_text  # noqa: E402
 spec = importlib.util.spec_from_file_location("visual_gate", GATE / "visual_gate.py")
 gate = importlib.util.module_from_spec(spec)
 sys.modules["visual_gate"] = gate
@@ -980,7 +982,7 @@ class StateFileTests(unittest.TestCase):
 
 
 class WiringTests(unittest.TestCase):
-    nightly = (ROOT / ".github/workflows/nightly.yml").read_text()
+    nightly = nightly_text()  # moved step scripts put back inline
 
     def job(self, name):
         """The job's YAML, up to the next top-level job."""
@@ -1086,7 +1088,8 @@ class WiringTests(unittest.TestCase):
         self.assertIn("nightly_next_canary_mode.py verdicts --issue-title \"nightly-next visual gate\"", find)
         self.assertIn("visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}", find)
         job = self.job("recover-nightly-next-notarization")
-        self.assertIn("run: bash scripts/ci/nightly-steps/recover-continue-pending-notarization.sh", job)
+        self.assertIn("run: bash scripts/ci/nightly-steps/recover-continue-pending-notarization.sh",
+                      (ROOT / ".github/workflows/nightly.yml").read_text())
         self.assertIn("VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}", job)
         self.assertIn("VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}", job)
         # The step's shell lives in its script (nightly.yml's size limit).
