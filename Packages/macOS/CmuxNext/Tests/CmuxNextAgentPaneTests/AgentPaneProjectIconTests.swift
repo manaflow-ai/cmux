@@ -215,36 +215,36 @@ struct AgentPaneProjectIconTests {
         func advance(_ by: Duration) { lock.withLock { instant = instant.advanced(by: by) } }
     }
 
-    /// Each folder's answer, an empty one too, is read once per `answerLifetime`, and asks that arrive
-    /// while it is read share that read. The page asks again for every empty answer, and each ask walks
-    /// about 70 paths; for a folder that is not on this Mac each lookup also went through the `/home`
-    /// automounter (2026-10-30: opendirectoryd at 230-330 queries a second).
-    @Test func aFoldersAnswerEmptyOrNotIsReadOncePerLifetime() async throws {
+    /// A folder that is not on this Mac (a lane VM's `/home/cmux/...`) answers empty with no look for
+    /// `missingLifetime`: the page asks again for every empty answer, and each look walked about 70 paths
+    /// through the `/home` automounter (2026-10-30: opendirectoryd at 230-330 queries a second). A folder
+    /// that is here is read on every ask, so an icon added to it shows on the next one.
+    @Test func aFolderNotOnThisMacIsLookedForOncePerLifetime() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        try fixture.write(Data(), "code/plain/favicon.png")  // empty: stat'ed, never an icon
-        let folder = fixture.home + "/code/plain"
-        let path = folder + "/favicon.png"
-        let looks = { fixture.touches.all.filter { $0 == path }.count }
-        let noAvatars = AgentPaneOwnerAvatars(folder: nil, fetch: { _ in nil })
-        let solo = await AgentPaneProjectIcons(reader: fixture.reader, avatars: noAvatars).answer(for: folder)
-        #expect(solo.src == nil && solo.glyph == nil)
-        let once = looks()
-        #expect(once > 0)
-
+        let gone = fixture.home + "/code/elsewhere"
+        let stats = Touches()
         let clock = Clock()
-        let icons = AgentPaneProjectIcons(reader: fixture.reader, avatars: noAvatars, now: { clock.now })
-        async let first = icons.answer(for: folder)
-        async let second = icons.answer(for: folder)
-        async let third = icons.answer(for: folder)
-        let answers = await [first, second, third]
-        #expect(answers.allSatisfy { $0.src == nil && $0.glyph == nil })
-        #expect(looks() == 2 * once, "three asks at once read the folder once")
-        _ = await icons.answer(for: folder)
-        #expect(looks() == 2 * once, "inside the lifetime: no read")
-        clock.advance(AgentPaneProjectIcons.answerLifetime)
-        _ = await icons.answer(for: folder)
-        #expect(looks() == 3 * once, "past the lifetime: read again")
+        let noAvatars = AgentPaneOwnerAvatars(folder: nil, fetch: { _ in nil })
+        let icons = AgentPaneProjectIcons(reader: fixture.reader, avatars: noAvatars,
+                                          isFolder: { stats.add($0); return AgentPaneProjectIcons.folderExists($0) },
+                                          now: { clock.now })
+        for _ in 0..<3 {
+            let answer = await icons.answer(for: gone)
+            #expect(answer.src == nil && answer.glyph == nil)
+        }
+        #expect(stats.all == [gone], "one existence check for three asks")
+        #expect(fixture.touches.all.isEmpty, "no candidate is looked at in a missing folder")
+        clock.advance(AgentPaneProjectIcons.missingLifetime)
+        _ = await icons.answer(for: gone)
+        #expect(stats.all == [gone, gone], "past the lifetime: checked again")
+
+        // Here, but empty: every ask looks, so an icon added later shows on the next ask.
+        let here = fixture.home + "/code/plain"
+        try FileManager.default.createDirectory(atPath: here, withIntermediateDirectories: true)
+        #expect(await icons.answer(for: here).src == nil)
+        try fixture.write(Self.png, "code/plain/favicon.png")
+        #expect(await icons.answer(for: here).src == "data:image/png;base64," + Self.png.base64EncodedString())
     }
 
     /// The same request from a chat on another machine is answered with no icon; from this Mac's
