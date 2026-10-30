@@ -51,7 +51,11 @@ struct LinkOpenPlacement<Pane: Equatable> {
         if setting == .samePane, takesTabs { return .pane(source) }
         if let right, right != source { return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width) }
         if !takesTabs { return .besideDock(source) }
-        return setting == .newColumn ? .newColumn(rightOf: source) : .splitRight(of: source)
+        if setting == .newColumn { return .newColumn(rightOf: source) }
+        // A split halves the source: one that would leave it under the chat floor is a tab in it
+        // instead (RightColumnPlacement). A new column adds width to the strip, so it needs no floor.
+        if case .tab = RightColumnPlacement.decide(sourceWidth: sourceWidth, column: [Pane](), width: width) { return .pane(source) }
+        return .splitRight(of: source)
     }
 
     /// An item opened beside pane `right`, already on the source's right: ``RightColumnPlacement``

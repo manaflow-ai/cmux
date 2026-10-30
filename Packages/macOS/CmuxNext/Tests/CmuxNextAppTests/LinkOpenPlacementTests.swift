@@ -51,6 +51,16 @@ struct LinkOpenPlacementTests {
         #expect(Rule.inColumn(right: "strip", column: [], sourceWidth: 1400, width: wide) == .pane("strip"))
     }
 
+    /// Review of #28044 at 34122a1a: with nothing on its right, a 900-959 pt source still split to
+    /// under the 480 pt chat floor. Measured narrow, it keeps the tab; a new column needs no floor.
+    @Test func aNarrowSourceWithNothingOnItsRightKeepsTheTab() {
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: nil, sourceWidth: 959) == .pane("chat"))
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: nil, sourceWidth: 960) == .splitRight(of: "chat"))
+        #expect(Rule(setting: .splitRight).target(source: "chat", takesTabs: true, right: nil) == .splitRight(of: "chat"), "unmeasured: no floor")
+        #expect(Rule(setting: .newColumn).target(source: "chat", takesTabs: true, right: nil, sourceWidth: 600) == .newColumn(rightOf: "chat"))
+        #expect(Rule(setting: .splitRight).target(source: "home", takesTabs: false, right: nil, sourceWidth: 600) == .besideDock("home"))
+    }
+
     @Test func aNarrowRightColumnTakesTheTabInsteadOfSplitting() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: { _ in 419 })
