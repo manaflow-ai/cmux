@@ -161,10 +161,11 @@ impl Hub {
         }
         // An agent host this daemon has not adopted (it could not, or has not yet): what runs
         // there is unknown to it, and a stop would end it (`kill` ends an unadopted host). The
-        // idle pass never touches such a session either: it ends only a child it holds.
+        // idle pass never touches such a session either: it ends only a child it holds. Records
+        // that cannot be read prove no host gone (`read_live_host_sessions`): refused as well.
         if !has_child
             && session.status() != SessionStatus::Closed
-            && Self::host_record_live(&session.id)
+            && Self::read_live_host_sessions().is_none_or(|live| live.contains(&session.id))
         {
             return busy("unadopted_host");
         }
