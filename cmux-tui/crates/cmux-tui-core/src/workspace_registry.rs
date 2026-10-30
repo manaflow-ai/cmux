@@ -796,6 +796,9 @@ pub struct WorkspaceRegistry {
     /// Behind its own lock; lock order rules: see `registry_connection`.
     pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
+    /// How long each step of this registry's open took (the owner's
+    /// `startup-timings.jsonl`); taken once by the owner's start.
+    open_timings: crate::startup_timings::StartupTimings,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -2456,10 +2459,12 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2495,6 +2500,7 @@ impl WorkspaceRegistry {
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
         platform::restrict_file(&db_path)?;
+        timings.lap("registry.lock_and_connect");
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2503,9 +2509,11 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            timings,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2514,6 +2522,7 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
@@ -2785,6 +2794,7 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -2878,16 +2888,20 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
+        timings.lap("registry.migrations");
         check_registry_integrity(&connection)?;
+        timings.lap("registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.resource_invariants");
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
+            open_timings: timings,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -2905,6 +2919,11 @@ impl WorkspaceRegistry {
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
         self.database_path.clone()
+    }
+
+    /// This registry's open steps, once (later calls get none).
+    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
+        std::mem::take(&mut self.open_timings)
     }
 
     pub(crate) fn resource_input_receipt_hmac(

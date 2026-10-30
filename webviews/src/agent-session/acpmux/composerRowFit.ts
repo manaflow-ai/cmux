@@ -161,7 +161,7 @@ function paneWidth(bar: HTMLElement): number {
   // the plain one, so with the plain footer off the row takes the width steps as the one row always
   // did (composerLocation.css keys its own guards on the same attribute).
   if (bar.dataset.footerLook === "plain") return Number.POSITIVE_INFINITY;
-  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer");
+  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer, .acpmux-newtab");
   if (!composer) return bar.ownerDocument.documentElement.clientWidth;
   const style = getComputedStyle(composer);
   return composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);

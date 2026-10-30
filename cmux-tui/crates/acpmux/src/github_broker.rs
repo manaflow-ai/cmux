@@ -298,16 +298,16 @@ pub(crate) fn redact_github_tokens(text: &str) -> String {
     while let Some(c) = rest.chars().next() {
         let prefix = TOKEN_PREFIXES.iter().find(|p| !after_word && rest.starts_with(**p));
         if let Some(prefix) = prefix {
-            let tail = &rest[prefix.len()..];
+            let tail = rest.get(prefix.len()..).unwrap_or("");
             let end = tail.find(|c: char| !word(c)).unwrap_or(tail.len());
             out.push_str("[redacted]");
-            rest = &tail[end..];
+            rest = tail.get(end..).unwrap_or("");
             after_word = true;
             continue;
         }
         out.push(c);
         after_word = word(c);
-        rest = &rest[c.len_utf8()..];
+        rest = rest.get(c.len_utf8()..).unwrap_or("");
     }
     out
 }

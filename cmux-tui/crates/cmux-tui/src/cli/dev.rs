@@ -19,15 +19,21 @@ const UI_LAYER_LAUNCHER: &str = "Prototypes/UiLayerHost/launch.sh";
 /// The command is available only through the curated `cmux` surface. A
 /// `cmux-tui` invocation with the same words remains an ordinary usage error.
 pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<i32> {
-    if surface != Surface::Cmux || !is_requested(args) {
+    if surface != Surface::Cmux {
         return None;
     }
-    Some(run_ui_layer(&args[UI_LAYER_WORDS.len()..]))
+    requested_rest(args).map(run_ui_layer)
 }
 
+/// The words after `dev ui-host`, when `args` start with them.
+fn requested_rest(args: &[String]) -> Option<&[String]> {
+    let (head, rest) = args.split_at_checked(UI_LAYER_WORDS.len())?;
+    head.iter().map(String::as_str).eq(UI_LAYER_WORDS).then_some(rest)
+}
+
+#[cfg(test)]
 fn is_requested(args: &[String]) -> bool {
-    args.len() >= UI_LAYER_WORDS.len()
-        && args[..UI_LAYER_WORDS.len()].iter().map(String::as_str).eq(UI_LAYER_WORDS)
+    requested_rest(args).is_some()
 }
 
 fn run_ui_layer(args: &[String]) -> i32 {

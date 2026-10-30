@@ -84,7 +84,7 @@ class PublishReleaseAssetsCallers(unittest.TestCase):
         self.assertGreaterEqual(seen, 9, "the call finder stopped seeing the workflows' publishers")
 
     def test_names_job_passes_the_versioned_dmg(self):
-        text = (WORKFLOW_DIR / "nightly.yml").read_text(encoding="utf-8")
+        text = expand((WORKFLOW_DIR / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  publish-nightly-next-github-names:\n"):]
         step = job[job.index("- name: Publish the rolling DMG name and the feed copy"):]
         step = step[:step.index("\n      - name:")]

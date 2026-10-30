@@ -25,6 +25,7 @@
 //! `withdraw.origin_refused`), and a peer's session is never forwarded one.
 
 use super::super::*;
+use cmux_json::JsonSet as _;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -258,7 +259,7 @@ impl Hub {
             json!({"promptId": found.prompt_id, "msgId": found.msg_id(), "turnId": found.turn_id, "via": via, "noticePromptId": notice_id}),
         );
         let mut reply = outcome(session, &found, "retracted");
-        reply["via"] = json!(via);
+        reply.set("via", json!(via));
         Ok(reply)
     }
 
@@ -294,9 +295,9 @@ impl Hub {
         if found.removed || found.retracted.is_some() {
             let was = if found.removed { "unsent" } else { "retracted" };
             let mut reply = outcome(session, &found, was);
-            reply["already"] = json!(true);
+            reply.set("already", json!(true));
             if let Some(via) = found.retracted.as_ref().and_then(|r| r.get("via")) {
-                reply["via"] = via.clone();
+                reply.set("via", via.clone());
             }
             return Ok(Decision::Reply(reply));
         }
@@ -352,8 +353,8 @@ impl Hub {
             from.unwrap_or("its sender")
         );
         let provenance = found.provenance.clone().map(|mut p| {
-            p["replyTo"] = json!(msg_id);
-            p["msgId"] = json!(format!("{msg_id}.withdrawn"));
+            p.set("replyTo", json!(msg_id));
+            p.set("msgId", json!(format!("{msg_id}.withdrawn")));
             p
         });
         let (tx, rx) = oneshot::channel::<bool>();

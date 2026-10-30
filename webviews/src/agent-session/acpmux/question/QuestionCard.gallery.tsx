@@ -264,11 +264,11 @@ export default componentEntry({
     ),
     "folder-trust": variant(
       folderTrust,
-      "An agent's sub-session waits in an untrusted folder: Trust folder or Not now. Trust lets the start go on by itself.",
+      "An agent's sub-session waits in an untrusted folder: a consent like ChatGPT's, the question, what Trust does, Not now (esc) and Trust folder (↩).",
     ),
-    "folder-trust-picked": {
-      ...variant(folderTrust, "Trust folder clicked: the row is chosen and nothing is sent until Submit (or ⌘↩)."),
-      play: (ctx) => ctx.click({ selector: '.acpmux-question-row[data-row="0"]' }),
+    "folder-trust-hover": {
+      ...variant(folderTrust, "The pointer on Trust folder."),
+      play: (ctx) => ctx.hover({ selector: ".acpmux-question-submit" }),
     },
     "pending-multi": variant(pendingMulti, "A multi-select ask: checkbox rows."),
     "pending-other-typing": variant(pendingOther, "Other turned into an inline text field."),
