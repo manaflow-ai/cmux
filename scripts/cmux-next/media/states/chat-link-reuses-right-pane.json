@@ -167,6 +167,26 @@
   {
    "title": "Where the link landed",
    "wait": 2
+  },
+  {
+   "title": "Back to the chat for Cmd-T",
+   "cmux": [
+    "action",
+    "run",
+    "focusLeft"
+   ],
+   "shot": false,
+   "wait": 1
+  },
+  {
+   "title": "Cmd-T in the main pane (the chat dock)",
+   "key": "t",
+   "pane": "{pane}",
+   "modifiers": [
+    "command"
+   ],
+   "wait": 1.5,
+   "optional": "the runner may send no Cmd-T as a person's key"
   }
  ]
 }
