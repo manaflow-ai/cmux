@@ -102,7 +102,14 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
                               if method in {"POST", "PATCH"} and payload]
             if content_writes:
                 rendered = content_writes[0][1].get("body", "")
-                if any(item not in rendered for item in publication_lines):
+                old_status = pr_status.bot_comments(snapshot, pr_status.MARKER)
+                old_sections = pr_status.parse(old_status[0]["body"]) if old_status else {}
+                rendered_sections = pr_status.parse(rendered)
+                publication_lost = any(item not in rendered for item in publication_lines)
+                other_section_lost = any(rendered_sections.get(key) != value
+                                         for key, value in old_sections.items()
+                                         if key != SECTION)
+                if publication_lost or other_section_lost:
                     return legacy_publish(repo, number, line, snapshot, pause)
             for method, path, payload in writes:
                 status_api(method, path, payload)

@@ -99,6 +99,27 @@ class PublishedInTests(unittest.TestCase):
         self.assertIn(old, calls[1][2]["body"])
         self.assertIn(new, calls[1][2]["body"])
 
+    def test_near_limit_other_section_uses_lossless_legacy_fallback(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        new = module.build_line("v2", "https://x/v2", "b" * 40)
+        history = "\n".join(f"- [v{i}](https://x/{i}) (`{i:010d}`)" for i in range(30))
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"tour": "x" * 64000}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.MARKER + "\nShipped in:\n" + old + "\n" + history,
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        calls = []
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
+        self.assertEqual(calls[1][0], "PATCH")
+        self.assertIn(new, calls[1][2]["body"])
+        self.assertNotIn("cmux-pr-status", calls[1][2]["body"])
+
     def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
         line = module.build_line("v1", "https://x/v1", "a" * 40)
         comments = [
