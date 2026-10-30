@@ -28,6 +28,9 @@ requests over the app's 2 s timeout, and both daemon locks by site
 it). Arguments: --agents (80), --agent-sleep (0.25 s between an agent's
 hooks), --load-seconds (60), --agent-cli (1; 0 runs the hooks only, the
 shipped agent hooks' real load: no shipped hook calls the CLI per turn).
+Scenario "agents-hooks" is "agents" with --agent-cli 0, for the fleet
+script, which passes only --scenarios (perf-10x-daemon.sh
+--arg=scenarios=agents-hooks).
 
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
@@ -352,8 +355,7 @@ class Bench:
         r = c.call("server-stats", include=["locks", "write_path"])
         return r.get("data") or {} if r.get("ok") else {}
 
-    def agents(self):
-        name = "agents"
+    def agents(self, name="agents"):
         log("scenario", name, self.args.agents, "agents")
         c = Conn(self.sock_path, timeout=300)
         for i in range(20):
@@ -535,6 +537,10 @@ def main():
             b.scenario("scale", 50, 200, 0.05)
         if "agents" in wanted:
             b.agents()
+        if "agents-hooks" in wanted:
+            # The hooks only: no shipped agent hook calls the CLI per turn.
+            args.agent_cli = 0
+            b.agents("agents-hooks")
     except Exception as e:  # noqa: BLE001
         log("FAILED", repr(e), b.tail()[-1500:])
         b.result["error"] = repr(e)
