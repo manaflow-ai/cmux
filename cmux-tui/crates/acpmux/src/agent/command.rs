@@ -724,4 +724,43 @@ mod tests {
         assert!(!marker.exists(), "remote launch probed profile-controlled systemd-run");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// The env a direct background harness is exec'd with (`harness_env`, the clamped exec's
+    /// envp) never reads the profile's secrets a second time, and never falls back to the
+    /// daemon's env for a remote harness: a `${file:…}` secret that is gone after the command was
+    /// built (or a Keychain item locked since) must not open the cleared env (review 1 of #28442).
+    #[cfg(unix)]
+    #[test]
+    fn a_remote_harness_env_stays_cleared_when_its_secret_is_gone_after_the_build() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let secret = dir.path().join("token");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&secret)
+            .unwrap();
+        std::io::Write::write_all(&mut file, b"synthetic-token\n").unwrap();
+        drop(file);
+        let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {
+                "ACPMUX_REMOTE_ENV_POLICY": "1",
+                "REMOTE_TOKEN": format!("${{file:{}}}", secret.display()),
+            }
+        }))
+        .unwrap();
+        profile.kind = crate::config::HarnessKind::Acp;
+        let command =
+            harness_command("remote", &profile, &std::env::temp_dir(), None, None).unwrap();
+        let built = harness_env(&command, &profile);
+        std::fs::remove_file(&secret).unwrap();
+        let after = harness_env(&command, &profile);
+        assert!(
+            !after.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
+            "the remote harness got the daemon's environment"
+        );
+        assert_eq!(after, built, "the harness env changed after the build");
+    }
 }
