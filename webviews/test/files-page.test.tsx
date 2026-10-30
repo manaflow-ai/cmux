@@ -227,6 +227,7 @@ test("ignores stale open failures across navigation, collapse, and retry", async
   const store = new FilesStore(provider);
 
   await store.start();
+  store.expand("src");
   await store.refresh();
   store.select("src/main.ts");
   const a1 = store.open("src/main.ts");
