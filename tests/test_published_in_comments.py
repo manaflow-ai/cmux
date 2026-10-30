@@ -229,6 +229,12 @@ class PublishedInTests(unittest.TestCase):
         self.assertTrue(module.rate_limited(refusal))
         self.assertFalse(module.rate_limited(subprocess.CalledProcessError(1, "gh", stderr="HTTP 404: Not Found")))
 
+    def test_rate_limit_during_batched_comment_read_propagates(self):
+        refusal = subprocess.CalledProcessError(1, "gh", stderr="HTTP 429: secondary rate limit")
+        with patch.object(module, "gh", side_effect=refusal):
+            with self.assertRaises(subprocess.CalledProcessError):
+                module.existing_comments("o/r", [7])
+
     def test_unreadable_span_never_fails_the_release(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run(

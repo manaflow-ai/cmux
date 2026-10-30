@@ -191,12 +191,16 @@ def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[d
         chunk = numbers[start:start + batch]
         try:
             data = gh("graphql", "-f", f"query={comments_query(owner, name, chunk)}")["data"]["repository"]
-        except (subprocess.CalledProcessError, KeyError, TypeError):
+        except (subprocess.CalledProcessError, KeyError, TypeError) as error:
+            if isinstance(error, subprocess.CalledProcessError) and rate_limited(error):
+                raise
             data = {}
             for n in chunk:
                 try:
                     data.update(gh("graphql", "-f", f"query={comments_query(owner, name, [n])}")["data"]["repository"])
-                except (subprocess.CalledProcessError, KeyError, TypeError):
+                except (subprocess.CalledProcessError, KeyError, TypeError) as retry_error:
+                    if isinstance(retry_error, subprocess.CalledProcessError) and rate_limited(retry_error):
+                        raise
                     unreadable.add(n)
         for n in chunk:
             node = data.get(f"p{n}")
@@ -207,7 +211,9 @@ def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[d
                     found[n] = pr_status.list_comments(status_api, repo, n)
                 else:
                     found[n] = normalize_comments(node)
-            except subprocess.CalledProcessError:
+            except subprocess.CalledProcessError as error:
+                if rate_limited(error):
+                    raise
                 unreadable.add(n)
     return found, unreadable
 
@@ -237,7 +243,16 @@ def main() -> int:
         print(f"published-in: {len(numbers)} PRs in the span, over --max {args.max}; commenting on none", file=sys.stderr)
         return 0
     line = build_line(args.name, args.url, args.head)
-    existing, unreadable = ({}, set()) if args.dry_run else existing_comments(args.repo, numbers)
+    if args.dry_run:
+        existing, unreadable = {}, set()
+    else:
+        try:
+            existing, unreadable = existing_comments(args.repo, numbers)
+        except subprocess.CalledProcessError as error:
+            if rate_limited(error):
+                print(f"published-in: rate limited while reading comments; {len(numbers)} PRs left, rerun to finish", file=sys.stderr)
+                return 0
+            raise
     numbers = [n for n in numbers if n not in unreadable]
     posted = skipped = failed = 0
     for index, number in enumerate(numbers):
