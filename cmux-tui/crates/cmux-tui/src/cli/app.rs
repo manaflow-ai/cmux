@@ -61,6 +61,9 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "ghostty",
     "errors",
     "team",
+    // Space aliases keep the intuitive `cmux space …` CLI alongside the
+    // app action catalog's historical `space create|delete` names.
+    "space",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -177,6 +180,47 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         return Ok(None);
     }
     let rest = &args[1..];
+    // Spaces have a small noun-first CLI of their own. Reads stay with the
+    // daemon's room resource (`space list`); mutations are app actions so
+    // the same action registry powers the CLI and MCP.
+    if scope == "space" {
+        if rest.first().map(String::as_str) == Some("list") {
+            return Ok(None);
+        }
+        let words = rest.iter().map(String::as_str).collect::<Vec<_>>();
+        let (action, action_args): (&str, Vec<String>) = match words.as_slice() {
+            ["new", name] => ("space create", vec!["--name".into(), (*name).into()]),
+            ["switch", name] => ("space switch", vec!["--target".into(), format!("room:{name}")]),
+            ["rename", old, new] => (
+                "space rename",
+                vec!["--target".into(), format!("room:{old}"), "--name".into(), (*new).into()],
+            ),
+            ["close", name] => (
+                "space delete",
+                vec!["--target".into(), format!("room:{name}"), "--confirm".into()],
+            ),
+            ["move", kind, target, name] => {
+                let action = match *kind {
+                    "workspace" => "workspace move-to-space",
+                    "tab" => "tab move-to-space",
+                    _ => return Err(UsageError::new("space move takes workspace or tab")),
+                };
+                (
+                    action,
+                    vec![
+                        "--target".into(),
+                        format!("{kind}:{target}"),
+                        "--space".into(),
+                        (*name).into(),
+                    ],
+                )
+            }
+            _ => {
+                return Err(UsageError::new("space takes list, new, switch, rename, move or close"));
+            }
+        };
+        return run_action(action, &action_args, ActionName::Cli).map(Some);
+    }
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
     if scope == "history"

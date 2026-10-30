@@ -41,6 +41,45 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+#[test]
+fn space_mutations_use_the_catalog_actions_and_name_targets() {
+    for (words, action, target, args) in [
+        (&["space", "new", "Work"][..], "space create", None, json!({"name": "Work"})),
+        (&["space", "switch", "Work"][..], "space switch", Some("room:Work"), json!({})),
+        (
+            &["space", "rename", "Work", "Office"][..],
+            "space rename",
+            Some("room:Work"),
+            json!({"name": "Office"}),
+        ),
+        (
+            &["space", "close", "Work"][..],
+            "space delete",
+            Some("room:Work"),
+            json!({"confirm": true}),
+        ),
+        (
+            &["space", "move", "workspace", "ws_1", "Work"][..],
+            "workspace move-to-space",
+            Some("workspace:ws_1"),
+            json!({"space": "Work"}),
+        ),
+        (
+            &["space", "move", "tab", "tab_1", "Work"][..],
+            "tab move-to-space",
+            Some("tab:tab_1"),
+            json!({"space": "Work"}),
+        ),
+    ] {
+        let Some(command) = parse(&args(words)).unwrap() else { panic!("{words:?}") };
+        let (method, params) = call(command);
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], action);
+        assert_eq!(params.get("target").and_then(Value::as_str), target);
+        assert_eq!(params["args"], args);
+    }
+}
+
 /// `cmux space set-defaults --cwd DIR` (and every other action's `--cwd`) names
 /// a folder of the caller's working directory, so the app gets it absolute:
 /// the app runs elsewhere, and a space's default directory must be absolute.
