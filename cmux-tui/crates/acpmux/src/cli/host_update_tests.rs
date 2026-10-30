@@ -598,7 +598,7 @@ fn a_cloud_vm_is_left_to_cmux_link_machine_update() {
     }
 }
 
-/// fs-lane-2 (2026-10-30): a cmux Cloud VM the fleet set up as a lane host
+/// A cmux Cloud VM the fleet set up as a lane host (2026-10-30)
 /// runs acpmux's own `acpmux.service` from `~/.local/bin/acpmux`, beside
 /// cmux Cloud's `~/.cmux/bin/acpmux`, which is the only one `cmux link
 /// machine update` replaces. Nobody else updates that daemon, so `host
@@ -614,6 +614,27 @@ fn a_cloud_vm_whose_daemon_is_acpmux_service_is_updated() {
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
     assert_eq!(peer.daemon(), NEW);
     assert!(peer.take_calls().contains(&"systemctl --user restart acpmux.service".to_owned()));
+}
+
+/// The check both probes share: only acpmux's own unit with the daemon
+/// under it lifts the Cloud VM mark, and a host without the mark is never one.
+#[test]
+#[cfg(unix)]
+fn the_cloud_check_lifts_the_mark_only_for_acpmux_service() {
+    let said = |peer: &FakePeer| {
+        let script = format!("{}echo \"cloud=$acpmux_cloud\"", cloud_vm_check());
+        let out = peer.exec(&script, None).unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        out.stdout.lines().last().unwrap_or_default().to_owned()
+    };
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-check-{}", shape.replace(' ', "-")), shape);
+        assert_eq!(said(&peer), "cloud=1", "{shape}");
+    }
+    let own = FakePeer::new("cloud-check-own");
+    assert_eq!(said(&own), "cloud=", "no mark");
+    own.write("etc/cmux/vm-kind", "team\n");
+    assert_eq!(said(&own), "cloud=", "acpmux.service runs the daemon");
 }
 
 #[test]

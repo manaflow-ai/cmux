@@ -80,6 +80,7 @@ fn paths(peer: &FakePeer) -> Paths {
         installed: peer.home.join(".local/bin/acpmux"),
         off: peer.home.join(".acpmux").join(NO_AUTO_UPDATE),
         cloud_vm: peer.home.join("etc/cmux/vm-kind"),
+        unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
     }
 }
@@ -409,7 +410,7 @@ async fn a_cloud_vm_is_refused_before_anything_is_read() {
     }
 }
 
-/// fs-lane-2 (2026-10-30): a cmux Cloud VM set up as a fleet lane host runs
+/// A cmux Cloud VM set up as a fleet lane host (2026-10-30) runs
 /// acpmux's own `acpmux.service`; its timer refused every run and the host
 /// stayed on its first build. That daemon is nobody else's, so it updates.
 #[tokio::test]
