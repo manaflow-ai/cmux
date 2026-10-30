@@ -71,6 +71,8 @@ extension CloudMachine {
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes,
                   idlePause: idlePause)
+        createdBy = value["creator"]?.stringValue
+        visibility = value["visibility"]?.stringValue
     }
 
     private static func idlePauseDiagnostics(_ value: JSONValue?) -> IdlePauseDiagnostics? {

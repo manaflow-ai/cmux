@@ -240,7 +240,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var title: String { displayName?.nonEmpty ?? slug?.nonEmpty ?? id }
 
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, visibility, address, size, capabilities
+        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, createdByUserId, visibility, address, size, capabilities
         case pauseReason, idlePauseMinutes, idlePause
         case hourlyRateUsd, runningSince, sizePick
     }
@@ -275,7 +275,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         image = try c.decodeIfPresent(String.self, forKey: .image)
         imageVersion = try c.decodeIfPresent(String.self, forKey: .imageVersion)
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
-        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdByUserId)
+            ?? c.decodeIfPresent(String.self, forKey: .createdBy)
         visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
