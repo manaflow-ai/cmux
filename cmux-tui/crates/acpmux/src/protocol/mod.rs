@@ -64,6 +64,26 @@ impl Kind {
 #[schemars(deny_unknown_fields)]
 pub struct ProtocolParams {}
 
+/// The sender and receiver projection of a persisted session-to-session message.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageEvent {
+    pub at: u64,
+    pub message_id: String,
+    pub sender: MessageSender,
+    pub session_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageSender {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub name: String,
+    pub session_id: String,
+}
+
 /// What `_acpmux/protocol` answers: `ir()`, built once per daemon run.
 pub fn served() -> &'static Value {
     static IR: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
@@ -193,6 +213,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BOOKMARK_GET, Request),
         untyped(method::MUX_BOOKMARK_SET, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
         untyped(method::MUX_MESH_CONTROL, Request),
@@ -216,6 +237,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         untyped(method::MUX_KILL, Request),
+        untyped(method::MUX_KEEP, Request),
         untyped(method::MUX_WATCH_TAKE_OVER, Request),
         untyped(method::MUX_ARCHIVE, Request),
         untyped(method::MUX_SIDE, Request),
@@ -245,6 +267,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_START_MODE, Request),
         untyped(method::MUX_QUEUE_REMOVE, Request),
         untyped(method::MUX_QUEUE_EDIT, Request),
+        untyped(method::MUX_QUEUE_TEXT, Request),
         untyped(method::MUX_DRAFT_GET, Request),
         untyped(method::MUX_DRAFT_SET, Request),
         untyped(method::MUX_COMPOSER_SET, Request),
@@ -280,6 +303,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/set_default_policy", Request),
         untyped(method::MUX_SET_RULES, Request),
         untyped(method::MUX_SET_TURN_CAP, Request),
+        untyped(method::MUX_INBOX_THREADS, Request),
+        untyped(method::MUX_INBOX_THREAD, Request),
+        untyped(method::MUX_INBOX_REPLY, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
@@ -382,6 +408,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
+        notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),

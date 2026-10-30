@@ -85,7 +85,12 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
 
     // Status: configured, the connection and its repositories.
     const res = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
-    expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+    expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", allowed: true, connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+
+    // A team policy without GitHub: the status says so, as the token route refuses it.
+    await policy(a.session, a.team, { allowed_providers: ["linear"] })
+    const denied = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
+    expect(await denied.json()).toMatchObject({ allowed: false, connection: { status: "active" } })
   })
 
   it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {

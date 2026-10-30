@@ -15,9 +15,13 @@ mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
-mod launch;
+mod fanout;
+pub(crate) mod launch;
+mod ls;
+pub use ls::LsArgs;
 mod parent;
 mod send_async;
+mod session_move;
 mod standard;
 mod transfer;
 
@@ -52,7 +56,7 @@ mod tests {
     #[tokio::test]
     async fn missing_peer_session_allows_relay_but_other_rpc_errors_do_not() {
         for (error, should_relay) in [
-            (RpcError::not_found("no local session with the id \"peer/name\""), true),
+            (RpcError::not_found("no session matches \"peer/name\""), true),
             (RpcError::invalid_params("ambiguous session"), false),
             (RpcError::internal("credentials not found"), false),
         ] {

@@ -19,6 +19,7 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import { TonedIcon } from "./TonedIcon";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -31,6 +32,7 @@ export function AgentLine({
   time,
   icon = "agent.session",
   mark,
+  tone,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -58,6 +60,9 @@ export function AgentLine({
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
   mark?: string;
+  /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
+  /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
+  tone?: number;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -88,6 +93,7 @@ export function AgentLine({
 }) {
   const shimmer = waveProps(wave);
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
+  const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
   const button = (
     <button
       type="button"
@@ -110,9 +116,9 @@ export function AgentLine({
         {working ? (
           <Spinner size={iconSize} loading />
         ) : brand ? (
-          <AgentMark agent={brand} size={iconSize} />
+          <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
-          <Icon name={icon} size={iconSize} row />
+          glyph
         )}
       </span>
       <span className="acpmux-summary-text">
