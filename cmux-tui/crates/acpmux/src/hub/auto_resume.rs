@@ -233,7 +233,7 @@ pub(super) fn superseded() -> RpcError {
 }
 
 /// The refusal of a continuation Stop or close overtook after it fired.
-fn stopped() -> RpcError {
+pub(super) fn stopped() -> RpcError {
     RpcError::invalid_params("auto_resume.stopped: Stop or close came before the continuation ran")
         .with_data(json!({"reason": "auto_resume.stopped"}))
 }
@@ -318,12 +318,41 @@ impl TurnInfo {
 impl Hub {
     /// Ends the chat's turn (`finish_turn`): takes it, and marks `turn_id` as ending, in one
     /// step with Stop's check, so a Stop between the turn's end and its scheduling counts.
-    pub(super) fn take_turn(&self, session: &Session, turn_id: &str) -> Option<super::TurnInfo> {
+    /// When it took `turn_id`, the turn `next` starts in its place in the same step, so no prompt
+    /// finds the chat idle between them (`carried_turn.rs`).
+    pub(super) fn take_turn(
+        &self,
+        session: &Session,
+        turn_id: &str,
+        next: Option<super::TurnInfo>,
+    ) -> Option<super::TurnInfo> {
         let mut pending = self.auto_resumes.lock();
-        let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let turn = {
+            let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            let turn = running.take();
+            if turn.as_ref().is_some_and(|t| t.turn_id == turn_id) {
+                *running = next;
+            }
+            turn
+        };
         let stopped = matches!(pending.get(&session.id), Some(Mark::Stopped(t)) if t == turn_id);
-        if turn.as_ref().is_some_and(|t| t.turn_id == turn_id) && !stopped {
-            pending.insert(session.id.clone(), Mark::Ending(turn_id.to_owned()));
+        let took = turn.as_ref().is_some_and(|t| t.turn_id == turn_id);
+        let carried_to = session
+            .turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|t| t.turn_id.clone());
+        match carried_to.filter(|_| took) {
+            // A Stop of the turn holds for the turn its agent runs on into (`carried_turn.rs`):
+            // no continuation either.
+            Some(next) if stopped => {
+                pending.insert(session.id.clone(), Mark::Stopped(next));
+            }
+            _ if took && !stopped => {
+                pending.insert(session.id.clone(), Mark::Ending(turn_id.to_owned()));
+            }
+            _ => {}
         }
         turn
     }
@@ -469,6 +498,12 @@ impl Hub {
 
     /// Tests: the chat's turn `turn` ends with its continuation not settled yet (`Mark::Ending`),
     /// or with `None` nothing pending.
+    /// Tests: whether a Stop holds for the chat's turn `turn` (`Mark::Stopped`).
+    #[cfg(test)]
+    pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
+        matches!(self.auto_resumes.lock().get(&session.id), Some(Mark::Stopped(t)) if t == turn)
+    }
+
     #[cfg(test)]
     pub(super) fn set_ending_for_test(&self, session: &Session, turn: Option<&str>) {
         let mut pending = self.auto_resumes.lock();

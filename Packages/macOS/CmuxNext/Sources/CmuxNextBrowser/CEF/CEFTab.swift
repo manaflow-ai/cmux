@@ -10,7 +10,7 @@ import CmuxNextWakeups
 /// cost nothing until selected.
 @Observable
 public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering,
-    BrowserAgentFileChoosing {
+    BrowserAgentFileChoosing, BrowserCacheBypassingReload {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -384,14 +384,19 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID.map { runtime.shim?.goForward($0) }
     }
 
-    public func reload() {
+    public func reload() { reload(bypassingCache: false) }
+
+    /// Hard Reload (``BrowserCacheBypassingReload``): Chrome's Cmd-Shift-R, the entry ignoring the cache.
+    public func reloadBypassingCache() { reload(bypassingCache: true) }
+
+    private func reload(bypassingCache: Bool) {
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
         }
         switch reloadPlan {
         case .reloadEntry:
-            runtime.shim?.reload(browserID)
+            if bypassingCache { runtime.shim?.reloadIgnoreCache(browserID) } else { runtime.shim?.reload(browserID) }
         case .load(let url):
             // The sad tab clears now, not when the new renderer's first
             // callback arrives.
