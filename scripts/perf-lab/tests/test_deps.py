@@ -397,6 +397,7 @@ class RealRollShapeTests(unittest.TestCase):
             probe = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{change}^^{{commit}}"],
                                    capture_output=True, check=False)
             if probe.returncode != 0:
+                # skip-owner: PL-perf-lab; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
                 self.skipTest(f"{change[:11]} is not in this checkout's history")
             repo = deps.GitRepo(root, fetch=False)
             repo.dep_path = lambda pin_, url, old, new: (new,)
