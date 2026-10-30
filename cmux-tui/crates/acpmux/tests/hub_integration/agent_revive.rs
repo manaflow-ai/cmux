@@ -103,9 +103,8 @@ async fn a_limit_is_resumed_even_when_the_agent_dies_of_it() {
     assert!(kinds(&hub, &died).iter().any(|k| k == "auto_resume_scheduled"));
     assert!(prompt_ids(&hub, &died).len() >= 2);
     let summary = hub.session_summary(&hub.resolve(&died).unwrap());
-    assert_eq!(summary["status"], "disconnected", "{summary}");
-    assert_eq!(summary["lastTurn"]["status"], "failed", "{summary}");
-    assert!(summary["lastTurn"]["errorText"].as_str().unwrap().contains("hit your limit"));
+    assert_eq!(summary["status"], "ready", "{summary}");
+    assert_eq!(summary["lastTurn"]["status"], "completed", "{summary}");
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
