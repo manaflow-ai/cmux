@@ -289,7 +289,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1
+                    // A Cloud machine's header says which machine (`keepsHeaderInOneList`), even as the only one.
+                    titlesProjects: (section.machine.map { $0.kind != .cloud } ?? false) && machineCount == 1
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }

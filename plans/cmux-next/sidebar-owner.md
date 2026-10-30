@@ -2,7 +2,8 @@
 
 - 2026-10-29: in one list each Cloud machine with workspaces keeps its machine header (name, status dot, fold), as a
   remote group does (its rows keep the machine and status on their second line); a Cloud machine with no workspace
-  lists nothing, as before. Other computers' sections stay headerless. Leo: "why is there all this weird stuff at the
+  lists nothing, as before. As the only machine it keeps its own name, icon and status, not the "Projects" title.
+  Other computers' sections stay headerless. Leo: "why is there all this weird stuff at the
   bottom of the sidebar", "a whole lot of this cloud stuff ought to get better...". Regression:
   `SidebarCloudMachineHeaderTests`.
 
