@@ -90,13 +90,20 @@ function turn() {
   ];
 }
 
-/// Opens "Ran 5 commands", as the reference shows it.
+/// Opens the ended turn's "Worked for" line, then "Ran 5 commands", as the reference shows it.
 const openRun: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool[aria-expanded]"), { capMs: 10_000 });
-  const line = [...ctx.document.querySelectorAll<HTMLButtonElement>("button.cv-tool[aria-expanded]")].find((node) =>
-    /5/.test(node.textContent ?? ""),
-  );
-  if (line && line.getAttribute("aria-expanded") === "false") await ctx.click({ role: "button", name: /5/ });
+  const worked = () => ctx.document.querySelector<HTMLElement>(".cv-worked");
+  await ctx.waitFor(() => worked() ?? ctx.document.querySelector(".cv-tool[aria-expanded]"), { capMs: 10_000 });
+  if (worked()?.getAttribute("aria-expanded") === "false") {
+    await ctx.click({ selector: ".cv-worked" });
+    await ctx.waitFor(() => worked()?.getAttribute("aria-expanded") === "true", { capMs: 10_000 });
+  }
+  const line = () =>
+    [...ctx.document.querySelectorAll<HTMLButtonElement>("button.cv-tool[aria-expanded]")].find((node) =>
+      /5/.test(node.textContent ?? ""),
+    );
+  await ctx.waitFor(line, { capMs: 10_000 });
+  if (line()?.getAttribute("aria-expanded") === "false") await ctx.click({ role: "button", name: /5/ });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
