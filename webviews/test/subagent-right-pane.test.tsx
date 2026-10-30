@@ -93,6 +93,9 @@ const surfaces: [string, (open: Open) => ReactNode][] = [
   ["summary", (open) => <SubagentStatusList agents={[agent]} waiting={waiting} onOpen={open} />],
   ["Session Info", (open) => <SubagentsSection agents={[agent]} waiting={waiting} onOpen={open} />],
 ];
+// An id in any format is never shown: a name equal to the id falls back to the task, and a task
+// equal to the id falls back to the prompt title.
+const plainIdAgent = { ...agent, id: "subagent_42", name: "subagent_42", task: "subagent_42", prompt: "Review pane placement" };
 for (const [name, surface] of surfaces) {
   test(`${name}: readable task name without raw transport identity`, async () => {
     await act(async () => root.render(surface(() => {})));
@@ -124,6 +127,26 @@ for (const [name, surface] of surfaces) {
     ]);
   });
 }
+test("an id in any format is never the label, even when the task repeats it", async () => {
+  for (const view of [
+    <SubagentStatusList agents={[plainIdAgent]} waiting={waiting} onOpen={() => {}} />,
+    <SubagentsSection agents={[plainIdAgent]} waiting={waiting} onOpen={() => {}} />,
+    <SubagentTray
+      items={[{ kind: "agent", id: plainIdAgent.id, agent: plainIdAgent, depth: 0 }]}
+      working
+      waiting={waiting}
+      onOpen={() => {}}
+    />,
+  ]) {
+    await act(async () => root.render(view));
+    const button = host.querySelector<HTMLButtonElement>("button")!;
+    expect(button.textContent).toContain("Review pane placement");
+    expect(button.textContent).not.toContain(plainIdAgent.id);
+    expect(button.title ?? "").not.toContain(plainIdAgent.id);
+    expect(button.getAttribute("aria-label") ?? "").not.toContain(plainIdAgent.id);
+  }
+});
+
 test("child-session Cmd-click requests a background tab without exposing identity", async () => {
   const calls: Record<string, unknown>[] = [];
   const call = async (_method: string, params: Record<string, unknown>) => {
