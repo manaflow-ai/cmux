@@ -7691,6 +7691,15 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+`cloud-inbox-list {limit?, include_archived?, cursor?}` returns one page of
+UserDO `inbox.list` as `object{entries, revision, next_cursor}`: `limit` (1-200,
+default 200) entries from `cursor` (the `next_cursor` of the page before; absent
+for the first page). `next_cursor` is null on the last page. One page per call,
+so every reply is one bounded read; a client reads the whole inbox by following
+`next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50, asking for
+no page after 8 s from the start of the read, an entry a later page lists again kept once where it was
+first listed; any page's failure, a refusal included, leaves the Cloud rows
+`unavailable` (`signed_out` only without a usable lease).
 
 ### cloud-requests-list
 

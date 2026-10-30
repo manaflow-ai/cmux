@@ -23139,6 +23139,14 @@
       "presence": "optional",
       "nullable": false,
       "default": false
+     },
+     "cursor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -23149,7 +23157,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-requests-list": {

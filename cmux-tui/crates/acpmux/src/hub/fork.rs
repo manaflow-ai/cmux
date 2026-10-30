@@ -218,12 +218,14 @@ impl Hub {
             Made::ClaudeResume | Made::Fresh => (json!({}), None),
         };
         let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
+        let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
         let meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
+            name_given,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
