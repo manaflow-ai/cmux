@@ -14,6 +14,61 @@ import Testing
 /// way a press does, unless Option files it away. The window shows `k1` (two panes) on the left of `k0` before each
 /// test. These run in the serialized `SidebarMultiViewWindowTests`.
 extension SidebarMultiViewWindowTests {
+    /// A workspace drag keeps the focused row strong and every workspace already in the view lit while the
+    /// existing pane drop overlay previews the split. This is deliberately frame-by-frame: a drag must not
+    /// transiently navigate to the row being carried or clear the other visible rows.
+    @Test func aRowDraggedToASplitEdgePreservesFocusAndVisibleRowHighlightsDuringThePreview() async throws {
+        try await Self.withMultiView {
+            let f = try await Fixture()
+            defer { f.close() }
+            try f.dragRow("k1", to: .left)
+            try #require(f.shown == ["k0", "k1"])
+            let k1 = try #require(f.visible.first { $0.workspace.id == "k1" })
+            let pane = try #require(k1.panes.values.first)
+            let paneFrame = pane.view.convert(pane.view.bounds, to: nil)
+            let splitPoint = try #require(f.controller.window).convertPoint(toScreen: NSPoint(
+                x: paneFrame.midX, y: paneFrame.minY + paneFrame.height * 0.15))
+
+            let start = try f.rowPoint("k2")
+            f.list.mouseDown(with: try f.event(.leftMouseDown, at: start))
+            for dy in [CGFloat(-6), -12, -18] {
+                f.list.mouseDragged(with: try f.event(.leftMouseDragged,
+                                                        at: NSPoint(x: start.x, y: start.y + dy)))
+                f.frame()
+                #expect(f.state.workspaceID == "k0", "the held drag focused k2 at \(dy) pt")
+                #expect(f.model.activeWorkspaceID?.rawValue == "k0")
+                #expect(f.onScreen == ["k0", "k1"])
+                #expect(SidebarPointerGestureTests.filledRows(f.list) == ["k0", "k1"],
+                        "visible rows lost their fills at \(dy) pt")
+            }
+
+            let content = try #require(f.controller.content).contentView
+            let inside = content.convert(content.bounds, to: nil)
+            f.list.mouseDragged(with: try f.event(.leftMouseDragged,
+                                                   at: NSPoint(x: inside.midX, y: inside.midY)))
+            #expect(f.services.dragSession.drag != nil)
+            f.services.dragSession.update(splitPoint)
+            f.frame()
+
+            let drag = try #require(f.services.dragSession.drag)
+            #expect(drag.workspaceOutcome == .window(id: f.state.id, target: .beside(.bottom)))
+            #expect(f.state.workspaceID == "k0", "the split preview changed focus")
+            #expect(f.onScreen == ["k0", "k1"])
+            #expect(SidebarPointerGestureTests.filledRows(f.list) == ["k0", "k1"])
+            #expect(k1.layoutView.dropHighlightShowing, "the pane drop overlay did not show the split indicator")
+            #expect(k1.layoutView.dropHighlightFrameInWindow != nil)
+
+            f.services.dragSession.finish(commit: true)
+            f.services.dragSession.finishLanding()
+            f.frame()
+            #expect(f.state.workspaceID == "k0", "the split drop moved focus")
+            #expect(f.onScreen == f.shown)
+            #expect(f.shown.contains("k2"), "the dropped workspace did not join the current view")
+            #expect(SidebarPointerGestureTests.filledRows(f.list) == f.shown,
+                    "the sidebar did not light every workspace in the view")
+        }
+    }
+
     /// The fixture with `k1` dropped on the left edge of `k0`.
     static func besideFixture() async throws -> Fixture {
         let f = try await Fixture()
