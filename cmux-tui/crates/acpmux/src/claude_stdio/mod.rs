@@ -237,6 +237,9 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+mod hook_callback;
+#[cfg(test)]
+mod hook_callback_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]

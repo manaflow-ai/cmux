@@ -51,7 +51,7 @@ struct DebugSidebarNestedFixture {
 
 /// `debug.daemon_update {state?, id?, name?, ssh_host?, reason?, build?, notify?, sidebar?, tooltip?, window?}`
 /// (DEBUG builds, captures of the daemon update): a capture host has no ssh peer and no update runs.
-/// - `state` (`updating`, `retrying`, `updated`, `failed`, `rolled_back`, `cannot_update`, `cleared`): applies that
+/// - `state` (`updating`, `retrying`, `offline`, `updated`, `failed`, `rolled_back`, `cannot_update`, `cleared`): applies that
 ///   ``DaemonUpdateEvent`` to ``DaemonUpdateBoard/shared`` for the machine `id` (default
 ///   `ssh:build-box`), named `name` (`build-box`), on `ssh_host` (`build-box.example.com`); `reason`
 ///   for a failure (for `cannot_update`, the whole line), `build` for an update and the build a
@@ -76,7 +76,7 @@ extension DebugSidebarNestedFixture {
             guard let state = state(raw, reason: params["reason"]?.stringValue ?? "the machine ran out of disk space",
                                     build: params["build"]?.stringValue ?? "abc123def") else {
                 return .object(["error": .string("unknown state"),
-                                "available": .array(["updating", "retrying", "updated", "failed", "rolled_back", "cannot_update", "cleared"]
+                                "available": .array(["updating", "retrying", "offline", "updated", "failed", "rolled_back", "cannot_update", "cleared"]
                                     .map { .string($0) })])
             }
             DaemonUpdateBoard.shared.apply(DaemonUpdateEvent(id: id, displayName: name, sshHost: host, state: state,
@@ -121,6 +121,7 @@ extension DebugSidebarNestedFixture {
         switch raw {
         case "updating": .updating
         case "retrying": .retrying
+        case "offline": .offline
         case "updated": .updated(build: build)
         case "failed": .failed(reason: reason, rolledBack: false)
         case "rolled_back": .failed(reason: reason, rolledBack: true)

@@ -1027,6 +1027,9 @@ impl Hub {
         let steering = meta.steering;
         // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
         let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
+        // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
+        // policy change refuses it as while it moved (`queue::moving_error`).
+        let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1048,7 +1051,7 @@ impl Hub {
             queue: StdMutex::new(Vec::new()),
             team_information: Default::default(),
             queue_moved: Notify::new(),
-            moving: StdMutex::new(None),
+            moving: StdMutex::new(moving),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
@@ -1080,6 +1083,14 @@ impl Hub {
             cancels: AtomicU64::new(0),
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
+            stopping: StdMutex::new(None),
+            stop_restart: StdMutex::new(None),
+            stopped_agent: AtomicU64::new(0),
+            stop_respawn: AtomicU64::new(0),
+            taps: AtomicU64::new(0),
+            muted_taps: AtomicU64::new(0),
+            stop_hold: AtomicU64::new(0),
+            turn_hold: AtomicU64::new(0),
             compacting: AtomicBool::new(false),
             compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
@@ -1284,6 +1295,8 @@ impl Hub {
                 | "turn_result"
                 | "turn_end"
                 | "turn_error"
+                | "stopping"
+                | "unstuck"
                 | work_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
