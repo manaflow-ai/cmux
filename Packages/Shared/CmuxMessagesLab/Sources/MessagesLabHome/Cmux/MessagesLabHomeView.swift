@@ -312,6 +312,21 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
+    /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
+    public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
+        controller.host.paneHeader.faces = faces
+        controller.host.paneHeader.facesLabel = label
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
+    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
+        let header = controller.host.paneHeader
+        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
+    }
+    #endif
+
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
