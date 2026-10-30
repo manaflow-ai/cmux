@@ -1560,3 +1560,24 @@ fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_
         "text": "still here"}));
     assert_eq!(fake.frame()["method"], "session/prompt");
 }
+
+/// A guest relay's connection takes one of the daemon's connection permits like any client's:
+/// with none free no relay starts, and the guest's next join gets one once a permit is back.
+#[test]
+fn a_guest_relay_takes_a_connection_permit() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("relay-permit", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    let mut held = Vec::new();
+    while let Some(permit) = crate::server::claim_connection(mux.connection_stats()) {
+        held.push(permit);
+    }
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    room.none(
+        "a snapshot without a free connection permit",
+        |s| matches!(s, Seen::Frame { frame, .. } if frame["t"] == "snapshot"),
+    );
+    drop(held);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+}

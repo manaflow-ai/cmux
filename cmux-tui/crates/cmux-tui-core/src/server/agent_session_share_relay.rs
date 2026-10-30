@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 
 use super::super::guest_prompt_id;
 use crate::mux::Mux;
-use crate::server::{RenderService, handle_connection_with_permit, transport};
+use crate::server::{RenderService, claim_connection, handle_connection_with_permit, transport};
 
 /// A whole `snapshot` or `page` frame.
 const MAX_FRAME: usize = 512 * 1024;
@@ -64,7 +64,9 @@ pub(super) struct Relay {
     pub(super) sockets: Option<usize>,
 }
 
-/// Starts the relay of `guest_id` (on the bridge's runtime: the caller is one of its tasks).
+/// Starts the relay of `guest_id` (on the bridge's runtime: the caller is one of its tasks). Its
+/// connection takes one of the daemon's connection permits like any client's; with none free no
+/// relay starts (the guest's next `guest_joined` asks again).
 pub(super) fn start(
     mux: &Arc<Mux>,
     render: Arc<RenderService>,
@@ -72,13 +74,14 @@ pub(super) fn start(
     generation: u64,
     out: mpsc::UnboundedSender<Out>,
 ) -> Option<Relay> {
+    let permit = claim_connection(mux.connection_stats())?;
     let (ours, daemons) = std::os::unix::net::UnixStream::pair().ok()?;
     ours.set_nonblocking(true).ok()?;
     let ours = tokio::net::UnixStream::from_std(ours).ok()?;
     let mux = mux.clone();
     let serve = move || {
         let stream: Box<dyn transport::Stream> = Box::new(daemons);
-        handle_connection_with_permit(mux, stream, render, None);
+        handle_connection_with_permit(mux, stream, render, Some(permit));
     };
     std::thread::Builder::new().name("mux-share-guest".into()).spawn(serve).ok()?;
     let (asks, receiver) = mpsc::unbounded_channel();
@@ -121,10 +124,13 @@ async fn run(
             // refused as not attached, and lost).
             ask = asks.recv() => match ask {
                 Some(ask) if link.attached => link.ask(ask).await,
+                Some(ask) if link.waiting.len() < MAX_WAITING => {
+                    link.waiting.push_back(ask);
+                    true
+                }
+                // Too many before the attachment: answered as refused, never lost unsaid.
                 Some(ask) => {
-                    if link.waiting.len() < MAX_WAITING {
-                        link.waiting.push_back(ask);
-                    }
+                    link.busy(ask);
                     true
                 }
                 None => false,
@@ -245,6 +251,24 @@ impl Link {
                 true
             }
             Pending::Page | Pending::Ignore => true,
+        }
+    }
+
+    /// An ask the relay cannot keep before its attachment answers: a prompt is refused
+    /// (`share.busy`), `older` gets an empty page that still has more; the rest the guest's page
+    /// asks again.
+    fn busy(&mut self, ask: Ask) {
+        match ask {
+            Ask::Prompt { client_id, .. } if (1..=128).contains(&client_id.len()) => {
+                let prompt = guest_prompt_id(&self.share_id, &self.guest_id, &client_id);
+                self.remember(&prompt, client_id);
+                self.note(&prompt, "refused", Some("share.busy".into()));
+            }
+            Ask::Older(_) => {
+                let page = json!({"v": 1, "t": "page", "to": self.guest_id});
+                self.emit(bounded(page, Vec::new(), true));
+            }
+            Ask::Prompt { .. } | Ask::Typing(_) | Ask::Status(_) => {}
         }
     }
 
