@@ -276,7 +276,10 @@ export class SubagentFold {
     // Codex puts its collaboration item on the session update itself. Keep the event-level
     // fallback for older persisted records that lifted `_meta` beside `update`.
     const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
-    const sender = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    const reporter = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    // Only a spawnAgent's sender is the parent of the threads it lists (Rust's codex_legacy); a
+    // `wait` or `closeAgent` names whoever waits, which says nothing of a worker it first meets.
+    const sender = collaboration?.tool === "spawnAgent" ? reporter : undefined;
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
@@ -286,15 +289,18 @@ export class SubagentFold {
       const rootRepair =
         typeof change.parent === "string" &&
         this.rootThreads.has(change.parent) &&
-        (sender === undefined || this.rootThreads.has(sender));
+        (reporter === undefined || this.rootThreads.has(reporter));
       // A spawnAgent's sender is the parent of the threads it lists (Rust's spawn_authoritative),
       // so its parent moves an agent already recorded under a stale or missing one.
-      const authoritative = rootRepair || (sender !== undefined && collaboration?.tool === "spawnAgent");
+      const authoritative = rootRepair || sender !== undefined;
       const normalized =
         sender === undefined
           ? rootRepair
             ? { ...change, parent: null, __reparent: true }
-            : change
+            : // A root parent a non-root reported moves no known agent, but a new one is top-level.
+              typeof change.parent === "string" && this.rootThreads.has(change.parent)
+              ? { ...change, parent: null }
+              : change
           : { ...change, parent: this.parentFor(sender), ...(authoritative ? { __reparent: true } : {}) };
       this.apply(normalized, event, spawn);
     }
