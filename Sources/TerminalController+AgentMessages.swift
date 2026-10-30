@@ -25,7 +25,7 @@ extension TerminalController {
         case "agent.message.list":
             result = await agentMessageList(params: params)
         case "agent.message.claim":
-            result = agentMessageClaim(params: params)
+            result = await agentMessageClaim(params: params)
         case "agent.message.ack":
             result = agentMessageAck(params: params)
         case "agent.message.mark_read":
@@ -240,41 +240,6 @@ extension TerminalController {
         let limit = min(max((params["limit"] as? Int) ?? 50, 1), 1_000)
         let messages = AgentMessageCenter.store.messages(surfaceId: surfaceId, states: states, limit: limit)
         return .ok(["messages": messages.map(AgentMessageCenter.payload)])
-    }
-
-    /// Used by synchronous hooks (prompt submit, Codex stop): hands over every
-    /// queued message for the caller's surface.
-    private nonisolated func agentMessageClaim(params: [String: Any]) -> V2CallResult {
-        guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]) else {
-            return Self.agentMessageMissingSurface()
-        }
-        let store = AgentMessageCenter.store
-        if params["mark_delivered_read"] as? Bool == true {
-            store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
-        }
-        let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
-        let messages: [AgentMessage]
-        var leaseID: String?
-        if params["defer_delivery"] as? Bool == true {
-            guard let pollerKey = Self.agentMessageTrimmed(params["poller_key"]),
-                  let deferred = store.deferredMessages(
-                      recipientSurfaceId: surfaceId,
-                      pollerKey: pollerKey,
-                      limit: .max
-                  ) else {
-                return .ok(["status": "superseded", "messages": [], "text": ""])
-            }
-            messages = deferred.messages
-            leaseID = deferred.id.isEmpty ? nil : deferred.id
-        } else {
-            messages = store.claimQueued(recipientSurfaceId: surfaceId, via: via)
-        }
-        var payload: [String: Any] = [
-            "messages": messages.map(AgentMessageCenter.payload),
-            "text": messages.agentPromptText,
-        ]
-        if let leaseID { payload["lease_id"] = leaseID }
-        return .ok(payload)
     }
 
     private nonisolated func agentMessageAck(params: [String: Any]) -> V2CallResult {
@@ -506,7 +471,7 @@ extension TerminalController {
         return uuid.uuidString
     }
 
-    private nonisolated static func agentMessageMissingSurface() -> V2CallResult {
+    nonisolated static func agentMessageMissingSurface() -> V2CallResult {
         .err(
             code: "invalid_params",
             message: String(

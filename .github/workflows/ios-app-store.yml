@@ -51,7 +51,10 @@ jobs:
     # The app source is always main, including dispatches of workflow repairs.
     if: github.event_name == 'workflow_dispatch'
     needs: runners
-    runs-on: ${{ fromJSON(needs.runners.outputs.map).macos_26_ios }}
+    # It holds the App Store Connect key, so the capability map's answer is used only
+    # when it is the Blacksmith label: the map reads CMUX_CI_RUNNER_OVERRIDES, which may
+    # name any machine (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('["blacksmith-6vcpu-macos-26"]'), fromJSON(needs.runners.outputs.map).macos_26_ios) && fromJSON(needs.runners.outputs.map).macos_26_ios || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

@@ -88,7 +88,7 @@ jobs:
     # job lengths, whatever Blacksmith's wait, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (four or five API calls; see e2e_runner_pool.py for the budget), and the
