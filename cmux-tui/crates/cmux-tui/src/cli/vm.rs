@@ -271,6 +271,28 @@ pub(super) fn mint_params(plan: &[String]) -> Result<Map<String, Value>, UsageEr
     Ok(params)
 }
 
+/// The exit code for an app mint error: the VM CLI's own codes for what the
+/// service answered (401 11, 402 12, 403 13, 429 16, 503 18, no answer 3), so
+/// scripts tell the cases apart the same way on either mint path.
+pub(super) fn mint_exit(code: &str, status: Option<u64>) -> i32 {
+    use cmux_vm::exit;
+    match code {
+        "labs_off" | "no_team" | "feature.disabled" => 3,
+        "not_signed_in" => exit::UNAUTHENTICATED,
+        "plan_required" => exit::PAYMENT_REQUIRED,
+        "forbidden" => exit::FORBIDDEN,
+        "rate_limited" => exit::QUOTA_EXCEEDED,
+        "invalid_params" => exit::USAGE,
+        "method_not_found" => 5,
+        "unavailable" => match status.and_then(|status| u16::try_from(status).ok()) {
+            None | Some(0) => exit::NETWORK,
+            Some(status) if status >= 500 => exit::SERVICE_UNAVAILABLE,
+            Some(status) => exit::for_status(status),
+        },
+        _ => exit::UNEXPECTED,
+    }
+}
+
 /// `cmux vm token create` through the app: it mints with the signed-in
 /// session; the key goes straight to the store and is never printed.
 fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
@@ -281,6 +303,10 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
         Ok(params) => params,
         Err(error) => return fail("usage.invalid", &error.0, 2),
     };
+    let env = |name: &str| std::env::var(name).ok();
+    if let Err(error) = cmux_vm::token::refuse_if_one_is_stored(&env, cmux_vm::token::now_unix()) {
+        return fail("vm.token_stored", error.message(), error.exit_code());
+    }
     let mut stream = match super::app::connect_command(global) {
         Ok(stream) => stream,
         Err(_) => {
@@ -306,12 +332,8 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
                 .and_then(Value::as_str)
                 .unwrap_or("the app could not mint a VM token")
                 .to_owned();
-            let exit = match code.as_str() {
-                "labs_off" | "not_signed_in" | "no_team" | "feature.disabled" => 3,
-                "method_not_found" => 5,
-                "invalid_params" => 2,
-                _ => 1,
-            };
+            let status = error.get("data").and_then(|data| data["status"].as_u64());
+            let exit = mint_exit(&code, status);
             if code == "method_not_found" {
                 return fail(
                     &code,
@@ -338,7 +360,6 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
             );
         }
     };
-    let env = |name: &str| std::env::var(name).ok();
     let json_output = global.output == OutputMode::Json;
     // A key that cannot be kept (an unreadable answer, a failed store)
     // revokes itself, so it never outlives this command.

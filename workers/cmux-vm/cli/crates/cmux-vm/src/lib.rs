@@ -638,7 +638,10 @@ async fn execute(
     // The stored token: read for every verb but `token create` (an agent key
     // cannot mint another) and `token status|revoke` (which act on it).
     let stored = match &cli.command {
-        Command::Token(token::TokenCommand::Create(_)) => None,
+        Command::Token(token::TokenCommand::Create(_)) => {
+            token::refuse_if_one_is_stored(env, token::now_unix())?;
+            None
+        }
         Command::Token(command) => {
             let token = token::load(env)
                 .map_err(CliError::unexpected)?

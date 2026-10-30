@@ -374,6 +374,28 @@ pub fn create_body(args: &TokenCreateArgs) -> Result<Value, CliError> {
     }))
 }
 
+/// `token create` refuses while a usable token is stored: storing a new one
+/// would leave that key live and billable with nothing able to revoke it, and
+/// revoking it here would delete VMs another process may be using. An
+/// expired token (already dead on the server) or none at all is no obstacle;
+/// an unreadable store is replaced, since nothing could revoke from it anyway.
+pub fn refuse_if_one_is_stored(
+    env: &dyn Fn(&str) -> Option<String>,
+    now_unix: i64,
+) -> Result<(), CliError> {
+    match load(env) {
+        Ok(Some(token)) if token.status(now_unix).1 == crate::exit::OK => {
+            Err(CliError::conflict(format!(
+                "the VM token {} is already stored, until {}: any process of this user can use it; to replace it, run `{p} token revoke` (which deletes its VMs) and then `{p} token create`",
+                token.key_id,
+                token.expires_at,
+                p = crate::error::program()
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// `token create`: mint with `client` (which must not hold an agent key) and store.
 pub async fn create(
     client: &Client,
@@ -597,6 +619,37 @@ mod tests {
         assert_eq!(token.status(at - 60).1, crate::exit::UNAUTHENTICATED);
         token.expires_at = String::new();
         assert_eq!(token.status(at - 60).1, crate::exit::UNAUTHENTICATED);
+    }
+
+    // The file store; macOS keeps the token in the login Keychain.
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn create_refuses_while_a_usable_token_is_stored() {
+        let dir = std::env::temp_dir().join(format!("cmux-vm-one-token-{}", std::process::id()));
+        let xdg = dir.to_string_lossy().into_owned();
+        let env = |name: &str| (name == "XDG_CONFIG_HOME").then(|| xdg.clone());
+        assert!(refuse_if_one_is_stored(&env, 0).is_ok());
+        let mut token = StoredToken {
+            key: "cmuxvm_sk_SECRET".into(),
+            key_id: "vmk_live".into(),
+            expires_at: "2099-01-01T00:00:00Z".into(),
+            team_id: None,
+            base_url: None,
+            scopes: Vec::new(),
+            max_vms: None,
+            max_usd_per_hour: None,
+        };
+        save(&token, &env).unwrap();
+        let refused = refuse_if_one_is_stored(&env, now_unix()).unwrap_err();
+        assert_eq!(refused.exit_code(), crate::exit::CONFLICT);
+        assert!(refused.message().contains("vmk_live"));
+        assert!(refused.message().contains("token revoke"));
+        assert!(!refused.message().contains("SECRET"));
+        // An expired token is dead on the server: a new one may replace it.
+        token.expires_at = "2001-01-01T00:00:00Z".into();
+        save(&token, &env).unwrap();
+        assert!(refuse_if_one_is_stored(&env, now_unix()).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // The file store; macOS keeps the token in the login Keychain.

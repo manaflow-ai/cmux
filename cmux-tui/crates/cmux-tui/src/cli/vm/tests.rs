@@ -181,3 +181,19 @@ fn globals_before_vm_still_apply() {
     assert!(split_raw(&args(&["workspace", "vm"])).is_none());
     assert!(split_raw(&args(&["--", "vm", "ls"])).is_none());
 }
+
+#[test]
+fn app_mint_errors_keep_the_vm_cli_exit_codes() {
+    assert_eq!(mint_exit("not_signed_in", None), cmux_vm::exit::UNAUTHENTICATED);
+    assert_eq!(mint_exit("plan_required", None), cmux_vm::exit::PAYMENT_REQUIRED);
+    assert_eq!(mint_exit("forbidden", None), cmux_vm::exit::FORBIDDEN);
+    assert_eq!(mint_exit("rate_limited", None), cmux_vm::exit::QUOTA_EXCEEDED);
+    assert_eq!(mint_exit("invalid_params", None), cmux_vm::exit::USAGE);
+    assert_eq!(mint_exit("unavailable", None), cmux_vm::exit::NETWORK);
+    assert_eq!(mint_exit("unavailable", Some(0)), cmux_vm::exit::NETWORK);
+    assert_eq!(mint_exit("unavailable", Some(502)), cmux_vm::exit::SERVICE_UNAVAILABLE);
+    assert_eq!(mint_exit("unavailable", Some(404)), cmux_vm::exit::NOT_FOUND);
+    assert_eq!(mint_exit("labs_off", None), 3);
+    assert_eq!(mint_exit("method_not_found", None), 5);
+    assert_eq!(mint_exit("internal", None), cmux_vm::exit::UNEXPECTED);
+}

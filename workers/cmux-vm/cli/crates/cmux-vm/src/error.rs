@@ -70,6 +70,10 @@ impl CliError {
         Self::local(exit::CANCELLED, message)
     }
 
+    pub fn conflict(message: impl Into<String>) -> Self {
+        Self::local(exit::CONFLICT, message)
+    }
+
     /// An error raised by the CLI itself, before or without an HTTP status.
     /// Its tag names the kind, so `--json` callers can branch on `tag` for
     /// every failure, not only API errors.
@@ -79,6 +83,7 @@ impl CliError {
             exit::NETWORK => "NetworkError",
             exit::UNAUTHENTICATED => "MissingCredentials",
             exit::CANCELLED => "Cancelled",
+            exit::CONFLICT => "Conflict",
             _ => "UnexpectedError",
         };
         Self {
