@@ -1427,6 +1427,10 @@ export class AcpmuxDirectClient {
   /// Counts the attaches of the copy on screen: one that a newer one (a reconnect's) took over
   /// leaves the copy to it when it fails.
   private copyAttaches = 0;
+  /// The chat whose attach failed (`dropUnread`): acpmux subscribed this connection before it read
+  /// the page, so records of it can still come live on a socket that stays open. None of them is
+  /// read until the next attach of it asks again (`attachOnce`).
+  private unreadAttach?: string;
   /// The attach out now, of which session: a row that says its machine is back while it is out
   /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
   /// The attach of the selected chat that is out.
@@ -1848,6 +1852,8 @@ export class AcpmuxDirectClient {
           }
         }
         let page: EventRecord[] = [];
+        // An attach of the chat that starts meanwhile (a recovery's) decides, as in `select`.
+        const mine = this.copyAttaches;
         try {
           page = await this.attach(sessionId, generation, keptThrough);
         } catch (error) {
@@ -1858,26 +1864,23 @@ export class AcpmuxDirectClient {
           // this page had read the chat, here as in `select` — and the pane has to be told, or it
           // keeps drawing the snapshot that carried those rows. A cold open drew none, but the
           // records that came live before its attach failed are not read either (`dropUnread`).
-          if (
+          const owns =
             !kept &&
-            (keptThrough > 0 || (resumeAfter === 0 && this.lastSeq > 0)) &&
+            mine === this.copyAttaches &&
             generation === this.selectionGeneration &&
-            this.selectedSessionId === sessionId
-          )
+            this.selectedSessionId === sessionId;
+          if (owns && (keptThrough > 0 || (resumeAfter === 0 && this.lastSeq > 0)))
             this.dropUnread(sessionId, keptThrough > 0);
-          else if (
-            !kept &&
-            resumeAfter > 0 &&
-            this.lastSeq > resumeAfter &&
-            generation === this.selectionGeneration &&
-            this.selectedSessionId === sessionId
-          ) {
+          else if (owns && resumeAfter > 0) {
             // A reconnect keeps the rows it read before, but not the records the failed attach
             // streamed past them: the next one resumes from what was read, so a gap the chat ran
             // on past while the socket was down is still read (`fetchMissedEvents`).
-            this.events = this.events.filter((event) => event.seq <= resumeAfter);
-            this.rebuildKeepingLiveState();
-            // The open closes the socket next and reconnects: the pane is not connected meanwhile.
+            if (this.lastSeq > resumeAfter) {
+              this.events = this.events.filter((event) => event.seq <= resumeAfter);
+              this.rebuildKeepingLiveState();
+            }
+            // The open closes the socket next and reconnects: the pane is not connected meanwhile,
+            // whatever else drew while its attach was out.
             this.emit("disconnected");
           }
           if (!kept) throw error;
@@ -2243,6 +2246,7 @@ export class AcpmuxDirectClient {
     // Those rows are off screen again, so the frame the host shows is the failure, not a chat: it
     // fades in as any first draw of a chat does.
     this.drewKeptTail = false;
+    this.unreadAttach = sessionId;
     this.rebuild();
     this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
   }
@@ -3169,6 +3173,7 @@ export class AcpmuxDirectClient {
     const askedGen = askedRow?.createdAt;
     watch.asked = { createdAt: askedGen, peer: askedOf };
     const visible = pageShown();
+    this.unreadAttach = undefined;
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
       limit: 400,
@@ -3527,6 +3532,8 @@ export class AcpmuxDirectClient {
 
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
+    // Late records of an attach that failed: the pane says it could not read the chat.
+    if (event.sessionId === this.unreadAttach) return;
     // Held until the attach says whether the copy drawn is this session's history (`copyLive`).
     this.copyLive?.set(event.seq, event);
     // A copy shown offline once its attach failed is what the Mac confirmed: a late record of that

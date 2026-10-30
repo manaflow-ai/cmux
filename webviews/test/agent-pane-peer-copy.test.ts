@@ -37,7 +37,8 @@
 //     and a row that names another session while the attach or the reads after it are out has
 //     the chat read again, with none of the session before's live records;
 //   - a cold open or select whose attach fails keeps none of the records it streamed before it
-//     failed, so the next attach reads the chat from nothing.
+//     failed, nor any that comes live after it, so the next attach reads the chat from nothing;
+//     a reconnect whose attach fails says the pane is disconnected.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
@@ -1597,6 +1598,14 @@ test("a cold select refused as down with no copy keeps none of the records that 
   await flush();
   expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
   expect(text(tab.last())).not.toContain("stray");
+  // acpmux subscribed the socket before the attach failed, and the socket stays open: a record
+  // that comes live after the failure is not read either.
+  daemon.onmessage?.({
+    data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(44, "stray 44. ") }),
+  });
+  await flush();
+  expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
+  expect(text(tab.last())).not.toContain("stray");
   // The machine back: its page is read, and none of the failed attach's records shows.
   await client.select(OTHER);
   daemon.down = false;
@@ -1651,6 +1660,8 @@ test("a reconnect whose attach fails keeps the rows it read, but not the records
   expect(opening.lastSeq).toBe(10);
   expect(text(drawn.at(-1))).toContain("log 10.");
   expect(text(drawn.at(-1))).not.toContain("stray");
+  // The open closes that socket and reconnects: the pane does not say it is connected meanwhile.
+  expect(drawn.at(-1)?.connection).toBe("disconnected");
   // Its page (1003..1005) does not follow 10, so the records between are read after 10.
   await opening.open();
   await flush();
