@@ -11,8 +11,11 @@ name: cmux-next frame pacing
 # warning annotation. It runs on an owned mini or not at all: `gate` asks the
 # E2E pool picker whether an owned Mac is free now (as iroh-release-gate's
 # `runner` does) and skips the run otherwise, and the build and the bench take
-# vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. The bench drives the
-# console session, so it holds the mini's gui token while it measures.
+# vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. Fling-only runs use
+# debug.motion/debug.frames and CVDisplayLink without recording pixels, so
+# they can use a live CPU/memory gate. Pixel-producing suites (`golden`,
+# `instant`, and `perf`) retain the exclusive gui token. Fling-only runs use
+# `CI_SESSION_LANE_RUNNER` when that logged-in session pool is configured.
 #
 # The same bench job then runs the golden interactions (scripts/ci/frame-pacing/golden.sh
 # and golden.py, cx-codh2): New Tab cold and warm, sidebar collapse and expand, transcript
@@ -182,15 +185,15 @@ jobs:
       tag: ${{ needs.gate.outputs.tag }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
-      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+      runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.suites == 'fling' && vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SESSION_LANE_RUNNER || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
       backend_mode: local
 
   bench:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
-    # The gui token wait (15 min) and the bench step (15 min) both fit, so a
-    # busy console skips the bench instead of timing the job out.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.suites == 'fling' && vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SESSION_LANE_RUNNER || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
+    # The live load gate and bench step both fit in this job timeout. Pixel
+    # suites retain the GUI-token wait; fling-only runs use host load.
     timeout-minutes: 45
     env:
       CMUX_TAG: ${{ needs.gate.outputs.tag }}
@@ -199,27 +202,45 @@ jobs:
       CMUX_PERF_SOURCE_SHA: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_PERF_WORKFLOW_SHA: ${{ github.workflow_sha }}
     steps:
-      # The bench draws in the console session, which every GUI job on the mini
-      # shares: hold glaeda's gui token for the rest of the job, as test-e2e.yml
-      # does. A busy console after the wait skips the bench, never fails it.
-      - name: Take this Mac's gui token
+      # Fling-only mode reads debug.motion/debug.frames and CVDisplayLink;
+      # Pixel-producing suites retain GUI-token isolation.
+      - name: Admit fling-only load or take GUI token for pixel suites
         id: gui
         run: |
           set -uo pipefail
-          helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
-          status=0
-          [ -x "$helper" ] && { "$helper" take-gui --wait 900 || status=$?; }
-          case "$status" in
-            0|2)
-              echo "taken=true" >> "$GITHUB_OUTPUT"
-              echo "reason=gui token acquired" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "taken=false" >> "$GITHUB_OUTPUT"
-              echo "reason=the console session stayed busy (take-gui exited $status)" >> "$GITHUB_OUTPUT"
-              echo "::notice title=Agent pane frame pacing::Skipped: the console session stayed busy (take-gui exited $status)."
-              printf '## Agent pane frame pacing\n\nSkipped: the console session stayed busy (take-gui exited %s).\n' "$status" >> "$GITHUB_STEP_SUMMARY" ;;
-          esac
+          if [[ "$SUITES" == *golden* || "$SUITES" == *instant* || "$SUITES" == *perf* ]]; then
+            helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+            status=0
+            [ -x "$helper" ] && { "$helper" take-gui --wait 900 || status=$?; }
+            case "$status" in
+              0|2)
+                echo "taken=true" >> "$GITHUB_OUTPUT"
+                echo "reason=GUI token acquired for pixel-producing suite" >> "$GITHUB_OUTPUT" ;;
+              *)
+                echo "taken=false" >> "$GITHUB_OUTPUT"
+                reason="the console stayed busy (take-gui exited $status)"
+                echo "reason=$reason" >> "$GITHUB_OUTPUT"
+                echo "::notice title=Agent pane frame pacing::Skipped: $reason."
+                printf '## Agent pane frame pacing\n\nSkipped: %s.\n' "$reason" >> "$GITHUB_STEP_SUMMARY" ;;
+            esac
+            exit 0
+          fi
+          cores="$(sysctl -n hw.ncpu 2>/dev/null || true)"
+          free_pct="$(/usr/bin/memory_pressure -Q 2>/dev/null | awk -F: '/free percentage:/ {gsub(/%/,"",$2); gsub(/ /,"",$2); print $2; exit}')"
+          load="$(uptime | sed -E 's/.*load averages?:[[:space:]]*//' | cut -d, -f1 | tr -d ' ' | awk '{printf "%d", ($1 + 0.999)}')"
+          if [[ "$cores" =~ ^[0-9]+$ && "$free_pct" =~ ^[0-9]+$ && "$load" =~ ^[0-9]+$ ]] && (( cores - load >= 7 && free_pct >= 30 )); then
+            echo "taken=true" >> "$GITHUB_OUTPUT"
+            echo "reason=live load admitted (${cores} cores, load ${load}, memory free ${free_pct}%)" >> "$GITHUB_OUTPUT"
+            echo "Live GUI load admitted: cores=$cores load=$load memory_free=${free_pct}%"
+            printf '## Agent pane frame pacing admission\n\n| cores | load | memory_free |\n| --- | --- | --- |\n| %s | %s | %s%% |\n\n' \
+              "$cores" "$load" "$free_pct" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "taken=false" >> "$GITHUB_OUTPUT"
+            reason="insufficient or unreadable live load (cores=${cores:-?}, load=${load:-?}, memory_free=${free_pct:-?}%)"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Agent pane frame pacing::Skipped: $reason."
+            printf '## Agent pane frame pacing\n\nSkipped: %s.\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Checkout the bench
         if: steps.gui.outputs.taken == 'true'
