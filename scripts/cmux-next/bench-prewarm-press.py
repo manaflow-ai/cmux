@@ -115,11 +115,36 @@ def launch(app_path):
     return bench
 
 
-def two_rows(app, make=True):
-    rows = app.rows()
-    for index in range(max(0, 2 - len(rows)) if make else 0):
-        app.rpc("action.run", {"action": "newTab", "args": {"name": f"prewarm-press-{index}"}, "wait": True})
-    return wait(lambda: (lambda r: r if len(r) >= 2 else None)(app.rows()), 60, step=0.25)
+def sidebar_summary(app):
+    """What debug.sidebar_rows lists in the first window, for a failure line: each row's key, in_list, height."""
+    windows = (app.rpc("debug.sidebar_rows") or {}).get("windows") or [{}]
+    return [(r.get("key"), r.get("in_list"), (r.get("window_frame") or {}).get("height"))
+            for r in (windows[0].get("rows") or [])][:8]
+
+
+def two_rows(app, make=True, seconds=60):
+    """At least two listed workspace rows: a script's newTab for each one missing, sent again every 10 s while the
+    sidebar still lists fewer (the try of 2026-10-30 11:04Z on cmux20: the fourth launch answered after 0.56 s, its
+    newTab made no listed row, and the bench gave up after one 20 s wait). None after `seconds`; the reason is
+    printed with what the sidebar lists and what the newTab calls answered."""
+    replies = []
+    deadline = time.monotonic() + seconds
+    wait(lambda: (app.rpc("debug.windows") or {}).get("windows"), 30, step=0.1)
+    while time.monotonic() < deadline:
+        rows = app.rows()
+        if len(rows) >= 2:
+            return rows
+        if make:
+            for index in range(2 - len(rows)):
+                reply = app.rpc("action.run", {"action": "newTab", "args": {"name": f"prewarm-press-{len(replies)}"}, "wait": True})
+                replies.append(json.dumps(reply)[:160])
+        got = wait(lambda: (lambda r: r if len(r) >= 2 else None)(app.rows()), min(10, max(0, deadline - time.monotonic())),
+                   step=0.25)
+        if got:
+            return got
+    print(f"two_rows: fewer than two listed workspace rows in {seconds} s; sidebar {sidebar_summary(app)}; "
+          f"newTab replies {replies[-4:]}", flush=True)
+    return None
 
 
 def timed_press(app, point, before):
@@ -137,13 +162,10 @@ def measure(app, opts, arms, samples, starts):
     HEADLINE still print); it never exits."""
     rows = two_rows(app)
     if not rows:
-        print(f"warm and quick arms: not run (fewer than two sidebar workspace rows in 60 s: {len(app.rows())})", flush=True)
-        return
+        return "fewer than two listed sidebar workspace rows in 60 s (see the two_rows line)"
     points = [(x, y) for _, x, y in rows[:2]]
     if app.press_turns() is None:
-        print("warm and quick arms: not run (debug.input has no prewarm.press_turn_ns: a build without the press timing)",
-              flush=True)
-        return
+        return "debug.input has no prewarm.press_turn_ns: a build without the press timing"
     if "warm" in arms:
         app.rpc("debug.input", {"action": "reset"})
         count, samples["warm"] = 0, []
@@ -162,13 +184,19 @@ def measure(app, opts, arms, samples, starts):
             count = len((app.press_turns() or ([], []))[0])
             samples["quick"].append(value)
         starts.extend((app.press_turns() or ([], []))[1])
+    return None
 
 
 def cold(opts):
     """Per launch, the first press as soon as the sidebar lists two workspace rows."""
     out, starts = [], []
     for index in range(opts.cold_launches):
-        bench = launch(opts.app)
+        try:
+            bench = launch(opts.app)
+        except SystemExit as error:  # a launch refusal or features not on: a missed run with its reason
+            print(f"cold launch {index + 1}: launch failed: {error}", flush=True)
+            out.append(None)
+            continue
         try:
             app = App(bench.socket)
             rows = two_rows(app)
@@ -206,32 +234,46 @@ def main():
     arms = [a for a in opts.arms.split(",") if a]
     if set(arms) - set(bench_arms.ARMS):
         parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
-    samples, starts = {}, []
+    samples, starts, why = {}, [], {}
     if "cold" in arms:
         if opts.app:
             opts.app = os.path.abspath(opts.app.rstrip("/"))
             samples["cold"], cold_starts = cold(opts)
             starts.extend(cold_starts)
         else:
-            print("cold arm: not run (an attached --socket app cannot be launched cold; pass --app)", flush=True)
+            why["cold"] = "an attached --socket app cannot be launched cold; pass --app"
             samples["cold"] = []
-    bench = None
-    if opts.app:
-        opts.app = os.path.abspath(opts.app.rstrip("/"))
-        bench = launch(opts.app)
-        opts.socket = bench.socket
+    bench, reason = None, None
     try:
-        measure(App(opts.socket), opts, arms, samples, starts)
+        if opts.app:
+            bench = launch(opts.app)
+            opts.socket = bench.socket
+        reason = measure(App(opts.socket), opts, arms, samples, starts)
+    except SystemExit as error:  # the warm and quick launch: a refusal or features not on
+        reason = f"launch: {error}"
+    except Exception as error:  # noqa: BLE001 - any failure of the two arms is reported, never lost with the cold samples
+        reason = f"{type(error).__name__}: {error}"
     finally:
         if bench:
             bench.stop()
-    if all(v is None for values in samples.values() for v in values):
-        print("no press turn recorded: is intentPrewarmHover or intentPrewarmPress on in this build?", flush=True)
+    for arm in ("warm", "quick"):
+        if arm in arms and reason:
+            why[arm] = reason
+            samples[arm] = []
+    # Every arm says what it gave before the HEADLINE: its ARM line, or why it did not run.
+    for arm in arms:
+        if why.get(arm):
+            print(f"arm {arm} not run: {why[arm]}", flush=True)
+        elif not samples.get(arm):
+            print(f"arm {arm} not run: no press of this arm was made", flush=True)
+        elif all(v is None for v in samples[arm]):
+            print(f"arm {arm}: every press missed (no press turn recorded)", flush=True)
     result = {"arms": bench_arms.report("prewarm-press", "press_turn_us", "us", samples, out=lambda line: print(line, flush=True))}
     start = bench_arms.stats([round(n / 1000, 2) for n in starts])
     print(f"press_start_us (the press deadline's runs, every arm): n={start['n']} p50={start['p50']} p95={start['p95']} "
           f"p99={start['p99']} max={start['max']} us", flush=True)
     result["press_start_us"] = start
+    result["not_run"] = why
     if opts.json:
         with open(opts.json, "w") as out:
             json.dump(result, out, indent=2)
