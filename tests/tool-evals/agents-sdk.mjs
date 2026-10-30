@@ -179,7 +179,9 @@ export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, ow
         usage = msg.params?.tokenUsage?.total ?? msg.params?.tokenUsage ?? usage;
       } else if (msg.method === "turn/completed") {
         done(msg.params?.turn);
-      } else if (msg.method === "error") {
+      } else if (msg.method === "error" && !msg.params?.willRetry) {
+        // A stream drop Codex retries itself ("Reconnecting... 2/5", willRetry) is not the
+        // end of the turn: 19 of 32 GPT 6 Astra samples stopped on one at step 1.
         done({ error: msg.params });
       }
     }

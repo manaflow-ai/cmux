@@ -10686,6 +10686,9 @@ function AcpmuxPane() {
             // shows a session another app runs (WatchBanner).
             blocked={trustAsk.blocked}
             blockSend={blockSend}
+            closeOnTrustAsk={Boolean(
+              trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"),
+            )}
             authBlock={authBlock}
             accessory={<DictationMic dictation={dictation} />}
             dictating={isWaitingForWords(dictation.state)}
