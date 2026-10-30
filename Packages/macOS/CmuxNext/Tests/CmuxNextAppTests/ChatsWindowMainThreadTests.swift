@@ -107,4 +107,22 @@ import Testing
         windows.connected(send: sent.record)
         #expect(sent.params.count == 2)
     }
+
+    /// Review F1 (#28055): each spec the client sends names its generation (`gen`), and a message
+    /// for an older spec of the window (acpmux answered the requests out of order) is never applied,
+    /// even a full one: the window keeps waiting for its current spec's rows.
+    @Test func aMessageForAnOlderSpecOfTheWindowIsNotApplied() {
+        let windows = AcpmuxChatWindows()
+        let sent = Sent()
+        windows.connected(send: sent.record)
+        windows.open(.init(window: "w", limit: 3))
+        windows.open(.init(window: "w", limit: 5))
+        let gens = sent.params.map { ($0["gen"] as? UInt64) ?? 0 }
+        #expect(gens.count == 2 && gens[1] > gens[0], "each spec names a newer generation: \(gens)")
+        let older: [String: Any] = ["window": "w", "gen": NSNumber(value: gens.first ?? 0), "revision": 1, "full": true,
+                                    "keys": [Self.key(0)], "rows": [["key": Self.key(0), "sessionId": "s0", "harness": "claude-code",
+                                                                     "updatedMs": 1_800_000_000_000]]]
+        if let update = AcpmuxChatWindows.Update(params: older) { windows.apply(update) }
+        #expect(windows.window("w").rows.isEmpty, "the older spec's rows were applied")
+    }
 }

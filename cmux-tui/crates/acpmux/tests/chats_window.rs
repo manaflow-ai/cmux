@@ -272,3 +272,78 @@ async fn chat_projects_are_each_folder_with_its_newest_chat() {
         assert_eq!(row["lastUsedMs"].as_i64().unwrap(), newest_ms(folder), "{row}");
     }
 }
+
+/// Review F1 (#28055): the daemon runs each request as its own task, so two specs of one window sent
+/// back to back may be applied in either order. The client names each spec with a generation
+/// (`gen`); acpmux keeps the highest it saw, ignores an older spec or close, and echoes `gen` in
+/// every message, so the window always ends on the last spec the client sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_last_spec_sent_wins_whatever_order_the_requests_run_in() {
+    const N: usize = 40;
+    let base = PathBuf::from("/tmp").join(format!("acpmux-window-gen-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record(i, i, &format!("chat {i}")))).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+
+    // Many rounds: each sends specs gen 1..=5 (limit = gen) in one burst, then reads the answers.
+    for round in 0..20u64 {
+        let window = format!("w{round}");
+        for g in 1..=5u64 {
+            c.2 += 1;
+            let params = json!({"window": window, "gen": g, "limit": g});
+            c.0.send(Message::request(c.2, "_acpmux/chats_window", params).to_line())
+                .await
+                .unwrap();
+        }
+        let last_id = c.2;
+        let mut last = None;
+        loop {
+            let v = c.next().await;
+            if v["method"] == "_acpmux/chats_window_changed" && v["params"]["window"] == window {
+                last = Some(v["params"].clone());
+            }
+            if v.get("id") == Some(&json!(last_id)) {
+                break;
+            }
+        }
+        // Answers may still be in flight after the last id: read until the gen-5 rows come.
+        let mut last = last.unwrap_or(Value::Null);
+        while last["gen"] != 5 {
+            let v = c.next().await;
+            if v["method"] == "_acpmux/chats_window_changed" && v["params"]["window"] == window {
+                last = v["params"].clone();
+            }
+        }
+        assert_eq!(last["full"], true, "round {round}: {last}");
+        assert_eq!(
+            last["keys"].as_array().unwrap().len(),
+            5,
+            "round {round}: the last spec (limit 5) wins: {last}"
+        );
+        // A close of an older generation is ignored; the window stays.
+        c.ok("_acpmux/chats_window_close", json!({"window": window, "gen": 4})).await;
+        let ack =
+            c.ok("_acpmux/chats_window", json!({"window": window, "gen": 3, "limit": 1})).await;
+        assert_eq!(ack["stale"], true, "round {round}: an older spec is refused as stale: {ack}");
+        c.ok("_acpmux/chats_window_close", json!({"window": window, "gen": 6})).await;
+    }
+}
