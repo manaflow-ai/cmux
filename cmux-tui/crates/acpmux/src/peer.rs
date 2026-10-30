@@ -169,6 +169,8 @@ pub struct Peer {
     link_epoch: AtomicU64,
     /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
     subagent_transcript: AtomicBool,
+    /// Whether the peer serves `_acpmux/native_history` (`hub/native_history.rs`).
+    native_history: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
     /// The peer lists `promptUploads` (`prompt_uploads.rs`).
@@ -262,6 +264,7 @@ impl Peer {
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
+            native_history: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
@@ -711,6 +714,11 @@ impl Peer {
     /// Whether the peer said at its last handshake that it serves subagent transcripts.
     pub fn supports_subagent_transcript(&self) -> bool {
         self.subagent_transcript.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it pages a chat's native history.
+    pub fn supports_native_history(&self) -> bool {
+        self.native_history.load(Ordering::SeqCst)
     }
 
     /// Whether the peer said at its last handshake that it saves a message's attachments.
@@ -1234,6 +1242,7 @@ impl Peer {
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
+            me.native_history.store(lists(crate::hub::NATIVE_HISTORY_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
             me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
             let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);

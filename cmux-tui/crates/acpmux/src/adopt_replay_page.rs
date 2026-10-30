@@ -174,7 +174,14 @@ pub fn claude_page(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
 /// than a page) are paged past, reading at most [`SCAN_MAX_BYTES`] in all. `read` counts every
 /// page read.
 pub fn newest_claude_page(file: &Path, want: usize) -> ClaudePage {
-    let mut page = claude_page(file, None, want);
+    claude_page_with_turns(file, None, want)
+}
+
+/// The newest page of `file` ending at `end` (as [`claude_page`]) that holds turns, paging past
+/// pages that hold none as [`newest_claude_page`] does: the older history a chat pages in
+/// (`hub/native_history.rs`). Empty with `start` 0 once nothing older holds a turn.
+pub fn claude_page_with_turns(file: &Path, end: Option<u64>, want: usize) -> ClaudePage {
+    let mut page = claude_page(file, end, want);
     let mut read = page.read;
     while page.turns.is_empty() && page.start > 0 && read < SCAN_MAX_BYTES {
         page = claude_page(file, Some(page.start), want);

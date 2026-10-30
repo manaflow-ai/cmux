@@ -100,6 +100,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `before`: a `native_history` cursor, a byte offset into the chat's own transcript;
+        // `mark`: the fingerprint that ties it to that transcript.
+        "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),

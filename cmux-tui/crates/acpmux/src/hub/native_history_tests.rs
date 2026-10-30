@@ -1,0 +1,301 @@
+//! A chat seeded from a Claude Code transcript's newest page pages its older turns in from the
+//! transcript (`_acpmux/native_history`), back to its first, each once.
+
+use super::super::Hub;
+use super::{handle, native_seq};
+use serde_json::{Value, json};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+fn home(name: &str) -> PathBuf {
+    let home =
+        std::env::temp_dir().join(format!("acpmux-native-history-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join("projects/-work")).unwrap();
+    home
+}
+
+fn hub(home: &Path) -> Arc<Hub> {
+    let cfg: crate::config::Config = serde_json::from_value(json!({
+        "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"],
+            "env": {"CLAUDE_CONFIG_DIR": home}}},
+        "defaultHarness": "claude", "store": {"mode": "memory"}
+    }))
+    .unwrap();
+    let store = crate::store::open(&cfg.store, home).unwrap();
+    let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat",
+        "harness": "claude", "cwd": home, "status": "idle",
+        "createdAt": 1, "updatedAt": 1, "agentSessionId": "s1"
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// `turns` turns, each a prompt, a tool call and its result, a progress line of `pad` bytes and
+/// an answer.
+fn transcript(file: &Path, turns: usize, pad: usize) {
+    let mut f = std::io::BufWriter::new(std::fs::File::create(file).unwrap());
+    let filler = "x".repeat(pad);
+    for n in 0..turns {
+        let id = format!("toolu_{n}");
+        let lines = [
+            json!({"type": "user", "timestamp": "2026-10-29T10:00:00.000Z",
+                "message": {"role": "user", "content": format!("prompt {n}")}}),
+            json!({"type": "assistant", "timestamp": "2026-10-29T10:00:01.000Z",
+                "message": {"role": "assistant", "content": [{"type": "tool_use", "id": id,
+                    "name": "Bash", "input": {"command": format!("echo {n}")}}]}}),
+            json!({"type": "user", "timestamp": "2026-10-29T10:00:02.000Z",
+                "message": {"role": "user", "content": [{"type": "tool_result",
+                    "tool_use_id": id, "content": "ok"}]}}),
+            json!({"type": "progress", "data": filler}),
+            json!({"type": "assistant", "timestamp": "2026-10-29T10:00:03.000Z",
+                "message": {"role": "assistant", "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": format!("answer {n}")}]}}),
+        ];
+        for line in lines {
+            writeln!(f, "{line}").unwrap();
+        }
+    }
+}
+
+/// The seeded log's prompts and its `native_history` cursor with its mark.
+fn seeded(hub: &Hub) -> (Vec<String>, (u64, String)) {
+    let (mut prompts, mut cursor) = (Vec::new(), (0, String::new()));
+    hub.store
+        .scan_kinds("chat", &["user_message", "native_history"], &mut |rec| {
+            if rec.kind == "user_message" {
+                prompts.push(rec.msg["text"].as_str().unwrap_or_default().to_owned());
+            } else {
+                let mark = rec.msg["mark"].as_str().expect("a seeded cursor has a mark");
+                cursor = (rec.msg["before"].as_u64().unwrap(), mark.to_owned());
+            }
+            true
+        })
+        .unwrap();
+    (prompts, cursor)
+}
+
+fn prompts_of(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e["kind"] == "user_message")
+        .map(|e| e["msg"]["text"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+async fn page(hub: &Arc<Hub>, (before, mark): &(u64, String)) -> Value {
+    handle(hub, &json!({"sessionId": "chat", "before": before, "mark": mark})).await.unwrap()
+}
+
+/// The cursor a reply gives for the page before it.
+fn next(reply: &Value) -> (u64, String) {
+    (reply["before"].as_u64().unwrap(), reply["mark"].as_str().unwrap_or_default().to_owned())
+}
+
+#[tokio::test]
+async fn paging_back_to_zero_reads_every_turn_once() {
+    let home = home("paging");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    // 700 turns: the seeded page holds the newest 200, and three older pages the rest.
+    transcript(&file, 700, 16);
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file.clone()).await;
+    let (mut all, mut cursor) = seeded(&hub);
+    assert_eq!(all.first().map(String::as_str), Some("prompt 500"));
+    assert!(cursor.0 > 0);
+    let mut newer_seq = 1i64;
+    let mut pages = 0;
+    while cursor.0 > 0 {
+        let before = cursor.0;
+        let reply = page(&hub, &cursor).await;
+        let events = reply["events"].as_array().unwrap().clone();
+        assert!(!events.is_empty(), "a page before {before} holds turns");
+        let seqs: Vec<i64> = events.iter().map(|e| e["seq"].as_i64().unwrap()).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "a page's records are in order");
+        assert!(*seqs.last().unwrap() < newer_seq, "an older page sorts before the newer one");
+        assert!(seqs[0] >= -(1i64 << 52), "a safe integer in JavaScript");
+        newer_seq = seqs[0];
+        // A turn's end names its start.
+        let mut started = None;
+        for event in &events {
+            match event["kind"].as_str().unwrap() {
+                "turn_started" => started = event["seq"].as_i64(),
+                "turn_end" | "turn_result" => assert_eq!(event["msg"]["turnSeq"].as_i64(), started),
+                _ => {}
+            }
+        }
+        assert!(events.iter().any(|e| e["kind"] == "tool_call"));
+        let mut older = prompts_of(&events);
+        older.extend(all);
+        all = older;
+        cursor = next(&reply);
+        assert!(cursor.0 < before, "the cursor moves back: {} after {before}", cursor.0);
+        assert_eq!(cursor.1.is_empty(), cursor.0 == 0, "a cursor above 0 has a mark");
+        pages += 1;
+    }
+    let every: Vec<String> = (0..700).map(|n| format!("prompt {n}")).collect();
+    assert_eq!(all, every, "every turn once, in order");
+    assert_eq!(pages, 3);
+    // Nothing was written to the log.
+    assert_eq!(seeded(&hub).0.len(), 200);
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[tokio::test]
+async fn a_page_read_again_has_the_same_seqs() {
+    let home = home("again");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    transcript(&file, 260, 16);
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file.clone()).await;
+    let (_, cursor) = seeded(&hub);
+    let (first, second) = (page(&hub, &cursor).await, page(&hub, &cursor).await);
+    assert_eq!(first["events"], second["events"]);
+    assert_eq!(first["events"][0]["seq"].as_i64(), Some(native_seq(cursor.0, 0)));
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[tokio::test]
+async fn a_watched_chat_pages_its_watched_transcript() {
+    let home = home("watched");
+    let hub = hub(&home);
+    // Not where the Claude store would put it: the watch names it.
+    let file = home.join("elsewhere.jsonl");
+    transcript(&file, 260, 16);
+    let session = hub.resolve("chat").unwrap();
+    session.meta.lock().unwrap().watching = Some(crate::store::Watching {
+        family: "claude".into(),
+        file: file.clone(),
+        offset: std::fs::metadata(&file).unwrap().len(),
+        codex_items: false,
+        open: None,
+    });
+    let start =
+        crate::adopt_replay::newest_prompt_start(&file, crate::adopt_replay::PAGE_TURNS).unwrap();
+    let reply = page(&hub, &(start, super::mark(&file, start).unwrap())).await;
+    let prompts = prompts_of(reply["events"].as_array().unwrap());
+    let want: Vec<String> = (0..60).map(|n| format!("prompt {n}")).collect();
+    assert_eq!(prompts, want);
+    assert_eq!(reply["before"], 0);
+    session.meta.lock().unwrap().watching = None;
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[tokio::test]
+async fn a_cursor_must_be_a_native_history_one() {
+    let home = home("refused");
+    let hub = hub(&home);
+    for params in [
+        json!({"sessionId": "chat"}),
+        json!({"sessionId": "chat", "before": 0, "mark": "1-0"}),
+        json!({"sessionId": "chat", "before": 10}),
+    ] {
+        assert!(handle(&hub, &params).await.is_err(), "{params}");
+    }
+    // A chat whose transcript is not in its store has no native history.
+    assert!(
+        handle(&hub, &json!({"sessionId": "chat", "before": 10, "mark": "1-0"})).await.is_err()
+    );
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// A transcript replaced since its cursor was read (cut, rotated, another conversation written
+/// there) does not page the new file's turns in as the chat's older ones: the cursor is refused.
+#[tokio::test]
+async fn a_cursor_into_a_replaced_transcript_is_refused() {
+    let home = home("replaced");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    transcript(&file, 260, 16);
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file.clone()).await;
+    let (_, cursor) = seeded(&hub);
+    // Appending keeps the cursor good: the bytes it starts are still there.
+    std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
+    assert!(page(&hub, &cursor).await["turns"].as_u64().unwrap() > 0);
+    // Another, longer transcript in its place.
+    transcript(&file, 400, 24);
+    assert!(std::fs::metadata(&file).unwrap().len() > cursor.0);
+    let params = json!({"sessionId": "chat", "before": cursor.0, "mark": cursor.1});
+    let refused = handle(&hub, &params).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "nativeHistory.stale");
+    // A cut one, shorter than the cursor.
+    transcript(&file, 3, 16);
+    let refused = handle(&hub, &params).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "nativeHistory.stale");
+    let _ = std::fs::remove_dir_all(home);
+}
+
+/// The PR's harness (run with `--ignored --nocapture`): a ~400 MB synthetic Claude Code
+/// transcript of tool-heavy turns, adopted, then its older pages read one after another; each
+/// page is timed from the request to its reply.
+#[tokio::test]
+#[ignore = "bench: writes a 400 MB transcript"]
+async fn bench_older_native_page_of_a_400_mb_transcript() {
+    let home = home("bench");
+    let hub = hub(&home);
+    let file = home.join("projects/-work/s1.jsonl");
+    {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&file).unwrap());
+        let output = "o".repeat(20 << 10);
+        for n in 0..810 {
+            let prompt = json!({"type": "user", "timestamp": "2026-10-29T10:00:00.000Z",
+                "message": {"role": "user", "content": format!("prompt {n}")}});
+            writeln!(f, "{prompt}").unwrap();
+            for t in 0..12 {
+                let id = format!("toolu_{n}_{t}");
+                let call = json!({"type": "assistant", "timestamp": "2026-10-29T10:00:01.000Z",
+                    "message": {"role": "assistant", "content": [{"type": "tool_use", "id": id,
+                        "name": "Bash", "input": {"command": format!("echo {n} {t}")}}]}});
+                let result = json!({"type": "user", "timestamp": "2026-10-29T10:00:02.000Z",
+                    "message": {"role": "user", "content": [{"type": "tool_result",
+                        "tool_use_id": id, "content": output}]},
+                    "toolUseResult": {"stdout": output, "stderr": "", "interrupted": false}});
+                writeln!(f, "{call}").unwrap();
+                writeln!(f, "{result}").unwrap();
+            }
+            let answer = json!({"type": "assistant", "timestamp": "2026-10-29T10:00:03.000Z",
+                "message": {"role": "assistant", "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": format!("answer {n}")}]}});
+            writeln!(f, "{answer}").unwrap();
+        }
+    }
+    let len = std::fs::metadata(&file).unwrap().len();
+    let session = hub.resolve("chat").unwrap();
+    hub.replay_adopted(&session, "claude", file.clone()).await;
+    let (_, mut cursor) = seeded(&hub);
+    let mut times = Vec::new();
+    let mut turns = 0;
+    while cursor.0 > 0 && times.len() < 12 {
+        let before = cursor.0;
+        let started = std::time::Instant::now();
+        let reply = page(&hub, &cursor).await;
+        let ms = started.elapsed().as_secs_f64() * 1e3;
+        let bytes = serde_json::to_string(&reply).unwrap().len();
+        times.push(ms);
+        turns += reply["turns"].as_u64().unwrap();
+        println!(
+            "BENCH page={} before={before} turns={} read_mb={:.1} reply_kb={} ms={ms:.1}",
+            times.len(),
+            reply["turns"],
+            reply["read"].as_f64().unwrap() / 1e6,
+            bytes / 1024,
+        );
+        cursor = next(&reply);
+    }
+    let mut sorted = times.clone();
+    sorted.sort_by(f64::total_cmp);
+    println!(
+        "BENCH transcript_mb={:.1} pages={} turns={turns} median_ms={:.1} max_ms={:.1}",
+        len as f64 / 1e6,
+        times.len(),
+        sorted[sorted.len() / 2],
+        sorted.last().unwrap(),
+    );
+    let _ = std::fs::remove_dir_all(home);
+}
