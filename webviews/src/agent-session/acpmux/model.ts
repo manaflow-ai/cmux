@@ -757,6 +757,9 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// How many of the shown chat's turns this client saw end: it only grows, so an end is seen even
+  /// when React draws a turn's start and end as one render (App.tsx `pane.tabState`).
+  turnsEnded?: number;
   /// The running turn's output tokens so far, its model calls' generated tokens added up,
   /// subagents' included (direct.ts `turnTokens`); unset when the harness does not report each
   /// call or the client missed the turn's start.
