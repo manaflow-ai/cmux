@@ -1823,7 +1823,7 @@ jobs:
           permission-administration: read
 
       # The dedicated nightly-next builder first (its warm DerivedData builds the tip
-      # incrementally), waiting up to 5 min while it is busy; then an idle owned Mac; then a
+      # incrementally), waiting up to 1 min while it is busy; then an idle owned Mac; then a
       # moving Blacksmith label. `owned` carries the dedicated label when it is picked.
       - name: Pick the dedicated builder, else an idle owned Mac, else a moving Blacksmith label
         id: pick
