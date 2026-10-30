@@ -99,7 +99,7 @@ struct AccountPage: View {
                 .disabled(deleting)
                 .accessibilityIdentifier("settings.deleteAccount")
             } footer: {
-                Text("Deletes your cmux account and its data for every cmux app, and removes your Macs and phones from the cmux service. This can't be undone.")
+                Text("Permanently deletes your account and data across all cmux apps.")
                     .cmuxMobileTextColumn()
             }
         }
@@ -193,7 +193,7 @@ struct TeamPage: View {
                     }
                 }
             } footer: {
-                Text("Color and icon are yours only; teammates choose their own.").cmuxMobileTextColumn()
+                Text("Only you see these changes.").cmuxMobileTextColumn()
             }
             Section {
                 switch members {
@@ -266,8 +266,6 @@ struct TerminalPage: View {
                     .padding(12)
                     .background(Color.black, in: .rect(cornerRadius: 12, style: .continuous))
                     .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-            } footer: {
-                Text("Applies to open terminals at once.").cmuxMobileTextColumn()
             }
             Section {
                 NavigationLink(value: SettingsRoute.terminalSizing) {
@@ -275,7 +273,7 @@ struct TerminalPage: View {
                 }
                 .accessibilityIdentifier("settings.terminalSizing")
             } footer: {
-                Text("Which device's size a terminal takes when this iPhone and the Mac show it at once.")
+                Text("Choose which device controls the shared terminal's size.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -283,7 +281,7 @@ struct TerminalPage: View {
             } header: {
                 Text("Code").cmuxMobileTextColumn()
             } footer: {
-                Text("Key clicks sound when you tap the keys above the keyboard. They follow the ring/silent switch.").cmuxMobileTextColumn()
+                Text("Key clicks follow the silent switch.").cmuxMobileTextColumn()
             }
         }
         .settingsPage("Terminal")
@@ -307,7 +305,7 @@ struct ComposerPage: View {
                 }
                 .pickerStyle(.menu)
             } footer: {
-                Text("Queue sends after the current turn. Steer interrupts the agent.").cmuxMobileTextColumn()
+                Text("Queue waits for the current turn; Steer interrupts it.").cmuxMobileTextColumn()
             }
         }
         .settingsPage("Composer")
@@ -347,7 +345,7 @@ struct NotificationsPage: View {
                 .accessibilityIdentifier("settings.notifications.allow")
             } footer: {
                 if !push {
-                    Text("For Chief's replies, while cmux is open or still running in the background.").cmuxMobileTextColumn()
+                    Text("Chief alerts require cmux to stay running.").cmuxMobileTextColumn()
                 }
             }
             if push {
@@ -396,7 +394,7 @@ struct NotificationsPage: View {
             } header: {
                 Text("Notify me").cmuxMobileTextColumn()
             } footer: {
-                if off { Text("Turn on notifications in iOS Settings to choose what you get.").cmuxMobileTextColumn() }
+                if off { Text("Enable notifications in iOS Settings.").cmuxMobileTextColumn() }
             }
             if !macs.isEmpty {
                 Section {
@@ -416,8 +414,8 @@ struct NotificationsPage: View {
                     .accessibilityIdentifier("settings.notifications.previews")
             } footer: {
                 Text(self.settings.notifyPreviews
-                    ? "Notifications show the question, the command or the last lines, so you can answer from the notification."
-                    : "The lock screen shows only who needs you and on which Mac.")
+                    ? "Notifications include the question or recent output."
+                    : "The lock screen shows only who needs you and the Mac.")
                     .cmuxMobileTextColumn()
             }
         }
@@ -434,6 +432,7 @@ struct NotificationsPage: View {
 /// builds add the Relay only developer switch.
 struct TransportPage: View {
     let settings: SettingsStore
+    let store: AppStore
     /// Whether the service has a relay (nil: not known yet).
     let relayAvailable: Bool?
     #if DEBUG
@@ -453,10 +452,7 @@ struct TransportPage: View {
                         theme.haptics.selection()
                     } label: {
                         HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
-                                UnbrokenText(Self.subtitle(kind), style: .footnote).foregroundStyle(theme.colors.label2)
-                            }
+                            UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
                             Spacer(minLength: 8)
                             Image(systemName: "checkmark")
                                 .font(.body.weight(.semibold))
@@ -477,9 +473,15 @@ struct TransportPage: View {
                     Text("Switching reconnects to your Macs.")
                 }
             }
+            #if !DEBUG
+            Section {
+                TransportDetails(store: store)
+            }
+            #endif
             #if DEBUG
             // No icons, as the transport choices above: the page keeps one text column.
             Section {
+                TransportDetails(store: store, explainsDeveloperOptions: true)
                 Toggle(isOn: $relayOnly) {
                     Text("Relay only")
                 }
@@ -497,21 +499,54 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
             } header: {
                 Text("Developer")
-            } footer: {
-                Text(relayAvailable == false
-                     ? "Relay unavailable."
-                     : "Relay only: always through TURN, as from a distant network. Block UDP (WireGuard; WebRTC ignores it): as on a network that passes only TCP: WireGuard rides TURN over TLS on port 443. Both apply at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
             }
             #endif
         }
         .settingsPage("Transport")
     }
 
-    static func subtitle(_ kind: TransportKind) -> String {
-        switch kind {
-        case .wireguard: String(localized: "Encrypted tunnel to your Mac. Browser tabs stream over WebRTC when that is faster.")
-        case .webrtc: String(localized: "Everything over one WebRTC connection, direct when possible.")
+}
+
+/// Live connection information is available on demand without filling normal status lines.
+struct TransportDetails: View {
+    let store: AppStore
+    var explainsDeveloperOptions = false
+    #if DEBUG
+    @State private var expanded = UserDefaults.standard.bool(forKey: "cmux-mobile-transport-details")
+    #else
+    @State private var expanded = false
+    #endif
+
+    var body: some View {
+        DisclosureGroup("Connection details", isExpanded: $expanded) {
+            if store.macLinkDiagnostics.isEmpty {
+                Text("No active connections.")
+                    .foregroundStyle(theme.colors.label2)
+            } else {
+                ForEach(store.macLinkDiagnostics.keys.sorted(), id: \.self) { macID in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
+                            .font(theme.type.rowTitle)
+                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .textSelection(.enabled)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            #if DEBUG
+            if explainsDeveloperOptions {
+                Text("Relay only forces TURN. Block UDP uses TURN over TLS for WireGuard; WebRTC is unchanged. Both reconnect immediately.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                Text("Browser video on channel skips the media lane at the next connection.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+            }
+            #endif
         }
+        .accessibilityIdentifier("settings.transport.details")
     }
 }
 

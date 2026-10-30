@@ -199,7 +199,11 @@ impl Hub {
                 client: client.to_owned(),
                 text: text.clone(),
                 control,
-                continues: super::carried_turn::Continues { from, trust_gate },
+                continues: super::carried_turn::Continues {
+                    from,
+                    trust_gate,
+                    reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
+                },
             };
             now.sent.insert(prompt_id.clone(), sent);
             now.step.remove(&prompt_id) || opts.steer_now
