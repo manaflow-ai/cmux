@@ -684,7 +684,8 @@ const railLanded = (index: number) =>
 const railActions: LatencyAction[] = [
   {
     name: "hover card",
-    hover: true,
+    // A hover has no click or key: the pointer arriving on the tick is the input.
+    inputEvent: "pointerover",
     async prepare(page) {
       await railRest(page);
       const point = await railPoint(page);

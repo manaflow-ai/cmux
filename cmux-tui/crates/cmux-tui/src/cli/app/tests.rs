@@ -196,6 +196,32 @@ fn cloud_is_an_app_scope() {
     assert!(APP_SCOPES.contains(&"cloud"));
 }
 
+/// `cmux home invite-to-team --email …` (and its alias `cmux team invite`) runs
+/// the app's `home.inviteToTeam`, whose dialog waits for the person's Send, so
+/// the CLI (and `cmux mcp`) wait as long as the app's person deadline.
+#[test]
+fn invite_to_team_runs_the_home_action_and_waits_for_the_person() {
+    for words in [
+        &["home", "invite-to-team", "--email", "leo@cmux.com"][..],
+        &["team", "invite", "--email", "leo@cmux.com"][..],
+    ] {
+        let sent = match parse(&args(words)) {
+            Ok(Some(AppCommand::Call { method, params, timeout, .. })) => {
+                Some((method, params, timeout))
+            }
+            _ => None,
+        };
+        assert!(sent.is_some(), "{words:?}: expected one action.run call");
+        if let Some((method, params, timeout)) = sent {
+            assert_eq!(timeout, Some(PERSON_RUN_TIMEOUT), "{words:?}");
+            assert_eq!(method, "action.run");
+            assert_eq!(params["action"], "home invite-to-team", "{words:?}");
+            assert_eq!(params["args"], json!({ "email": "leo@cmux.com" }), "{words:?}");
+        }
+    }
+    assert_eq!(waiting_run_timeout("home.inviteToTeam"), PERSON_RUN_TIMEOUT);
+}
+
 #[test]
 fn action_runs_wait_by_default_and_no_wait_opts_out() {
     let (_, params) = call(parse(&args(&["action", "run", "window.new"])).unwrap().unwrap());

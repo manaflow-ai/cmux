@@ -83,8 +83,15 @@ export default agentPaneEntry({
       snapshot: failed("failed to spawn agent: spawn claude-code-acp ENOENT"),
     },
     "rate-limited": {
-      note: "Capacity: Switch model is the way out, Retry beside it.",
+      note: "Capacity after the turn did work (Lawrence 2026-10-29): Continue leads and resumes the turn with its context (Return on the focused card), Switch model beside it.",
       snapshot: failed("API Error: 529 overloaded_error"),
+    },
+    "rate-limited-before-work": {
+      note: "Capacity before anything ran: Retry leads and sends the prompt again, Switch model beside it.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
+      ]),
     },
     "context-full": {
       note: "A long chat that outgrew the model's context window: Compact (the agent's /compact) first, Retry after it. Before, it read as an unknown failure whose Retry failed the same way.",

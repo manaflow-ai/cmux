@@ -178,6 +178,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "session.persist":
     case "chat.persistSession":
     case "pane.checkpointAvailability":
+    case "pane.commandAvailability":
     case "pane.renderRate":
     case "pane.tabRowTools":
     case "newTab.remember":
@@ -202,8 +203,12 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "file.open":
     case "link.openPath":
       return openFile(host, request.params);
+    // The folder's trust is acpmux's answer, which the pane's own daemon client gives once it is
+    // bound (App.tsx registers acp.trust.get on window.cmuxAcpmuxActions). A read before that
+    // reaches this host, which can't say: an invented "unknown" drew a Trust card over a folder
+    // acpmux trusts until the client's read cleared it, shifting the chat (chat-open-long).
     case "acp.trust.get":
-      return { ok: true, value: { cwd: request.params?.cwd ?? host.cwd, level: "unknown" } };
+      return unsupported(method);
     case "acp.trust.set":
       return { ok: true, value: { cwd: request.params?.cwd ?? host.cwd, level: request.params?.level ?? "unknown" } };
     case "pane.context":

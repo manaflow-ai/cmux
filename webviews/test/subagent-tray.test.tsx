@@ -1157,3 +1157,29 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     }
   });
 });
+
+describe("a failed sub-session's line", () => {
+  test("says why its chat failed, as acpmux recorded it on the chat's own session row", async () => {
+    const { SubagentDoneLine } = await import("../src/agent-session/acpmux/subagents/SubagentDoneLine");
+    const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+    const store = new SubsessionStore();
+    store.set([{ sessionId: "child", startedBy: "parent", lane: "failed", laneError: "model overloaded" }]);
+    const failed = agent("Overview", { state: "failed", endedAt: at(40), child: "child" });
+    const { root, done } = await render(
+      createElement(
+        SubsessionContext.Provider,
+        { value: { store, open: () => {} } },
+        createElement(SubagentDoneLine, {
+          row: row(`${SUBAGENT_DONE}:Overview`, SUBAGENT_DONE, 40, { subagents: [failed] }),
+        }),
+      ),
+    );
+    try {
+      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+        "Subagent failed: Overview · 30s · model overloaded",
+      );
+    } finally {
+      await done();
+    }
+  });
+});
