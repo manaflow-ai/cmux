@@ -203,9 +203,10 @@ def run_metrics(run):
     answers = [a for w in series["waves"] for a in (w.get("answers") or [x for chat in w.get("chats") or [] for x in chat])]
     # One chat = the first answer of a one_chat attempt: session/new, or the connection that failed first.
     # An empty chat (written by drivers before a84ddb0e414's fix) is a failed open: it never got an answer.
+    # Drivers before 152ee4f4d1e wrote "chats": <the wave size> (an int): only a list is a chat record.
     chat_firsts = [(chat[0] if chat else {"method": "connection", "error": "no answer"})
-                   for w in series["waves"] for chat in (w.get("chats") or [])
-                   if isinstance(chat, list)]
+                   for w in series["waves"] if isinstance(w.get("chats"), list)
+                   for chat in w["chats"] if isinstance(chat, list)]
     if not any(isinstance(w.get("chats"), list) for w in series["waves"]):
         # Runs from before the per-chat record: one chat per session/new; their failed connections cannot be
         # told apart from a later error of a chat, so they are not counted (an undercount, said in the README).

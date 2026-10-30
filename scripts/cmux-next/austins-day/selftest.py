@@ -348,6 +348,24 @@ class ChatRecord(unittest.TestCase):
             self.assertTrue(m["austin_failure"]["acpmux_open_failures"])
 
 
+class OldRuns(unittest.TestCase):
+    def test_a_run_from_before_the_chat_record_is_read(self):
+        """Drivers before 152ee4f4d1e (the A/A's 02ebc4c61a0 among them) wrote "chats": 25 per wave: the
+        summary must read them through the session/new fallback, not raise."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_ = synthetic_run()
+            run_["series"]["waves"] = [{"chats": 25, "answers": [
+                {"method": "session/new", "ms": 40.0, "error": None},
+                {"method": "session/prompt", "ms": 900.0, "error": None},
+                {"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"}]}]
+            d = os.path.join(tmp, "run-1")
+            os.makedirs(d)
+            with open(os.path.join(d, "run.json"), "w") as f:
+                json.dump(run_, f)
+            m = summarize(os.path.join(tmp, "s.json"), [d])["runs"][0]["metrics"]
+            self.assertEqual((m["acpmux_opens"], m["acpmux_open_failures"]), (2, 1))
+
+
 class AgentFaults(unittest.TestCase):
     def test_missing_or_unhooked_agents_void_the_ab(self):
         head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
