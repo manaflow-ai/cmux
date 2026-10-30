@@ -27,6 +27,8 @@ public final class ScreenSharingOrientation {
     func end() {
         guard isPresenting else { return }
         isPresenting = false
+        // A lock chosen in this session's menu ends with it.
+        ScreenOrientation.shared.lock(.auto)
         update(.portrait)
     }
 

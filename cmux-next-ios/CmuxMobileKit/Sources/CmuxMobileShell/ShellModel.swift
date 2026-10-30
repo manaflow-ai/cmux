@@ -613,6 +613,7 @@ extension ShellModel {
         guard signedIn else {
             screenSharing?.stop()
             screenSharing = nil
+            ScreenSharingService.current = nil
             return
         }
         guard screenSharing == nil else { return }
@@ -628,7 +629,9 @@ extension ShellModel {
             deviceName: UIDevice.current.name,
             tokens: DeviceHubAccountToken { try await auth.accessToken() }
         )
-        screenSharing = ScreenSharingService(configuration: configuration)
+        let service = ScreenSharingService(configuration: configuration)
+        screenSharing = service
+        ScreenSharingService.current = service
     }
 }
 #endif
