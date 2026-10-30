@@ -99,50 +99,53 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     Ok(page(sessions, Some(next.map_or(Value::Null, Value::String))))
 }
 
-/// A page of `sorted` cut by bytes rather than by count, for a reply that has no `limit` to
-/// page by (ACP's `session/list`): the rows from `cursor` on (a `nextCursor` of this list)
-/// whose `size`s fit in `budget`, at least one, and the cursor after the last of them when
-/// rows are left. The cursor tells rows apart by id and peer, so a chat here and its copies on
-/// peers each have their own. Rows it still cannot tell apart (one id, one peer and one
-/// `updatedAt`, which one list does not hold unless their keys collide) are told apart by
-/// their order: a page that ends on the n-th of them names it `<cursor>.<n>`, so paging ends
-/// and no page has to hold them all.
-pub(crate) fn byte_page(
-    sorted: &[Value],
+/// A page of `rows` cut by bytes rather than by count, for a reply that has no `limit` to page
+/// by (ACP's `session/list`): the rows after `cursor` (a `nextCursor` of this list) whose
+/// `size`s fit in `budget`, at least one, and the cursor after the last of them when rows are
+/// left. Pages go by `sessionId`, then `peer` (this daemon's own first), not newest first, and
+/// the cursor names that pair: a session that updates or leaves while a client pages moves no
+/// other, so none is skipped or repeated. A row listed twice (one id, one peer) comes once.
+pub(crate) fn byte_page<'a>(
+    rows: &'a [Value],
     cursor: Option<&str>,
     budget: usize,
     size: impl Fn(&Value) -> usize,
-) -> Result<(std::ops::Range<usize>, Option<String>), RpcError> {
-    let start = match cursor {
-        None => 0,
-        Some(text) => {
-            let bad = || RpcError::invalid_params(format!("cursor {text:?} is not a cursor"));
-            let (key, nth) = match text.split('.').count() {
-                3 => {
-                    let (key, nth) = text.rsplit_once('.').ok_or_else(bad)?;
-                    (key, nth.parse::<usize>().ok().filter(|n| *n >= 2).ok_or_else(bad)?)
-                }
-                _ => (text, 1),
-            };
-            SessionCursor::parse(key).ok_or_else(bad)?.start_after(sorted, nth)
-        }
+) -> Result<(Vec<&'a Value>, Option<String>), RpcError> {
+    let after = match cursor {
+        None => None,
+        Some(text) => Some(
+            text.strip_prefix("i:")
+                .and_then(|key| serde_json::from_str::<(String, Option<String>)>(key).ok())
+                .ok_or_else(|| {
+                    RpcError::invalid_params(format!("cursor {text:?} is not a cursor"))
+                })?,
+        ),
     };
-    let (mut end, mut used) = (start, 0);
+    let mut sorted: Vec<&Value> = rows
+        .iter()
+        .filter(|row| {
+            after.as_ref().is_none_or(|(id, peer)| key(row) > (id.as_str(), peer.as_deref()))
+        })
+        .collect();
+    // Stable, so of a row listed twice the first is kept.
+    sorted.sort_by(|a, b| key(a).cmp(&key(b)));
+    sorted.dedup_by(|a, b| key(a) == key(b));
+    let (mut end, mut used) = (0, 0);
     while let Some(row) = sorted.get(end) {
         // One more byte for the comma between rows.
         let bytes = size(row) + 1;
-        if end > start && used + bytes > budget {
+        if end > 0 && used + bytes > budget {
             break;
         }
         used += bytes;
         end += 1;
     }
     let next = (end < sorted.len()).then(|| {
-        let last = SessionCursor::after(&sorted[end - 1]);
-        let nth = sorted[..end].iter().filter(|s| SessionCursor::after(s) == last).count();
-        if nth > 1 { format!("{}.{nth}", last.to_text()) } else { last.to_text() }
+        let (id, peer) = key(sorted[end - 1]);
+        format!("i:{}", json!([id, peer]))
     });
-    Ok((start..end, next))
+    sorted.truncate(end);
+    Ok((sorted, next))
 }
 
 /// IDs are immutable: an unread session updating between pages cannot be lost.
@@ -286,19 +289,6 @@ impl SessionCursor {
                 sorted.iter().position(|s| stamp(s) <= self.updated_ms).unwrap_or(sorted.len())
             })
     }
-
-    /// [`Self::start`] after the `nth` row the cursor names, or after the last of them when
-    /// fewer are left.
-    fn start_after(self, sorted: &[Value], nth: usize) -> usize {
-        let named = |s: &&Value| stamp(s) == self.updated_ms && row_key(s) == self.key;
-        sorted
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| named(s))
-            .take(nth)
-            .last()
-            .map_or_else(|| self.start(sorted), |(at, _)| at + 1)
-    }
 }
 
 fn updated_ms(session: &Value) -> u64 {
@@ -322,6 +312,11 @@ fn peer(session: &Value) -> Option<&str> {
     session.get("peer").and_then(Value::as_str)
 }
 
+/// Where a row stands in [`byte_page`]'s order.
+fn key(session: &Value) -> (&str, Option<&str>) {
+    (session_id(session), peer(session))
+}
+
 /// FNV-1a of the session id, then, for a peer's row, a NUL and the peer's name: the same in
 /// every daemon run, and this daemon's own rows keep the key they had before peers were in it.
 fn row_key(session: &Value) -> u64 {
@@ -336,74 +331,81 @@ fn row_key(session: &Value) -> u64 {
 mod tests {
     use super::*;
 
-    /// Two rows with one id, one peer and one `updatedAt` (a row listed twice) share a cursor.
-    /// Across a page edge the second still comes once, and paging ends.
-    #[test]
-    fn byte_pages_read_rows_one_cursor_names_once() {
-        let rows = vec![
-            json!({"sessionId": "a", "updatedAt": 9}),
-            json!({"sessionId": "dup", "updatedAt": 5}),
-            json!({"sessionId": "dup", "updatedAt": 5}),
-            json!({"sessionId": "z", "updatedAt": 1}),
-        ];
-        let size = |_: &Value| 10;
-        let read = |budget: usize| {
-            let (mut ids, mut cursor) = (Vec::new(), None::<String>);
-            loop {
-                let (range, next) = byte_page(&rows, cursor.as_deref(), budget, size).unwrap();
-                // Over budget only with one row: the pair never has to share a page.
-                assert!(range.len() == 1 || range.len() * 11 <= budget, "{range:?} in {budget}");
-                ids.extend(rows[range].iter().map(|r| r["sessionId"].as_str().unwrap()));
-                assert!(ids.len() <= rows.len(), "{ids:?}");
-                match next {
-                    Some(next) => cursor = Some(next),
-                    None => return ids,
-                }
+    fn name(row: &Value) -> String {
+        format!("{}{}", session_id(row), peer(row).map_or(String::new(), |p| format!("@{p}")))
+    }
+
+    /// Every page `budget` cuts, read from the first, with `between` run on the rows after
+    /// each page.
+    fn read_pages(
+        rows: &mut Vec<Value>,
+        budget: usize,
+        mut between: impl FnMut(&mut Vec<Value>, usize),
+    ) -> Vec<String> {
+        let (mut read, mut cursor, mut pages) = (Vec::new(), None::<String>, 0);
+        loop {
+            let (page, next) = byte_page(rows, cursor.as_deref(), budget, |_| 10).unwrap();
+            // Over budget only with one row.
+            assert!(page.len() == 1 || page.len() * 11 <= budget, "{} in {budget}", page.len());
+            read.extend(page.into_iter().map(name));
+            assert!(read.len() <= rows.len() + 1, "{read:?}");
+            pages += 1;
+            match next {
+                Some(next) => cursor = Some(next),
+                None => return read,
             }
-        };
-        // A page edge before the pair, inside it, a page per row (the pair split), all in one.
-        for budget in [25, 35, 5, 100] {
-            assert_eq!(read(budget), ["a", "dup", "dup", "z"], "budget {budget}");
+            between(rows, pages);
+            sort_session_summaries(rows);
         }
     }
 
-    /// A chat here and its copies on two peers, one `updatedAt`: each has its own cursor, so a
-    /// copy that leaves after its page was read neither skips nor repeats another.
+    /// A chat here, its copies on two peers and a row listed twice: at every budget each
+    /// comes once, by id then peer, this daemon's own first.
     #[test]
-    fn copies_of_a_chat_on_peers_page_by_their_own_cursors() {
+    fn byte_pages_read_each_row_once_by_id_then_peer() {
         let mut rows = vec![
-            json!({"sessionId": "a", "updatedAt": 9}),
+            json!({"sessionId": "z", "updatedAt": 1}),
             json!({"sessionId": "dup", "updatedAt": 5, "peer": "p2"}),
+            json!({"sessionId": "a", "updatedAt": 9}),
             json!({"sessionId": "dup", "updatedAt": 5}),
             json!({"sessionId": "dup", "updatedAt": 5, "peer": "p1"}),
-            json!({"sessionId": "z", "updatedAt": 1}),
+            json!({"sessionId": "a", "updatedAt": 9}),
         ];
         sort_session_summaries(&mut rows);
-        let name = |row: &Value| {
-            format!("{}{}", session_id(row), peer(row).map_or(String::new(), |p| format!("@{p}")))
-        };
-        assert_eq!(
-            rows.iter().map(name).collect::<Vec<_>>(),
-            ["a", "dup", "dup@p1", "dup@p2", "z"]
-        );
-        // One row a page.
-        let page =
-            |rows: &[Value], cursor: Option<&str>| byte_page(rows, cursor, 11, |_| 10).unwrap();
-        let (mut read, mut cursor) = (Vec::new(), None::<String>);
-        for _ in 0..3 {
-            let (range, next) = page(&rows, cursor.as_deref());
-            read.extend(rows[range].iter().map(name));
-            cursor = next;
+        for budget in [5, 11, 25, 35, 100] {
+            assert_eq!(
+                read_pages(&mut rows.clone(), budget, |_, _| {}),
+                ["a", "dup", "dup@p1", "dup@p2", "z"],
+                "budget {budget}"
+            );
         }
-        assert_eq!(read, ["a", "dup", "dup@p1"]);
-        // This daemon's copy leaves before the next page: p2's still comes, once, then "z".
-        rows.remove(1);
-        while let Some(at) = cursor {
-            let (range, next) = page(&rows, Some(&at));
-            read.extend(rows[range].iter().map(name));
-            cursor = next;
-        }
-        assert_eq!(read, ["a", "dup", "dup@p1", "dup@p2", "z"]);
+        let bad = |cursor| byte_page(&rows, Some(cursor), 11, |_| 10).is_err();
+        assert!(bad("k5.0011") && bad("i:") && bad("i:[1]") && bad("dup"));
+    }
+
+    /// Between pages an unread session becomes the newest, and a read one and an unread copy
+    /// leave: no row is skipped or repeated.
+    #[test]
+    fn byte_pages_hold_their_place_while_sessions_update_and_leave() {
+        let mut rows = vec![
+            json!({"sessionId": "a", "updatedAt": 9}),
+            json!({"sessionId": "b", "updatedAt": 8}),
+            json!({"sessionId": "c", "updatedAt": 7}),
+            json!({"sessionId": "c", "updatedAt": 7, "peer": "p1"}),
+            json!({"sessionId": "c", "updatedAt": 7, "peer": "p2"}),
+            json!({"sessionId": "d", "updatedAt": 6}),
+        ];
+        let read = read_pages(&mut rows, 11, |rows, pages| match pages {
+            // After "a": unread "b" is updated, to the top of the newest-first list.
+            1 => rows
+                .iter_mut()
+                .filter(|r| r["sessionId"] == "b")
+                .for_each(|r| r["updatedAt"] = json!(10)),
+            // After "b" and "c": read "c" and unread "c@p1" leave.
+            3 => rows.retain(|r| !(r["sessionId"] == "c" && peer(r) != Some("p2"))),
+            _ => {}
+        });
+        assert_eq!(read, ["a", "b", "c", "c@p2", "d"]);
     }
 
     #[test]

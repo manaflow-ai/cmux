@@ -143,8 +143,9 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
 
 /// ACP's `session/list`: every session, its summary under `_meta.acpmux`. A list too large
 /// for one message (one daemon's was 17 MB with 5241 rows, 2026-10-30) goes in pages of at most
-/// [`ACP_PAGE_BYTES`], each with the `nextCursor` ACP's client follows; one that fits goes whole,
-/// as before.
+/// [`ACP_PAGE_BYTES`], each with the `nextCursor` ACP's client follows, by `sessionId` rather
+/// than newest first ([`byte_page`](crate::hub::session_pages::byte_page)); one that fits goes
+/// whole, newest first, as before.
 pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
     let cursor = match params.get("cursor") {
@@ -169,7 +170,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
             let row = |s: &Value| acp_row_within(s, budget);
             let size = |s: &Value| row(s).to_string().len();
             let (page, next) = crate::hub::session_pages::byte_page(rows, cursor, budget, size)?;
-            let sessions: Vec<Value> = rows.get(page).unwrap_or_default().iter().map(row).collect();
+            let sessions: Vec<Value> = page.into_iter().map(row).collect();
             let mut result = json!({"sessions": sessions});
             if let Some(next) = next {
                 result["nextCursor"] = Value::String(next);
