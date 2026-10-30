@@ -45,6 +45,14 @@ impl Hub {
         plan.started && (!plan.end_agents || plan.keep.contains(&session.id))
     }
 
+    /// `f`, unless a shutdown began, under the shutdown's plan: the shutdown begins wholly before
+    /// or after it. For a record the next daemon acts on (a scheduled retry, `auto_resume.rs`),
+    /// which a check before writing it would leave to a shutdown beginning in between.
+    pub(super) fn before_shutdown<T>(&self, f: impl FnOnce() -> T) -> Option<T> {
+        let plan = self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        (!plan.started).then(f)
+    }
+
     pub(crate) fn shutting_down(&self) -> bool {
         // A poisoned plan still says whether the shutdown began.
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
