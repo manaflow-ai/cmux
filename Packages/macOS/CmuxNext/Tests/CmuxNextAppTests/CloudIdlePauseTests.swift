@@ -393,6 +393,21 @@ struct CloudIdlePauseTests {
         #expect(f.services.machines.session(f.session.machineID) == nil)
     }
 
+    /// A failed read must release a removal already deferred by an earlier list.
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedRecordReadFinishesAnAlreadyDeferredRemoval() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let cloud = f.services.cloud
+        let list = cloud.beginRecordRead()
+        let status = cloud.beginRecordRead()
+        cloud.reconcile([], read: list)
+        #expect(f.services.machines.session(f.session.machineID) === f.session)
+        cloud.finishRecordRead(status)
+        #expect(f.services.machines.session(f.session.machineID) == nil,
+                "failure retries the removal without waiting for another refresh")
+        #expect(f.session.linkPhase == .idle)
+    }
+
     /// A newer list that first shows a machine (and creates its session) holds that machine's
     /// ticket: an older list landing after it without the machine does not remove it, and an
     /// older Machine Status record does not overwrite it.
