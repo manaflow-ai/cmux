@@ -7132,26 +7132,48 @@ function AcpmuxPane() {
   // drawing the host's kept tail when there is one). The New Tab screen goes in the event's own render,
   // and the chat's first drawn frame is reported as this page's first paint again: the host keeps
   // the page out of sight until then.
-  const adoptSession = useCallback(({ sessionId, revealTurn }: SessionAdoption) => {
-    const client = directClient.current;
-    const select = window.cmuxAcpmuxActions?.["chat.select"];
-    if (!client || !select) return;
-    client.bindToSession(sessionId);
-    paintReported.current = false;
-    setAdoptingSession(sessionId);
-    setAwaitsChat(true);
-    setNewTab(undefined);
-    setNewSession(false);
-    setPastTurns(undefined);
-    setProjectDraft(undefined);
-    void select({ sessionId }).then(
-      () => {
-        if (revealTurn) revealRef.current(revealTurn);
+  // An adoption that came before this page's client connected (the host takes a spare whose New Tab
+  // frame is drawn, which can be before its connect answers) runs once the client's actions are in.
+  const pendingAdoption = useRef<SessionAdoption | undefined>(undefined);
+  const runAdoption = useCallback(async ({ sessionId, revealTurn }: SessionAdoption) => {
+    // Where the reader left this chat, before its rows draw, as a tab opened on it reads it.
+    const anchor = await fetchScrollAnchor(sessionId);
+    const adopt = window.cmuxAcpmuxActions?.["chat.adopt"];
+    if (!adopt) {
+      pendingAdoption.current = { sessionId, ...(revealTurn ? { revealTurn } : {}) };
+      return;
+    }
+    setScrollAnchor(anchor);
+    await adopt({ sessionId }).then(
+      (selected) => {
+        if (selected && revealTurn) revealRef.current(revealTurn);
+        // A chat the daemon does not list draws why, which is this page's first paint too.
+        if (!selected) setAdoptingSession((current) => (current === sessionId ? undefined : current));
       },
       // A chat that could not be read says so in the chat view (a missing chat, a failed open).
       () => setAdoptingSession((current) => (current === sessionId ? undefined : current)),
     );
   }, []);
+  const runPendingAdoption = useRef(() => {});
+  runPendingAdoption.current = () => {
+    const pending = pendingAdoption.current;
+    pendingAdoption.current = undefined;
+    if (pending && directClient.current?.selectedSession !== pending.sessionId) void runAdoption(pending);
+  };
+  const adoptSession = useCallback(
+    (adoption: SessionAdoption) => {
+      directClient.current?.bindToSession(adoption.sessionId);
+      paintReported.current = false;
+      setAdoptingSession(adoption.sessionId);
+      setAwaitsChat(true);
+      setNewTab(undefined);
+      setNewSession(false);
+      setPastTurns(undefined);
+      setProjectDraft(undefined);
+      void runAdoption(adoption);
+    },
+    [runAdoption],
+  );
   useSessionAdoption(adoptSession);
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
   // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
@@ -8141,6 +8163,15 @@ function AcpmuxPane() {
             const ids = Array.isArray(sessionIds) ? sessionIds : [sessionId];
             for (const id of ids) if (id) client.prefetch(String(id));
           },
+          // The host's spare page taking a tab's chat (adoptSession, above): opened as a pick is.
+          "chat.adopt": async ({ sessionId }) => {
+            newTabStartGeneration.current += 1;
+            harnessSwitch.cancel();
+            const selected = await client.adoptSession(String(sessionId));
+            if (!selected || client.attachedSession() !== selected) return undefined;
+            await persistSession(selected);
+            return selected;
+          },
           "chat.select": async ({ sessionId }) => {
             newTabStartGeneration.current += 1;
             harnessSwitch.cancel();
@@ -8507,6 +8538,8 @@ function AcpmuxPane() {
             };
           },
         };
+        // An adoption that came while this page was still connecting runs on this client.
+        runPendingAdoption.current();
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
           snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current) : undefined,

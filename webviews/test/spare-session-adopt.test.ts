@@ -9,7 +9,9 @@
 //   - the New Tab page's client, bound to the chat, draws the chat the host kept before its attach
 //     answers, and reports it read for that chat (the page's first paint, App.tsx `adoptionDrawn`);
 //   - bound, it is that tab's page: a chat the daemon drops is called missing, never replaced by
-//     another chat, as a page whose handshake named the session (`sessionMustExist`).
+//     another chat, as a page whose handshake named the session (`sessionMustExist`);
+//   - a chat the daemon does not list when the page adopts it is the tab's missing chat (the pane
+//     says why, chatUnavailable.ts), never an empty chat, and nothing is attached for it.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -222,4 +224,26 @@ test("bound to its chat, the adopted page never falls back to another one", asyn
   await flush();
   expect(page.last()?.sessionId).toBeUndefined();
   expect(daemon.attaches).not.toContain("newest");
+});
+
+test("a chat the daemon does not list is the adopted tab's missing chat, never an empty one", async () => {
+  const chat = "adopt-gone";
+  const daemon = new Daemon(["newest"]);
+  const page = await spare(daemon);
+  expect(await page.client.adoptSession(chat)).toBeUndefined();
+  await flush();
+  expect(page.last()?.sessionId).toBeUndefined();
+  expect(page.last()?.missingSession).toBe(chat);
+  expect(page.last()?.missingReason).toBe("notListedAtOpen");
+  expect(daemon.attaches).toEqual([]);
+});
+
+test("a listed chat the page adopts opens as a pick opens it", async () => {
+  const chat = "adopt-listed";
+  const daemon = new Daemon([chat, "newest"]);
+  const page = await spare(daemon);
+  expect(await page.client.adoptSession(chat)).toBe(chat);
+  expect(page.last()?.sessionId).toBe(chat);
+  expect(page.last()?.missingSession).toBeUndefined();
+  expect(daemon.attaches).toEqual([chat]);
 });
