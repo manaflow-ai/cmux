@@ -139,13 +139,14 @@ actor AppTestDaemonOwner {
     static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxUnresponsiveWatch.Daemon?,
                      grace: Duration = .seconds(10),
                      shutdown: @Sendable () async throws -> Bool) async -> Bool {
-        guard let pid = endpoint.pid, pid > 1 else { return false }
+        guard let pid = endpoint.pid, pid > 1,
+              let process, process.pid == pid else {
+            // An endpoint without a verified kernel identity is retained for a later teardown.
+            // Never send a graceful shutdown over its socket: it may now belong to a replacement
+            // daemon that this test did not launch.
+            return false
+        }
         if (try? await shutdown()) == true {
-            guard let process, process.pid == pid else {
-                // Without a recorded kernel identity, a PID-only wait can observe a replacement.
-                // Preserve ownership until a later teardown can verify this daemon's exit.
-                return false
-            }
             // Register the exit source before checking identity. A changed or missing identity
             // proves the recorded daemon is gone; the same identity leaves completion to the
             // kernel exit event, so PID reuse cannot be mistaken for a clean reap.
