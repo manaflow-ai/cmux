@@ -2543,7 +2543,9 @@ pre.cv-math-source {
 /* One row, the same whether a message is delivered or waits, closed or open (Leo, 2026-10-29: "this
    ui is all quite inconsistent"): one plate under the whole line on hover, its name, preview,
    chevron and actions in it; the preview takes the line's room, so every line's chevron ends at the
-   same place; the actions show only on hover or focus, over the preview's tail, never moving it. */
+   same place; the actions show only on hover or focus, over the preview's tail, never moving it.
+   The sender's name that opens its chat is a control of its own: under the pointer or focus it
+   lights alone, never the line (Leo, 2026-10-27: a highlight covers only its control). */
 .cv-received > .cv-disclosure__line {
   position: relative;
   height: var(--cv-disclosure-line-height);
@@ -2554,8 +2556,8 @@ pre.cv-math-source {
   white-space: nowrap;
   user-select: none;
 }
-.cv-received > .cv-disclosure__line:hover,
-.cv-received > .cv-disclosure__line:focus-within,
+.cv-received > .cv-disclosure__line:hover:not(:has(.cv-received__from--open:hover)),
+.cv-received > .cv-disclosure__line:focus-within:not(:has(.cv-received__from--open:focus)),
 .cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
