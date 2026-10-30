@@ -22,7 +22,7 @@ import CmuxNextCompat
 /// The host sends again only what it recorded from a frame the page rules let through; the page
 /// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). The pane's Retry sends a
 /// prompt again under its promptId: the relay marks that a resend when it sent the id to the same
-/// daemon before in this run (``sendsAgain(daemon:promptId:)``). Chats on another machine are
+/// daemon before in this run (``sentBefore(daemon:promptId:)``). Chats on another machine are
 /// not kept (their daemon is not this Mac's). The file is read once and written in order, never
 /// on the main thread; a record is on disk before its frame is sent.
 public nonisolated final class AgentPanePromptJournal: Sendable {
@@ -93,11 +93,10 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         var holders: [String: Holder] = [:]
         /// Connections that ended: they record and claim nothing more.
         var ended: Set<UUID> = []
-        /// How many sends of each prompt (daemon and promptId) the relay made in this run (never on
-        /// disk); a send that did not go is taken off. Never trimmed: a failed row keeps its Retry
-        /// for the whole run, and a forgotten id would go unmarked. One person's prompts in one run
-        /// stay small.
-        var sent: [String: Int] = [:]
+        /// The daemon and promptId of each prompt the relay sent in this run (never on disk), marked
+        /// once its record is on disk. Never trimmed: a failed row keeps its Retry for the whole
+        /// run, and a forgotten id would go unmarked. One person's prompts in one run stay small.
+        var sent: Set<String> = []
         var generation = 0
     }
 
@@ -232,25 +231,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         }
     }
 
-    /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
-    /// before in this run: the pane's Retry, which goes as a resend.
-    func sendsAgain(daemon: String, promptId: String) -> Bool {
-        state.withLock { state in
-            let key = Self.key(daemon, promptId)
-            let before = state.sent[key, default: 0]
-            state.sent[key] = before + 1
-            return before > 0
-        }
+    /// True when the relay sent prompt `promptId` to `daemon` before in this run: the pane's
+    /// Retry, which goes as a resend. Only a send whose record was kept counts
+    /// (``noteSent(daemon:promptId:)``), so a refused one never makes a later send a resend.
+    func sentBefore(daemon: String, promptId: String) -> Bool {
+        state.withLock { $0.sent.contains(Self.key(daemon, promptId)) }
     }
 
-    /// A send ``sendsAgain(daemon:promptId:)`` noted did not go: it is taken off, so a prompt no
-    /// send of which went goes as a first send again (another connection's send stays counted).
-    func didNotSend(daemon: String, promptId: String) {
-        state.withLock { state in
-            let key = Self.key(daemon, promptId)
-            guard let count = state.sent[key] else { return }
-            state.sent[key] = count > 1 ? count - 1 : nil
-        }
+    /// The relay sends prompt `promptId` to `daemon`: its record is kept (or it is not journaled).
+    func noteSent(daemon: String, promptId: String) {
+        state.withLock { _ = $0.sent.insert(Self.key(daemon, promptId)) }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk
