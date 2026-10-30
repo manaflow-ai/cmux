@@ -359,6 +359,10 @@ fn report_dropped_projections(mux: &Mux, dropped: &[String]) {
 }
 
 #[cfg(test)]
+#[path = "launch_snapshot_size_tests.rs"]
+mod size_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
