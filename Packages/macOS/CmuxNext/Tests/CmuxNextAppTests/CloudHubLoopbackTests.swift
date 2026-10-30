@@ -31,7 +31,9 @@ struct CloudHubLoopbackTests {
                 ChildCrashFrames.fail("the tunnel opened")
             } catch {
                 // The guard's own refusal, before any connection: not a caught trap, not a failed connect.
-                guard error == .unavailable(HubLoopbackOpener.socketPathTooLong) else { ChildCrashFrames.fail("refused with \(error)") }
+                guard (error as? LoopbackTunnelFailure) == .unavailable(HubLoopbackOpener.socketPathTooLong) else {
+                    ChildCrashFrames.fail("refused with \(error)")
+                }
             }
         }
         ChildCrashFrames.record(result)
