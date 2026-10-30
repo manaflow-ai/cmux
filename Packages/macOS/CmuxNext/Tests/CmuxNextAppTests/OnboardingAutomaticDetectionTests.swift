@@ -30,4 +30,16 @@ import Testing
         #expect(model.canAdvance)
         #expect(services.detections == 1)
     }
+
+    @Test(arguments: ["skip", "leave"])
+    func endingTheWindowMidScanStopsDetection(_ how: String) async {
+        let services = MockOnboardingServices()
+        let model = OnboardingModel(services: services, step: .importData)
+        model.stepDidAppear()
+        #expect(model.importer.phase == .detecting)
+        if how == "skip" { model.skipStep() } else { model.leave() }
+        #expect(model.importer.phase == .idle)
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(model.importer.phase == .idle, "a cancelled scan must not land results on a closed step")
+    }
 }
