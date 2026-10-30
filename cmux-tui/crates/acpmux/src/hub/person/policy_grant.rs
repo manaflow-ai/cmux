@@ -35,7 +35,9 @@
 //!   after it), so a proof counts once. A proof made for another chat, policy, daemon run,
 //!   nonce or key, a decision proof or signature, or one sent again counts for nothing.
 //! - It is counted once per request, before any check reads it (`server/requests.rs`), so the
-//!   remote guard's Web rule, the person check and the change all see the same answer. A
+//!   remote guard's Web rule, the person check and the change all see the same answer, and the
+//!   change applies to the chat the proof was checked for, never to what the request's key
+//!   names by then. A
 //!   daemon that only forwards the raise names no such chat of its own: it neither counts nor
 //!   issues a challenge, and the proof goes on to the daemon that owns the chat.
 //! - It covers `_acpmux/set_policy` of that one chat only: never a daemon, family or preset
@@ -149,20 +151,22 @@ impl PersonGate {
 }
 
 impl crate::hub::Hub {
-    /// Whether `m` is an `_acpmux/set_policy` of a chat here with a person's policy proof that
-    /// counts (module docs); its challenge is spent when it does. Called once per request. A
-    /// raise that counts names the proved chat by its id from here on, so a rename while the
-    /// request waits cannot point it at another chat.
-    pub(crate) fn take_person_policy(&self, m: &str, params: &mut Value) -> bool {
+    /// The chat here that `m`, an `_acpmux/set_policy` with a person's policy proof that counts
+    /// (module docs), raises; its challenge is spent when it does. Called once per request. The
+    /// request acts on this very chat from here on, never on what its key names later: a rename
+    /// or a purge while it waits could make the key name another chat, which no proof covers.
+    pub fn take_person_policy(
+        &self,
+        m: &str,
+        params: &Value,
+    ) -> Option<std::sync::Arc<crate::hub::Session>> {
         if m != crate::rpc::method::MUX_SET_POLICY {
-            return false;
+            return None;
         }
-        let Some(meta) = params.pointer("/_meta/acpmux") else { return false };
-        let Some(policy) = params.get("policy").and_then(Value::as_str) else { return false };
-        let Ok(key) = crate::server::session_key(params) else { return false };
-        let Ok(session) = self.resolve(key) else { return false };
-        self.person.take_policy_grant(&session.id, policy, meta)
-            && crate::no_panic::JsonExt::set(params, "sessionId", Value::String(session.id.clone()))
+        let meta = params.pointer("/_meta/acpmux")?;
+        let policy = params.get("policy").and_then(Value::as_str)?;
+        let session = self.resolve(crate::server::session_key(params).ok()?).ok()?;
+        self.person.take_policy_grant(&session.id, policy, meta).then_some(session)
     }
 
     /// `e`, a raise of a chat here refused only for the person (`refused_as`), with a challenge

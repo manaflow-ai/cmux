@@ -21,9 +21,11 @@ fn proved(gate: &PersonGate, key: &str, session: &str, policy: &str, nonce: &str
 
 #[test]
 fn the_wire_payload_is_fixed() {
+    // HMAC-SHA256(KEY, "acpmux-person-policy-v1" 0 "inst" 0 "s1" 0 "approve-edits" 0 "n1"),
+    // computed apart from this code: the app makes the same bytes.
     assert_eq!(
         policy_proof(KEY, "inst", "s1", "approve-edits", "n1").unwrap(),
-        policy_proof(KEY, "inst", "s1", "approve-edits", "n1").unwrap()
+        "fdd2f4135b8eb902f4adadf82d2d3664a8265b1957af5fab52fb89f17e7ca527"
     );
     assert_ne!(
         policy_proof(KEY, "inst", "s1", "approve-edits", "n1"),

@@ -246,3 +246,31 @@ async fn the_person_on_the_mac_raises_a_peer_chat_with_the_peers_challenge() {
     assert!(r.get("error").is_some(), "a replay through A counts for nothing: {r}");
     assert_eq!(policy_of(&b, &id).as_deref(), Some("ask"));
 }
+
+/// The chat a proof counted for is the one the raise changes: once counted, a purge of that chat
+/// and a rename of another to its id (so the request's key names the other one) change nothing.
+/// The request path dispatches with the chat `take_person_policy` returns (`server/requests.rs`).
+#[tokio::test]
+async fn a_counted_proof_stays_with_its_chat_when_the_key_names_another_chat_later() {
+    let b = hub();
+    b.person.install_spawn_key(B_KEY).unwrap();
+    let first = chat(&b, "grant-first").await;
+    let second = chat(&b, "grant-second").await;
+    let mut link = C::open(&b, Origin::Peer, ConnAuth::PeerToken);
+    let r = link.call(method::MUX_SET_POLICY, json!({"sessionId": first, "policy": RAISED})).await;
+    let proved = raise(&first, RAISED, B_KEY, &challenge_of(&r));
+
+    let counted = b.take_person_policy(method::MUX_SET_POLICY, &proved).expect("the proof counts");
+    assert_eq!(counted.id, first);
+    // Meanwhile: the first chat is purged and the second takes its id as its name.
+    b.kill(&b.resolve(&first).unwrap(), true).await.unwrap();
+    let other = b.resolve(&second).unwrap();
+    b.rename(&other, first.clone()).await.unwrap();
+    assert_eq!(b.resolve(&first).unwrap().id, second, "the key now names the second chat");
+    // The counted chat is still the first; the proof is spent, so it cannot count for the second.
+    assert_eq!(counted.id, first);
+    assert!(b.take_person_policy(method::MUX_SET_POLICY, &proved).is_none());
+    let r = link.call(method::MUX_SET_POLICY, proved).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_ne!(policy_of(&b, &second).as_deref(), Some(RAISED));
+}
