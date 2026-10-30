@@ -9,6 +9,7 @@
 import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { StableLabel } from "../../../ui/StableLabel";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
 import type { SavedEnvironmentDraft } from "../environments";
@@ -170,7 +171,9 @@ export function EnvironmentSection({
             disabled={saved}
             onClick={save}
           >
-            {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
+            <StableLabel reserve={[t("chatInspector.environment.save"), t("artifact.saved")]}>
+              {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
+            </StableLabel>
           </button>
         )}
       </li>

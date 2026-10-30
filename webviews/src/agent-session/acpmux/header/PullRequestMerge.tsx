@@ -7,6 +7,7 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../i18n";
 import type { HeaderPullRequest } from "./headerState";
+import { StableLabel } from "../../../ui/StableLabel";
 
 export type Merging =
   | { step: "idle" | "confirm" | "merging" | "merged" | "queued" }
@@ -83,7 +84,9 @@ export function PullRequestMerge({
               aria-disabled={merging.step === "merging" ? true : undefined}
               onClick={() => merging.step === "confirm" && run()}
             >
-              {merging.step === "merging" ? t("header.prMerging") : t("header.prMergeConfirm")}
+              <StableLabel reserve={[t("header.prMergeConfirm"), t("header.prMerging")]}>
+                {merging.step === "merging" ? t("header.prMerging") : t("header.prMergeConfirm")}
+              </StableLabel>
             </button>
           </div>
         </>

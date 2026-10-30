@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { StableLabel } from "../../../ui/StableLabel";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
 
@@ -81,7 +82,15 @@ export function ReconnectButton({
         );
       }}
     >
-      {label}
+      <StableLabel
+        reserve={[
+          t("chatInspector.connectors.reconnectAction"),
+          t("chatInspector.connectors.reconnecting"),
+          t("chatInspector.connectors.retry"),
+        ]}
+      >
+        {label}
+      </StableLabel>
     </button>
   );
 }

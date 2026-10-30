@@ -1,0 +1,13 @@
+.ui-stable-label {
+  display: inline-grid;
+  white-space: nowrap;
+}
+
+.ui-stable-label > * {
+  grid-area: 1 / 1;
+}
+
+.ui-stable-label__reserve {
+  visibility: hidden;
+  pointer-events: none;
+}

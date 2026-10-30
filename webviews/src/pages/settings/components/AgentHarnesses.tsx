@@ -15,6 +15,7 @@ import { Icon } from "../icons";
 import { AGENTS_KEY, agentsQuery } from "../sectionQueries";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
 import { t } from "../strings";
+import { StableLabel } from "../../../ui/StableLabel";
 
 type Panel = "registry" | "custom" | null;
 
@@ -205,7 +206,9 @@ function HarnessRow({
             disabled={doctor?.running}
             onClick={() => void run({ action: "doctor", id: row.id })}
           >
-            {doctor?.running ? t("settingsPage.agents.checking") : t("settingsPage.agents.check")}
+            <StableLabel reserve={[t("settingsPage.agents.check"), t("settingsPage.agents.checking")]}>
+              {doctor?.running ? t("settingsPage.agents.checking") : t("settingsPage.agents.check")}
+            </StableLabel>
           </button>
         )}
         {manages && row.removable && (
@@ -485,7 +488,9 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
           setBusy(false);
         }}
       >
-        {added ? t("settingsPage.agents.added") : t("settingsPage.agents.addButton")}
+        <StableLabel reserve={[t("settingsPage.agents.addButton"), t("settingsPage.agents.added")]}>
+          {added ? t("settingsPage.agents.added") : t("settingsPage.agents.addButton")}
+        </StableLabel>
       </button>
     </div>
   );
