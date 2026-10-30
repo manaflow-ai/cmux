@@ -820,6 +820,29 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(any("secret-token" in str(value) for value in fetched[0].header_items()))
         self.assertIsNone(fetched[0].get_header("Authorization"))
 
+    def test_a_failed_log_download_never_names_the_signed_url(self):
+        import email.message
+        import urllib.error
+        from unittest import mock
+
+        signed = "https://blob.example/log?sig=SECRET"
+        headers = email.message.Message()
+        headers["Location"] = signed
+        redirect = urllib.error.HTTPError("https://api.github.com/x", 302, "Found", headers, None)
+        failures = (
+            urllib.error.URLError(OSError(f"cannot reach {signed}")),
+            urllib.error.HTTPError(signed, 403, "Forbidden", email.message.Message(), None),
+            TimeoutError(f"timed out reading {signed}"),
+        )
+        github = report.GitHub("token", REPO)
+        for failure in failures:
+            with mock.patch("urllib.request.OpenerDirector.open", side_effect=redirect), \
+                    mock.patch("urllib.request.urlopen", side_effect=failure):
+                with self.assertRaises(RuntimeError) as raised:
+                    github.job_log(9)
+            self.assertNotIn("SECRET", str(raised.exception))
+            self.assertNotIn("blob.example", str(raised.exception))
+
     def test_fork_runs_are_not_sampled_for_cache_logs(self):
         self.assertFalse(report.cache_log_candidate({"head_repository": {"full_name": "someone/cmux"}}, REPO))
         self.assertTrue(report.cache_log_candidate({"head_repository": {"full_name": REPO}}, REPO))

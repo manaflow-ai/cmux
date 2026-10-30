@@ -76,6 +76,7 @@ _SAVED = re.compile(r"Cache saved with (?:the )?key: (\S+)")
 _RECEIPT = re.compile(r"^CMUX_CACHE_RESTORE (\{.*\})\s*$")
 _RECEIPT_KINDS = {"exact": "exact", "prefix": "prefix", "miss_or_unavailable": "miss", "error": "failed"}
 _RECEIPT_ROUTES = {"r2": "r2", "warp-cache": "warp", "github-cache": ""}
+_RECEIPT_STEP = "scripts/ci/cache_restore_receipt.py"
 _ACTION_ROUTED = ("actions/cache", "warpbuilds/cache")
 # Setup actions that restore a cache when asked to (`cache: npm`, `cache: true`).
 _SETUP_STEP = re.compile(r"\bset ?up[- ](?:node|go|python|java|dotnet)\b")
@@ -198,6 +199,8 @@ def parse_job_log(text: str) -> list[CacheEvent]:
     # Post-job steps print no group header, only "Post job cleanup.", and that
     # is where the cache actions save.
     in_post = False
+    # Receipts count only from the cache-restore action's own receipt step.
+    in_receipt_step = False
 
     def close() -> None:
         nonlocal routed_printed
@@ -213,6 +216,7 @@ def parse_job_log(text: str) -> list[CacheEvent]:
         if _RUN_ANY.match(line):
             close()
             in_post = False
+            in_receipt_step = _RECEIPT_STEP in line
             match = _RUN_ACTION.match(line)
             action = match.group(1) if match else ""
             current = _Invocation(action) if _CACHE_ACTION.match(action.lower()) else None
@@ -221,7 +225,7 @@ def parse_job_log(text: str) -> list[CacheEvent]:
             close()
             current = None
             in_post = True
-        receipt = _RECEIPT.match(line)
+        receipt = _RECEIPT.match(line) if in_receipt_step else None
         if receipt:
             try:
                 record = json.loads(receipt.group(1))

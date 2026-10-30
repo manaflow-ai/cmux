@@ -41,6 +41,7 @@ import argparse
 import dataclasses
 import datetime as dt
 import gzip
+import http.client
 import json
 import os
 import sys
@@ -1453,14 +1454,22 @@ class GitHub:
             location = error.headers.get("Location") or ""
         except urllib.error.URLError as error:
             raise RuntimeError(f"GET {endpoint} failed ({error.reason})") from error
+        except (OSError, http.client.HTTPException) as error:  # a timeout or a cut connection
+            raise RuntimeError(f"GET {endpoint} failed ({type(error).__name__})") from error
         if not location.startswith("https://"):
             raise RuntimeError(f"GET {endpoint} redirected nowhere usable")
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
         try:
             with urllib.request.urlopen(blob, timeout=120) as response:
                 return self._cap_log(job_id, response.read(max_bytes + 1), max_bytes)
-        except (urllib.error.HTTPError, urllib.error.URLError) as error:
-            raise RuntimeError(f"job {job_id} log download failed ({error})") from error
+        # The signed blob URL is a credential, and these notes are published:
+        # name the status or the error class, never the URL.
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"job {job_id} log download failed ({error.code})") from error
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"job {job_id} log download failed ({type(error.reason).__name__})") from error
+        except (OSError, http.client.HTTPException) as error:
+            raise RuntimeError(f"job {job_id} log download failed ({type(error).__name__})") from error
 
     def _cap_log(self, job_id: int, raw: bytes, max_bytes: int) -> str:
         if len(raw) > max_bytes:

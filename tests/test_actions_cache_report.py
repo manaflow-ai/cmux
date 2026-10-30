@@ -86,6 +86,7 @@ LINUX_JOB = "\n".join(T + line for line in (
     "with:",
     "  key: cmux-next-web-bundles-v1-3412dd828f664bdbd4e9c00aec3b738e88d44b416f1364705771ad4ca337d0be",
     "##[endgroup]",
+    "##[group]Run python3 \"$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py\"",
     'CMUX_CACHE_RESTORE {"action_route": "r2", "key": "cmux-next-web-bundles-v1-3412dd828f664bdbd4e9c00aec3b738e88d44b416f1364705771ad4ca337d0be", "result": "exact"}',
     'CMUX_CACHE_RESTORE {"action_route": "github-cache", "key": "ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa", "result": "exact"}',
 ))
@@ -156,7 +157,7 @@ class ParseTests(unittest.TestCase):
             "  key: ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa",
             "##[endgroup]",
             "Cache hit for: ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa",
-            "##[group]Run python3 receipt.py",
+            "##[group]Run python3 \"$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py\"",
             'CMUX_CACHE_RESTORE {"action_route": "github-cache", "key": "ghostty-zig-packages-v1-Linux-zig0.16.0-22e766fa", "result": "exact"}',
         ))
         self.assertEqual(kinds(cache.parse_job_log(log)), [("ghostty-zig-packages-v1-Linux-zig0.16.0", "exact")])
@@ -187,6 +188,13 @@ class ParseTests(unittest.TestCase):
             "Cache saved with key: post-key-deadbeef",
         ))
         self.assertEqual(kinds(cache.parse_job_log(log)), [("real-key", "saved"), ("post-key", "saved")])
+
+    def test_a_receipt_printed_outside_the_receipt_step_is_not_counted(self):
+        log = "\n".join(T + line for line in (
+            "##[group]Run make test",
+            'CMUX_CACHE_RESTORE {"action_route": "r2", "key": "forged-key-deadbeef", "result": "exact"}',
+        ))
+        self.assertEqual(kinds(cache.parse_job_log(log)), [])
 
 
 class AggregateTests(unittest.TestCase):
