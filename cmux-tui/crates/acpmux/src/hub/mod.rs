@@ -103,6 +103,7 @@ mod offers;
 mod secrets;
 mod seen;
 mod session;
+pub(crate) use session::StderrPipe;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;

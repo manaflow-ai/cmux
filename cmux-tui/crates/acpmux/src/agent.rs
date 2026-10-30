@@ -58,14 +58,12 @@ pub enum Inbound {
         /// withdrawal marker is stored. The reader owns the receiver.
         persisted: Option<oneshot::Sender<bool>>,
     },
-    /// One stderr line of the agent of `agent` (its generation); `host_seq` names the agent host
-    /// entry it came from. A `[non-json stdout]` note is no stderr: it has no generation, so it
-    /// stays out of the agent's stderr stream.
-    Stderr(String, Option<u64>, Option<u64>),
+    /// One stderr line of the agent of `agent` (its generation and which of its pipes); `host_seq`
+    /// names the agent host entry it came from. A `[non-json stdout]` note is the agent's stdout.
+    Stderr(String, Option<u64>, Option<(u64, crate::hub::StderrPipe)>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
-    /// `agent` is its generation: the stderr stream it owns ends with it.
-    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64>, agent: Option<u64> },
+    Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
     /// Answered once every item queued before it was handled. A prompt's answer
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
@@ -820,7 +818,13 @@ impl ChildAgent {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = inbound.send(Inbound::Stderr(line, None, Some(generation))).await;
+                    let _ = inbound
+                        .send(Inbound::Stderr(
+                            line,
+                            None,
+                            Some((generation, crate::hub::StderrPipe::Stderr)),
+                        ))
+                        .await;
                 }
             })
         };
@@ -877,7 +881,10 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
-                                        None,
+                                        Some((
+                                            agent_for_exit.generation,
+                                            crate::hub::StderrPipe::Stdout,
+                                        )),
                                     ))
                                     .await;
                                 continue;
@@ -916,7 +923,10 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
-                                        None,
+                                        Some((
+                                            agent_for_exit.generation,
+                                            crate::hub::StderrPipe::Stdout,
+                                        )),
                                     ))
                                     .await;
                                 continue;
@@ -951,7 +961,10 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
-                                        None,
+                                        Some((
+                                            agent_for_exit.generation,
+                                            crate::hub::StderrPipe::Stdout,
+                                        )),
                                     ))
                                     .await;
                                 continue;
@@ -1042,12 +1055,7 @@ impl ChildAgent {
                     stop.agent_ended().await;
                 }
                 let _ = inbound
-                    .send(Inbound::Exited {
-                        pid: agent_for_exit.pid,
-                        code,
-                        host_seq: None,
-                        agent: Some(agent_for_exit.generation),
-                    })
+                    .send(Inbound::Exited { pid: agent_for_exit.pid, code, host_seq: None })
                     .await;
             });
         }
@@ -2063,7 +2071,13 @@ impl ChildAgent {
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
                 }
-                let _ = inbound.send(Inbound::Stderr(line, Some(h), Some(self.generation))).await;
+                let _ = inbound
+                    .send(Inbound::Stderr(
+                        line,
+                        Some(h),
+                        Some((self.generation, crate::hub::StderrPipe::Stderr)),
+                    ))
+                    .await;
                 true
             }
             Entry::Exit { code } => {
@@ -2085,14 +2099,8 @@ impl ChildAgent {
                 // `exited` and the exit notify follow the Exit entry's ack
                 // (`start_reader`), so a terminate that waits on them never
                 // returns before the host knows its Exit is logged.
-                let _ = inbound
-                    .send(Inbound::Exited {
-                        pid: self.pid,
-                        code,
-                        host_seq: Some(h),
-                        agent: Some(self.generation),
-                    })
-                    .await;
+                let _ =
+                    inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
                 true
             }
         }

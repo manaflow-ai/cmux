@@ -194,14 +194,14 @@ impl Hub {
                 Inbound::Stderr(raw, host_seq, agent) => {
                     let line = short_text(&raw, STDERR_LINE_CAP);
                     tracing::debug!(session = %session.id, "stderr: {line}");
-                    // Each agent process's stderr is its own stream; a note with no agent is a line
-                    // of its own.
+                    // Each pipe of each agent process is its own stream; a line with no agent is
+                    // a line of its own.
                     let clean = match agent {
-                        Some(agent) => session
+                        Some(source) => session
                             .stderr_stream
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
-                            .clean_line(agent, &raw),
+                            .clean_line(source, &raw),
                         None => crate::stderr::StderrStream::default().clean_line_of(&raw),
                     };
                     remember_stderr(
@@ -231,15 +231,7 @@ impl Hub {
                         self.idle_wake.notify_one();
                     }
                 }
-                Inbound::Exited { pid, code, host_seq, agent } => {
-                    // Its stderr was queued before its exit: the stream it left open ends here.
-                    if let Some(agent) = agent {
-                        session
-                            .stderr_stream
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .ended(agent);
-                    }
+                Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
                         // A late exit from a process that was already replaced
@@ -1566,7 +1558,10 @@ mod stderr_tests {
         let mut stream = crate::hub::session::SessionStderr::default();
         let mut tail = std::collections::VecDeque::new();
         for line in lines {
-            super::remember_stderr(&mut tail, &stream.clean_line(1, line));
+            super::remember_stderr(
+                &mut tail,
+                &stream.clean_line((1, super::super::StderrPipe::Stderr), line),
+            );
         }
         tail.into_iter().collect()
     }
@@ -1605,10 +1600,22 @@ mod stderr_tests {
         // next turn stays hidden.
         let mut stream = crate::hub::session::SessionStderr::default();
         let mut tail = std::collections::VecDeque::new();
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "\x1bPsecret"));
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1bPsecret"),
+        );
         tail.clear();
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "leaked payload"));
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "\x1b\\error: request timed out"));
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, super::super::StderrPipe::Stderr), "leaked payload"),
+        );
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line(
+                (1, super::super::StderrPipe::Stderr),
+                "\x1b\\error: request timed out",
+            ),
+        );
         assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec!["error: request timed out"]);
     }
 
@@ -1616,15 +1623,34 @@ mod stderr_tests {
     fn an_old_agents_late_line_keeps_its_open_control_however_many_agents_followed() {
         let mut stream = crate::hub::session::SessionStderr::default();
         let mut tail = std::collections::VecDeque::new();
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "\x1bPsecret"));
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1bPsecret"),
+        );
         for generation in 2..10 {
-            super::remember_stderr(&mut tail, &stream.clean_line(generation, "ok"));
+            super::remember_stderr(
+                &mut tail,
+                &stream.clean_line((generation, super::super::StderrPipe::Stderr), "ok"),
+            );
         }
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "late payload"));
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, super::super::StderrPipe::Stderr), "late payload"),
+        );
         assert!(tail.iter().all(|line| !line.contains("payload")), "{tail:?}");
-        // Once agent 1 ended, its stream is gone: a stray line of it is read on its own.
-        stream.ended(1);
-        assert_eq!(stream.clean_line(1, "after the end"), "after the end");
+        // Its open control lasts until its own terminator, even after it exited.
+        assert_eq!(stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1b\\done"), "done");
+    }
+
+    #[test]
+    fn an_agents_stdout_notes_are_their_own_stream() {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let out = (1, super::super::StderrPipe::Stdout);
+        let err = (1, super::super::StderrPipe::Stderr);
+        assert_eq!(stream.clean_line(out, "[non-json stdout] \x1bPsecret"), "[non-json stdout]");
+        assert_eq!(stream.clean_line(err, "error: on stderr"), "error: on stderr");
+        assert_eq!(stream.clean_line(out, "[non-json stdout] more payload"), "");
+        assert_eq!(stream.clean_line(out, "[non-json stdout] \x1b\\shown"), "shown");
     }
 
     #[test]
@@ -1633,9 +1659,18 @@ mod stderr_tests {
         // line of the old one stays in the old one's stream.
         let mut stream = crate::hub::session::SessionStderr::default();
         let mut tail = std::collections::VecDeque::new();
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "\x1bPsecret"));
-        super::remember_stderr(&mut tail, &stream.clean_line(2, "error: request timed out"));
-        super::remember_stderr(&mut tail, &stream.clean_line(1, "late payload"));
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, super::super::StderrPipe::Stderr), "\x1bPsecret"),
+        );
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((2, super::super::StderrPipe::Stderr), "error: request timed out"),
+        );
+        super::remember_stderr(
+            &mut tail,
+            &stream.clean_line((1, super::super::StderrPipe::Stderr), "late payload"),
+        );
         assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec!["error: request timed out"]);
     }
 
