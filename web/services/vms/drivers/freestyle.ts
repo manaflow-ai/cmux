@@ -1492,7 +1492,15 @@ export class FreestyleProvider implements VMProvider {
           }
           // Machines created before customer tagging carry no customer until
           // the backfill reaches them; tag each one the first time it wakes.
-          const customerTag = await tagFreestyleCustomerOnWake(vm, data, options?.customer, (error) => recordSpanError(span, error));
+          // The wake has already succeeded, so the tag gets the short cleanup
+          // timeout: a stalled customer write must not outlast an outer
+          // deadline and roll back a machine that started.
+          const customerTag = await tagFreestyleCustomerOnWake(
+            this.deps.client(CREATE_CLEANUP_TIMEOUT_MS).vms.ref(vmId),
+            data,
+            options?.customer,
+            (error) => recordSpanError(span, error),
+          );
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status, "cmux.vm.customer_tag": customerTag });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
