@@ -76,6 +76,18 @@ test("fetch log lines stay monospace, including a single line, and title punctua
   }
 });
 
+test("fetched timestamped log lines stay monospace", () => {
+  const log = [
+    "2026-10-21T09:00:12.481Z retry attempt=1 url=https://api.example.test/v2/uploads?part=1 status=503 delayMs=250",
+    "2026-10-21T09:01:12.481Z retry attempt=2 url=https://api.example.test/v2/uploads?part=2 status=503 delayMs=500",
+  ].join("\n");
+  expect(toolResult(log, undefined, false, { kind: "fetch" })).toEqual({ text: log, lang: "text" });
+  const spaced = "2026-10-21 09:00:12 connected\n[2026-10-21 09:00:13] *ready*\n09:00:14.002 done";
+  expect(toolResult(spaced, undefined, false, { kind: "fetch" })).toEqual({ text: spaced, lang: "text" });
+  // A dated prose line is not a log line.
+  expect(toolResult("2026-10-21 was a quiet day.", undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+});
+
 test("source-looking underscores stay literal while structural and fetched Markdown still renders", () => {
   const python = `class Worker:\n    def __init__(self):\n        self.__ready__ = True`;
   expect(toolResult(python)).toEqual({ text: python, lang: "text" });
