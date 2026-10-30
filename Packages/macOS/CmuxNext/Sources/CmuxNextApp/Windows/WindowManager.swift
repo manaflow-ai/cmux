@@ -57,6 +57,9 @@ final class WindowManager {
     var pendingPlacements: [String: PendingPlacement] = [:]
     /// Registration order survives a daemon snapshot that reports several creates together.
     var pendingPlacementOrder: [String] = []
+    /// `applyPendingPlacements` is running: its rows refresh runs the sidebar's rows pass, whose
+    /// callback retries deferred placements, so a nested call returns at once (no re-entry).
+    var applyingPlacements = false
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no

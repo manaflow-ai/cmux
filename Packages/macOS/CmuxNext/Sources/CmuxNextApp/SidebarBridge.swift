@@ -165,7 +165,10 @@ final class SidebarBridge {
             // A cold/update layout can omit the current row when the create
             // arrives. Retry deferred default placements after this pass has
             // realized the fresh rows, before pending stand-ins are forgotten.
-            services.windows.applyPendingPlacements(live: Set(services.windows.pendingPlacements.keys))
+            // Only when a placement waits; inside a placement's own rows refresh the call returns at once.
+            if !services.windows.pendingPlacements.isEmpty {
+                services.windows.applyPendingPlacements(live: Set(services.windows.pendingPlacements.keys))
+            }
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),

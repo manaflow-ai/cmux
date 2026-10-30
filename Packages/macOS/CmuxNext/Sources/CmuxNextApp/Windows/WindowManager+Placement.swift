@@ -25,6 +25,9 @@ struct PendingPlacement {
 // owning daemon.
 extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
+        guard !applyingPlacements else { return }
+        applyingPlacements = true
+        defer { applyingPlacements = false }
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
         // A placement waiting on its current row keeps its entry and its place in the order.
