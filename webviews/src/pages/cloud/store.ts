@@ -45,6 +45,10 @@ import {
 
 export type Connection = "connecting" | "connected" | "disconnected";
 
+/** The first and the longest wait before the store reads auth again after the link refused it. */
+export const CLOUD_RESTART_MIN_MS = 1_000;
+export const CLOUD_RESTART_MAX_MS = 10_000;
+
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
   key: string;
@@ -133,6 +137,10 @@ export class CloudStore {
   private session = 0;
   /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
   private accountEpoch = 0;
+  /** The next `start` after a first auth read the link refused (`startLater`); cleared by stop. */
+  private restart: ReturnType<typeof setTimeout> | undefined;
+  /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
+  private restartAttempts = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -208,10 +216,13 @@ export class CloudStore {
     } catch (error) {
       if (session !== this.session) return;
       this.started = false;
-      this.set({ loading: false, ...failure(error) });
+      const failed = failure(error);
+      this.set({ loading: false, ...failed });
+      if (failed.connection === "disconnected") this.startLater();
       return;
     }
     if (session !== this.session) return;
+    this.restartAttempts = 0;
     this.set({ auth, connection: "connected" });
     if (auth.signedIn) await this.loadSignedIn(session);
     else this.set({ loading: false });
@@ -219,7 +230,26 @@ export class CloudStore {
 
   stop(): void {
     this.started = false;
+    clearTimeout(this.restart);
+    this.restart = undefined;
+    this.restartAttempts = 0;
     this.endSession();
+  }
+
+  /**
+   * The link refused the first auth read (on a launch or a daemon restart the daemon or its Cloud
+   * relay is not up yet): read it again on its own, 1 s and then doubling to 10 s, so the page
+   * comes up once the link does. The connection stays "disconnected" meanwhile (the page shows it
+   * only once that lasts, ui/lasting.ts) and Retry still asks at once. Ends with a read that
+   * succeeds or a failure that is not the link's, and with `stop` (the last listener leaving).
+   */
+  private startLater(): void {
+    clearTimeout(this.restart);
+    const delay = Math.min(CLOUD_RESTART_MAX_MS, CLOUD_RESTART_MIN_MS * 2 ** this.restartAttempts++);
+    this.restart = setTimeout(() => {
+      this.restart = undefined;
+      if (this.listeners.size > 0) void this.start();
+    }, delay);
   }
 
   get canRetry(): boolean {

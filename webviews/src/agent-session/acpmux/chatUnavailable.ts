@@ -29,12 +29,16 @@ export type ChatUnavailable =
   | { reason: "deleted"; machine?: string }
   /// Not listed here and never seen here, with every machine connected.
   | { reason: "notFound" }
-  /// The chat's machine is still connecting: the chat may be there once it does (loading).
+  /// The chat's machine is still on its way up, within the grace: the chat may be there once it is
+  /// (loading). The pane shows nothing for it.
   | { reason: "connecting"; machine?: string }
   /// The chat's machine is not connected; `machine` when the pane knows which one.
   | { reason: "offline"; machine?: string; lastSeen?: number };
 
-/// How long a machine still in its first attempts counts as loading; after that it is offline.
+/// How long a machine not yet connected counts as loading; after that it is offline. Within it the
+/// pane shows nothing: on a launch or a daemon restart every machine is still coming up, in any of
+/// acpmux's link states (a first attempt, a retry, a peer that announced its restart), and the chat
+/// opens once acpmux lists it (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD").
 export const CONNECTING_GRACE_MS = 30_000;
 
 /// Each peer's status from `_acpmux/status`; fields that are not the right JSON type are left out.
@@ -63,14 +67,6 @@ function settled(status: PeerStatus): boolean {
   return status.state !== undefined ? status.state === "connected" : status.connected === true;
 }
 
-/// A peer still on its way up: acpmux's first attempt (`connecting`), a socket whose handshake has
-/// not finished (`degraded`), or a saved peer a restarted daemon has not tried yet.
-function stillConnecting(status: PeerStatus): boolean {
-  if (settled(status)) return false;
-  if (status.state === "connecting" || status.state === "degraded") return true;
-  return status.state === "reconnecting" && (status.attempts ?? 0) === 0;
-}
-
 /**
  * Why the chat is not listed. `peer` is the machine the chat was last seen on (its summary's
  * peer), when the pane knows it. `waitedMs` is how long the pane has been without the chat:
@@ -89,21 +85,21 @@ export function chatUnavailable(input: {
   if (peer !== undefined) {
     // The chat's own machine: once acpmux has its chats, the chat is gone from it; one acpmux no
     // longer lists, or that is down, is not connected.
+    // Within the grace a machine not connected (or not in a status read yet) is still loading.
     const status = peers[peer];
     if (status && settled(status)) return { reason: "deleted", machine: peer };
-    if (status && grace && stillConnecting(status)) return { reason: "connecting", machine: peer };
+    if (grace) return { reason: "connecting", machine: peer };
     return {
       reason: "offline",
       machine: peer,
       ...(status?.lastSeen !== undefined ? { lastSeen: status.lastSeen } : {}),
     };
   }
-  // The chat's machine is not known. A machine still connecting may list it once acpmux has its
-  // chats (loading); past that, any machine not connected may hold it.
-  const connecting = Object.entries(peers).filter(([, status]) => stillConnecting(status));
-  if (grace && connecting.length > 0)
-    return connecting.length === 1 ? { reason: "connecting", machine: connecting[0]![0] } : { reason: "connecting" };
+  // The chat's machine is not known. Any machine not connected may list it once acpmux has its
+  // chats: within the grace that is loading, past it the machine is offline.
   const down = Object.entries(peers).filter(([, status]) => !settled(status));
+  if (grace && down.length > 0)
+    return down.length === 1 ? { reason: "connecting", machine: down[0]![0] } : { reason: "connecting" };
   if (down.length === 1) {
     const [machine, status] = down[0]!;
     return { reason: "offline", machine, ...(status.lastSeen !== undefined ? { lastSeen: status.lastSeen } : {}) };

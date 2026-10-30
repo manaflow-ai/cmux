@@ -3,6 +3,7 @@
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
@@ -15,7 +16,11 @@ import { errorText, L } from "./strings";
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
-  const signedIn = !!snap.auth?.signedIn && snap.connection !== "disconnected";
+  // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
+  // reads again on its own); then the disconnected state with Retry.
+  const down = snap.connection === "disconnected";
+  const downLasting = useLasting(down);
+  const signedIn = !!snap.auth?.signedIn && !down;
   const storefront = signedIn && (snap.view === "get" || (!snap.loading && snap.rows.length === 0));
   // The header switches between the list and the storefront once the team has a machine.
   const viewSwitch =
@@ -29,7 +34,8 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       </button>
     ) : null;
   const body = () => {
-    if (snap.connection === "disconnected")
+    if (down && !downLasting) return null;
+    if (down)
       return (
         <div className="cloud-message cloud-disconnected">
           <p>{t(L.disconnected)}</p>
