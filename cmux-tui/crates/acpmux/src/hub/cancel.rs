@@ -190,7 +190,7 @@ impl Hub {
             // Under the agent slot: it is still this agent's, and the turn still runs, as the
             // marks are set, so the turn's end (`finish_turn`) reads them, whenever it comes.
             let mut slot = session.child.lock().await;
-            if !slot.as_ref().is_some_and(|c| c.generation == child.generation) {
+            if slot.as_ref().is_none_or(|c| c.generation != child.generation) {
                 return;
             }
             *session.stop_restart.lock().unwrap_or_else(|e| e.into_inner()) =
