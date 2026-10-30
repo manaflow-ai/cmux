@@ -9,6 +9,10 @@ Behaviour per prompt text:
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
+  "cancel-ends-turn" -> streams "running", then answers session/cancel with end_turn, not cancelled
+  "cancel-errors" -> streams "running", then answers session/cancel with an error
+  "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
+                 session/cancel; answers end_turn after 60 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
@@ -1051,6 +1055,39 @@ def handle_prompt(rid, params):
                 send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
                 return
             time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-ends-turn" streams "running" and answers session/cancel with end_turn: an adapter
+    # that stops on a cancel but does not say its turn was cancelled (bounded at 30 s).
+    if text == "cancel-ends-turn":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-errors" streams "running" and answers session/cancel with an error, as an adapter
+    # whose interrupt fails the turn (bounded at 30 s).
+    if text == "cancel-errors":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "turn interrupted: request aborted"}})
+        return
+    # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
+    # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with
+    # its number and this process's pid, until it ends its turn by itself 60 s later.
+    if text == "works-through-cancel":
+        for n in range(600):
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
+                         "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
+            time.sleep(0.1)
+        cancelled.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "deaf-to-cancel" streams "running" and never takes a cancel: an agent
