@@ -118,12 +118,19 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     public var kind: Kind
     public var name: String
     public var data: Data?
+    /// A picked file too large to hold in memory: streamed from here at send.
+    public var fileURL: URL?
+    /// The file's size when its bytes are not held (`fileURL`).
+    public var byteCount: Int?
 
-    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil) {
+    public init(id: String = UUID().uuidString, kind: Kind, name: String, data: Data? = nil,
+                fileURL: URL? = nil, byteCount: Int? = nil) {
         self.id = id
         self.kind = kind
         self.name = name
         self.data = data
+        self.fileURL = fileURL
+        self.byteCount = byteCount
     }
 
     /// The image MIME type from the data's signature (nil: not an image an
@@ -139,7 +146,7 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
     }
 
     /// The attachment as a preview reads it (composer and sent message alike).
-    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image) }
+    public var localFile: LocalFile { LocalFile(id: id, name: name, data: data, isImage: kind == .image, fileURL: fileURL) }
 
     /// The id prefix of an image a recorded prompt names (acpmux's `images[].id`, its bytes' hash).
     public static let recordedImagePrefix = "acpmux-image:"
