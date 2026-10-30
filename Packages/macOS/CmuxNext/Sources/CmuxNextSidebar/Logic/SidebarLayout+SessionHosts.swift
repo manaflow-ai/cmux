@@ -153,27 +153,6 @@ nonisolated extension SidebarLayout {
                 } == true
             }) { openGap() }
         }
-        // The visual order is a projection, but the reducer still writes document
-        // positions. Keep row identity/siblingIndex for selection and give it the
-        // slot immediately before the next drawn sibling for drop resolution.
-        func siblingCount(_ row: SidebarRow) -> Int {
-            guard let section = sections.first(where: { $0.id == row.section }) else { return row.siblingIndex + 1 }
-            if let group = row.group,
-               let node = section.nodes.first(where: { $0.id == .group(group) }),
-               case let .group(value) = node { return value.members.count }
-            return section.nodes.count
-        }
-        for index in result.indices {
-            guard case .workspace = result[index].key else { continue }
-            let section = result[index].section
-            let group = result[index].group
-            let next = result[(index + 1)..<result.count].first {
-                if case .workspace = $0.key { return $0.section == section && $0.group == group }
-                return false
-            }
-            result[index].dropIndex = next.map { max(0, $0.siblingIndex - 1) }
-                ?? max(0, siblingCount(result[index]) - 1)
-        }
         boundary(from: rows.last.map { $0.maxY + m.rowSpacing } ?? 0, to: totalHeight)
         var layout = SidebarLayout(rows: result, totalHeight: y,
                                    gapY: movedGapY, gapHeight: gapHeight, gapShift: gapShift)
@@ -181,50 +160,5 @@ nonisolated extension SidebarLayout {
         layout.pinnedChatsY = movedPinnedY
         layout.earlierChatsY = movedEarlierY
         return layout
-    }
-}
-
-
-nonisolated extension SidebarLayout {
-    /// The host family containing a drawn row, if any. Synthetic headers are
-    /// stable per host and machine section, so they also provide the drag family.
-    func sessionHost(for key: SidebarRowKey) -> String? {
-        guard let index = position(of: key) else { return nil }
-        return sessionHost(around: index)
-    }
-
-    private func sessionHost(around index: Int) -> String? {
-        guard !rows.isEmpty else { return nil }
-        for i in stride(from: min(index, rows.count - 1), through: 0, by: -1) {
-            if case let .sessionHost(host) = rows[i].key { return SidebarSessionTree.hostID(from: host) }
-            if case .workspace = rows[i].key, rows[i].content?.treeDepth == 0 { return nil }
-            if case .section = rows[i].key { return nil }
-        }
-        return nil
-    }
-
-    /// Resolve a projected row's upper/lower half to the next drawn sibling.
-    /// `.none` means the ordinary ungrouped resolver should run; `.some(nil)`
-    /// refuses a slot outside the dragged row's family.
-    func groupedDropTarget(row: SidebarRow, after: Bool, sourceHost: String?) -> DropTarget?? {
-        guard rows.contains(where: { if case .sessionHost = $0.key { true } else { false } }) else { return nil }
-        guard case .workspace = row.key else { return .some(nil) }
-        let targetHost = sessionHost(for: row.key)
-        if targetHost != nil && targetHost != sourceHost { return .some(nil) }
-        let index = position(of: row.key) ?? 0
-        let next = rows[(index + 1)..<rows.count].first { candidate in
-            guard case .workspace = candidate.key else { return false }
-            return candidate.section == row.section && candidate.group == row.group
-        }
-        let insertion: Int
-        if after {
-            insertion = next?.siblingIndex ?? rows[(0..<rows.count)].filter {
-                if case .workspace = $0.key { return $0.section == row.section && $0.group == row.group }
-                return false
-            }.map(\.siblingIndex).max().map { $0 + 1 } ?? row.siblingIndex + 1
-        } else {
-            insertion = row.siblingIndex
-        }
-        return .some(.position(DropPosition(section: row.section, group: row.group, index: insertion)))
     }
 }

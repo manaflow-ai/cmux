@@ -187,6 +187,7 @@ nonisolated struct RustRow: Codable {
         height = Double(row.height)
         section = RustSectionID(row.section)
         group = row.group?.rawValue
+
         siblingIndex = row.siblingIndex
         parentIndex = row.parentIndex
         isLastInGroup = row.isLastInGroup
