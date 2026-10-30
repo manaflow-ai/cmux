@@ -4,7 +4,7 @@ nonisolated extension SidebarLayout {
     /// Group only existing loose agent workspaces. The window's drawn rows decide whether a
     /// lineage parent is live, never the daemon's lane census. Retain each row's document section
     /// and sibling index so selection, close and drop continue to target the original workspace.
-    func groupingSessions(_ tree: SidebarSessionTreeState, sections: [SidebarSection], metrics m: SidebarLayoutMetrics) -> SidebarLayout {
+    func groupingSessions(_ tree: SidebarSessionTreeState, sections: [SidebarSection], gap: DropPosition?, metrics m: SidebarLayoutMetrics) -> SidebarLayout {
         var bundles: [Int: [SidebarRow]] = [:]
         var starts: [Int] = []
         var tabRows: Set<Int> = []
@@ -24,10 +24,18 @@ nonisolated extension SidebarLayout {
         // A visible parent inside an explicit user group is still a lineage anchor. Only
         // loose children move; explicitly placed members keep the user's document order.
         let looseIDs = Set(starts.compactMap { i -> WorkspaceID? in
-            guard rows[i].group == nil, case let .workspace(id) = rows[i].key else { return nil }
+            guard rows[i].group == nil, case .machine = rows[i].section,
+                  case let .workspace(id) = rows[i].key else { return nil }
             return id
         })
-        let parents = tree.parents.filter { looseIDs.contains($0.key) }
+        let machineParents = Set(starts.compactMap { i -> WorkspaceID? in
+            guard case let .workspace(id) = rows[i].key,
+                  case .machine = rows[i].section else { return nil }
+            return id
+        })
+        // Preserve the Pinned/custom boundary: a fleet child of a pinned workspace
+        // remains in its own machine group rather than being pulled into Pinned.
+        let parents = tree.parents.filter { looseIDs.contains($0.key) && machineParents.contains($0.value) }
         let children = Self.treeChildren(ids, parents: parents)
         let nested = Set(children.values.joined())
         let roots = ids.indices.filter { !nested.contains($0) }
@@ -49,8 +57,39 @@ nonisolated extension SidebarLayout {
         var emitted: Set<String> = []
         let byStart = Dictionary(starts.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
         var result: [SidebarRow] = []
-        var y = rows.first?.y ?? m.topPadding
+        var y: CGFloat = 0
+        var movedGapY: CGFloat?, movedPinnedY: CGFloat?, movedEarlierY: CGFloat?
+        // A drop before a workspace follows that workspace when lineage reorders it.
+        // Section-end drops stay in their boundary, before history or the next section.
+        let gapTarget: SidebarRowKey? = gapY.flatMap { oldGap in
+            guard let gap, let next = rows.first(where: { $0.y >= oldGap + gapShift }),
+                  next.section == gap.section, next.group == gap.group,
+                  case .workspace = next.key else { return nil }
+            return next.key
+        }
+        func openGap() {
+            guard gapY != nil, movedGapY == nil else { return }
+            movedGapY = y
+            y += gapShift
+        }
+        // Preserve whitespace at its original section/history boundary, not on a
+        // workspace that may move into an earlier family. This also maps anchors
+        // when the original last workspace moves or disappears into a fold.
+        func boundary(from start: CGFloat, to end: CGFloat) {
+            let containsGap = gapY.map { $0 >= start && $0 + gapShift <= end } ?? false
+            let removed = containsGap && gapTarget != nil ? gapShift : 0
+            func mapped(_ anchor: CGFloat?) -> CGFloat? {
+                guard let anchor, anchor >= start, anchor <= end else { return nil }
+                let adjustment = containsGap && gapTarget != nil && anchor >= (gapY ?? 0) + gapShift ? gapShift : 0
+                return y + anchor - start - adjustment
+            }
+            if let anchor = mapped(pinnedChatsY) { movedPinnedY = anchor }
+            if let anchor = mapped(earlierChatsY) { movedEarlierY = anchor }
+            if containsGap, gapTarget == nil, let gapY { movedGapY = y + gapY - start }
+            y += end - start - removed
+        }
         func append(_ original: SidebarRow, spacing: CGFloat = 0) {
+            if original.key == gapTarget { openGap() }
             var row = original
             row.y = y
             result.append(row)
@@ -64,20 +103,26 @@ nonisolated extension SidebarLayout {
                 bundle[0].content?.treeFold = fold
                 bundle[0].content?.rollUp = rollUp
             }
+            // Workspace bundles keep their normal row spacing. Larger gaps belong
+            // to the following section/block and must not travel with a moved lane.
             for var row in bundle {
                 row.depth = max(row.depth, groupDepth)
                 append(row, spacing: m.rowSpacing)
             }
-            guard !tree.collapsed.contains(id) else { return }
+            guard !tree.collapsed.contains(id) else {
+                if let gapTarget, Self.treeDescendants(of: id, ids, children: children)
+                    .contains(where: { ids[$0].map(SidebarRowKey.workspace) == gapTarget }) { openGap() }
+                return
+            }
             for child in children[id] ?? [] {
                 family(child, depth: depth + 1, groupDepth: max(groupDepth, bundle[0].depth))
             }
         }
         for (index, row) in rows.enumerated() {
+            boundary(from: index == 0 ? 0 : rows[index - 1].maxY + m.rowSpacing, to: row.y)
             if tabRows.contains(index) { continue }
             guard let root = byStart[index] else {
-                let gap = index + 1 < rows.count ? rows[index + 1].y - row.maxY : 0
-                append(row, spacing: max(0, gap))
+                append(row, spacing: m.rowSpacing)
                 continue
             }
             guard !nested.contains(root) else { continue }
@@ -95,16 +140,19 @@ nonisolated extension SidebarLayout {
                               group: nil, siblingIndex: row.siblingIndex, parentIndex: nil, isLastInGroup: false,
                               isCollapsed: collapsed, childCount: count, groupColor: nil), spacing: m.rowSpacing)
             if !collapsed { for member in members { family(member, depth: 1) } }
+            else if let gapTarget, members.contains(where: { member in
+                ids[member].map(SidebarRowKey.workspace) == gapTarget || ids[member].map { id in
+                    Self.treeDescendants(of: id, ids, children: children)
+                        .contains(where: { ids[$0].map(SidebarRowKey.workspace) == gapTarget })
+                } == true
+            }) { openGap() }
         }
-        let oldEnd = rows.last?.maxY ?? m.topPadding
-        // The final workspace bundle already added row spacing; preserve the normal bottom padding.
-        let newEnd = result.last?.maxY ?? m.topPadding
-        let shift = newEnd - oldEnd
-        var layout = SidebarLayout(rows: result, totalHeight: totalHeight + shift,
-                                   gapY: gapY, gapHeight: gapHeight, gapShift: gapShift)
+        boundary(from: rows.last.map { $0.maxY + m.rowSpacing } ?? 0, to: totalHeight)
+        var layout = SidebarLayout(rows: result, totalHeight: y,
+                                   gapY: movedGapY, gapHeight: gapHeight, gapShift: gapShift)
         layout.rowSpacing = rowSpacing
-        layout.pinnedChatsY = pinnedChatsY
-        layout.earlierChatsY = earlierChatsY.map { $0 + shift }
+        layout.pinnedChatsY = movedPinnedY
+        layout.earlierChatsY = movedEarlierY
         return layout
     }
 }
