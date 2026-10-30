@@ -11,6 +11,7 @@ mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod atomic_json;
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
