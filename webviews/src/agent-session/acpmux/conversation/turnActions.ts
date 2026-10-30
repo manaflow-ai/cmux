@@ -1,3 +1,9 @@
+/// What the X's take-back of a waiting steer came to: its text went back into the composer
+/// (`back`), acpmux answered that it stays (`refused`: the agent took it already, or its harness
+/// cannot drop one), or it failed on the way (`failed`: an RPC error, attachments not read yet),
+/// so the X may be tried again.
+export type TakeBack = "back" | "refused" | "failed";
+
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
@@ -41,6 +47,10 @@ export type TurnActions = {
   promptImage?: (id: string) => Promise<string | undefined>;
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
+  /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
+  /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
+  /// note a refusal leaves on the failure's card.
+  retryFailed?: (rowId: string | undefined, prompt: string | undefined) => Promise<RetryNote | undefined>;
   /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
   /// that moves the chat to the model picked and sends the prompt again there.
   retryWith?: {
@@ -86,8 +96,8 @@ export type TurnActions = {
   /// the chat offers it now; undefined while the chat is not connected.
   queuedMessages?: () => QueuedMessageActionsValue | undefined;
   /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
-  /// (PendingSteer.tsx `takeBackSteer`); false when the agent read it first.
-  unsteer?: (row: AcpmuxRow) => Promise<boolean>;
+  /// (PendingSteer.tsx `takeBackSteer`).
+  unsteer?: (row: AcpmuxRow) => Promise<TakeBack>;
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so
   /// the view shows them as requested too.
   review?: HunkReview;
