@@ -14,7 +14,7 @@ impl Session {
     }
 
     pub(super) fn note_transfer_event(&self, record: &EventRecord) {
-        if let Some(blocked) = transfer_state(&record.kind) {
+        if let Some(blocked) = transfer_state(record) {
             self.note_transfer_authority(record.seq, blocked);
         }
     }
@@ -29,8 +29,12 @@ impl Session {
     }
 }
 
-fn transfer_state(kind: &str) -> Option<bool> {
-    match kind {
+/// Only the daemon's own records decide: an agent's update (`dir: "in"`) may carry any kind.
+fn transfer_state(record: &EventRecord) -> Option<bool> {
+    if record.dir != "mux" {
+        return None;
+    }
+    match record.kind.as_str() {
         "transfer_out" | "transferred" => Some(true),
         "transfer_aborted" | "imported" => Some(false),
         _ => None,
@@ -43,7 +47,7 @@ impl Hub {
         // Fail closed on an unreadable log. This runs only in load_session_log, never in
         // info, and does not hold the cache lock while reading disk.
         match self.store.scan_strict(&session.id, 0, &mut |record| {
-            if let Some(blocked) = transfer_state(&record.kind)
+            if let Some(blocked) = transfer_state(&record)
                 && record.seq >= latest.0
             {
                 latest = (record.seq, blocked);

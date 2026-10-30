@@ -356,8 +356,10 @@ impl Hub {
         if let Some(reason) = reason {
             record.set("reason", json!(reason));
         }
-        self.end_move(session);
+        // Logged while the chat is still frozen: a new move begins only after it, so this
+        // record never follows (and undoes) a newer `transfer_out` (`transfer_authority.rs`).
         self.append(session, "mux", "transfer_aborted", record);
+        self.end_move(session);
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }
