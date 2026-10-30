@@ -4943,7 +4943,7 @@ fn transaction_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     value.parse().context("workspace registry revision is invalid")
 }
 
-pub(crate) fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
+fn current_terminal_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "terminal_revision")?
         .parse()
         .context("terminal registry revision is invalid")
