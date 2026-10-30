@@ -135,8 +135,9 @@ import UniformTypeIdentifiers
     }
 
     /// A tab's hover picture is asked for in the turn before its content hides (a pane switch). Queued behind a large
-    /// call, it still leaves, before the hide: the hidden check was made when it was asked for, as before the order.
-    @Test func aPictureAskedForBeforeAHideLeavesWhenItsTurnComes() async throws {
+    /// call, its turn comes after the hide, and it is refused: the app never pictures a hidden page (P0 #1). The hide
+    /// itself still reaches Chromium after the large call.
+    @Test func aPictureOfAPageHiddenBeforeItsTurnIsRefused() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
@@ -147,8 +148,8 @@ import UniformTypeIdentifiers
         let picture = tab.beginThumbnail()
         tab.setContentVisible(false)
         _ = try await large.value
-        _ = try? await picture.image()
-        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate", "Page.captureScreenshot"])
+        await #expect(throws: BrowserTabError.snapshotUnavailable) { try await picture.image() }
+        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate"])
     }
 
     // MARK: Fixtures
