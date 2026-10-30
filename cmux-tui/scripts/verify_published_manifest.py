@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -46,6 +47,23 @@ MAX_ARTIFACT_BYTES = 512 << 20
 # A wrong binary read is fetched again this many times, from a fresh URL, before it fails.
 BINARY_READ_ATTEMPTS = 3
 RETRY_PAUSE_SECONDS = 5
+# A fetch that times out, drops its connection or gets a 5xx is read again with
+# a doubling pause. Run 40466861832 lost a whole tree's publish to one read
+# timeout here. A 4xx or a wrong body fails at once.
+#
+# Each read again goes to a fresh URL and, when part of the body already came,
+# asks only for the rest (a Range request from that byte). Run 40651931144 read
+# the same URL three times and every read stalled: the CDN serves one cache key
+# from one transfer, so a retry of the same URL waits on the transfer that
+# stalled. A read that brings new bytes is progress; the fetch fails after
+# FETCH_ATTEMPTS reads in a row bring none, or when the next read would start
+# past FETCH_DEADLINE_SECONDS (a read already started may run its own limit
+# out). A read that trickles is cut after READ_ATTEMPT_SECONDS and resumed, as
+# the R2 downloads of #26752 are.
+FETCH_ATTEMPTS = 5
+READ_ATTEMPT_SECONDS = 120
+FETCH_DEADLINE_SECONDS = 600
+CONTENT_RANGE_RE = re.compile(r"^bytes (\d+)-(\d+)/(\d+)$")
 DIAGNOSTIC_HEADERS = ("Content-Length", "ETag", "Last-Modified", "CF-Cache-Status", "CF-Ray", "Age")
 
 
@@ -173,14 +191,20 @@ def _verify_machine_binary_digests(
             assert isinstance(name, str)
             assert isinstance(expected_digest, str)
             assert isinstance(expected_size, int)
-            if artifact_directory is not None:
-                payload = _read_file(artifact_directory / name, max_bytes=MAX_ARTIFACT_BYTES)
-            else:
+            if artifact_directory is None:
+                # A remote read can come back short (run 40386462365 read 5636096 of
+                # 96299600 bytes of a write-once object) or wrong; read it again from a
+                # fresh URL as binaries are, and fail only when every read disagrees.
                 assert artifact_base_url is not None
-                payload = _read_url(
+                _verify_remote_binary(
                     f"{artifact_base_url.rstrip('/')}/{quote(name, safe='')}",
-                    max_bytes=MAX_ARTIFACT_BYTES,
+                    name,
+                    expected_digest,
+                    source=source,
+                    expected_size=expected_size,
                 )
+                continue
+            payload = _read_file(artifact_directory / name, max_bytes=MAX_ARTIFACT_BYTES)
             if len(payload) != expected_size:
                 raise ManifestError(
                     f"{source} size mismatch for {name}: expected {expected_size}, got {len(payload)}"
@@ -334,17 +358,76 @@ def _validate_manifest(
             raise ManifestError(f"{source} has invalid cmux-tui SHA-256 for {artifact}")
 
 
+class _TransientFetchError(ManifestError):
+    """A fetch that may succeed if read again: a timeout, a dropped connection or a 5xx."""
+
+
+class _Body:
+    """The bytes one fetch has read so far, kept across its reads."""
+
+    def __init__(self) -> None:
+        self.data = bytearray()
+        # The whole object's length, once a response has said it.
+        self.total: int | None = None
+        # Every byte any read brought, so a read that restarts still counts as progress.
+        self.received = 0
+
+    def restart(self) -> None:
+        self.data.clear()
+        self.total = None
+
+
+def _fresh_url(url: str) -> str:
+    return f"{url}{'&' if '?' in url else '?'}read={time.time_ns()}"
+
+
 def _read_url(
     url: str, *, max_bytes: int = MAX_MANIFEST_BYTES, headers_out: dict[str, str] | None = None
 ) -> bytes:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "Cache-Control": "no-cache",
-            "User-Agent": "cmux-tui-manifest-verifier/1 (https://github.com/manaflow-ai/cmux)",
-        },
-    )
+    body = _Body()
+    started = time.monotonic()
+    reads = stalled = 0
+    fetch_url = url
+    while True:
+        reads += 1
+        received = body.received
+        try:
+            _read_url_once(fetch_url, body, max_bytes=max_bytes, headers_out=headers_out)
+            return bytes(body.data)
+        except _TransientFetchError as error:
+            stalled = 0 if body.received > received else stalled + 1
+            pause = RETRY_PAUSE_SECONDS * (2 ** max(stalled - 1, 0))
+            if stalled >= FETCH_ATTEMPTS or time.monotonic() - started + pause >= FETCH_DEADLINE_SECONDS:
+                raise ManifestError(
+                    f"{error} (after {reads} reads in {time.monotonic() - started:.0f}s, "
+                    f"{stalled} in a row with no new byte)"
+                ) from error
+            where = f" from byte {len(body.data)}" if body.data else ""
+            print(f"warning: {error}; reading again{where} from a fresh URL in {pause}s", file=sys.stderr)
+            time.sleep(pause)
+            fetch_url = _fresh_url(url)
+
+
+def _read_url_once(
+    url: str, body: _Body, *, max_bytes: int, headers_out: dict[str, str] | None
+) -> None:
+    """Read url into body, asking only for the bytes after those already read. Those
+    bytes are kept only when the server answers 206 with a Content-Range that starts
+    there, ends at the last byte and names the same length (or, when no earlier answer
+    gave a length, names it now); any other answer starts over from byte 0."""
+
+    if body.total is not None and len(body.data) >= body.total:
+        return
+    offset = len(body.data)
+    headers = {
+        "Accept": "application/json",
+        "Cache-Control": "no-cache",
+        "User-Agent": "cmux-tui-manifest-verifier/1 (https://github.com/manaflow-ai/cmux)",
+    }
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+    request = urllib.request.Request(url, headers=headers)
+    started = time.monotonic()
     try:
         with urlopen(request, timeout=30) as response:
             response_headers = getattr(response, "headers", {})
@@ -357,34 +440,80 @@ def _read_url(
             content_length = response_headers.get("Content-Length")
             if content_length is not None:
                 try:
-                    if int(content_length) > max_bytes:
-                        raise ManifestError(
-                            f"{url} exceeds the {max_bytes}-byte size limit"
-                        )
+                    content_length = int(content_length)
                 except ValueError:
                     raise ManifestError(f"{url} has an invalid Content-Length")
-            chunks: list[bytes] = []
-            size = 0
+            if getattr(response, "status", 200) == 206:
+                match = CONTENT_RANGE_RE.fullmatch(str(response_headers.get("Content-Range", "")))
+                start, end, total = (int(value) for value in match.groups()) if match else (-1, -1, -1)
+                if (
+                    not offset
+                    or start != offset
+                    or end != total - 1
+                    or end < start
+                    or (body.total is not None and total != body.total)
+                    or (content_length is not None and content_length != end - start + 1)
+                ):
+                    asked = f"bytes {offset}- of {body.total}"
+                    body.restart()
+                    raise _TransientFetchError(
+                        f"could not fetch {url}: asked for {asked}, got range "
+                        f"{response_headers.get('Content-Range')!r}; reading from the start"
+                    )
+                body.total = total
+            else:
+                # A whole answer: the server did not take the Range, or none was asked.
+                body.restart()
+                offset = 0
+                body.total = content_length
+            if (content_length is not None and offset + content_length > max_bytes) or (
+                body.total is not None and body.total > max_bytes
+            ):
+                raise ManifestError(f"{url} exceeds the {max_bytes}-byte size limit")
+            # read1 returns what has come so far, so a trickle cannot hold one
+            # call past the read's deadline (#26752 reads R2 the same way).
+            read = getattr(response, "read1", response.read)
             while True:
-                chunk = response.read(min(64 * 1024, max_bytes - size + 1))
+                chunk = read(min(64 * 1024, max_bytes - len(body.data) + 1))
                 if not chunk:
                     break
-                size += len(chunk)
-                if size > max_bytes:
-                    raise ManifestError(
-                        f"{url} exceeds the {max_bytes}-byte size limit"
+                body.data += chunk
+                body.received += len(chunk)
+                if len(body.data) > max_bytes:
+                    raise ManifestError(f"{url} exceeds the {max_bytes}-byte size limit")
+                # A read that has every byte is kept even past the limit: the
+                # digest is checked on it all the same, and reading it again would
+                # only wait on the same edge. Each read1 call returns within the
+                # 30 s socket timeout, so a read ends at most that long after its limit.
+                done = body.total is not None and len(body.data) >= body.total
+                if not done and time.monotonic() - started > READ_ATTEMPT_SECONDS:
+                    raise _TransientFetchError(
+                        f"could not fetch {url}: read too slow, {len(body.data) - offset} bytes "
+                        f"in {READ_ATTEMPT_SECONDS}s"
                     )
-                chunks.append(chunk)
-            return b"".join(chunks)
-    except (OSError, urllib.error.URLError) as error:
+            if body.total is not None and len(body.data) != body.total:
+                raise _TransientFetchError(
+                    f"could not fetch {url}: the body ended at byte {len(body.data)} of {body.total}"
+                )
+    except urllib.error.HTTPError as error:
+        if error.code >= 500:
+            raise _TransientFetchError(f"could not fetch {url}: {error}") from error
         raise ManifestError(f"could not fetch {url}: {error}") from error
+    except (OSError, urllib.error.URLError, http.client.HTTPException) as error:
+        # Timeouts, resets, DNS or connection failures, and a body cut off
+        # mid-read (http.client.IncompleteRead): no complete answer came.
+        raise _TransientFetchError(f"could not fetch {url}: {error}") from error
 
 
-def _verify_remote_binary(url: str, artifact: str, expected: str, *, source: str) -> None:
-    """Compare a published binary with its digest, reading it again from a fresh URL on a mismatch.
+def _verify_remote_binary(
+    url: str, artifact: str, expected: str, *, source: str, expected_size: int | None = None
+) -> None:
+    """Compare a published binary with its digest (and size, when known), reading it again
+    from a fresh URL on a mismatch.
 
-    Write-once objects never change, so a wrong read is a transient fetch problem, not a
-    different build. Run 37505519359 failed on one such read while R2 held the right bytes.
+    Write-once objects never change, so a wrong or short read is a transient fetch problem,
+    not a different build. Run 37505519359 failed on one such read while R2 held the right
+    bytes, and run 40386462365 on a short one.
     """
 
     reads: list[str] = []
@@ -393,15 +522,16 @@ def _verify_remote_binary(url: str, artifact: str, expected: str, *, source: str
         fetch_url = url if attempt == 0 else f"{url}?verify={time.time_ns()}"
         payload = _read_url(fetch_url, max_bytes=MAX_ARTIFACT_BYTES, headers_out=headers)
         actual = hashlib.sha256(payload).hexdigest()
-        if actual.lower() == expected.lower():
+        if actual.lower() == expected.lower() and (expected_size is None or len(payload) == expected_size):
             return
         details = ", ".join(f"{name} {value}" for name, value in headers.items())
         reads.append(f"read {attempt + 1}: got {actual}, size {len(payload)}" + (f", {details}" if details else ""))
         if attempt + 1 < BINARY_READ_ATTEMPTS:
             print(f"warning: {source} digest mismatch for {artifact} on {reads[-1]}; reading again", file=sys.stderr)
             time.sleep(RETRY_PAUSE_SECONDS)
+    expected_text = expected if expected_size is None else f"{expected}, size {expected_size}"
     raise ManifestError(
-        f"{source} digest mismatch for {artifact}: expected {expected} after {BINARY_READ_ATTEMPTS} reads ({'; '.join(reads)})"
+        f"{source} digest mismatch for {artifact}: expected {expected_text} after {BINARY_READ_ATTEMPTS} reads ({'; '.join(reads)})"
     )
 
 

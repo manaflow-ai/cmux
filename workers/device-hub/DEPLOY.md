@@ -36,7 +36,7 @@ npx wrangler deploy --env dev
 node scripts/gen-key.mjs | npx wrangler secret put SESSION_KEY --env dev
 node scripts/gen-key.mjs | npx wrangler secret put TICKET_KEY --env dev
 
-# 3. Paid-plan relay credentials (Cloudflare Realtime TURN), from the
+# 3. cmux relay credentials (Cloudflare Realtime TURN), from the
 #    1Password item "Cloudflare TURN Server API Key" in the Shared vault.
 op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" \
   | npx wrangler secret put TURN_KEY_API_TOKEN --env dev
@@ -51,11 +51,12 @@ curl -fsS https://cmux-device-hub-dev.debussy.workers.dev/v1/health
 ```
 
 Without `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`, the Worker still runs:
-paid users get `ice: []`, as free users do, and the apps fall back to direct
+subscribers get `ice: []`, as free users do, and the apps fall back to direct
 paths and the user's own relays.
 
 Rotating `SESSION_KEY` signs every device out (their hub sessions stop
-verifying; the apps exchange their Stack token again). Rotating `TICKET_KEY`
+verifying and their sealed Stack tokens stop opening; the apps exchange their
+Stack token again). Rotating `TICKET_KEY`
 invalidates tickets that are less than 60 s old. Neither touches stored data.
 
 ## Production deploy
@@ -88,12 +89,23 @@ Check that production refuses a Stack development-project token: POST
 token is not for an accepted project" (the dev hub returns 200 for the same
 token).
 
-### Paid users
+### Who gets the cmux relay
 
-`PAID_USER_IDS` is a plain var: a comma list of hub user ids, each
-`<stackProjectId>:<stackUserId>` (the `userId` that `/v1/auth/stack` and
-`/v1/me` return). Set it in `[vars]` (production) or `[env.dev.vars]` (dev)
-and redeploy.
+cmux billing decides, not the hub. Before each ticket and each
+`/v1/sessions/:id/ice`, the hub asks the cmux web backend of the user's Stack
+project for the plan (`GET /api/billing/plan`) with the user's own Stack
+access token, which the hub session carries sealed (`src/billing.ts`). The
+relay goes to a personal Pro or Max plan, or a billing team on Team. Free, Go,
+and any failed or timed-out lookup (5 s) get `ice: []`; sessions still connect
+directly or through the user's own relays. Logs show only the outcome
+(`relay entitlement: paid|free|error`), never a token.
+
+`BILLING_ORIGINS` is a plain var, a comma list of
+`<stackProjectId>=<https origin>`: production maps the prod project to
+`https://cmux.com`; dev also maps the development project to
+`https://cmux-staging.vercel.app`. A project without an entry never gets the
+relay. To grant a test account the relay, give it a plan in that backend's
+billing (on staging, the admin plan grant), not a hub setting.
 
 ### Stack projects
 

@@ -14,6 +14,12 @@
 //!   else the latest journal checkpoint of the terminal, else nothing),
 //!   modes a dead program left on reset, then one dim marker line that
 //!   names what it ran (an agent's resume command, else its command line).
+//!   When it ran an agent session, the agent's live input frame (its
+//!   prompt box, voice bar and footer, which an inline TUI such as Claude
+//!   Code, Codex or Muse Code draws at the bottom of the primary screen) is
+//!   erased from the previous screen first: it was the dead program's UI,
+//!   not output, and the resumed agent draws its own
+//!   ([`agent_frame_rows`]).
 
 use std::path::Path;
 
@@ -33,6 +39,8 @@ const MODE_RESET: &[u8] =
     b"\x1b7\x1b[?1049l\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>";
 /// Room the marker line and mode reset need in the seed.
 const MARKER_HEADROOM_BYTES: usize = 4 * 1024;
+/// The most rows above the cursor an agent's input frame is taken to span.
+const MAX_AGENT_FRAME_ROWS: u16 = 12;
 
 /// The launch of one respawn.
 pub(in crate::mux) struct RespawnLaunch {
@@ -122,10 +130,20 @@ impl Mux {
         // What it ran: an agent's resume command, else the command line.
         let ran = self.respawn_ran(&plan.terminal_id, record);
         let marker = crate::terminal_respawn_text::marker(ran.as_ref().map(|ran| ran.as_ran()));
+        // An agent's live input frame is not replayed.
+        let frame = previous
+            .as_ref()
+            .filter(|_| matches!(ran, Some(prefill::RanText::Agent(_))))
+            .and_then(agent_frame_rows);
+        let seed = respawn_seed_without_frame(
+            previous.map(|previous| previous.bytes),
+            frame,
+            Some(&marker),
+        );
         RespawnLaunch {
             options,
             cell_pixels: geometry.map_or(creation_cell_pixels, |(_, cell_pixels)| cell_pixels),
-            seed: respawn_seed(previous.map(|previous| previous.bytes), Some(&marker)),
+            seed,
         }
     }
 }
@@ -153,6 +171,65 @@ fn usable_env(env: &[(String, String)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Where a lost agent's live input frame sits on its replayed screen
+/// `previous`: how many rows above the cursor it starts (0: on the cursor's
+/// row), down to the bottom of the screen. Inline agent TUIs keep the cursor
+/// in their prompt box, at the bottom, under the transcript and one blank
+/// row: the frame is the block of non-blank rows around the cursor, from
+/// the nearest blank row above it (at most [`MAX_AGENT_FRAME_ROWS`] up; with
+/// none, from the cursor's row). `None` on the alternate screen (the mode
+/// reset leaves it, and a full-screen frame with it) or when the screen
+/// cannot be read.
+pub(in crate::mux) fn agent_frame_rows(previous: &TerminalReplay) -> Option<u16> {
+    let (cols, rows) = (previous.cols.max(1), previous.rows.max(1));
+    let mut term = ghostty_vt::Terminal::new(cols, rows, 1_000, Default::default()).ok()?;
+    term.vt_write(&previous.bytes);
+    if term.active_screen() == ghostty_vt::Screen::Alternate {
+        return None;
+    }
+    let (_, cursor) = term.cursor_position()?;
+    let mut blank = |row: u16| {
+        term.selection_text((0, row), (cols - 1, row)).is_none_or(|text| text.trim().is_empty())
+    };
+    if blank(cursor) {
+        return Some(0);
+    }
+    let mut top = cursor;
+    while top > 0 && cursor - top < MAX_AGENT_FRAME_ROWS {
+        if blank(top - 1) {
+            return Some(cursor - top);
+        }
+        top -= 1;
+    }
+    Some(0)
+}
+
+/// [`respawn_seed`], with the rows from `frame` rows above the replayed
+/// cursor to the bottom of the screen erased (an agent's input frame,
+/// [`agent_frame_rows`]); the marker line takes the frame's first row.
+/// Relative moves keep the erase on the replayed cursor's rows whatever size
+/// the new terminal has.
+pub(in crate::mux) fn respawn_seed_without_frame(
+    previous: Option<Vec<u8>>,
+    frame: Option<u16>,
+    marker: Option<&str>,
+) -> Vec<u8> {
+    let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(MARKER_HEADROOM_BYTES);
+    let previous = previous.filter(|previous| previous.len() <= budget);
+    let (mut seed, up) = match (previous, frame) {
+        (Some(previous), Some(up)) => (previous, up),
+        (previous, _) => return respawn_seed(previous, marker),
+    };
+    seed.extend_from_slice(b"\r");
+    if up > 0 {
+        seed.extend_from_slice(format!("\x1b[{up}A").as_bytes());
+    }
+    seed.extend_from_slice(b"\x1b[J");
+    seed.extend_from_slice(MODE_RESET);
+    push_marker(&mut seed, marker);
+    seed
+}
+
 /// The previous screen (dropped whole when it would not fit), the mode reset
 /// and one dim `marker` line (none: no line), bounded by
 /// `VT_REPLAY_MAX_BYTES`.
@@ -164,12 +241,17 @@ pub(in crate::mux) fn respawn_seed(previous: Option<Vec<u8>>, marker: Option<&st
     if had_screen {
         seed.extend_from_slice(b"\r\n");
     }
+    push_marker(&mut seed, marker);
+    seed
+}
+
+/// One dim `marker` line (none: nothing).
+fn push_marker(seed: &mut Vec<u8>, marker: Option<&str>) {
     if let Some(marker) = marker {
         seed.extend_from_slice(b"\x1b[2m");
         seed.extend(marker.chars().filter(|c| !c.is_control()).collect::<String>().bytes());
         seed.extend_from_slice(b"\x1b[0m\r\n");
     }
-    seed
 }
 
 #[cfg(test)]
@@ -193,6 +275,64 @@ mod tests {
         let quiet = respawn_seed(Some(b"old screen".to_vec()), None);
         assert!(quiet.ends_with(MODE_RESET) || quiet.ends_with(b"\r\n"));
         assert!(!quiet.windows(4).any(|window| window == b"\x1b[2m"), "no marker line");
+    }
+
+    /// The rows a terminal of `cols`x`rows` shows after `bytes`, trimmed.
+    fn shown(cols: u16, rows: u16, bytes: &[u8]) -> Vec<String> {
+        let mut term = ghostty_vt::Terminal::new(cols, rows, 1_000, Default::default()).unwrap();
+        term.vt_write(bytes);
+        (0..rows)
+            .map(|row| term.selection_text((0, row), (cols - 1, row)).unwrap_or_default())
+            .map(|text| text.trim_end().to_string())
+            .collect()
+    }
+
+    /// Muse Code's screen at its host's death (dogfood, Oct 27): transcript,
+    /// one blank row, then its input frame with the cursor on the prompt.
+    fn muse_screen() -> TerminalReplay {
+        let bytes = "Worked for 17m 28s \u{b7} 8:35 PM\r\n\
+             \u{25c7} Running command\r\n\
+             \r\n\
+             \u{2500}\u{2500} Voice input (\u{2325} + v to start) \u{2500}\u{2500}\r\n\
+             \u{276f} \r\n\
+             \u{2500}\u{2500}\u{2500}\u{2500}\r\n\
+             \x20 muse-wonder-1.0 \u{b7} high \u{b7} YOLO\x1b[2A\r\x1b[2C";
+        TerminalReplay { cols: 60, rows: 10, bytes: bytes.as_bytes().to_vec() }
+    }
+
+    #[test]
+    fn an_agents_input_frame_starts_below_the_blank_row_above_its_cursor() {
+        assert_eq!(agent_frame_rows(&muse_screen()), Some(1), "the voice bar, one row up");
+        // The cursor on a blank row: from that row.
+        let blank = TerminalReplay { cols: 20, rows: 4, bytes: b"text\r\n\r\n".to_vec() };
+        assert_eq!(agent_frame_rows(&blank), Some(0));
+        // No blank row near the cursor: only from its row.
+        let dense = (0..30).map(|row| format!("line {row}\r\n")).collect::<String>() + "last";
+        let dense = TerminalReplay { cols: 20, rows: 30, bytes: dense.into_bytes() };
+        assert_eq!(agent_frame_rows(&dense), Some(0));
+        // A full-screen program: the mode reset leaves its screen already.
+        let full = TerminalReplay { cols: 20, rows: 4, bytes: b"\x1b[?1049hframe".to_vec() };
+        assert_eq!(agent_frame_rows(&full), None);
+    }
+
+    #[test]
+    fn a_respawned_agent_terminal_keeps_the_transcript_but_not_the_input_frame() {
+        let screen = muse_screen();
+        let frame = agent_frame_rows(&screen);
+        let seed = respawn_seed_without_frame(Some(screen.bytes), frame, Some("restored"));
+        let rows = shown(60, 10, &seed);
+        let text = rows.join("\n");
+        assert!(text.contains("Worked for 17m 28s"), "{text}");
+        assert!(text.contains("Running command"), "{text}");
+        for chrome in ["Voice input", "\u{276f}", "muse-wonder", "\u{2500}"] {
+            assert!(!text.contains(chrome), "{chrome:?} was replayed: {text}");
+        }
+        assert_eq!(rows[3], "restored", "the marker takes the frame's place: {text}");
+        // Without a frame the seed is the plain one.
+        assert_eq!(
+            respawn_seed_without_frame(Some(b"old".to_vec()), None, Some("restored")),
+            respawn_seed(Some(b"old".to_vec()), Some("restored"))
+        );
     }
 
     #[test]

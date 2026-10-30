@@ -116,6 +116,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
+    /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
+    /// false: every crash shows its notice, and only its Reload button reloads.
+    public var reloadsAfterCrash = true
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
@@ -158,6 +162,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
+    /// the notice's Reload (``reloadAfterCrashes()``).
+    var webKitLoadsOnReload = false
     let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
@@ -226,8 +233,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
         let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+        var allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
                        debugRoot(for: descriptor)].compactMap { $0 }
+        #if DEBUG
+        allowed += PageID.fixtureRoots(for: descriptor.id)
+        #endif
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 
@@ -406,11 +416,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale` times this page's additional zoom; the chrome multiplier remains
+    /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
+        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
@@ -541,7 +552,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        setChromiumVisibility(true)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -554,12 +565,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidHide() {
         super.viewDidHide()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        setChromiumVisibility(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        setChromiumVisibility(true)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -596,7 +607,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         let url = action.request.url
         switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
-                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true,
+                                     targetFrameURL: action.targetFrame?.request.url,
+                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:

@@ -8,7 +8,8 @@ section "Chief fast evals".
 Run: `Native/OptChat/optchat-chief/evals/run.sh` (all cases), or
 `run.sh --only links-` (id prefix), `--repeat 3` (each model case 3 times),
 `--no-model` (deterministic only), `--ledger pre` (the reply ledger as it was
-before 2026-10-26, for A/B), `--min-pass 0.8` (gate on a pass fraction).
+before 2026-10-26, for A/B), `--min-pass 0.8` (gate on a pass fraction),
+`--baseline DIR_OR_SUMMARY_JSON` (diff against an earlier run, below).
 Model cases need `OPTCHAT_ANTHROPIC_BASE_URL`: the team subrouter
 (`http://100.89.225.106:31415`, what CI uses) or the sr2 gateway
 (`http://100.120.48.119:4016`, reachable from cmux-lawrence). Requests are
@@ -16,6 +17,29 @@ Claude Code shaped (its system line and user agent), as production turns are.
 `chief_eval preflight` checks the route. Deterministic cases need nothing.
 Run it on a mini or Linux box, not the laptop: `ulimit -n 8192` first (each
 case opens a memory database; run.sh does it).
+
+## Health of a real Chief (no model)
+
+`measure/chief_health.py` reads a Chief home's memory and traces, read-only,
+in about a second, and prints the numbers the person feels for the last 7 days
+and for all time: time to first reply, messages with no reply, "hello?" pings
+while waiting, turns cut by restarts and turn failures, compactor refusal
+lines, "No such tool" calls, `cmux` usage errors by command, and spawns
+without a workspace. `--home DIR` picks the home's `optchat/` (default the
+default Chief), `--since 2w` the window, `--json` the output for diffs. Test:
+`python3 -m unittest test_chief_health` (from `measure/`).
+
+## Replays of a person's real messages
+
+`measure/replay_cases.py` turns messages from a real Chief memory into model
+cases for this runner, judged by rules only: dispatch fidelity (a spawn in the
+repo directory the person accepted, with their words and a Title line), feedback
+to action (a bug report becomes a spawn with their words) and rules stick (a
+rule taught earlier in the memory holds on a later dispatch, with a profile that
+lacks it). A message becomes a case only when Chief spawned for it then and the
+person's next message was not a correction. The cases hold real words, so the
+script refuses an output directory inside a git work tree: keep them private
+and run `evals/run.sh --cases DIR`. Test: `python3 -m unittest test_replay_cases`.
 
 ## Two kinds of case
 
@@ -28,6 +52,24 @@ case opens a memory database; run.sh does it).
    case, group = file name after `eval_`.
 
 Add a case = add a file. Never edit another owner's file.
+
+## Adding a model case
+
+1. Pick the group the behavior belongs to (table in
+   plans/cmux-next/agent-evals-DESIGN.md, "Groups and owners"; a new group
+   is just a new prefix, add a row there).
+2. Copy the closest case in `evals/cases/` to `<group>-<name>.json`, set
+   `id` to the file name, `owner` to your agent or login and `about` to the
+   one line it guards.
+3. Write the `history` the turn needs, `stubs` for every command whose
+   output matters, and the turn with its `checks`. Prefer deterministic
+   checks (`called`, `reply_matches`, `no_raw_ids`, `max_words`); add a
+   `judge` rubric only for what no regex can say, worded as "Passes when ...
+   Fails when ...".
+4. Run it alone a few times: `evals/run.sh --only <group>-<name> --repeat 3`.
+   A case that fails on today's Chief for the reason it guards is a finding;
+   one that fails for another reason (a stub missing, a regex too strict)
+   needs fixing before it lands.
 
 ## Model case format
 
@@ -98,6 +140,27 @@ Add a case = add a file. Never edit another owner's file.
 - Group chats: `"conv": "Launch planning", "author": "Leo"` (and
   `"author_kind": "Chief"`) labels an item as the brain labels side
   messages: `[in conv conv_… "Launch planning" from person "Leo"] text`.
+
+## Baseline diff
+
+`summary.json` holds each case's result (`case_results`: group, passed,
+runs, with `--repeat` folded into one id) and each group's pass rate
+(`group_pass_rate`). Every run prints the pass rate per group. With
+`--baseline` naming an earlier run's directory or `summary.json`, it also
+prints, and writes to `diff.md` and `diff.json`, the pass rate per group
+before and after and in total, counted over the cases both runs have (an
+`--only` run compares like for like; an old baseline without per-case
+results compares the groups both runs have), the cases that regressed,
+improved, are new or are missing, and the groups this run left out. Summaries from before `case_results` diff by group only.
+The diff is a report; the exit code still follows `--min-pass`.
+
+    evals/run.sh --out /tmp/before            # on the old commit
+    evals/run.sh --baseline /tmp/before       # on the new one
+
+In CI, every run that reaches the model cases diffs against the last
+feat-cmux-next run with a `chief-evals` artifact. To run it on demand, use
+Actions, chief-evals, Run workflow; `baseline_run` picks another run id as
+the baseline. The diff is in the job summary.
 
 ## Numbers (summary.json)
 

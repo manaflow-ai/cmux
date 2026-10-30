@@ -1,16 +1,17 @@
 // l10n-allow-file: test fixture folders and branches, not shipped UI.
-// The Inspector's Environment (Claude Code desktop's): the machine with Save, then every folder the
-// chat worked in (its own, then each project its tool calls touched), the repository, the branch.
-// Every row does something: a folder opens in the Files tree beside the chat, the repository and the
-// branch link to GitHub, Save keeps the machine and folder as a New Tab environment.
+// The Inspector's Environment (Claude Code desktop's): the machine with Save, then the chat's project
+// named by its repository (never a temporary or internal folder, never a folder its tool calls
+// touched), the repository, the branch. Every row does something: the project opens in the Files tree
+// beside the chat, the repository and the branch link to GitHub, Save keeps the machine and folder as
+// a New Tab environment. Leo, 2026-10-27: "why are these files being shown to me in the first place".
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
-import { chatFolders, projectFolder } from "../src/agent-session/acpmux/inspector/chatFolders";
-import { environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
+import { chatProject, internalFolder } from "../src/agent-session/acpmux/inspector/chatFolders";
+import { EnvironmentSection, environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
@@ -65,7 +66,7 @@ const edit = (path: string) =>
 const read = (path: string) => tool(`Read ${path}`, "read", "completed", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", "completed", { command, output: "", exitCode: 0 });
 
-/// A chat in ~/Projects (no repository) that worked across several projects, as Leo's do.
+/// A chat that worked across several folders, as Leo's do: none of them is listed (only its project).
 const projectsRows = [
   activity(
     [
@@ -75,91 +76,109 @@ const projectsRows = [
       run(`git -C "~/Projects/leo-workspace" status`),
       read(`${HOME}/.claude/CLAUDE.md`),
       read("/private/tmp/claude-501/scratch/notes.md"),
-      run("cd ../elsewhere && ls"),
-      edit(`${HOME}/Projects/cmux/webviews/src/b.ts`),
     ],
     3,
   ),
   activity([read(`${HOME}/Projects/glaeda/main.go`)], 2),
 ];
+/// Leo's chat (2026-10-27): a harness's scratchpad, which its tool calls cd'd out of into a worktree.
+const SCRATCHPAD = "/private/tmp/agent-501/-Users-leo-Projects/1d2c/scratchpad";
+const scratchRows = [activity([run(`cd ${HOME}/Projects/checkouts/app--fix-login && git status`)], 1)];
 
-test("a plain folder's chat lists itself, then each child project its tool calls touched, once, in order", () => {
-  expect(chatFolders(projectsRows, `${HOME}/Projects`, false)).toEqual([
-    `${HOME}/Projects`,
-    `${HOME}/Projects/cmux`,
-    `${HOME}/Projects/cmux-app-screenshots`,
-    `${HOME}/Projects/leo-workspace`,
-    `${HOME}/Projects/glaeda`,
-  ]);
+const summaryAt = (cwd: string, more: Partial<Summary> = {}) => ({ sessionId: "s", cwd, ...more }) as Summary;
+
+test("temporary and internal folders are never a project, the chat's own folder included", () => {
+  for (const path of [
+    SCRATCHPAD,
+    "/tmp/x",
+    "/private/var/folders/x/T/y",
+    "/var/folders/x/T/y",
+    `${HOME}/Library/Application Support/cmux/agent-home/w1`,
+    HOME,
+    "/",
+    `${HOME}/.claude`,
+    `${HOME}/Library/Caches/x.noindex/scratch`,
+  ])
+    expect([path, chatProject(summaryAt(path))]).toEqual([path, undefined]);
+  // Not even with a branch: a temporary folder is never a project.
+  expect(chatProject(summaryAt("/private/tmp/clone", { branch: "main" }))).toBeUndefined();
+  expect(internalFolder(`${HOME}/.cmux/worktrees/cmux/lane`)).toBe(true);
+  // A hidden folder acpmux reports in git is the project it works on: a Claude or cmux worktree.
+  expect(internalFolder(`${HOME}/.cmux/worktrees/cmux/lane`, true)).toBe(false);
 });
 
-test("a repository's chat keeps its own files in it and lists the projects beside it", () => {
-  const cwd = `${HOME}/Projects/cmux`;
-  expect(chatFolders(projectsRows, cwd, true)).toEqual([
-    cwd,
-    `${HOME}/Projects/cmux-app-screenshots`,
-    `${HOME}/Projects/leo-workspace`,
-    `${HOME}/Projects/glaeda`,
-  ]);
-  // A path's project, seen from the repository.
-  expect(projectFolder(`${cwd}/src/deep/file.ts`, true, cwd, true)).toBe(cwd);
-  expect(projectFolder(`${HOME}/notes.md`, true, cwd, true)).toBeUndefined();
-  expect(projectFolder("/opt/homebrew/etc/nginx.conf", true, cwd, true)).toBe("/opt/homebrew/etc");
-  expect(projectFolder("/var/folders/x/T/tmp.txt", true, cwd, true)).toBeUndefined();
-  expect(projectFolder("relative/path.ts", true, cwd, true)).toBeUndefined();
+test("the project is the chat's folder, named by its repository, at its worktree's top", () => {
+  expect(chatProject(summaryAt(`${HOME}/Projects/cmux/`, { branch: "main" }), "manaflow-ai/cmux")).toEqual({
+    path: `${HOME}/Projects/cmux`,
+    name: "cmux",
+    worktree: false,
+  });
+  // A lane's checkout: its repository names it, not its folder.
+  const lane = `${HOME}/Projects/checkouts/cmux/leo--fix`;
+  expect(chatProject(summaryAt(`${lane}/webviews`, { branch: "leo/fix", worktree: lane }), "manaflow-ai/cmux")).toEqual(
+    { path: lane, name: "cmux", worktree: true },
+  );
+  // A worktree the folder is not in says nothing about it.
+  expect(chatProject(summaryAt("/srv/app", { worktree: "/srv/other" }))).toEqual({
+    path: "/srv/app",
+    name: "app",
+    worktree: false,
+  });
+  expect(chatProject(undefined)).toBeUndefined();
 });
 
-test("with no folder, the projects are the folders the files are in", () => {
-  expect(chatFolders([activity([edit("/srv/app/main.py")], 1)], undefined, false)).toEqual(["/srv/app"]);
-});
-
-test("Save keeps this Mac or the SSH machine and the folder, named after it; a Cloud chat has none", () => {
+test("Save keeps this Mac or the SSH machine and the folder, named after its project; a Cloud or scratch chat has none", () => {
   const base = { sessionId: "s", cwd: `${HOME}/Projects/cmux` } as Summary;
   expect(environmentToSave(base)).toEqual({ name: "cmux", kind: "local", folder: `${HOME}/Projects/cmux` });
-  expect(environmentToSave({ ...base, peer: "huge-blue" }, { "huge-blue": "ssh" })).toEqual({
+  expect(environmentToSave({ ...base, peer: "build-box" }, { "build-box": "ssh" })).toEqual({
     name: "cmux",
     kind: "ssh",
-    host: "huge-blue",
+    host: "build-box",
     folder: `${HOME}/Projects/cmux`,
   });
+  // Named by its repository, from a lane's checkout.
+  const lane = { ...base, cwd: `${HOME}/Projects/checkouts/cmux/leo--fix`, branch: "leo/fix" };
+  expect(environmentToSave(lane, undefined, "manaflow-ai/cmux")?.name).toBe("cmux");
   expect(environmentToSave({ ...base, peer: "vm-1" }, { "vm-1": "cloud" })).toBeUndefined();
   expect(environmentToSave({ ...base, hostKind: "cloud", host: "build-01" })).toBeUndefined();
+  // Leo's scratchpad chat: nothing to save.
+  expect(environmentToSave({ ...base, cwd: SCRATCHPAD })).toBeUndefined();
+  expect(environmentToSave({ ...base, cwd: SCRATCHPAD, peer: "build-box" }, { "build-box": "ssh" })).toBeUndefined();
 });
 
-test("every Environment row does something: folders open in Files, the repository and branch link to GitHub, Save", async () => {
+async function renderInspector(props: ComponentProps<typeof ChatInspector>): Promise<HTMLElement> {
   const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector {...props} />);
+  });
+  return container.querySelector<HTMLElement>('ul[data-section="environment"]')!;
+}
+
+test("a repository's chat lists its project by name, its path only in the tooltip; it opens in Files", async () => {
   const base = chat(projectsRows);
-  // A repository's chat: its own files are its folder; the projects beside it are listed after it.
-  const summary: Summary = { ...base.summary!, cwd: `${HOME}/Projects/cmux`, branch: "leo/next-backgrounds" };
   const folders: string[] = [];
   let saves = 0;
-  const props: ComponentProps<typeof ChatInspector> = {
-    summary,
-    machineName: "cosmic-gray",
+  const environment = await renderInspector({
+    summary: { ...base.summary!, cwd: `${HOME}/Projects/cmux`, branch: "leo/next-backgrounds" },
+    machineName: "studio-mac",
     repository: "manaflow-ai/cmux",
     rows: projectsRows,
     onOpenFolder: (path) => folders.push(path),
     onSaveEnvironment: async () => {
       saves++;
     },
-  };
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<ChatInspector {...props} />);
   });
-  const environment = container.querySelector<HTMLElement>('ul[data-section="environment"]')!;
+  // One project row: no folder the tool calls touched, and no path text.
   const buttons = [...environment.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-row")];
-  // Claude's list: the chat's folder with its parent, then each project by name.
-  expect(buttons.map((button) => button.textContent)).toEqual([
-    "cmux~/Projects",
-    "cmux-app-screenshots",
-    "leo-workspace",
-    "glaeda",
-  ]);
-  expect(buttons[1]!.getAttribute("title")).toBe(`${HOME}/Projects/cmux-app-screenshots`);
+  expect(buttons.map((button) => button.textContent)).toEqual(["cmux"]);
+  expect(environment.textContent).not.toContain("~/Projects");
+  for (const touched of ["cmux-app-screenshots", "leo-workspace", "glaeda", "scratch"])
+    expect(environment.textContent).not.toContain(touched);
+  expect(buttons[0]!.getAttribute("title")).toBe(`${HOME}/Projects/cmux`);
+  // The click asks for that folder's Files tab (App.tsx: `pane.action` Files, opened right of the chat).
   await act(async () => buttons[0]!.click());
-  await act(async () => buttons[3]!.click());
-  expect(folders).toEqual([`${HOME}/Projects/cmux`, `${HOME}/Projects/glaeda`]);
+  expect(folders).toEqual([`${HOME}/Projects/cmux`]);
 
   // The repository and the branch are links, which the pane opens in the browser.
   const links = [...environment.querySelectorAll<HTMLAnchorElement>("a.acpmux-chat-inspector-row")];
@@ -177,23 +196,91 @@ test("every Environment row does something: folders open in Files, the repositor
   expect(save.disabled).toBe(true);
 });
 
+test("a scratchpad chat lists only its machine: no folder row and no Save", async () => {
+  const base = chat(scratchRows);
+  const environment = await renderInspector({
+    summary: { ...base.summary!, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
+    machineName: "studio-mac",
+    rows: scratchRows,
+    onOpenFolder: () => undefined,
+    onSaveEnvironment: () => undefined,
+  });
+  expect(environment.textContent).toBe("studio-mac");
+  expect(environment.querySelector("button")).toBeNull();
+});
+
 test("without the App's actions the rows are plain text, and no Remote Control row is drawn", async () => {
-  const container = installDom();
   const base = chat(projectsRows);
+  const environment = await renderInspector({
+    summary: { ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined },
+    machineName: "studio-mac",
+    rows: projectsRows,
+  });
+  expect(environment.querySelector("button")).toBeNull();
+  expect(environment.querySelector("a")).toBeNull();
+  expect(environment.querySelector("li[title]")?.getAttribute("title")).toBe(`${HOME}/Projects`);
+  expect(environment.textContent).not.toContain("glaeda");
+  expect(environment.textContent).not.toContain("Remote Control");
+});
+
+test("Environment Save blocks duplicates while pending and exposes a retry after rejection", async () => {
+  const container = installDom();
+  let attempts = 0;
+  let reject!: (reason: unknown) => void;
+  const onSave = () => {
+    attempts++;
+    return attempts === 1
+      ? new Promise<void>((_resolve, fail) => {
+          reject = fail;
+        })
+      : Promise.resolve();
+  };
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <ChatInspector
-        // A plain folder (no branch): each child project it touched is listed.
-        summary={{ ...base.summary!, cwd: `${HOME}/Projects`, branch: undefined }}
-        machineName="cosmic-gray"
-        rows={projectsRows}
+      <EnvironmentSection
+        summary={{ ...chat([]).summary!, cwd: "/Users/demo/Projects/atlas" }}
+        machineName="Studio"
+        onSave={onSave}
       />,
     );
   });
-  const environment = container.querySelector<HTMLElement>('ul[data-section="environment"]')!;
-  expect(environment.querySelector("button")).toBeNull();
-  expect(environment.querySelector("a")).toBeNull();
-  expect(environment.textContent).toContain("glaeda");
-  expect(environment.textContent).not.toContain("Remote Control");
+  const button = container.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-link")!;
+  await act(async () => {
+    button.click();
+    button.click();
+  });
+  expect(attempts).toBe(1);
+  expect(button.disabled).toBe(true);
+  expect(button.getAttribute("aria-busy")).toBe("true");
+  await act(async () => reject(new TypeError("internal transport details")));
+  expect(button.disabled).toBe(false);
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    translate("environment.saveFailed", { reason: translate("error.requestFailed") }),
+  );
+  expect(container.textContent).not.toContain("internal transport details");
+  await act(async () => button.click());
+  expect(attempts).toBe(2);
+  expect(button.textContent).toBe(translate("artifact.saved"));
+  expect(button.disabled).toBe(true);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("Environment Save also handles a synchronous callback failure", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <EnvironmentSection
+        summary={{ ...chat([]).summary!, cwd: "/Users/demo/Projects/atlas" }}
+        onSave={() => {
+          throw new Error("fixture refusal");
+        }}
+      />,
+    );
+  });
+  const button = container.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-link")!;
+  await act(async () => button.click());
+  expect(button.disabled).toBe(false);
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });

@@ -36,11 +36,13 @@ cannot() {
 # judge NAME COMMAND...: runs one guard on the payload. A refusal is the answer the moment its guard gives it,
 # read as JSON whatever its spacing: the next guard could run the hook past its timeout with the refusal
 # unprinted. A guard that crashes or exits non-zero (exit 2 would block the tool call in Claude Code) is only a
-# warning: no guard blocks on its own failure.
+# warning: no guard blocks on its own failure. The payload reaches the guard by process substitution, not a
+# pipe: under pipefail a guard that answers without reading stdin made printf die of SIGPIPE, and the pipe's
+# 141 read as the guard crashing (tests/test_guard_hooks_from_base.py, red on base under concurrent load).
 judge() {
   local name=$1 out status
   shift
-  out="$(printf '%s' "$input" | "$@" 2>/dev/null)"
+  out="$("$@" 2>/dev/null < <(printf '%s' "$input"))"
   status=$?
   if ((status != 0)); then
     out="cmux guards: $name exited $status, so it judged nothing"

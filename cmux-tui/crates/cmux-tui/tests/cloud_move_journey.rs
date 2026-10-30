@@ -146,6 +146,7 @@ fn cloud_move_journey_moves_a_dirty_folder_and_its_chat_to_a_personal_cloud_vm()
             .arg("--cwd")
             .arg(&synced)
             .arg("--interrupt")
+            .args(["--vm-kind", "owner"])
             .arg("--state-dir")
             .arg(root.join("pump")),
     );
@@ -216,8 +217,15 @@ fn begin_and_receive(from: &Machine, surface: u64, to: &Machine, cwd: &Path) -> 
     let begun = ok(from.rpc(json!({"id": 10, "cmd": "agent-transfer-begin", "surface": surface})));
     let transfer_id = begun["transfer_id"].as_str().unwrap().to_owned();
     let manifest = begun["manifest"].clone();
+    // The VM's own `owner` record never lets a chat in: only the caller's
+    // word that the Cloud API said `owner`.
+    for kind in [json!(null), json!("team")] {
+        let refused = to.rpc(json!({"id": 11, "cmd": "agent-transfer-receive",
+                                    "manifest": manifest, "cwd": cwd, "vm_kind": kind}));
+        assert_eq!(refused["error_code"], json!("agent_session.host_unverified"), "{refused}");
+    }
     let received = ok(to.rpc(json!({"id": 11, "cmd": "agent-transfer-receive",
-                                   "manifest": manifest, "cwd": cwd})));
+                                   "manifest": manifest, "cwd": cwd, "vm_kind": "owner"})));
     let receive_id = received["receive_id"].as_str().unwrap().to_owned();
     for file in manifest["files"].as_array().unwrap() {
         let (path, size) = (file["path"].as_str().unwrap(), file["size"].as_u64().unwrap());
@@ -284,7 +292,11 @@ fn cloud_move_resolves_a_lost_finish_after_the_vm_daemon_restarts() {
     let landed = plain_chat(&mut mac_acpmux, &here, "landed-chat");
     let landed_tab = bound_agent_tab(&mac, &landed);
     let (_, landed_receive) = begin_and_receive(&mac, landed_tab, &vm, &there);
-    ok(vm.rpc(json!({"id": 14, "cmd": "agent-transfer-finish", "receive_id": landed_receive})));
+    let bare =
+        vm.rpc(json!({"id": 14, "cmd": "agent-transfer-finish", "receive_id": landed_receive}));
+    assert_eq!(bare["error_code"], json!("agent_session.host_unverified"), "{bare}");
+    ok(vm.rpc(json!({"id": 14, "cmd": "agent-transfer-finish", "receive_id": landed_receive,
+                     "vm_kind": "owner"})));
 
     // A move whose finish never reached the VM.
     let stranded = plain_chat(&mut mac_acpmux, &here, "stranded-chat");

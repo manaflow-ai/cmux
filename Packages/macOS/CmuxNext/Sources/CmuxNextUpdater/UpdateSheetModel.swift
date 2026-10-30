@@ -38,6 +38,9 @@ public final class UpdateSheetModel: UpdateSheetSource {
         switch button {
         case .install:
             try? service.installAvailableUpdate()
+        case .update:
+            // The update-found step: download only; the staged update asks before relaunching.
+            service.downloadClicked()
         case .later, .cancel, .done:
             state?.cancel()
         case .retry:

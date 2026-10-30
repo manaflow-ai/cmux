@@ -4,6 +4,7 @@
 mod auth;
 mod declared;
 mod delete_retry;
+mod environment;
 mod machine;
 mod machine_projection;
 mod migration;
@@ -53,6 +54,13 @@ const OPS: &[(&str, Kind)] = &[
     // A restore makes a new machine: it costs money like create.
     ("cloud.snapshot.restore", Kind::UserOnly),
     ("cloud.snapshot.delete", Kind::UserOnly),
+    // Environments: build and boot cost money and delete destroys a snapshot,
+    // so a person confirms them; set only edits a record.
+    ("cloud.environment.list", Kind::Read),
+    ("cloud.environment.set", Kind::Mutation),
+    ("cloud.environment.build", Kind::UserOnly),
+    ("cloud.environment.boot", Kind::UserOnly),
+    ("cloud.environment.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.
@@ -223,6 +231,9 @@ pub struct Server<C> {
     host: crate::api::host::HostRequests,
     /// Process incarnation in epoch microseconds (JSON-safe through year 2255).
     incarnation: u64,
+    /// Changes whenever the host reports a different sign-in identity.
+    auth_epoch: u64,
+    auth_identity: Option<(bool, Option<String>)>,
 }
 
 impl<C> Server<C> {
@@ -268,6 +279,8 @@ impl<C: ControlPlane> Server<C> {
             edge,
             host: crate::api::host::HostRequests::default(),
             incarnation,
+            auth_epoch: 0,
+            auth_identity: None,
         }
     }
 
@@ -350,6 +363,10 @@ impl<C: ControlPlane> Server<C> {
         &self.projection
     }
 
+    pub(crate) fn auth_epoch(&self) -> u64 {
+        self.auth_epoch
+    }
+
     /// `cloud.machine.watch` events since the last call, in order, for the
     /// host.
     pub fn take_events(&mut self) -> Vec<WatchEvent> {
@@ -370,6 +387,7 @@ impl<C: ControlPlane> Server<C> {
         let machine = data["machine"].as_str().or_else(|| data["machine"]["id"].as_str());
         if let Some(machine) = machine {
             self.attach.infos.forget(machine);
+            self.attach.owner_answers.remove(machine);
         }
         crate::api::events::apply(&mut self.projection, event, data)
     }
@@ -378,11 +396,42 @@ impl<C: ControlPlane> Server<C> {
     /// replayable result and every cached link fact of the old session.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
         let outcome = self.handle_signed(request);
+        if canonical_name(&request.op) == Some("cloud.auth.status") {
+            match &outcome {
+                Ok(value) => {
+                    let signed_in = value["signedIn"].as_bool().unwrap_or(false);
+                    let team = value["team"].as_str().map(str::to_owned);
+                    self.update_auth_identity(signed_in, team);
+                }
+                Err(error) if error.code == codes::AUTH_REQUIRED => {
+                    self.invalidate_auth_identity();
+                }
+                _ => {}
+            }
+        }
         if outcome.as_ref().is_err_and(|e| e.code == codes::AUTH_REQUIRED) {
             self.ledger.clear();
             self.attach.infos.clear();
+            self.invalidate_auth_identity();
         }
         outcome
+    }
+
+    pub(crate) fn update_auth_identity(&mut self, signed_in: bool, team: Option<String>) {
+        let identity = (signed_in, team);
+        if self.auth_identity.as_ref() != Some(&identity) {
+            self.auth_identity = Some(identity);
+            self.auth_epoch = self.auth_epoch.wrapping_add(1);
+            self.attach.infos.clear();
+            self.attach.owner_answers.clear();
+        }
+    }
+
+    fn invalidate_auth_identity(&mut self) {
+        self.auth_identity = None;
+        self.auth_epoch = self.auth_epoch.wrapping_add(1);
+        self.attach.infos.clear();
+        self.attach.owner_answers.clear();
     }
 
     fn handle_signed(&mut self, request: &Request) -> Result<Value, CloudError> {
@@ -465,6 +514,7 @@ impl<C: ControlPlane> Server<C> {
             _ if name == "cloud.machine.upgrade" => migration::run(&mut ctx, name, args),
             "machine" => machine::run(&mut ctx, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
+            "environment" => environment::run(&mut ctx, name, args),
             "plan" | "billing" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),

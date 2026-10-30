@@ -612,8 +612,8 @@
     },
     {
       "path": "CloudInboxListRequest.java",
-      "sha256": "4d70f9c493aba17e6860602b2108e58224be5785bbd77ce7704c8857d472d68e",
-      "size": 2751
+      "sha256": "fe53a8e981fb61fba053215636eb4b3feab060f0a1b531f919b2bfc9927ea980",
+      "size": 3384
     },
     {
       "path": "CloudInboxOpRequest.java",
@@ -716,14 +716,19 @@
       "size": 3014
     },
     {
+      "path": "ColumnSide.java",
+      "sha256": "5063efa14b368b99104997a1ce031c495e6dc23cb2061e6806b1d624dc996876",
+      "size": 868
+    },
+    {
       "path": "CommandMetadata.java",
       "sha256": "3e3320fe5a1bcaf9edf0e06424706fb95564716704af87bcdd3b531fb2de74dd",
       "size": 471
     },
     {
       "path": "Commands.java",
-      "sha256": "c0e6cf43983dbc50c651ecb358339673e52e773e5656cf9d8238bb9ca095251c",
-      "size": 79237
+      "sha256": "2a24c244670fe5cd51ed038268225a67a74e88c3dc9157e3007e25fe6c22498b",
+      "size": 79356
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -977,8 +982,8 @@
     },
     {
       "path": "ConversationRunsRequest.java",
-      "sha256": "c96dc5f81e487504e103a371b2f66426be79a9fd2678dcbd826e959f44f49f72",
-      "size": 4370
+      "sha256": "378e0c33e478ca36db55e9ee474b8c127a98d9e9f25e4a14d385946fd285378b",
+      "size": 5148
     },
     {
       "path": "ConversationRunsResult.java",
@@ -1562,8 +1567,8 @@
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "3f9ed34adaf727f8682524774b2e374f67b38a7ecb700133a5630f9fc9feb410",
-      "size": 20363
+      "sha256": "4e4619c0c7b75ea349168f1fbdb85c1e6d81e62268b703642e797c79b2e1dac3",
+      "size": 21052
     },
     {
       "path": "IdsRequest.java",
@@ -1947,8 +1952,8 @@
     },
     {
       "path": "NewPaneRightRequest.java",
-      "sha256": "7726ff954ce2d7be9359329b9820c1165581c8dc74ff0eaf7275212f2d231988",
-      "size": 9587
+      "sha256": "8330cab9bd2b3b54d537487e74ddbab4278e2b46e8effac0729bb23990dc3474",
+      "size": 10174
     },
     {
       "path": "NewRemoteTerminalTabRequest.java",
@@ -2152,7 +2157,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6b9eee236bcc2e95a13ed78ab937b74dedff55656a1888d0d6c32ae2070a1b84",
+      "sha256": "a5cdd0711fd843392b92b74beb1bab2b49145e61779d2c71bb3f245f044c84fd",
       "size": 7688
     },
     {
@@ -3452,7 +3457,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "5c45bb03a6021740036fc16f4edfea6e3a0f457dd9bdd65dc407efd1ed699465",
+  "ir_sha256": "444b1b06891f3f44f38edc8e947db197608a79fdc469e619c9ff935f20469817",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

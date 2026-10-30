@@ -10,7 +10,7 @@
 #   SESSION_KEY        private P-256 JWK (JSON) that signs account session JWTs
 #   TICKET_KEY         private P-256 JWK (JSON) that signs session tickets
 #   TURN_KEY_ID        optional, Cloudflare Realtime TURN key id
-#   TURN_KEY_API_TOKEN optional, its API token. Without both, paid ICE is [].
+#   TURN_KEY_API_TOKEN optional, its API token. Without both, the cmux relay ICE is [].
 # `npm run dev-secrets` writes a fresh .dev.vars with both keys.
 
 name = "cmux-device-hub"
@@ -31,8 +31,10 @@ invocation_logs = false
 # Stack Auth projects accepted by /v1/auth/stack (comma list; STACK_PROJECT_ID
 # is the fallback when this is empty). Production: cmux prod only.
 STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82"
-# Comma list of paid hub user ids, each "<stackProjectId>:<stackUserId>".
-PAID_USER_IDS = ""
+# cmux web backend per Stack project, asked with the caller's own Stack token
+# (GET /api/billing/plan) before each cmux relay grant: Pro, Max or Team get
+# it; anything else, or a failed lookup, gets none. src/billing.ts.
+BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com"
 # Optional public origin used in signalURL (e.g. https://hub.example). Empty:
 # derived from the request URL.
 PUBLIC_BASE_URL = ""
@@ -67,7 +69,9 @@ invocation_logs = false
 [env.dev.vars]
 # cmux prod and the Stack development project used by DEBUG/tagged builds.
 STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
-PAID_USER_IDS = ""
+# Prod-project users ask cmux.com; development-project users ask the staging
+# web deployment (its Stack project is the development one).
+BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-staging.vercel.app"
 PUBLIC_BASE_URL = ""
 
 [[env.dev.durable_objects.bindings]]

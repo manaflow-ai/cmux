@@ -87,6 +87,23 @@ impl Repository {
         run_git_within(&self.root, &self.overrides, arguments, max_stdout, left)
     }
 
+    /// One bounded byte window of stdout, with the complete output's digest.
+    pub fn run_window(
+        &self,
+        arguments: &[&str],
+        offset: u64,
+        limit: usize,
+    ) -> Result<GitOutput, GitFailure> {
+        crate::run::run_git_window_within(
+            &self.root,
+            &self.overrides,
+            arguments,
+            offset,
+            limit,
+            remaining(self.deadline),
+        )
+    }
+
     /// The commit a revision names, or `None`.
     pub fn commit(&self, revision: &str) -> Option<String> {
         let revision = format!("{revision}^{{commit}}");

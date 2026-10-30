@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21, on the cmux NEXT sidebar: "ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND
@@ -8,7 +9,7 @@ import Testing
 /// last member, under a folder's last row, under the Pinned block's last row and under the last pinned
 /// chat, as between any two rows. A pinned workspace row's pin starts where an unpinned row's content
 /// starts and centers on its row as that row's content does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarUniformRowSpacingTests {
     static let group = GroupID("grp")
     static let pins = [LayoutItemID("itm_pin_1"), LayoutItemID("itm_pin_2")]
@@ -153,6 +154,41 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(header.y - above.maxY - m.rowSpacing) < 0.01, "the pins' end adds \(header.y - above.maxY - m.rowSpacing) pt")
     }
 
+    /// Group by Status with a computer that lists nothing: the sidebar lays out as without that computer, so no
+    /// spacing hangs under the Pinned block and a block after it still starts the list.
+    @Test(arguments: [false, true]) func aStatusListWithNoRowsTakesNoSpace(_ blockFirst: Bool) throws {
+        let m = SidebarLayoutMetrics.standard
+        let docs = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: "itm_docs")), nodes: [])
+        let block = blockFirst ? Self.pinnedBlock() : docs
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        var options = SidebarLayoutOptions()
+        options.grouping.setByStatus(true)
+        options.blockHeights = [SidebarLayoutDocument.pinnedSectionID.rawValue: 24, "itm_docs": 24]
+        let with = SidebarLayout.make(sections: blockFirst ? [block, machine] : [machine, block], metrics: m, options: options)
+        let without = SidebarLayout.make(sections: [block], metrics: m, options: options)
+        #expect(with.rows == without.rows, "\(with.rows.map(\.y)) vs \(without.rows.map(\.y))")
+        #expect(abs(with.totalHeight - without.totalHeight) < 0.01, "the empty status list adds \(with.totalHeight - without.totalHeight) pt")
+    }
+
+    /// The same empty status list with Earlier chat history under the computers: a block after them starts below
+    /// the history, not over it (a block that starts the list takes back its top padding).
+    @Test func aBlockAfterTheEarlierHistoryStartsBelowIt() throws {
+        let m = SidebarLayoutMetrics.standard
+        let docs = CmuxNextSidebar.SidebarSection(kind: .custom(SidebarCustomSection(id: "itm_docs")), nodes: [])
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        var options = SidebarLayoutOptions()
+        options.grouping.setByStatus(true)
+        options.blockHeights = ["itm_docs": 24]
+        options.sessionTree = SidebarSessionTreeState()
+        let history = SidebarChatHistoryState(earlier: [SidebarHistoryChat(id: "e", title: "e", updatedAt: Date(timeIntervalSince1970: 0))],
+                                              hasEarlier: true)
+        options.chatHistory = history
+        let layout = SidebarLayout.make(sections: [machine, docs], metrics: m, options: options)
+        let earlierY = try #require(layout.earlierChatsY)
+        let block = try #require(layout.row(for: .block("itm_docs")))
+        #expect(block.y >= earlierY + history.earlierHeight(m), "the block starts at \(block.y), the history ends at \(earlierY + history.earlierHeight(m))")
+    }
+
     @Test func theFirstWorkspaceRowFollowsTheLastPinnedChat() throws {
         let m = SidebarLayoutMetrics.standard
         var options = SidebarLayoutOptions()
@@ -219,7 +255,7 @@ struct SidebarUniformRowSpacingTests {
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let spacing = h.list.displayed.rowSpacing
         #expect(spacing > 0)
         let lastPin = h.inList(try h.pinnedRow(Self.pins[1]))
@@ -231,12 +267,12 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(w4.minY - w3.maxY - spacing) < 0.5)
     }
 
-    @Test(arguments: SidebarDensity.allCases) func thePinStartsAndCentersAsAnUnpinnedRowsContent(_ density: SidebarDensity) throws {
+    @Test(arguments: SidebarDensity.allCases) func thePinCentersOnAnUnpinnedRowsIconColumn(_ density: SidebarDensity) throws {
         let (saved, savedMotion) = (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride)
         (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (density, true)
         defer { (DesignSettings.shared.sidebarSections.density, Motion.reduceMotionOverride) = (saved, savedMotion) }
         let h = Harness()
-        defer { h.window.orderOut(nil) }
+        defer { h.window.close() }
         let pinned = try h.pinnedRow(Self.pins[0])
         let ink = try #require(pinned.pinInkFrame, "the pinned workspace row draws no pin")
         let pin = h.list.convert(ink, from: pinned)
@@ -245,7 +281,9 @@ struct SidebarUniformRowSpacingTests {
         // An unpinned row's leading slot: its icon, or where its title starts without one.
         let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        #expect(abs(pin.minX - content.minX) < 0.5, "the pin's ink starts at \(pin.minX), an unpinned row's content at \(content.minX)")
+        // The pin centers on the icon column an unpinned row's icon centers on (Leo 2026-10-28: "the alignment").
+        let column = content.width > 0 ? content.midX : SidebarStyle.iconColumnCenterX(leading: content.minX)
+        #expect(abs(pin.midX - column) < 0.5, "the pin's ink centers at \(pin.midX), an unpinned row's icon column at \(column)")
         #expect(abs((pin.midY - pinnedFrame.minY) - (content.midY - unpinnedFrame.minY)) < 0.5,
                 "the pin centers \(pin.midY - pinnedFrame.minY) pt into its row, an unpinned row's content \(content.midY - unpinnedFrame.minY) pt")
         #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01)

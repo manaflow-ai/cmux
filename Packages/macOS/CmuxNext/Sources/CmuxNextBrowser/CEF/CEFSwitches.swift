@@ -22,6 +22,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
+    /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
+    /// drag resize (`BrowserDragResize.synced`), which lets Chromium hold a frame for the page again.
+    var asyncLiveResize = true
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -65,7 +68,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // in a live resize of its own, so the async live-resize path it also turns on never runs.
         // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
         // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
+        if forkAPIVersion < Self.resizeSyncForkAPI, asyncLiveResize { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
@@ -156,7 +159,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        asyncLiveResize: Bool = true
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -176,7 +180,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
-            extraSwitches: extra
+            extraSwitches: extra,
+            asyncLiveResize: asyncLiveResize
         )
     }
 
