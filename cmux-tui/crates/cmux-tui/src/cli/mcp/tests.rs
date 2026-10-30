@@ -1854,4 +1854,19 @@ fn a_terminal_named_by_its_tab_through_terminal() {
         "a terminal id stays: {}",
         reads[2]
     );
+    // A plain name is looked up in the tab list (the daemon refuses an unscoped tab name),
+    // never with tab_get.
+    let gets = sent.iter().filter(|s| s["request"]["operation"] == "tab.get").count();
+    assert_eq!(gets, 1, "only the tab_… id uses tab_get: {sent:?}");
+    assert!(sent.iter().any(|s| s["request"]["operation"] == "tab.list"), "{sent:?}");
+    drop(sent);
+
+    // A `<session>:name` lists that session's tabs.
+    server
+        .call(&json!({"name": "terminal_screen_read", "arguments": {"terminal": "s2:eval-cmd"}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
+    let list = list.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(list["session"], "s2", "{list}");
 }
