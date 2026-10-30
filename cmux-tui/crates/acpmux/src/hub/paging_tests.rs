@@ -135,6 +135,46 @@ fn a_codex_chats_open_page_holds_its_turns_not_snapshots_of_one_command() {
     assert!(forward.events.iter().zip(&log).all(|(a, b)| a == b));
 }
 
+/// A page of some kinds only still reads the prompts between them: a call id a later prompt reuses
+/// (cx-jzhka) never takes an earlier prompt's output out of the page.
+#[test]
+fn a_page_of_tool_updates_only_keeps_each_prompts_call_apart() {
+    let hub = hub(Box::new(crate::store::MemoryStore::default()));
+    hub.store.save(&meta("c")).unwrap();
+    let prompt = |seq| EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: json!({"text": "again"}),
+        host_seq: None,
+    };
+    let call = |seq, text: &str, status: &str| {
+        agent(
+            seq,
+            "tool_call_update",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "0", "status": status, "content": [{"type": "text", "text": text}]}),
+        )
+    };
+    let log = vec![
+        prompt(1),
+        call(2, "first prompt's output", "in_progress"),
+        prompt(3),
+        call(4, "second prompt's output", "completed"),
+    ];
+    for rec in &log {
+        hub.store.append("c", rec).unwrap();
+    }
+    let updates =
+        EventFilter::parse(Some(&json!(["tool_call_update"]))).unwrap().omitting_superseded(true);
+    let page = hub.events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &updates).unwrap();
+    assert_eq!(
+        page.events,
+        vec![log[1].clone(), log[3].clone()],
+        "both prompts' calls keep their output"
+    );
+}
+
 /// The open page's measurements (the PR's Performance table): run with
 /// `cargo test -p acpmux --release -- --ignored --nocapture open_page_perf`.
 #[test]
@@ -148,42 +188,55 @@ fn open_page_perf() {
     for rec in codex_chat(20, 400, 85, false) {
         writer.append("c", &rec).unwrap();
     }
-    let disk = || -> u64 {
-        std::fs::read_dir(sessions.join("c").join("events"))
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().ends_with(".ndjson"))
-            .map(|e| e.metadata().unwrap().len())
-            .sum()
-    };
     let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    // The open, then older pages as the app's `loadOlder` reads them, until 10 prompts show.
     let measure = |label: &str, omit: bool| {
-        let mut times = Vec::new();
-        let mut page = EventPage::default();
-        for _ in 0..7 {
+        let mut runs = Vec::new();
+        let mut summary = String::new();
+        for _ in 0..5 {
             let started = std::time::Instant::now();
-            page = hub
+            let open = hub
                 .events_page("c", 0, None, OPEN_LIMIT, Some(OPEN_BYTES), true, &transcript(omit))
                 .unwrap();
-            times.push(started.elapsed().as_secs_f64() * 1000.0);
+            let open_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let size = |page: &EventPage| -> usize {
+                page.events.iter().map(|r| serde_json::to_vec(r).unwrap().len()).sum()
+            };
+            let (open_records, open_prompts, open_bytes) =
+                (open.events.len(), prompts(&open), size(&open));
+            let (mut shown, mut bytes, mut pages) = (open_prompts, open_bytes, 1usize);
+            let mut oldest = open.events.first().map(|r| r.seq);
+            let mut more = open.has_more;
+            while shown < 10 && more {
+                let Some(before) = oldest else { break };
+                let page = hub
+                    .events_page(
+                        "c",
+                        0,
+                        Some(before),
+                        OPEN_LIMIT,
+                        Some(256 * 1024),
+                        true,
+                        &transcript(omit),
+                    )
+                    .unwrap();
+                pages += 1;
+                shown += prompts(&page);
+                bytes += size(&page);
+                oldest = page.events.first().map(|r| r.seq);
+                more = page.has_more;
+            }
+            let total_ms = started.elapsed().as_secs_f64() * 1000.0;
+            runs.push((total_ms, open_ms));
+            summary = format!(
+                "open page {open_records} records, {open_prompts} prompts, {open_bytes} bytes; {pages} pages and {bytes} bytes to show {shown} prompts"
+            );
         }
-        times.sort_by(f64::total_cmp);
-        let bytes: usize = page.events.iter().map(|r| serde_json::to_vec(r).unwrap().len()).sum();
-        println!(
-            "{label}: log {} bytes on disk; open page {} records, {} prompts of 20, {bytes} bytes; median {:.1} ms",
-            disk(),
-            page.events.len(),
-            prompts(&page),
-            times[times.len() / 2]
-        );
+        runs.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (total, open) = runs[runs.len() / 2];
+        println!("{label}: {summary}; median open {open:.1} ms, to 10 prompts {total:.1} ms");
     };
     measure("before", false);
-    let started = std::time::Instant::now();
-    let stats = writer.compact_sealed_log("c").unwrap();
-    println!(
-        "sealed segments compacted in {:.0} ms: {stats:?}",
-        started.elapsed().as_secs_f64() * 1000.0
-    );
     measure("after", true);
     let _ = std::fs::remove_dir_all(&root);
 }

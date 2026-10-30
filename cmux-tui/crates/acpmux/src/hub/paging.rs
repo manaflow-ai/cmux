@@ -278,18 +278,24 @@ impl Hub {
             return Ok(page);
         }
         let mut found = Vec::new();
-        let skip = |dir: &[u8], kind: &[u8]| filter.surely_skips(dir, kind);
         // A Codex command's updates each carry its whole output so far: without this, a few of
-        // them fill the page (`store/superseded.rs`).
-        let mut superseded = filter.omit_superseded.then(crate::store::Superseded::default);
+        // them fill the page (`store/superseded.rs`). Its prompts are read whatever the kinds: a
+        // call id names a call within one prompt.
+        let omit = filter.omit_superseded;
+        let skip = |dir: &[u8], kind: &[u8]| {
+            filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
+        };
+        let mut superseded = omit.then(crate::store::Superseded::default);
         self.store.scan_back(id, after, before, &skip, &mut |rec| {
-            if !filter.matches(&rec) {
-                return true;
-            }
+            let matches = filter.matches(&rec);
             let mut rec = rec;
             if let Some(superseded) = superseded.as_mut()
+                && (matches || crate::store::starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()))
                 && !superseded.keep(&mut rec)
             {
+                return true;
+            }
+            if !matches {
                 return true;
             }
             self.display_logged(session.as_deref(), &mut rec);

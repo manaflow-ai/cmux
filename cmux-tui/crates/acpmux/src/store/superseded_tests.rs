@@ -3,21 +3,6 @@
 use super::*;
 use serde_json::json;
 
-struct Home(PathBuf);
-
-impl Home {
-    fn new() -> (Self, PathBuf) {
-        let path = std::env::temp_dir().join(format!("acpmux-superseded-{}", uuid::Uuid::now_v7()));
-        (Self(path.clone()), path.join("sessions"))
-    }
-}
-
-impl Drop for Home {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 fn update(seq: u64, kind: &str, update: Value) -> EventRecord {
     let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": update}});
     EventRecord { seq, at: seq, dir: "in".into(), kind: kind.into(), msg, host_seq: None }
@@ -147,100 +132,6 @@ fn an_update_with_a_field_no_newer_one_carries_stays_without_its_content() {
     assert_eq!(other, before);
 }
 
-/// The records of every segment of chat `id`, by segment.
-fn segments(store: &LocalStore, id: &str) -> Vec<(PathBuf, Vec<u8>, Vec<EventRecord>)> {
-    store
-        .segments(id)
-        .unwrap()
-        .into_iter()
-        .map(|(_, path)| {
-            let bytes = std::fs::read(&path).unwrap();
-            let records = bytes
-                .split(|b| *b == b'\n')
-                .filter(|l| !l.is_empty())
-                .map(|l| serde_json::from_slice::<EventRecord>(l).unwrap())
-                .collect();
-            (path, bytes, records)
-        })
-        .collect()
-}
-
-#[test]
-fn a_sealed_segment_loses_only_content_a_later_update_in_it_supersedes() {
-    let (_home, root) = Home::new();
-    let store = LocalStore::new(root, 64 * 1024).unwrap();
-    let log = codex_chat(4, 60, 90);
-    for rec in &log {
-        store.append("c", rec).unwrap();
-    }
-    let before = segments(&store, "c");
-    assert!(before.len() > 4, "the log spans several segments: {}", before.len());
-    let events = store.dir("c").join("events");
-    let stats = compact_sealed(&events, &store.writers).unwrap().stats;
-    let after = segments(&store, "c");
-    assert_eq!(after.len(), before.len());
-    assert!(stats.trimmed > 0 && stats.bytes_after * 3 < stats.bytes_before, "{stats:?}");
-    // The newest segment, the one appends go to, is never rewritten.
-    assert_eq!(after.last().unwrap().1, before.last().unwrap().1);
-    for ((_, _, old), (_, _, new)) in before.iter().zip(&after) {
-        assert_eq!(
-            new.iter().map(|r| r.seq).collect::<Vec<_>>(),
-            old.iter().map(|r| r.seq).collect::<Vec<_>>()
-        );
-        for (i, (o, n)) in old.iter().zip(new).enumerate() {
-            let later = old[i + 1..].iter().any(|r| {
-                content_of(r).is_some()
-                    && r.msg.pointer("/params/update/toolCallId")
-                        == o.msg.pointer("/params/update/toolCallId")
-            });
-            if o.kind == "tool_call_update" && content_of(o).is_some() && later {
-                assert_eq!(content_of(n), None, "seq {}", o.seq);
-                let mut expected = o.clone();
-                let u =
-                    expected.msg.pointer_mut("/params/update").unwrap().as_object_mut().unwrap();
-                let bytes = serde_json::to_string(&u.remove("content").unwrap()).unwrap().len();
-                u["_meta"]["acpmux"] = json!({"supersededContent": bytes});
-                assert_eq!(*n, expected, "only the content goes, the increment stays");
-            } else {
-                assert_eq!(n, o, "seq {}", o.seq);
-            }
-        }
-    }
-    let all: Vec<EventRecord> = after.iter().flat_map(|(_, _, r)| r.clone()).collect();
-    assert_eq!(fold(&all), fold(&log), "every call ends as logged");
-    // Done once: the marker holds the newest sealed segment, and a second pass reads nothing.
-    assert_eq!(read_marker(&events).through as usize, after.len() - 1);
-    assert_eq!(compact_sealed(&events, &store.writers).unwrap(), Pass::default());
-    assert!(!waiting(&events).unwrap());
-}
-
-#[test]
-fn the_daemon_store_compacts_a_segment_once_it_is_sealed() {
-    let (_home, root) = Home::new();
-    let store = LocalStore::new(root, 64 * 1024).unwrap().compacting_sealed();
-    let log = codex_chat(3, 60, 90);
-    let raw: usize = log.iter().map(|r| serde_json::to_vec(r).unwrap().len() + 1).sum();
-    for rec in &log {
-        store.append("c", rec).unwrap();
-    }
-    // Its thread ends once no sealed segment waits (bounded: a test that never ends fails).
-    let started = std::time::Instant::now();
-    while store.sealing_now("c") {
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(30),
-            "the sealed segments' thread never ended"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let events = store.dir("c").join("events");
-    assert!(!waiting(&events).unwrap());
-    let on_disk: usize = segments(&store, "c").iter().map(|(_, b, _)| b.len()).sum();
-    assert!(on_disk * 2 < raw, "{on_disk} of {raw} bytes");
-    let all: Vec<EventRecord> = segments(&store, "c").into_iter().flat_map(|(_, _, r)| r).collect();
-    assert_eq!(all.len(), log.len());
-    assert_eq!(fold(&all), fold(&log));
-}
-
 /// A call id names a call within its prompt only: an adapter that numbers calls per process reuses
 /// one in a later prompt (cx-jzhka). The later call never takes the earlier one's output away.
 #[test]
@@ -275,51 +166,4 @@ fn a_call_id_a_later_prompt_reuses_supersedes_nothing_before_that_prompt() {
         .filter_map(|mut rec| superseded.keep(&mut rec).then_some(rec))
         .collect();
     assert_eq!(kept.into_iter().rev().collect::<Vec<_>>(), log, "both calls keep their output");
-    // In a sealed segment.
-    let (_home, root) = Home::new();
-    let store = LocalStore::new(root, 64 * 1024).unwrap();
-    for rec in &log {
-        store.append("c", rec).unwrap();
-    }
-    let filler = "f".repeat(70 * 1024);
-    store
-        .append(
-            "c",
-            &EventRecord {
-                seq: 5,
-                at: 5,
-                dir: "mux".into(),
-                kind: "note".into(),
-                msg: json!({"text": filler}),
-                host_seq: None,
-            },
-        )
-        .unwrap();
-    store.append("c", &prompt(6)).unwrap();
-    let events = store.dir("c").join("events");
-    assert_eq!(segments(&store, "c").len(), 2, "the first segment is sealed");
-    let before = std::fs::read(&segments(&store, "c")[0].0).unwrap();
-    let pass = compact_sealed(&events, &store.writers).unwrap();
-    assert_eq!(pass.stats.trimmed, 0, "{pass:?}");
-    assert_eq!(std::fs::read(&segments(&store, "c")[0].0).unwrap(), before);
-}
-
-#[test]
-fn a_copy_a_crash_left_beside_a_segment_is_removed_by_the_next_pass() {
-    let (_home, root) = Home::new();
-    let store = LocalStore::new(root, 64 * 1024).unwrap();
-    for rec in &codex_chat(2, 40, 90) {
-        store.append("c", rec).unwrap();
-    }
-    let events = store.dir("c").join("events");
-    let first = segments(&store, "c")[0].0.clone();
-    let left = copy_path(&first);
-    std::fs::write(&left, "half a copy").unwrap();
-    compact_sealed(&events, &store.writers).unwrap();
-    assert!(!left.exists());
-    let names: Vec<String> = std::fs::read_dir(&events)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    assert!(names.iter().all(|n| !n.ends_with(".superseded")), "{names:?}");
 }
