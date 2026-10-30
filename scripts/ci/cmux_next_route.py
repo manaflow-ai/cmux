@@ -22,10 +22,19 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
   fast_tier   the Mac half of the PR fast tier (scripts/cmux-next/fast-tier.json
               `swift` entries): one `swift build --build-tests` of the CmuxNext
               package and a few of its suites. Only a change to what that build
-              or those suites read can change its result: a package target, a
-              file a test reads, a job script, the toolchain or the tier's own
-              registry. A daemon-only or app-host-only route (cmux-tui Rust, App/)
-              leaves it off; the daemon and scheme tiers carry those.
+              or those suites read can change its result: a package target's
+              sources, a file read by a test target that holds one of its suites
+              (read from fast-tier.json and the target graph), its own registry,
+              runner or package, or an input of every tier. The job builds no
+              web bundles, so a change only to their sources, or to a file only
+              other test targets read, leaves it off, as a daemon-only or
+              app-host-only route (cmux-tui Rust, App/) does; swift test, the
+              daemon and scheme tiers carry those.
+
+A change to .github/workflows/cmux-next.yml runs every tier, unless `--base-rev`
+names the base and the change leaves every job a Mac job runs or needs as it was
+(`on:` paths, a Linux-only job): then it is a CI-only file, like the rest of
+.github/workflows. When the base workflow cannot be read or parsed, every tier runs.
 
 Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
 workflow runs the tiers picked here on every same-repository pull request; a
@@ -33,7 +42,7 @@ fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file
 tier, so an unknown input never skips a check.
 
 Usage: cmux_next_route.py --event NAME [--changed-files FILE] [--labels a,b]
-       [--github-output FILE] [--summary FILE]
+       [--base-rev REV] [--github-output FILE] [--summary FILE]
 """
 
 from __future__ import annotations
@@ -379,10 +388,14 @@ class Route:
     generated: bool = False
     swift: bool = False
     daemon: bool = False
-    # A CmuxNext package target (or a local package or web bundle it ships) changed: the package
-    # build the Mac fast tier runs can break.
+    # A CmuxNext package target's sources (or a local package it uses) changed: the package build
+    # the Mac fast tier runs can break. A web bundle input alone does not: that job builds no bundle.
     package_build: bool = False
-    # The fast tier's own registry or runner changed.
+    # A file read by a test target holding a fast tier suite changed.
+    fast_reads: bool = False
+    # A file under a package a fast tier swift entry builds changed.
+    fast_package: bool = False
+    # The fast tier's own registry, runner or job action changed.
     fast_registry: bool = False
     vendored_pin: bool = False
     tests: set[str] = field(default_factory=set)
@@ -402,9 +415,10 @@ class Route:
         return self.native or self.webview or self.swift or self.generated or self.daemon
 
     def fast_tier(self) -> bool:
-        """The Mac fast tier's package build or suites can change (FAST_TIER_INPUTS, a package target,
-        a file a test reads, an input of every tier)."""
-        return (self.full or self.swift or self.generated or self.package_build or self.mac_release
+        """The Mac fast tier's package build or suites can change: a package target's sources, a file its
+        suites' test targets read, a package it builds, its registry, runner or job action, an input only
+        the Mac Release compile sees, or an input of every tier."""
+        return (self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
                 or self.swift_canary or self.fast_registry)
 
 
@@ -556,7 +570,224 @@ def priority_suites(root: Path, graph: dict, changed: list[str]) -> set[str]:
     return names
 
 
-def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
+WORKFLOW = ".github/workflows/cmux-next.yml"
+FAST_TIER_REGISTRY = "scripts/cmux-next/fast-tier.json"
+FAST_TIER_JOB = "fast-tier"
+SUITE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+@dataclass(frozen=True)
+class FastTierScope:
+    """What the Mac fast tier reads besides its registry and every tier's inputs."""
+    # Test targets holding its CmuxNext suites; None when one cannot be placed (every test target counts).
+    targets: frozenset[str] | None
+    # The package directories its swift entries build (`swift build --build-tests --package-path`).
+    packages: frozenset[str]
+
+
+def suite_targets(root: Path, graph: dict, suite: str) -> set[str]:
+    """The CmuxNext test targets that declare `suite`: those with a file of that name, else those whose
+    sources declare a type so named (an unreadable source counts)."""
+    sources = {name: sorted((root / target["path"]).rglob("*.swift"))
+               for name, target in graph["targets"].items() if target["kind"] == "test" and target.get("path")}
+    found = {name for name, files in sources.items() if any(source.stem == suite for source in files)}
+    if found:
+        return found
+    declared = re.compile(rf"\b(?:class|struct|actor|enum)\s+{re.escape(suite)}\b")
+    for name, files in sources.items():
+        for source in files:
+            try:
+                if declared.search(source.read_text(encoding="utf-8")):
+                    found.add(name)
+                    break
+            except (OSError, UnicodeDecodeError):
+                found.add(name)
+                break
+    return found
+
+
+def fast_tier_job_actions(root: Path) -> frozenset[str] | None:
+    """The local actions (`uses: ./...`) the Mac fast tier job runs, from the workflow itself; None when
+    it cannot be read (every local action then counts). Read once a run, and only for a changed action."""
+    if ("fast-actions", root) not in _READ:
+        _READ["fast-actions", root] = _fast_tier_job_actions(root)
+    return _READ["fast-actions", root]
+
+
+def _fast_tier_job_actions(root: Path) -> frozenset[str] | None:
+    try:
+        import yaml  # noqa: PLC0415 - only the workflow readers need it
+        jobs = yaml.load((root / WORKFLOW).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+        steps = jobs[FAST_TIER_JOB]["steps"]
+        return frozenset(step["uses"][2:].rstrip("/") + "/" for step in steps
+                         if isinstance(step, dict) and str(step.get("uses", "")).startswith("./"))
+    except Exception:  # noqa: BLE001 - unreadable: every local action counts (route below)
+        return None
+
+
+def fast_tier_scope(root: Path, graph: dict) -> FastTierScope:
+    """The Mac fast tier's suites and packages (fast-tier.json `swift` entries). A CmuxNext entry whose
+    suite no test target declares, or with no plain suite name, makes every test target count."""
+    if ("fast", root) not in _READ:
+        _READ["fast", root] = _fast_tier_scope(root, graph)
+    return _READ["fast", root]
+
+
+def _fast_tier_scope(root: Path, graph: dict) -> FastTierScope:
+    try:
+        entries = json.loads((root / FAST_TIER_REGISTRY).read_text(encoding="utf-8"))["entries"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return FastTierScope(None, frozenset())
+    targets: set[str] = set()
+    packages: set[str] = set()
+    placed = True
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("kind") != "swift":
+            continue
+        package = str(entry.get("package") or "").strip("/")
+        if not package:
+            placed = False
+            continue
+        packages.add(package + "/")
+        if package + "/" != PACKAGE:
+            continue  # another package: its whole directory is an input (packages)
+        suite = str(entry.get("filter") or "")
+        found = suite_targets(root, graph, suite) if SUITE_NAME.fullmatch(suite) else set()
+        if found:
+            targets |= found
+        else:
+            placed = False
+    return FastTierScope(frozenset(targets) if placed else None, frozenset(packages))
+
+
+# The top-level workflow keys a pull request's Mac jobs never read: `on:` decides which events and
+# paths start a run (a pull_request run sees no workflow_dispatch input), `run-name` its title.
+QUIET_WORKFLOW_KEYS = ("on", "run-name")
+def split_top(text: str, operator: str) -> list[str] | None:
+    """`text` split at `operator` outside quotes and parentheses; None when they do not balance."""
+    parts, depth, quoted, last, index = [], 0, False, 0, 0
+    while index < len(text):
+        char = text[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        elif not quoted and depth == 0 and text.startswith(operator, index):
+            parts.append(text[last:index])
+            index += len(operator)
+            last = index
+            continue
+        index += 1
+    if quoted or depth:
+        return None
+    return parts + [text[last:]]
+
+
+def linux_values(expression: str) -> bool:
+    """Whether every value an expression can give is a Linux label: `a && b || c` gives b or c, so each
+    `||` alternative's last `&&` operand must be a literal naming ubuntu or a variable whose name says
+    LINUX (a parenthesised group is read the same way). Anything else may be a Mac."""
+    alternatives = split_top(expression.strip(), "||")
+    if not alternatives:
+        return False
+    for alternative in alternatives:
+        operands = split_top(alternative.strip(), "&&")
+        if not operands:
+            return False
+        value = operands[-1].strip()
+        if value.startswith("(") and value.endswith(")") and split_top(value[1:-1], "||") is not None:
+            if not linux_values(value[1:-1]):
+                return False
+        elif re.fullmatch(r"'[^']*'", value):
+            if "ubuntu" not in value:
+                return False
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
+            return False
+    return True
+
+
+def linux_runs_on(value) -> bool:
+    """Whether a job's runs-on can only be a Linux runner (linux_values for an expression)."""
+    if not isinstance(value, str) or not value.strip():
+        return False
+    text = value.strip()
+    if "${{" not in text:
+        return "ubuntu" in text
+    match = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.S)
+    return bool(match) and "${{" not in match.group(1) and linux_values(match.group(1))
+
+
+def linux_job(job, root: Path | None, seen: frozenset[str] = frozenset()) -> bool:
+    """Whether a job runs only on Linux: its runs-on (linux_runs_on), or for a call of a local reusable
+    workflow (`uses: ./.github/workflows/X.yml`, read at `root`), every job of that workflow."""
+    if not isinstance(job, dict):
+        return False
+    uses = job.get("uses")
+    if uses is None:
+        return linux_runs_on(job.get("runs-on"))
+    if root is None or not isinstance(uses, str) or not uses.startswith("./.github/workflows/") or uses in seen:
+        return False
+    try:
+        import yaml  # noqa: PLC0415
+        called = yaml.load((root / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+    except Exception:  # noqa: BLE001 - unreadable: it may run on a Mac
+        return False
+    return isinstance(called, dict) and bool(called) and all(
+        linux_job(inner, root, seen | {uses}) for inner in called.values())
+
+
+def workflow_reaches_mac(base_text: str, head_text: str, root: Path | None = None) -> str | None:
+    """None when the workflow change leaves every Mac job and every job one needs as it was; otherwise
+    why it may not (a parse failure included, so an unreadable change runs every tier)."""
+    try:
+        import yaml  # noqa: PLC0415
+        base = yaml.load(base_text, Loader=yaml.BaseLoader)
+        head = yaml.load(head_text, Loader=yaml.BaseLoader)
+    except Exception as error:  # noqa: BLE001 - any failure to compare runs every tier
+        return f"the base and head workflows could not be compared ({error.__class__.__name__})"
+    if not (isinstance(base, dict) and isinstance(head, dict)
+            and isinstance(base.get("jobs"), dict) and isinstance(head.get("jobs"), dict)):
+        return "the base or head workflow has no jobs map"
+    top = sorted(key for key in set(base) | set(head)
+                 if key != "jobs" and key not in QUIET_WORKFLOW_KEYS and base.get(key) != head.get(key))
+    if top:
+        return f"its top-level {', '.join(top)} changed"
+    both = (base["jobs"], head["jobs"])
+    reach = {name for jobs in both for name, job in jobs.items() if not linux_job(job, root)}
+    pending = list(reach)
+    while pending:
+        name = pending.pop()
+        for jobs in both:
+            job = jobs.get(name)
+            needs = job.get("needs", []) if isinstance(job, dict) else []
+            for need in [needs] if isinstance(needs, str) else needs if isinstance(needs, list) else []:
+                if need not in reach:
+                    reach.add(need)
+                    pending.append(need)
+    changed = sorted(name for name in set(both[0]) | set(both[1]) if both[0].get(name) != both[1].get(name))
+    hit = [name for name in changed if name in reach]
+    if hit:
+        return f"{', '.join(hit)} {'runs' if len(hit) == 1 else 'run'} on a Mac or feed{'s' if len(hit) == 1 else ''} a Mac job"
+    return None
+
+
+def base_workflow_text(root: Path, rev: str) -> str | None:
+    """The workflow at `rev`, or None when git cannot show it (every tier then runs for a change to it)."""
+    import subprocess  # noqa: PLC0415
+    try:
+        return subprocess.run(["git", "-C", str(root), "show", f"{rev}:{WORKFLOW}"], check=True,
+                              capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
+          base_workflow: str | None = None) -> Route:
+    """`base_workflow`: the base's cmux-next.yml, for a pull request that changes it (None: every tier)."""
     result = Route()
     mac_inputs = [path for path in changed or [] if mac_release_input(path)]
     if mac_inputs:
@@ -581,9 +812,21 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     # The workflow defines the native build and its routing contract. A change
     # to it must exercise the release compile even though other CI-only files
     # can stay on the Linux fast tier.
-    if ".github/workflows/cmux-next.yml" in changed:
-        result.everything("cmux-next workflow changed: run every tier")
-        return result
+    # A change only to `on:` or to Linux jobs no Mac job needs is a CI-only file here (actionlint and
+    # the workflow tests check it); one that reaches a Mac job, or that cannot be compared, is not.
+    quiet_workflow = False
+    if WORKFLOW in changed:
+        try:
+            head_workflow = (root / WORKFLOW).read_text(encoding="utf-8")
+        except OSError:
+            head_workflow = None
+        why = ("its base was not read" if base_workflow is None or head_workflow is None
+               else workflow_reaches_mac(base_workflow, head_workflow, root))
+        if why:
+            result.everything(f"cmux-next workflow changed ({why}): run every tier")
+            return result
+        quiet_workflow = True
+        result.reasons.append(f"{WORKFLOW} changed only `on:` or jobs no Mac job runs on or needs: a CI-only file")
 
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
@@ -608,11 +851,21 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
+    # Targets whose sources (or local packages) changed: the package build itself can change. A web
+    # bundle input changes only what the targets that ship it copy as resources (changed_targets).
     changed_targets: set[str] = set()
+    source_targets: set[str] = set()
+    fast = fast_tier_scope(root, graph)
 
     for path in changed:
-        if path in unread:
+        if path in unread or (quiet_workflow and path == WORKFLOW):
             continue
+        if any(under(path, package) for package in fast.packages):
+            result.fast_package = True
+        actions = fast_tier_job_actions(root) if path.startswith(".github/actions/") else frozenset()
+        if path.startswith(".github/actions/") and (actions is None or any(under(path, a) for a in actions)):
+            result.fast_registry = True
+            result.reasons.append(f"{path} is an action the Mac fast tier job runs")
         if any(fnmatch.fnmatch(path, pattern) for pattern in WEBVIEW):
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
@@ -663,6 +916,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         owner = owning_target(graph, path)
         if owner is not None:
             changed_targets.add(owner)
+            source_targets.add(owner)
             result.native = True
             # An executable target (the server helper) is bundled by the app
             # scheme's build phases, not linked into CmuxNextApp.
@@ -675,16 +929,19 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
             if any(under(path, prefix) for prefix in prefixes):
                 users = {t for t, target in graph["targets"].items() if name in target["packages"]}
                 changed_targets |= users
+                source_targets |= users
                 result.native = result.scheme = True
                 result.reasons.append(f"{path} is in local package {name}, used by {', '.join(sorted(users))}")
         for name in tests:
             if any(matches(path, read) for read in graph["targets"][name].get("reads", [])):
                 result.tests.add(name)
                 result.reasons.append(f"{path} is read by {name}")
+                if fast.targets is None or name in fast.targets:
+                    result.fast_reads = True
 
     if result.full:
         return result
-    result.package_build = bool(changed_targets)
+    result.package_build = bool(source_targets)
     for name in tests:
         if name in changed_targets or closure(graph, {name}) & changed_targets:
             result.tests.add(name)
@@ -780,6 +1037,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--event", required=True)
     parser.add_argument("--changed-files", type=Path)
     parser.add_argument("--labels", default="")
+    parser.add_argument("--base-rev", help="the pull request's base commit, to compare a change to the workflow")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)
@@ -788,7 +1046,10 @@ def main(argv: list[str]) -> int:
     if args.changed_files:
         changed = [line for line in args.changed_files.read_text(encoding="utf-8").splitlines() if line]
     labels = {label for label in args.labels.split(",") if label}
-    result = route(args.root, args.event, changed, labels)
+    base_workflow = None
+    if args.base_rev and changed and WORKFLOW in changed:
+        base_workflow = base_workflow_text(args.root, args.base_rev)
+    result = route(args.root, args.event, changed, labels, base_workflow)
     values = outputs(result)
     lines = [f"{key}={value}" for key, value in values.items()]
     print("\n".join(lines))

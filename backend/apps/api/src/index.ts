@@ -31,6 +31,7 @@ import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-toke
 export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformMachines } from "./platform-machines.ts"
+export { AgentGateway } from "./agent-gateway.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"

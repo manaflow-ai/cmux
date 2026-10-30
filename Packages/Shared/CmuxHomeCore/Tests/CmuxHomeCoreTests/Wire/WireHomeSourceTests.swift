@@ -53,6 +53,37 @@ import Testing
         #expect(condition())
     }
 
+    /// The inbox is every page the owner has, not its newest 200 (`next_cursor`): a Chief or
+    /// conversation past the first page showed nowhere and left Home on each refresh.
+    @Test func theInboxReadsEveryPage() async throws {
+        let later = "conv_1Y05MEWEFMQQB63VDHQB9MXAJT"
+        http.script { path, body in
+            guard path == "/v1/read", body["op"].string == "inbox.list" else { return nil }
+            var second = WireFixture.entry()
+            if case .object(var fields) = second { fields["conversation"] = .string(later); second = .object(fields) }
+            switch body["params"]["cursor"].string {
+            case nil:
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["entries": [WireFixture.entry()], "next_cursor": "k1"], "revision": "1"])
+            case "k1"?:
+                // The first page's conversation again (it moved while the pages were read), then a new one.
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["entries": [WireFixture.entry(lastSeq: 9), second], "next_cursor": .null],
+                                                "revision": "2"])
+            default:
+                return HomeWireHTTPReply(json: ["ok": true, "value": ["entries": [], "next_cursor": .null], "revision": "3"])
+            }
+        }
+        let source = makeSource()
+        let log = try await connect(source)
+        defer { log.stop() }
+        let entries = await source.entries
+        #expect(Set(entries.keys) == [conversation, ConversationID(later)])
+        // The first page's copy of an entry listed twice.
+        #expect(entries[conversation]?["last_seq"].uint == 1)
+        let cursors = http.bodies("/v1/read").filter { $0["op"].string == "inbox.list" }.map { $0["params"]["cursor"].string }
+        #expect(cursors.prefix(2) == [nil, "k1"])
+        await source.shutdown()
+    }
+
     @Test func aResendAfterALostAnswerKeepsTheSameKey() async throws {
         let source = makeSource()
         let log = try await connect(source)
