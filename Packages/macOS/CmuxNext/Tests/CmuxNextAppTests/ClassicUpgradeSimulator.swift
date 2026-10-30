@@ -315,22 +315,20 @@ final class ClassicUpgradeSimulator {
     /// gets there later, an idle one at once.
     func settle() async {
         let clock = ContinuousClock()
-        let store = services.daemon.store
-        if let barrier = await services.daemon.connection?.eventSequence() {
-            let applied = clock.now + .seconds(60)
-            while clock.now < applied, store.appliedSequence < barrier { try? await Task.sleep(for: .milliseconds(20)) }
-        }
+        await services.placementsSettled()
         let deadline = clock.now + .seconds(60)
         var last = "\(made().sorted { $0.key < $1.key })\(windows())"
         var stableSince = clock.now
         while clock.now < deadline, clock.now - stableSince < .milliseconds(500) {
             try? await Task.sleep(for: .milliseconds(100))
             let now = "\(made().sorted { $0.key < $1.key })\(windows())"
-            if now != last {
+            // A placement still queued is not quiet: the order it writes has not landed (#26153).
+            if now != last || !services.personalPlacements.isIdle {
                 last = now
                 stableSince = clock.now
             }
         }
+        await services.placementsSettled()
     }
 
     /// Checks `profile`'s promise against the tree after the run(s).

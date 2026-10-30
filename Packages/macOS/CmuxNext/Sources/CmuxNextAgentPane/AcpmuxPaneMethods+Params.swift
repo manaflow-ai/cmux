@@ -54,6 +54,9 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
+        // The sign-in check (direct.ts sessionAuth): a chat in scope, or a new chat's `target`
+        // ({harness, host?, routeId?}), and `refresh` to ask the harness now instead of its last answer.
+        "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
@@ -106,7 +109,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
-        "acp.session.fork": (["sessionId", "throughSeq"], []),
+        // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
+        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
