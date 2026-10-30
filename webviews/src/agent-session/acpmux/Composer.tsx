@@ -44,7 +44,7 @@ import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
 import { Spinner } from "./conversation/icons";
-import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
+import { markdownOffset, MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import {
   hasOtherChats,
   loadRecentMentionPaths,
@@ -2418,15 +2418,4 @@ function Highlighted({ name, ranges }: { name: string; ranges: [number, number][
   }
   if (at < name.length) parts.push(name.slice(at));
   return <>{parts}</>;
-}
-
-/// Where the caret, counted in the characters the prompt shows, falls in its markdown: a
-/// backslash escape and a character reference (the serializer's `&#x20;`) each show as one.
-function markdownOffset(markdown: string, shown: number): number {
-  let index = 0;
-  for (let count = 0; count < shown && index < markdown.length; count++) {
-    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);)/i.exec(markdown.slice(index));
-    index += escape ? escape[0].length : 1;
-  }
-  return index;
 }
