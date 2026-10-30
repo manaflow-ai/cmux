@@ -149,11 +149,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         _ => Vec::new(),
     };
     if sessions.is_empty() {
-        if compact {
-            println!("no sessions (create one: acpmux new -m codex -n my-task)");
-        } else {
-            println!("no sessions match (acpmux ls --all lists every session)");
-        }
+        println!("no sessions (create one: acpmux new -m codex -n my-task)");
         return Ok(());
     }
     let (sessions, hidden) = text_rows(sessions, compact, COMPACT_ROWS);
@@ -343,14 +339,13 @@ pub(super) struct Hidden {
     pub live: usize,
 }
 
-/// The text view's rows: live before closed, each newest first as the daemon sent them. With
-/// `compact` (no filter and no `--all`), closed rows go and at most `cap` live rows stay.
+/// The text view's rows. With `compact` (no filter and no `--all`), the live ones, newest first
+/// as the daemon sent them, at most `cap`; otherwise every row in the daemon's order, as before.
 pub(super) fn text_rows(rows: Vec<Value>, compact: bool, cap: usize) -> (Vec<Value>, Hidden) {
-    let (mut live, closed): (Vec<Value>, Vec<Value>) = rows.into_iter().partition(is_live);
     if !compact {
-        live.extend(closed);
-        return (live, Hidden::default());
+        return (rows, Hidden::default());
     }
+    let (mut live, closed): (Vec<Value>, Vec<Value>) = rows.into_iter().partition(is_live);
     let over = live.len().saturating_sub(cap);
     live.truncate(cap);
     (live, Hidden { closed: closed.len(), live: over })
@@ -452,10 +447,7 @@ mod tests {
         let note = hidden_note(&hidden, shown.len()).unwrap();
         assert!(note.starts_with("1 more live and 2 closed not shown: --all"), "{note}");
         let (all, none) = text_rows(rows(), false, 2);
-        assert_eq!(
-            names(&all),
-            ["claude-sr2/mac-ci-3", "hb/review-1", "idle-one", "hb/old", "done"]
-        );
+        assert_eq!(names(&all), names(&rows()), "--all and any filter keep the daemon's order");
         assert_eq!(hidden_note(&none, all.len()), None);
         let closed_only = vec![json!({"name": "a", "status": "closed"})];
         let (shown, hidden) = text_rows(closed_only, true, 2);
