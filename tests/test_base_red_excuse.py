@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -182,6 +183,77 @@ class JobLogEndpoint(unittest.TestCase):
     def test_raw_log_tabs_preserve_the_entire_error(self):
         text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
+
+
+# A `gh` on PATH: it records its argv, and with FAKE_GH=old answers the escape flag the way gh 2.45 does
+# (exit 1, "unknown flag: --allow-escape-sequences" then its usage, nothing read); FAKE_GH=http fails every
+# call with an HTTP error; FAKE_GH=other-flag refuses some other flag. Otherwise it prints the log.
+FAKE_GH = """#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_GH_CALLS"], "a") as calls:
+    calls.write(" ".join(args) + "\\n")
+mode = os.environ.get("FAKE_GH", "")
+if mode == "old" and "--allow-escape-sequences" in args:
+    sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage:  gh api <endpoint> [flags]\\n")
+    sys.exit(1)
+if mode == "http":
+    sys.stderr.write("gh: Not Found (HTTP 404)\\n")
+    sys.exit(1)
+if mode == "other-flag":
+    sys.stderr.write("unknown flag: --hostname-x\\nunknown flag: --allow-escape-sequences\\n")
+    sys.exit(1)
+print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
+"""
+
+
+class OldGhWithoutEscapeFlag(unittest.TestCase):
+    """2026-10-30: #28397 asked every job log read for --allow-escape-sequences, which gh 2.45 refuses as an
+    unknown flag, so no log could be read on such a host and no red there could be compared with the base."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        gh = Path(self.dir.name) / "gh"
+        gh.write_text(FAKE_GH)
+        gh.chmod(0o755)
+        self.calls = Path(self.dir.name) / "calls"
+        self.calls.write_text("")
+        env = {"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}", "FAKE_GH_CALLS": str(self.calls)}
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GH"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def asked(self):
+        return self.calls.read_text().splitlines()
+
+    def test_an_old_gh_is_asked_again_without_the_flag(self):
+        self.assertIn("red", self.read("old"))
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
+
+    def test_a_new_gh_is_asked_once_with_the_flag(self):
+        self.assertIn("\x1b[31mred", self.read(""))
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"])
+
+    def test_any_other_failure_still_refuses_with_no_retry(self):
+        for mode in ("http", "other-flag"):
+            with self.subTest(mode=mode):
+                self.calls.write_text("")
+                with self.assertRaises(excuse.Refused):
+                    self.read(mode)
+                self.assertEqual(len(self.asked()), 1)
+
+    def test_only_the_flag_itself_on_the_first_line_counts(self):
+        self.assertTrue(excuse.escape_flag_unknown("unknown flag: --allow-escape-sequences\n\nUsage: gh api"))
+        for said in ("", "gh: Not Found (HTTP 404)", "unknown flag: --paginate-x",
+                     "HTTP 502\nunknown flag: --allow-escape-sequences",
+                     "unknown flag: --allow-escape-sequences-x"):
+            self.assertFalse(excuse.escape_flag_unknown(said), said)
 
 
 class Excusing(unittest.TestCase):
@@ -451,15 +523,30 @@ class Excusing(unittest.TestCase):
 
         self.gh.json = json_with_checks
 
-    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+    def red_ci_status(self):
         self.gh.jobs[3] = {"id": 3, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
                            "conclusion": "failure", "steps": [{"name": "Report", "conclusion": "failure"}]}
         self.with_checks([{"id": 3, "name": "ci-status", "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+
+    def test_a_red_ci_status_is_judged_by_the_failed_jobs_of_its_run(self):
+        # ci.yml's ci-status needs `macos`, a called workflow: its jobs are 'macos / <job>'.
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
-        self.assertIn(SWIFT, "\n".join(lines))
+        self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
+        # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
+        # ci-status red: its own verdict did. A base-red job outside it must not carry it.
+        self.red_ci_status()
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
+        with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
     def test_a_red_ci_status_with_no_other_failed_job_blocks(self):
         self.gh.jobs[1]["conclusion"] = "success"
@@ -502,6 +589,33 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "aggregate job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh,
                          checks=["nightly-guards / Guard status"])
+
+    def runner_preamble(self, name):
+        """The lines the runner writes before a called workflow's job starts (cmux#28099's Guard status log)."""
+        return log(name, "Set up job", "##[group]GITHUB_TOKEN Permissions", "Contents: read", "##[endgroup]",
+                   "Uses: manaflow-ai/cmux/.github/workflows/ci-guards.yml@refs/pull/28099/merge", "##[group] Inputs",
+                   "  linux_guard_tests: true", '  linux_guard_test_groups: ["release-notary"]',
+                   "  linux_guard_history: false", "  linux_guard_cli: false", "  linux_guard_source: false",
+                   "##[endgroup]", f"Complete job name: {name}") + "\n"
+
+    def test_a_called_workflows_echoed_inputs_are_not_route_reports(self):
+        # cmux#28099 at 0080692 (run 41072552965): the echoed `linux_guard_tests: true` input was read as a route
+        # report and refused the Guard status, whose only failed child is release-notary, red the same way on the base.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        for job_id in (3, 4):
+            self.gh.logs[job_id] = self.runner_preamble(name) + self.gh.logs[job_id]
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_a_route_report_after_the_preamble_is_still_judged(self):
+        self.test_a_called_workflows_echoed_inputs_are_not_route_reports()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "workflow-guard-source-lints: skipped (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "skipped"):
+            self.judge_guard()
+
+    def judge_guard(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["nightly-guards / Guard status"])
 
     def test_guard_route_job_must_match_the_reported_route_input(self):
         # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and
@@ -576,6 +690,41 @@ class Excusing(unittest.TestCase):
         self.gh.base_runs.append({"id": 19, "event": "push", "conclusion": "success"})
         self.assertIn("run 20", "\n".join(self.judge()))
 
+    def contract_with(self, edit):
+        contract = copy.deepcopy(excuse.rollups())
+        edit(contract["routed"]["Guard status"]["routes"])
+        patch = unittest.mock.patch.object(excuse, "_ROLLUPS", contract)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_a_route_the_workflow_adds_is_judged_from_the_contract(self):
+        # A needed job the workflow adds (here workflow-guard-new on linux_guard_new) is read from the contract,
+        # with no list in this script to update.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.contract_with(lambda routes: routes.update(
+            {"workflow-guard-new": {"route": "linux_guard_new", "exact": [], "prefixes": ["workflow-guard-new / "]}}))
+        name = "nightly-guards / Guard status"
+        for job_id, child in ((5, 3), (6, 4)):
+            self.gh.jobs[job_id]["name"] = "nightly-guards / workflow-guard-new / lint"
+            self.gh.logs[child] = log(name, "Check routed guard jobs", "workflow-guard-new: failure (route linux_guard_new=true)")
+        self.assertIn("workflow-guard-new / lint", "\n".join(self.judge_guard()))
+
+    def test_a_route_job_the_contract_does_not_name_is_refused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.contract_with(lambda routes: routes.pop("workflow-guard-tests"))
+        with self.assertRaisesRegex(excuse.Refused, "unknown routed job workflow-guard-tests"):
+            self.judge_guard()
+
+    def test_an_unconditional_job_reported_with_a_route_is_refused(self):
+        # workflow-guard-submodule-forward-only has no `if:`: its report never names a route.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        self.gh.jobs[5]["name"] = self.gh.jobs[6]["name"] = "nightly-guards / workflow-guard-submodule-forward-only"
+        self.gh.logs[3] = log(name, "Check routed guard jobs",
+                              "workflow-guard-submodule-forward-only: failure (route linux_guard_tests=true)")
+        with self.assertRaisesRegex(excuse.Refused, "does not map"):
+            self.judge_guard()
+
     def test_a_guard_status_does_not_match_an_unrelated_routed_job(self):
         name = "nightly-guards / Guard status"
         head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
@@ -600,6 +749,103 @@ def crashed(job, signal, unfinished, frames, *extra):
                f"##[error]no \"Test run with\" summary line (crash, kill or truncation); {len(unfinished)} tests "
                f"started and never finished: {'; '.join(unfinished)}",
                f"##[error]the test helper died on signal {signal}; crashed thread: {frames}")
+
+
+CI_YML = """
+on: {pull_request: {}}
+jobs:
+  changes: {runs-on: x, steps: []}
+  web: {needs: [changes], uses: ./.github/workflows/ci-web.yml}
+  fast-guards: {name: CI fast guards, runs-on: x, steps: []}
+  outside: {needs: [web], runs-on: x, steps: []}
+  ci-status: {needs: [web, fast-guards], runs-on: x, steps: []}
+"""
+GUARDS_YML = """
+on:
+  workflow_call:
+    inputs:
+      linux_guard_tests: {type: string}
+jobs:
+  workflow-guard-submodule-forward-only: {name: workflow-guard-submodule-forward-only, runs-on: x, steps: []}
+  workflow-guard-tests:
+    if: ${{ inputs.linux_guard_tests == 'true' }}
+    name: workflow-guard-tests / ${{ matrix.group }}
+    strategy: {matrix: {group: [a]}}
+    runs-on: x
+    steps: []
+  guard-status:
+    name: Guard status
+    needs: [workflow-guard-submodule-forward-only, workflow-guard-tests]
+    runs-on: x
+    steps: []
+"""
+
+
+class RollupsFromNeeds(unittest.TestCase):
+    """The rollups (ci-status, Guard status) and the jobs under them come from the workflows' `needs:`."""
+
+    def derive(self, ci=CI_YML, guards=GUARDS_YML):
+        with tempfile.TemporaryDirectory() as root:
+            for file, text in (("ci.yml", ci), ("ci-guards.yml", guards)):
+                if text is not None:
+                    (Path(root) / file).write_text(text)
+            return excuse.derive_rollups(Path(root))
+
+    def test_the_committed_contract_is_the_workflows(self):
+        import yaml  # noqa: F401,PLC0415 - deriving reads YAML; a host without it must not pass this silently
+        self.assertEqual(json.loads(excuse.ROLLUPS_FILE.read_text()), excuse.derive_rollups(),
+                         "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
+
+    def test_needs_are_followed_and_named_as_actions_names_them(self):
+        got = self.derive()
+        self.assertEqual(got["run"]["ci-status"]["under"], {
+            "changes": {"exact": ["changes"], "prefixes": []},
+            "fast-guards": {"exact": ["CI fast guards"], "prefixes": []},
+            "web": {"exact": [], "prefixes": ["web / "]}})
+        self.assertEqual(got["routed"]["Guard status"]["routes"], {
+            "workflow-guard-submodule-forward-only": {
+                "route": None, "exact": ["workflow-guard-submodule-forward-only"], "prefixes": []},
+            "workflow-guard-tests": {"route": "linux_guard_tests", "exact": [], "prefixes": ["workflow-guard-tests / "]}})
+
+    def test_any_shape_it_does_not_know_is_refused(self):
+        tests_if = "if: ${{ inputs.linux_guard_tests == 'true' }}"
+        cases = {
+            "a missing workflow": (dict(ci=None), "unreadable"),
+            "a missing rollup job": (dict(ci=CI_YML.replace("ci-status:", "ci-verdict:")), "no job ci-status"),
+            "an unknown need": (dict(ci=CI_YML.replace("needs: [web, fast-guards]", "needs: [web, nope]")),
+                                "not jobs of its workflow"),
+            "needs that are not a list": (dict(ci=CI_YML.replace("needs: [web, fast-guards]", "needs: {web: 1}")),
+                                          "not jobs of its workflow"),
+            "a rollup with no needs": (dict(ci=CI_YML.replace("needs: [web, fast-guards], ", "")), "needs no job"),
+            "a name with an expression inside": (dict(
+                ci=CI_YML.replace("name: CI fast guards", 'name: "CI ${{ matrix.x }} guards"')), "not a fixed name"),
+            "an expression before the last part": (dict(guards=GUARDS_YML.replace(
+                "workflow-guard-tests / ${{ matrix.group }}", '"workflow-guard-tests / ${{ matrix.group }} / x"')),
+                "not a fixed name"),
+            "a route if of another shape": (dict(guards=GUARDS_YML.replace(
+                tests_if, "if: ${{ inputs.linux_guard_tests == 'true' || github.event_name == 'push' }}")),
+                "not one route input"),
+            "a route input not declared": (dict(guards=GUARDS_YML.replace(
+                tests_if, "if: ${{ inputs.linux_guard_other == 'true' }}")), "not one route input"),
+            "a routed workflow with another trigger": (dict(
+                guards=GUARDS_YML.replace("on:\n", "on:\n  push: {}\n")), "called only"),
+            "unparseable YAML": (dict(guards=GUARDS_YML + "\n  : [\n"), "unreadable"),
+        }
+        for why, (files, said) in cases.items():
+            with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
+                self.derive(**files)
+
+    def test_a_missing_or_malformed_contract_refuses_every_rollup(self):
+        for text in (None, "{", "[]", '{"run": {}, "routed": {}}',
+                     '{"run": {"ci-status": {"under": {"x": {"exact": "x", "prefixes": []}}}}, "routed": {}}'):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as root:
+                path = Path(root) / "rollups.json"
+                if text is not None:
+                    path.write_text(text)
+                with unittest.mock.patch.object(excuse, "ROLLUPS_FILE", path), \
+                        unittest.mock.patch.object(excuse, "_ROLLUPS", None), \
+                        self.assertRaisesRegex(excuse.Refused, "no rollup red is excused"):
+                    excuse.is_aggregate("ci-status")
 
 
 class CrashIsNeverABaseRed(unittest.TestCase):

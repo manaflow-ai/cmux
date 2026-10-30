@@ -18,10 +18,12 @@ extension PageWebView {
 
     /// Synchronizes the separate Chromium child window with the page's actual visibility.
     /// AppKit does not propagate an ancestor's alpha to a child window, so paint holds call this
-    /// explicitly when they make the host transparent.
+    /// explicitly when they make the host transparent. The page's own alpha does not count: a pane
+    /// clears its page while it waits for the page's first frame (loading state, move cover), and
+    /// a hidden Chromium page draws no frame, so the wait would last until its give-up.
     public func setChromiumVisibility(_ requested: Bool) {
         let visible = requested && window != nil && !isHiddenOrHasHiddenAncestor
-            && sequence(first: self as NSView, next: \.superview).allSatisfy { $0.alphaValue > 0.001 }
+            && sequence(first: self as NSView, next: \.superview).dropFirst().allSatisfy { $0.alphaValue > 0.001 }
         chromiumSession?.page.setVisible(visible)
     }
 

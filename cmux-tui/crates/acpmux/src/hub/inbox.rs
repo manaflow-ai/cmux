@@ -727,6 +727,8 @@ impl Hub {
         let meta = session.meta();
         let now = now_ms();
         // Read before the inbox's lock: the retry's own lock is never taken under it.
+        // Taken first: a continuation let go after `continuing` is read still wakes the timer.
+        let released = session.auto_resume.released();
         let continuing = self.continuation_pending(session);
         let next = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
@@ -802,7 +804,7 @@ impl Hub {
                         timer.abort();
                     }
                 }
-                Next::WakeAt(at) => self.arm_locked(&mut inbox, session, at, now),
+                Next::WakeAt(at) => self.arm_locked(&mut inbox, session, at, now, released),
                 Next::Steer | Next::Wake => {}
             }
             next
@@ -1006,12 +1008,25 @@ impl Hub {
     }
 
     /// Arms the wake timer for `at`, aborting the one before (module docs), under the inbox's
-    /// lock `inbox` the caller holds.
-    fn arm_locked(self: &Arc<Self>, inbox: &mut Inbox, session: &Arc<Session>, at: u64, now: u64) {
+    /// lock `inbox` the caller holds. A continuation that may still fire puts a wake off
+    /// (`inbox_review`), so the timer also looks again as soon as one is let go, however it went
+    /// (`released`, `auto_resume.rs` `Pending`).
+    fn arm_locked(
+        self: &Arc<Self>,
+        inbox: &mut Inbox,
+        session: &Arc<Session>,
+        at: u64,
+        now: u64,
+        mut released: tokio::sync::watch::Receiver<u64>,
+    ) {
         let hub = Arc::downgrade(self);
         let weak: Weak<Session> = Arc::downgrade(session);
         let task = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(at.saturating_sub(now))).await;
+            let wait = std::time::Duration::from_millis(at.saturating_sub(now));
+            tokio::select! {
+                () = tokio::time::sleep(wait) => {}
+                Ok(()) = released.changed() => {}
+            }
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.inbox_review(&session);
         });

@@ -64,24 +64,27 @@ struct AgentPaneChromiumVisibilityTests {
         #expect(outgoing.superview == nil)
     }
 
-    @Test func loadingWithoutAFadeRevealsChromium() async throws {
+    /// The loading state waits for the page's first frame: Chromium must keep drawing under it.
+    @Test func loadingKeepsChromiumDrawingAndRevealsIt() async throws {
         let (view, chromium, window) = try await pane()
         defer { view.page?.close(); window.close() }
         view.loadingView.leave(over: view.pageContent, fades: false)
         view.beginLoadingState()
-        #expect(chromium.visibility.last == false)
+        #expect(view.pageContent.alphaValue == 0)
+        #expect(chromium.visibility.last == true, "a hidden Chromium page never paints, so the loading state never left")
         view.loadingView.leave(over: view.pageContent, fades: false)
         #expect(view.pageContent.alphaValue == 1)
         #expect(chromium.visibility.last == true)
     }
 
-    @Test func aMoveCoverRevealsChromium() async throws {
+    /// A move cover waits for the page's next frame: Chromium must keep drawing under it.
+    @Test func aMoveCoverKeepsChromiumDrawing() async throws {
         let (view, chromium, window) = try await pane()
         defer { view.page?.close(); window.close() }
         view.loadingView.leave(over: view.pageContent, fades: false)
         view.model.markPainted()
         view.hideMovedPage(until: {})
-        #expect(chromium.visibility.last == false)
+        #expect(chromium.visibility.last == true)
         view.revealMovedPage()
         #expect(view.pageContent.alphaValue == 1)
         #expect(chromium.visibility.last == true)
