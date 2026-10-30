@@ -24,10 +24,6 @@
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
 # step: the imported host code predates a cmux-screen rustfmt config.
-# api-compat [BASE_SHA]: api-compat-check --write (from BASE_SHA's ledger when given, as CI's
-# --base), then the check itself, and spec/api-compat.surface.json and api-compat.wire.json in
-# .build/artifacts/api-compat-ledgers.tar (fetch it with --artifact): a schema change gets its
-# ledgers from the tool, not by hand, with no cargo on the agent's machine.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -44,6 +40,17 @@
 # ghostty-vt with its VT, tmux regress, kitty graphics and corpus suites, ghostty-vt-sys,
 # the PTY, sizing, encode and client crates), no fmt, clippy or doc tests: the fast
 # gate for a terminal change (cmux-next-terminal.yml).
+# api-compat: cmux-tui-spec.yml's api-compat job, the same command (`cargo run --locked
+# -p cmux-api-compat --bin api-compat-check`): a protocol change that can break an older
+# or newer peer needs a compat rule, and spec/api-compat.surface.json must be current.
+# api-compat-write: the same with --write (it refuses while a break lacks a rule), which
+# rewrites the snapshot cmux-tui/spec/api-compat.surface.json and, where the crate has the
+# wire ledger, cmux-tui/spec/api-compat.wire.json. The step packs every api-compat file
+# --write may write into .build/artifacts/api-compat-spec.tar (never empty) and prints the
+# diff stat; fetch it with --artifact, run `tar -xf FILE` at your checkout root and commit
+# what changed there. Neither
+# takes a TEST_FILTER or checks out ghostty-next (cmux-api-compat's Cargo.lock closure has
+# no Ghostty crate: tests/test_zig_free_step_lockfiles.py), and neither commits or pushes.
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -54,7 +61,11 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat [TEST_FILTER | BASE_SHA]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ "$mode" == api-compat* && -n "$filter" ]]; then
+  echo "error: $mode takes no TEST_FILTER" >&2
+  exit 2
+fi
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -108,8 +119,11 @@ fi
 # shell integration since 0c9d74bc3ea).
 # A synced copy without the gitlink (rbx lanes have their own snapshot repository)
 # already holds ghostty-next's files: use them.
-ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
-if [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
+ghostty_next_status=""
+[[ "$mode" == api-compat* ]] || ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
+if [[ "$mode" == api-compat* ]]; then
+  echo "ghostty-next: not needed by $mode (cmux-api-compat builds only serde)"
+elif [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
   echo "ghostty-next: no gitlink in this tree (a synced copy); using the files present"
 elif ! git -C "$root" submodule update --init --depth 1 ghostty-next; then
   echo "error: git submodule update --init ghostty-next failed; no cargo command ran" >&2
@@ -752,26 +766,6 @@ if [[ "$mode" == rd-bench ]]; then
   step "rd-bench artifact" copy_rd_bench
   finish
 fi
-api_compat_base() { # the BASE_SHA commit, fetched when the checkout does not have it
-  [[ -z "$filter" ]] && return 0
-  [[ "$filter" =~ ^[0-9a-f]{40}$ ]] || { echo "error: api-compat BASE_SHA must be a full commit SHA" >&2; return 2; }
-  git cat-file -e "$filter^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$filter"
-}
-pack_api_compat() {
-  mkdir -p "$root/.build/artifacts"
-  tar -cf "$root/.build/artifacts/api-compat-ledgers.tar" -C "$root/cmux-tui" spec/api-compat.surface.json spec/api-compat.wire.json || return 1
-  git -C "$root" diff --stat -- cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json
-}
-if [[ "$mode" == api-compat ]]; then
-  warm_target_guard
-  base_args=()
-  [[ -n "$filter" ]] && base_args=(--base "$filter")
-  step "api-compat base" api_compat_base
-  step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write ${base_args[@]+"${base_args[@]}"}
-  step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check -- ${base_args[@]+"${base_args[@]}"}
-  step "api-compat ledgers" pack_api_compat
-  finish
-fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
 # with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
 # release, checksummed, in the step's own .build. Go's module and build caches
@@ -844,6 +838,34 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "vm-cli release build" cargo build --locked --release -p cmux-vm
   step "vm-cli artifact" copy_vm_cli
+  finish
+fi
+# The files --write may write: the shape snapshot, and the wire ledger where the crate has one.
+api_compat_files=(cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json)
+# Packs those files (the ones present) into the step's artifact and says what --write changed.
+api_compat_pack() {
+  local files=() f stat
+  for f in "${api_compat_files[@]}"; do [[ ! -f "$root/$f" ]] || files+=("$f"); done
+  [[ "${#files[@]}" -gt 0 ]] || { echo "error: no api-compat spec file to return" >&2; return 1; }
+  mkdir -p "$root/.build/artifacts"
+  tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
+  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- "${files[@]}")" || return 1
+  if [[ -n "$stat" ]]; then
+    echo "api-compat-write: changed: $stat"
+  else
+    echo "api-compat-write: ${files[*]} unchanged (already current)"
+  fi
+  echo "api-compat-write: .build/artifacts/api-compat-spec.tar holds ${files[*]}; run tar -xf on it at your checkout root"
+}
+if [[ "$mode" == api-compat ]]; then
+  step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check
+  finish
+fi
+if [[ "$mode" == api-compat-write ]]; then
+  # A warm slot keeps .build: never hand back an older step's files.
+  rm -f "$root/.build/artifacts/api-compat-spec.tar"
+  step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
+  [[ "$first_rc" -ne 0 ]] || step "api-compat pack" api_compat_pack
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
