@@ -15,6 +15,12 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// turn: a page host's reply sent after a large script still reaches the page after it. A large call holds back only
 /// the later calls of its own browser, by its encoding time.
 ///
+/// The order holds among these awaited calls only. A one-way send (``CEFRuntime/sendDevTools(_:method:params:)``: a
+/// freeze, a page picture, `CEFTab.perform`) still leaves in its caller's turn and can reach Chromium before an
+/// awaited call that is still encoding; it never had an order with the other pipes (`tabSetFrozen`, the page push).
+/// A caller that checks a condition (the page lives, the quit did not begin) and needs the call to leave in that same
+/// turn sends one-way and awaits ``CEFRuntime/result(of:method:timeout:)``, as `CEFFullPageCapture` does.
+///
 /// A call posts in its own turn, not in the turn of the call before it, so its caller can wait for the result in the
 /// same turn it posted (``CEFRuntime/result(of:method:timeout:)``): an answer that comes in a later turn always finds
 /// its waiter.

@@ -18,12 +18,16 @@ struct CEFFullPageCapture {
             throw BrowserTabError.unsupported("The page is empty or too large for a full-page screenshot")
         }
         let width = content.width, height = content.height
-        let clip: [String: any Sendable] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
+        let clip: [String: Any] = ["x": 0, "y": 0, "width": width, "height": height, "scale": 1]
         // The page may have closed or the quit begun while the metrics came and decoded (``CEFThumbnail/mayPicture(_:evenHidden:)``).
-        guard CEFThumbnail.mayPicture(tab, evenHidden: true) else { throw BrowserTabError.snapshotUnavailable }
-        let json = try await runtime.devTools(browserID, method: "Page.captureScreenshot",
-                                              params: ["format": "png", "captureBeyondViewport": true, "clip": clip],
-                                              timeout: .seconds(18))
+        // The capture is sent in this same turn (a few scalar params, encoded here), never after an await that a close
+        // or the quit could come in: ``CEFRuntime/devTools(_:method:params:timeout:)`` posts in a later turn.
+        guard CEFThumbnail.mayPicture(tab, evenHidden: true),
+              let sent = runtime.sendDevTools(browserID, method: "Page.captureScreenshot",
+                                              params: ["format": "png", "captureBeyondViewport": true, "clip": clip]) else {
+            throw BrowserTabError.snapshotUnavailable
+        }
+        let json = try await runtime.result(of: sent, method: "Page.captureScreenshot", timeout: .seconds(18))
         // Decoded off the main actor: a whole page of PNG in base64.
         return try await CEFDevToolsResult.decodedScreenshot(json)
     }

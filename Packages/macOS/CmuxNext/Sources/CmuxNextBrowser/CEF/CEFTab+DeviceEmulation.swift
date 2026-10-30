@@ -45,7 +45,7 @@ extension CEFTab: BrowserEmulating {
                     let metrics = method.hasSuffix("DeviceMetricsOverride")
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
-                        if method == "Emulation.setTouchEmulationEnabled" { touch = params["enabled"] as? Bool ?? false }
+                        if method == "Emulation.setTouchEmulationEnabled" { touch = CEFDeviceEmulation.isOn(params["enabled"]) }
                     } catch {
                         if metrics { inputScale = 1 }
                         runtime.logger.error("device emulation \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -124,6 +124,16 @@ nonisolated enum CEFDeviceEmulation {
                 params["height"] = Int(viewport.size.height)
             }
             return (method, params)
+        }
+    }
+
+    /// A flag of the calls: `true`, or a nonzero number (as an `NSNumber` read as `Bool` before ``sendable(_:)``).
+    static func isOn(_ value: (any Sendable)?) -> Bool {
+        switch value {
+        case let flag as Bool: flag
+        case let number as Int64: number != 0
+        case let number as Double: number != 0
+        default: false
         }
     }
 
