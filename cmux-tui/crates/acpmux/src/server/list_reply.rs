@@ -195,16 +195,29 @@ const MIN_PAGE_BYTES: usize = 64 << 10;
 
 /// [`acp_row`], or, for a row larger than `budget` alone, a stub that says so with its size, as
 /// a record too large for a reply goes (`hub/paging.rs`): a page holds at least one row, and
-/// one that large would be refused, page and all.
+/// one that large would be refused, page and all. The stub keeps only the row's id and `cwd`,
+/// each at most [`STUB_TEXT_BYTES`], and no title: it stays small whatever field was large,
+/// and holds no text a peer's reply masks (`peer_text.rs`).
 fn acp_row_within(s: &Value, budget: usize) -> Value {
-    let mut row = acp_row(s);
+    let row = acp_row(s);
     let bytes = row.to_string().len();
-    if bytes > budget {
-        let omitted = json!({"bytes": bytes, "reason": "too_large"});
-        row["_meta"] = json!({"acpmux": {"sessionId": s["sessionId"], "omitted": omitted}});
+    if bytes <= budget {
+        return row;
     }
-    row
+    let short =
+        |k: &str| s.get(k).filter(|v| v.as_str().is_some_and(|t| t.len() <= STUB_TEXT_BYTES));
+    let id = short("sessionId").cloned().unwrap_or(Value::Null);
+    json!({
+        "sessionId": id,
+        "cwd": short("cwd").cloned().unwrap_or(Value::Null),
+        "title": Value::Null,
+        "updatedAt": row["updatedAt"],
+        "_meta": {"acpmux": {"sessionId": id, "omitted": {"bytes": bytes, "reason": "too_large"}}},
+    })
 }
+
+/// The longest id or `cwd` a stub row keeps.
+const STUB_TEXT_BYTES: usize = 4 << 10;
 
 /// The most a `session/list` result may hold: a megabyte under the message limit, for the
 /// reply's own frame and what masking a peer's text may add.
@@ -257,6 +270,13 @@ mod tests {
         assert_eq!(stub["_meta"]["acpmux"]["sessionId"], "big");
         assert_eq!(stub["_meta"]["acpmux"]["omitted"]["reason"], "too_large");
         assert!(stub["_meta"]["acpmux"]["omitted"]["bytes"].as_u64().unwrap() > 1000);
+        assert!(stub.to_string().len() < 400, "{stub}");
+        // A huge title or cwd is not kept either, and the stub has no title to mask.
+        let s = json!({"sessionId": "big", "cwd": "/".repeat(1 << 20), "updatedAt": 5,
+            "title": "secret ".repeat(1 << 18), "harness": "claude", "lastSeq": 1});
+        let stub = acp_row_within(&s, 1 << 16);
+        assert_eq!(stub["sessionId"], "big");
+        assert!(stub["title"].is_null() && stub["cwd"].is_null(), "{stub}");
         assert!(stub.to_string().len() < 400, "{stub}");
     }
 

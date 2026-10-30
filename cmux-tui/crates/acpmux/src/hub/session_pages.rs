@@ -98,9 +98,8 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 /// A page of `sorted` cut by bytes rather than by count, for a reply that has no `limit` to
 /// page by (ACP's `session/list`): the rows from `cursor` on (a `nextCursor` of this list)
 /// whose `size`s fit in `budget`, at least one, and the cursor after the last of them when
-/// rows are left. A cursor the page cannot get past (two sessions with one id and one
-/// `updatedAt` at the page's edge, the cursor naming both, the page holding only the second)
-/// is refused rather than answered with the same page again.
+/// rows are left. Rows a cursor cannot tell apart (one id and one `updatedAt`) never straddle
+/// a page's edge, and a cursor starts after all of them, so each comes once.
 pub(crate) fn byte_page(
     sorted: &[Value],
     cursor: Option<&str>,
@@ -109,9 +108,16 @@ pub(crate) fn byte_page(
 ) -> Result<(std::ops::Range<usize>, Option<String>), RpcError> {
     let start = match cursor {
         None => 0,
-        Some(text) => SessionCursor::parse(text)
-            .ok_or_else(|| RpcError::invalid_params(format!("cursor {text:?} is not a cursor")))?
-            .start(sorted),
+        Some(text) => {
+            let cursor = SessionCursor::parse(text).ok_or_else(|| {
+                RpcError::invalid_params(format!("cursor {text:?} is not a cursor"))
+            })?;
+            let mut at = cursor.start(sorted);
+            while sorted.get(at).is_some_and(|s| SessionCursor::after(s) == cursor) {
+                at += 1;
+            }
+            at
+        }
     };
     let (mut end, mut used) = (start, 0);
     while let Some(row) = sorted.get(end) {
@@ -123,16 +129,25 @@ pub(crate) fn byte_page(
         used += bytes;
         end += 1;
     }
+    // Keep rows one cursor names on one page: end before them, or past them when they are
+    // all the page holds.
+    let same = |i: usize| SessionCursor::after(&sorted[i]) == SessionCursor::after(&sorted[i - 1]);
+    if end < sorted.len() && same(end) {
+        let mut group = end - 1;
+        while group > start && same(group) {
+            group -= 1;
+        }
+        if group > start {
+            end = group;
+        } else {
+            while end < sorted.len() && same(end) {
+                end += 1;
+            }
+        }
+    }
     let next = (end < sorted.len())
         .then(|| sorted.get(end - 1).map(|last| SessionCursor::after(last).to_text()))
         .flatten();
-    if next.is_some() && next.as_deref() == cursor {
-        return Err(RpcError::new(
-            -32000,
-            "the session list cannot be read past this cursor: two sessions share its id and time",
-        )
-        .with_data(json!({"reason": "list.cursor_stuck"})));
-    }
     Ok((start..end, next))
 }
 
@@ -311,7 +326,7 @@ mod tests {
     /// a cursor. Across a page edge the second still comes once; a page that would hold only
     /// the second, after the first, is refused rather than answered again and again.
     #[test]
-    fn byte_pages_read_two_rows_with_one_cursor_once_or_refuse() {
+    fn byte_pages_read_rows_one_cursor_names_once() {
         let rows = vec![
             json!({"sessionId": "a", "updatedAt": 9}),
             json!({"sessionId": "dup", "updatedAt": 5}),
@@ -319,17 +334,22 @@ mod tests {
             json!({"sessionId": "z", "updatedAt": 1}),
         ];
         let size = |_: &Value| 10;
-        // Two rows a page: the edge falls between the two, and every row comes once.
-        let (first, next) = byte_page(&rows, None, 25, size).unwrap();
-        assert_eq!(first, 0..2);
-        let (rest, next) = byte_page(&rows, next.as_deref(), 25, size).unwrap();
-        assert_eq!((rest, next), (2..4, None));
-        // One row a page: the second would come forever.
-        let (_, next) = byte_page(&rows, None, 5, size).unwrap();
-        let (one, next) = byte_page(&rows, next.as_deref(), 5, size).unwrap();
-        assert_eq!(one, 1..2);
-        let e = byte_page(&rows, next.as_deref(), 5, size).unwrap_err();
-        assert_eq!(e.data.unwrap()["reason"], "list.cursor_stuck");
+        let read = |budget: usize| {
+            let (mut ids, mut cursor) = (Vec::new(), None::<String>);
+            loop {
+                let (range, next) = byte_page(&rows, cursor.as_deref(), budget, size).unwrap();
+                ids.extend(rows[range].iter().map(|r| r["sessionId"].as_str().unwrap()));
+                assert!(ids.len() <= rows.len(), "{ids:?}");
+                match next {
+                    Some(next) => cursor = Some(next),
+                    None => return ids,
+                }
+            }
+        };
+        // A page edge between the two, one inside the pair, a page per row, all in one.
+        for budget in [25, 35, 5, 100] {
+            assert_eq!(read(budget), ["a", "dup", "dup", "z"], "budget {budget}");
+        }
     }
 
     #[test]
