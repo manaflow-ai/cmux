@@ -862,6 +862,43 @@ mod codex_tests {
         assert_eq!(second[0]["parent"], Value::Null);
     }
 
+    /// A root echo that arrives before the root is known reads as a running
+    /// background child. Learning the root later must drop it from the
+    /// background set too: no end event ever comes for it, so it would keep the
+    /// session busy after the real child finishes.
+    #[test]
+    fn a_late_known_root_stops_counting_as_a_background_subagent() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        let review = "review-thread";
+        let echoed = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "echo-root",
+                   "_meta": {"codex": {"subagent": {"threadId": root,
+                     "path": "/root", "activity": "working"}}}}),
+        );
+        assert_eq!(echoed[0]["background"], json!(true));
+        let _ = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-review",
+                   "rawInput": {"prompt": "Review", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [review]}}}}),
+        );
+        assert_eq!(tree.background_running(), 2);
+        tree.set_root(root);
+        let _ = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "review-done",
+                   "_meta": {"codex": {"subagent": {"threadId": review,
+                     "activity": "completed"}}}}),
+        );
+        assert_eq!(tree.background_running(), 0, "the root is not background work");
+    }
+
     #[test]
     fn codex_child_sender_remains_the_parent_of_a_grandchild() {
         let mut tree = SubagentTree::default();
