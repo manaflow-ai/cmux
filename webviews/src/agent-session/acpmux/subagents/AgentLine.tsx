@@ -129,8 +129,8 @@ export function AgentLine({
       </span>
       <span className="acpmux-summary-text">
         {kindIcon ? (
-          <span className="acpmux-agent-line__kind-icon" role="img" aria-label={kind}>
-            <Icon name={kindIcon} size={iconSize} row />
+          <span className="acpmux-agent-line__kind-icon">
+            <Icon name={kindIcon} size={iconSize} title={kind} row />
           </span>
         ) : (
           kind && <span className="acpmux-agent-line__kind">{kind}</span>

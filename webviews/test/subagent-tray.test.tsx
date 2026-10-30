@@ -651,10 +651,10 @@ describe("a tray line says what it is and what a click does", () => {
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
       expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
-      expect(line.textContent).not.toContain("Subagent");
       const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
-      expect(kind?.getAttribute("aria-label")).toBe("Subagent");
-      expect(kind?.querySelector("svg")).not.toBeNull();
+      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
+      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
+      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
       // The working-state mark stays a spinner, before the subagent's icon.
       expect(
         line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
