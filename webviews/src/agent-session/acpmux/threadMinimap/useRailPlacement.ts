@@ -30,7 +30,12 @@ export function useRailPlacement(scroller: RefObject<HTMLElement | null>, paneWi
         compact: token("--cmux-space-3", 12),
       });
       setPlacement((was) =>
-        was.left === next.left && was.width === next.width && was.overlapsText === next.overlapsText ? was : next,
+        was.left === next.left &&
+        was.width === next.width &&
+        was.overlapsText === next.overlapsText &&
+        was.gutter === next.gutter
+          ? was
+          : next,
       );
     };
     update();

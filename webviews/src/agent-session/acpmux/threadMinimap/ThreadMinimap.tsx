@@ -188,7 +188,7 @@ export function ThreadMinimap({
   };
   // The leave grace is a hover-intent delay off the motion scale (HOVER_INTENT.cardGrace). It fires
   // once, re-entry or focus cancels it, and it is skipped (the rail hides at once) under Reduce
-  // Motion or while the page is hidden; the unmount effect below clears it.
+  // Motion or while the page is hidden; the effect below clears it on unmount or a page hide.
   const hideRailAfterGrace = () => {
     if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
     const grace = reducedMotion() || document.hidden ? 0 : HOVER_INTENT.cardGrace;
@@ -204,12 +204,20 @@ export function ThreadMinimap({
       intend(null);
     }, grace);
   };
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // A page that hides mid-grace clears the pending timer and settles the rail hidden at once.
+    const onVisibility = () => {
+      if (!document.hidden || railHideTimer.current === undefined) return;
+      clearTimeout(railHideTimer.current);
+      railHideTimer.current = undefined;
+      setRailRevealed(false);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
   /// The row keyboard focus is on.
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
@@ -283,7 +291,9 @@ export function ThreadMinimap({
   const [cardFocus, setCardFocus] = useState(false);
   const railVisible = !placement.overlapsText || railRevealed || domFocus !== undefined || cardFocus || scrubbing;
   const railWidth = placement.overlapsText && railVisible ? ROW_WIDTH : placement.width;
-  const stripWidth = placement.left + placement.width;
+  // The occluded rail's hover strip reaches the text edge and no further, so clicks, links and
+  // selection drags on the text stay the text's; it keeps at least the pane-edge inset at any width.
+  const stripWidth = Math.max(placement.left, Math.min(placement.left + placement.width, placement.gutter));
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. At
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
   const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH;

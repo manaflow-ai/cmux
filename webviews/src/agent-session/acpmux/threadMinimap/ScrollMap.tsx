@@ -70,7 +70,7 @@ export function ScrollMap({
   viewportHeight: number;
   scrolls: boolean;
   /// The compact rail's pane-edge placement (useRailPlacement), measured against the actual text.
-  placement: { left: number; width: number; overlapsText: boolean };
+  placement: { left: number; width: number; overlapsText: boolean; gutter: number };
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;

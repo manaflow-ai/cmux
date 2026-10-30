@@ -69,6 +69,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
+const { HOVER_INTENT } = await import("../src/ui/hoverIntent");
 // acpmux's bookmarks for the chat, answering at once (thread-bookmarks.test.tsx covers its replies).
 const acpmuxMarks = new Set<number>();
 setBookmarkTransport({
@@ -205,7 +206,7 @@ test("keyboard focus on the close rail shows the full wave too", async () => {
     expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
     expect(Math.round(length(3))).toBe(26);
     await act(async () => tick(3).blur());
-    await advance(120);
+    await advance(HOVER_INTENT.cardGrace);
     expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);
   } finally {
     jest.useRealTimers();
@@ -223,10 +224,15 @@ test("when text would overlap the rail, its edge strip reveals it and then hides
     expect(box.width).toBe(20);
     expect(box.rail.hasAttribute("data-occluded")).toBe(true);
     expect(strip).toBeDefined();
+    // The hidden rail would overlap the text, so its strip stops short of the rail's right edge
+    // (at the text edge) and keeps at least the pane-edge inset: text clicks stay the text's.
+    const stripWidth = Number.parseFloat(strip.style.width);
+    expect(stripWidth).toBeLessThan(box.left + box.width);
+    expect(stripWidth).toBeGreaterThanOrEqual(box.left);
     await pointer("pointerover", strip, { relatedTarget: document.body });
     expect(box.rail.hasAttribute("data-occluded")).toBe(false);
     await pointer("pointerout", strip, { relatedTarget: document.body });
-    await advance(119);
+    await advance(HOVER_INTENT.cardGrace - 1);
     expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(false);
     await advance(1);
     expect(railBox()!.rail.hasAttribute("data-occluded")).toBe(true);

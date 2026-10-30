@@ -44,11 +44,12 @@ export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
   spacing = { min: 8, max: 16, compact: 12 },
-): { left: number; width: number; overlapsText: boolean } {
+): { left: number; width: number; overlapsText: boolean; gutter: number } {
   const left = Math.min(spacing.max, Math.max(spacing.min, Math.round(paneWidth / 100)));
   const minimumWidth = spacing.min + spacing.compact;
   const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
-  return { left, width, overlapsText: left + width > textInset };
+  // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
+  return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
 }
 /// Height choices for the compact rail. The initial height keeps a short thread from looking like a
 /// transcript slice; the share and row cap let a long thread grow toward the pane's full height before
