@@ -901,8 +901,9 @@ export function ThreadMinimap({
           style={
             {
               "--acpmux-minimap-fade": `${railFade(height)}px`,
-              // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css).
-              "--acpmux-minimap-first": Math.floor(listTop / ROW_PITCH),
+              // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css). Each
+              // tick keeps its own place from its mount (Tick), so a scroll changes nothing the list's
+              // rows inherit: a per-scroll value here restyled every drawn row on every scrolled frame.
               "--acpmux-minimap-rows": Math.max(1, Math.ceil(height / ROW_PITCH)),
             } as React.CSSProperties
           }
@@ -985,6 +986,7 @@ export function ThreadMinimap({
             active={active}
             first={onScreen.first}
             last={onScreen.last}
+            listFirst={Math.floor(listTop / ROW_PITCH)}
             described={showCard ? cardRow : undefined}
             cardId={cardId}
             actions={actions}
@@ -1052,6 +1054,7 @@ const TickList = memo(function TickList({
   active,
   first,
   last,
+  listFirst,
   described,
   cardId,
   actions,
@@ -1066,6 +1069,9 @@ const TickList = memo(function TickList({
   /// The band: the prompts on screen.
   first: number;
   last: number;
+  /// The first row in the list's view: a tick's entrance place counts from it (Tick `place`). It
+  /// moves with the list's scroll, as `ranges` does, so it renders the list no more often.
+  listFirst: number;
   /// The row the open card describes.
   described: number | undefined;
   cardId: string;
@@ -1092,6 +1098,7 @@ const TickList = memo(function TickList({
       <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
         <Tick
           index={index}
+          place={index - listFirst}
           last={ticks.length - 1}
           progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
           active={index === active}
@@ -1128,6 +1135,7 @@ type TickActions = {
 /// One prompt's row: a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
 const Tick = memo(function Tick({
   index,
+  place,
   last,
   progress,
   active,
@@ -1138,6 +1146,9 @@ const Tick = memo(function Tick({
   actions,
 }: {
   index: number;
+  /// Its row's place in the list's view when it mounted, for its entrance stagger
+  /// (threadMinimap.css). Read only at mount, so a scroll re-renders no tick (tickPropsEqual).
+  place: number;
   last: number;
   progress: number;
   active: boolean;
@@ -1147,6 +1158,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  const [entrance] = useState(place);
   const length = tickLength(progress);
   return (
     <MinimapTick
@@ -1160,7 +1172,7 @@ const Tick = memo(function Tick({
       data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
-      style={{ "--acpmux-minimap-row": index } as React.CSSProperties}
+      style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}
       aria-describedby={describedBy}
@@ -1203,4 +1215,11 @@ const Tick = memo(function Tick({
       <span className="acpmux-minimap__dot-hit" data-dot-hit="" />
     </MinimapTick>
   );
-});
+}, tickPropsEqual);
+
+/// A tick's props as `memo` compares them, but for `place`, which only its mount reads.
+function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
+  for (const key in next) if (key !== "place" && !Object.is(was[key], next[key])) return false;
+  for (const key in was) if (!(key in next)) return false;
+  return true;
+}
