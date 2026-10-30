@@ -2973,6 +2973,8 @@ export function VirtualTranscript({
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
+  /// When the reader last moved the transcript up (wheel up, ArrowUp/PageUp/Home, an upward drag).
+  const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3462,9 +3464,13 @@ export function VirtualTranscript({
       // A reader can already be parked before the next wheel/default write. The live offset is
       // still authoritative for that recent upward input; gating this on `following` reused the
       // stale acknowledged top and produced a one-frame jump when an unseen row remeasured.
+      // A parked reader's other input (a click, a downward key or wheel) does not move the view up:
+      // a live offset above the acknowledged one then already holds a layout adjustment, and using
+      // it as the base would apply that row's height change twice.
+      const inputAt = followingRef.current ? readerAt.current : readerUpAt.current;
       const readerLeft =
         !clamped &&
-        performance.now() - readerAt.current <= READER_SCROLL_MS &&
+        performance.now() - inputAt <= READER_SCROLL_MS &&
         scrolledTo.current.top - live > FOLLOW_BOTTOM_DEADBAND_PX;
       if (readerLeft) follow(false);
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
@@ -4097,6 +4103,7 @@ export function VirtualTranscript({
       if (event?.type === "touchstart") touchY = (event as TouchEvent).touches[0]?.clientY;
       else if (touch) touchY = touch.clientY;
       readerAt.current = performance.now();
+      if (movingUp) readerUpAt.current = readerAt.current;
       followTrace.input();
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
