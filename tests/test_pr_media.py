@@ -570,6 +570,20 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(origin.files()["7/shot.png"], PNG)
 
+    def test_only_the_cli_refuses_an_existing_path_and_put_file_replaces_it_as_on_base(self):
+        # The no-replace rule is main()'s (without --force); put_file, which publish.py and reel.py call,
+        # replaces the file, as the contents-API writer did by sending the existing sha with its PUT.
+        origin = Origin(self, existing=["7/shot.png"])
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                code = MODULE.main(["--pr", "7", str(shot)], runner=FakeGh())
+            self.assertEqual(code, 1)
+            self.assertIn("--force", err.getvalue())
+            self.assertEqual(origin.files()["7/shot.png"], b"old 7/shot.png")
+            MODULE.put_file("o/r", "pr-media", "7/shot.png", shot, "m", checked=True)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
     def test_a_refused_push_fails_with_what_the_remote_said_and_is_not_retried(self):
         origin = Origin(self)
         origin.hook("echo 'protected branch: no pushes here' >&2\nexit 1\n")

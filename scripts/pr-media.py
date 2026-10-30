@@ -729,7 +729,11 @@ def put_files(repo: str, branch: str, files: dict[str, Path], message: str, chec
 
 def put_file(repo: str, branch: str, path: str, local: Path, message: str,
              runner=None, checked: bool = False, store: MediaBranch | None = None) -> None:
-    """One file, for the tools that import this (scripts/cmux-next/media/publish.py, reel.py)."""
+    """One file, for the tools that import this (scripts/cmux-next/media/publish.py, reel.py).
+
+    It replaces whatever is at PATH, as the contents-API writer it replaces did (it read the existing sha and
+    sent it with the PUT): re-posting a pull request's tour media or a nightly reel overwrites the last copy.
+    "Without --force nothing is replaced" is the CLI's rule (main()), not this function's."""
     put_files(repo, branch, {path: local}, message, checked=checked, store=store)
 
 
