@@ -281,7 +281,7 @@ extension CaptureSceneRegistry {
         // returns: the machines stay until the next render. A failure takes them away at once.
         endAgentCloudMachines()
         var shown = false
-        defer { if !shown { endAgentCloudMachines(always: true) } }
+        defer { if !shown { endAgentCloudMachines() } }
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         _ = addAgentCloudMachines()
         let done = { [self] in
@@ -328,19 +328,18 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// Takes a shown cloud-agent-machines picture away: the machines, and the grouping setting it
-    /// forced, back to the settings' own value. Stateless (each render is a new registry): a
-    /// picture is shown while its machines are in the registry.
-    /// `always`: the scene's own failure, which forced the setting whether or not its machines are still there.
-    func endAgentCloudMachines(always: Bool = false) {
-        guard always || Self.agentMachineIDs.contains(where: { services.machines.session($0) != nil }) else { return }
+    /// Takes a cloud-agent-machines picture away, whatever is left of it: its machines, and the
+    /// grouping setting it forced, back to the settings' own value (a Cloud refresh may have taken
+    /// the machines already). Stateless: each render is a new registry.
+    func endAgentCloudMachines() {
         removeAgentCloudMachines()
         DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
     }
 
     func removeAgentCloudMachines() {
-        for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
-        services.windows.reconcileMembership()
+        let removed = Self.agentMachineIDs.compactMap { services.machines.remove($0) }
+        for session in removed { session.disconnect() }
+        if !removed.isEmpty { services.windows.reconcileMembership() }
     }
 
     /// Row `key` in `windowID`'s sidebar list, as the list laid it out; nil until the list has it.
