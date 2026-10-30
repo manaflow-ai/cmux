@@ -94,14 +94,11 @@ impl Hub {
             && !(session.meta().claude_unstored && session.meta().turn_count > 0)
     }
 
-    /// What a host this daemon starts for a harness of `family` does once no daemon controls it
-    /// (`agent_host::OrphanExit`): it waits [`crate::agent_host::ORPHAN_IDLE`], or this daemon's
+    /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
+    /// its servers come from `LaunchServers::orphan_exit`): it waits [`crate::agent_host::ORPHAN_IDLE`], or this daemon's
     /// own idle period when that is longer, and never ends while idle hibernation is off
     /// (`ACPMUX_IDLE_CHILD_SECS=0`): an agent this daemon would keep, its host keeps too.
-    pub(super) fn orphan_exit(
-        &self,
-        family: Option<&str>,
-    ) -> Option<crate::agent_host::OrphanExit> {
+    pub(super) fn orphan_exit(&self) -> Option<crate::agent_host::OrphanExit> {
         let idle = (*self.idle_child.lock().unwrap_or_else(|e| e.into_inner()))?;
         #[cfg_attr(not(debug_assertions), allow(unused_mut))]
         let mut wait = idle.max(crate::agent_host::ORPHAN_IDLE);
@@ -116,7 +113,8 @@ impl Hub {
         }
         Some(crate::agent_host::OrphanExit {
             idle_ms: u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
-            family: family.unwrap_or_default().to_owned(),
+            servers: Vec::new(),
+            path: String::new(),
         })
     }
 

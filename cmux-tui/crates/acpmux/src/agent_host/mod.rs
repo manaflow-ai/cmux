@@ -237,9 +237,13 @@ pub struct SpawnSpec {
 pub struct OrphanExit {
     /// How long the host waits with no controller before it looks.
     pub idle_ms: u64,
-    /// The harness family its MCP configs are read as (`hub/idle_census.rs`).
+    /// The MCP servers the harness's configs named just before it started, as the daemon read
+    /// them (`LaunchServers::read`): never read again, so a config edited later changes nothing.
     #[serde(default)]
-    pub family: String,
+    pub servers: Vec<crate::hub::Sidecar>,
+    /// The harness's `PATH`, for the servers its sessions name by command.
+    #[serde(default)]
+    pub path: String,
 }
 
 /// How long a host waits with no controller before an idle agent ends ([`OrphanExit`]): longer

@@ -10,8 +10,11 @@ const WAIT: Duration = Duration::from_millis(1000);
 
 fn orphan_spec(dir: &Path, session: &str) -> SpawnSpec {
     let mut spec = spec(dir, session);
-    spec.orphan_exit =
-        Some(agent_host::OrphanExit { idle_ms: WAIT.as_millis() as u64, family: String::new() });
+    spec.orphan_exit = Some(agent_host::OrphanExit {
+        idle_ms: WAIT.as_millis() as u64,
+        servers: Vec::new(),
+        path: String::new(),
+    });
     spec
 }
 
@@ -119,6 +122,19 @@ async fn a_host_keeps_a_running_turn_and_its_unlogged_end_for_the_next_daemon() 
     assert!(
         ends_within(&dir, &record, Duration::from_secs(15)).await,
         "the idle host outlived its wait"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A daemon that died after it started a host but before it connected: the harness never wrote
+/// a line, so no event ever came. The host's wait starts as it starts serving (review 1).
+#[tokio::test]
+async fn a_host_no_controller_ever_reached_ends_after_its_wait() {
+    let dir = scratch("orph-never");
+    let record = link::spawn(&launcher(), &orphan_spec(&dir, "s-orph-never")).await.unwrap();
+    assert!(
+        ends_within(&dir, &record, Duration::from_secs(15)).await,
+        "a host no controller reached outlived its wait"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

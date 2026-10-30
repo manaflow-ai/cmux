@@ -147,11 +147,16 @@ impl State {
         }
     }
 
-    /// After every event: a controller's hello ends the wait (its generation moves on); its
-    /// absence starts one ([`OrphanExit`]). True once the host's own end is done: the harness
-    /// exited and no controller came meanwhile to log it.
+    /// As the host starts serving and after every event: a controller's hello ends the wait (its
+    /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
+    /// end is done: the harness exited and no controller, nor a connection that may become one,
+    /// came meanwhile to log it (a controller that comes logs the exit and ends the host as any).
     pub(super) fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
-        if self.orphan.ending && self.controller.is_none() && self.exit_h.is_some() {
+        if self.orphan.ending
+            && self.controller.is_none()
+            && self.pending_conns.is_empty()
+            && self.exit_h.is_some()
+        {
             return true;
         }
         let Some(exit) = &self.spec.orphan_exit else { return false };
@@ -194,6 +199,10 @@ impl State {
             return;
         }
         let wait = std::time::Duration::from_millis(exit.idle_ms);
+        // Checked again on the census's answer too: what came while it ran keeps the host. From
+        // here to the group's SIGTERM the loop handles no other event, so no entry and no hello
+        // comes in between; a hello waiting in the queue meets an ending harness, as a prompt
+        // meets one the daemon's idle pass stops.
         if let OrphanStep::Wait(after) = orphan_step(wait, since.elapsed(), self.pending().await) {
             self.orphan_wait(events, after);
             return;
@@ -206,17 +215,11 @@ impl State {
             // Something else runs under it (a dev server it left), or it can not tell.
             (Some(false), _) | (None, None) => self.orphan_wait(events, wait),
             (None, Some(pid)) => {
-                let launch = crate::agent::Launch::new(
-                    &self.spec.program,
-                    &self.spec.args,
-                    &self.spec.env,
-                    &self.spec.cwd,
-                );
-                let (family, given) = (exit.family, self.orphan.given_servers.clone());
+                let given = self.orphan.given_servers.clone();
                 let (events, generation) = (events.clone(), self.orphan.generation);
-                // task-owner: one census, bounded by its own budgets (`hub/idle_census.rs`).
+                // task-owner: one census, bounded by its own budget (`hub/idle_census.rs`).
                 tokio::spawn(async move {
-                    let clear = crate::hub::host_census(pid, &launch, family, given).await;
+                    let clear = crate::hub::host_census(pid, exit, given).await;
                     let _ = events.send(Event::Orphan(generation, Some(clear))).await;
                 });
             }

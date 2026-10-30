@@ -524,6 +524,8 @@ impl Started {
             });
         }
 
+        // A harness that never writes and a daemon that never connects still start the wait.
+        state.orphan_follow(&events_tx);
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
