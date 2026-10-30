@@ -38,11 +38,11 @@ mod daemon_build;
 mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
-#[cfg(unix)]
-mod share_room;
 mod local_actor;
 mod page_listener;
 mod private_mode;
+#[cfg(unix)]
+mod share_room;
 #[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
