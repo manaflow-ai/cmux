@@ -6,7 +6,10 @@
 // ("stopped by you", "interrupted by Send now"; subagentFold.ts `stopReasonOf`), nothing when it
 // does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
-// hover row's buttons (conversation/MessageActions.tsx).
+// hover row's buttons (conversation/MessageActions.tsx). The line keeps the transcript's one row
+// grammar (design/chat-transcript.md "One row grammar"): the icon and the sentence, then the
+// trailing column, its duration, then the chevron, so the duration and the chevron line up with
+// the rows around it (Leo 2026-10-29: "this ui isn't consistent :(").
 //
 // While acpmux waits to retry it (retryState.ts), the line reads "Retrying (2/4) after a capacity
 // error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
@@ -15,7 +18,7 @@
 import { createContext, useContext, useState } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { formatDuration } from "../conversation/turns";
-import { Retry, Spinner } from "../conversation/icons";
+import { ChevronRight, Retry, Spinner } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -78,16 +81,18 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
       ? restartSubagent
       : undefined;
-  const parts = waiting
+  const head = waiting
     ? [agent.name, retryLabel(t, waiting)]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
         ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
-        time,
-        // Why it failed, as acpmux recorded it, last: the line cuts it first.
-        ...(error ? [error] : []),
       ];
+  // Why it failed, as acpmux recorded it, last: the line cuts it first.
+  const parts = [...head, ...(error && !waiting ? [error] : [])];
+  // The duration is the trailing column's, never part of the sentence; the tooltip and the
+  // button's name still read the whole line with it.
+  const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
   const run = () => {
     if (!retryAgent || shown?.busy) return;
@@ -109,12 +114,14 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     </button>
   );
   return (
-    <div className="cv-tools cv-subagent-done-row">
+    <div className="cv-tools">
+    <div className="cv-tool cv-subagent-done-row" data-state={waiting ? "retrying" : agent.state}>
       <button
         type="button"
         className="cv-tool cv-bgtask cv-subagent-done"
         data-state={waiting ? "retrying" : agent.state}
         {...(agent.stopReason && { "data-reason": agent.stopReason })}
+        aria-label={whole}
         disabled={!open}
         onClick={() => open?.(agent.id)}
       >
@@ -122,7 +129,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           {waiting ? <Spinner size={16} loading /> : <Icon name="agent.session" size={16} />}
         </span>
         {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
-        <span className="cv-tool__text" title={parts.join(" · ")}>
+        <span className="cv-tool__text" title={whole}>
           {parts.join(" · ")}
         </span>
       </button>
@@ -163,6 +170,19 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           )}
         </span>
       )}
+      <span className="cv-tool__trail cv-subagent-done__trail">
+        {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
+      </span>
+      {/* The chevron's column holds on a line that opens nothing, so the columns still line up. */}
+      <span
+        className={`cv-tool__chevron cv-subagent-done__chevron${open ? "" : " is-idle"}`}
+        data-interactive=""
+        aria-hidden
+        onClick={open ? () => open(agent.id) : undefined}
+      >
+        <ChevronRight size={14} strokeWidth={1.2} />
+      </span>
+    </div>
     </div>
   );
 }
