@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { projectName } from "./EmptyState";
 import { type Translate, useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
@@ -60,9 +60,10 @@ export function TrustAsk({
   onDistrust(): void;
   onUndo(): void;
   /// Continue in the private no-project chat after explicitly declining this folder.
-  onContinueWithoutFolder?(): void;
+  onContinueWithoutFolder?(): void | Promise<void>;
 }) {
   const t = useT();
+  const [continuing, setContinuing] = useState(false);
   // A workspace's new chat starts in its private folder under Application Support: named in words.
   const owned = isAgentHome(ask.cwd);
   const subject = trustSubject(ask);
@@ -100,7 +101,16 @@ export function TrustAsk({
             {answers && (
               <>
                 {onContinueWithoutFolder && (
-                  <button type="button" className="acpmux-trust-ask-action" onClick={onContinueWithoutFolder}>
+                  <button
+                    type="button"
+                    className="acpmux-trust-ask-action"
+                    disabled={continuing}
+                    onClick={() => {
+                      if (continuing) return;
+                      setContinuing(true);
+                      void Promise.resolve(onContinueWithoutFolder()).finally(() => setContinuing(false));
+                    }}
+                  >
                     {t("trust.continueWithoutFolder")}
                   </button>
                 )}

@@ -9986,21 +9986,27 @@ function AcpmuxPane() {
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
   // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  const continuationInFlight = useRef(false);
+  const continuationGeneration = useRef(0);
   const continueWithoutFolder = useCallback(() => {
-    // Move the unsent composer state before starting the private no-project chat. The old chat
-    // remains untouched if creation fails; the user can retry or undo the trust decision.
+    if (continuationInFlight.current) return Promise.resolve();
+    continuationInFlight.current = true;
+    const generation = ++continuationGeneration.current;
+    // Mark the composer as carried before starting the private no-project chat. The switch then
+    // moves its draft and chips exactly once; no restore runs after a successful switch.
     const held = composerHandle.current?.prepareDraftTransfer();
-    const start = callNative("chat.new", { noProject: true });
-    void start.then(
+    return callNative("chat.new", { noProject: true }).then(
       () => {
-        setProjectDraft(undefined);
+        if (generation === continuationGeneration.current) setProjectDraft(undefined);
       },
-      () => {
-        // If creation failed, put the source draft back; no outward effect was completed.
-        if (held && (held.text || held.attachments.length > 0))
+      (error) => {
+        if (generation === continuationGeneration.current && held && (held.text || held.attachments.length > 0))
           composerHandle.current?.restore(held.text, held.attachments);
+        throw error;
       },
-    );
+    ).finally(() => {
+      if (generation === continuationGeneration.current) continuationInFlight.current = false;
+    });
   }, []);
   const trustPending = trustAsk.holdsAsks;
   // A secret is the one ask held while the trust read is in flight: a value typed into it must
