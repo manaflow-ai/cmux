@@ -730,6 +730,34 @@ def main():
                     shutil.copyfileobj(src, dst)
         except OSError as error:
             note(f"acpmux daemon.log not copied: {error}")
+        # Each session's event log (sessions/<id>/events/*.ndjson; asked by the #28041 author: agent_start's
+        # phases are only there). Same place: after every measured read. At most 64 MB in all.
+        copied, budget = 0, 64 << 20
+        sessions = os.path.join(ACPMUX_HOME, "sessions")
+        try:
+            names = sorted(os.listdir(sessions))
+        except OSError:
+            names = []
+        for sid in names:
+            events = os.path.join(sessions, sid, "events")
+            try:
+                segments = sorted(f for f in os.listdir(events) if f.endswith(".ndjson"))
+            except OSError:
+                continue
+            for segment in segments:
+                path = os.path.join(events, segment)
+                try:
+                    size = os.path.getsize(path)
+                    if copied + size > budget:
+                        break
+                    target = os.path.join(opts.out, "acpmux-sessions", sid)
+                    os.makedirs(target, exist_ok=True)
+                    shutil.copyfile(path, os.path.join(target, segment))
+                    copied += size
+                except OSError as error:
+                    note(f"acpmux session log {sid}/{segment} not copied: {error}")
+        if copied >= budget:
+            note("acpmux session logs: 64 MB copy limit reached; later sessions not copied")
     with open(os.path.join(opts.out, "debug-hangs.json"), "w") as f:
         json.dump(hangs, f)
     run = {"schema": 1, "label": opts.label, "app_pid": APP_PID, "daemon_pid": DAEMON_PID, "acpmux_home": ACPMUX_HOME,
