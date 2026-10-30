@@ -142,7 +142,11 @@ struct SidebarOptimisticSaveTests {
             #expect(store.workspaces.first?.name == "Renamed", "the new name waited for the daemon's echo")
             var failures: [String] = []
             for task in work { if let failure = await task.value { failures.append(failure.message) } }
-            #expect(store.workspaces.first?.name == "api", "the name stayed after its save failed")
+            // The refusal can also bring the daemon's own tree, which lacks the mirror-only key: look the workspace up
+            // by key, and the new name must be gone either way.
+            let renamed = store.workspaces.first { $0.key?.rawValue == "ws-rename" }
+            #expect(renamed.map { $0.name == "api" } ?? true, "the name stayed after its save failed")
+            #expect(!store.workspaces.contains { $0.name == "Renamed" }, "the name stayed after its save failed")
             #expect(failures.count == 1, "the failed rename reported no error: \(failures)")
         } catch {
             await launched.stop()
