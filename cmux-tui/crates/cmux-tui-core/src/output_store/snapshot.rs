@@ -44,6 +44,9 @@ const MAX_SNAPSHOT_FILE_BYTES: u64 = 16 * 1024 * 1024;
 struct WriterState {
     /// When the pending changes are due; `None` while nothing changed.
     due: Option<Instant>,
+    /// The terminals' resident scrollback crossed the budget's trigger: a
+    /// budget pass is due now (`memory_budget.rs`), apart from `due`.
+    memory_due: bool,
     stop: bool,
 }
 
@@ -77,6 +80,18 @@ impl Writer {
         }
     }
 
+    /// The resident scrollback crossed the budget: a budget pass at once.
+    /// Requests coalesce until the pass runs, so a flood asks for one pass
+    /// at a time.
+    pub(super) fn request_memory_pass(&self) {
+        let (lock, changed) = &*self.state;
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if !state.memory_due {
+            state.memory_due = true;
+            changed.notify_all();
+        }
+    }
+
     pub(super) fn stop(&self) {
         {
             let (lock, changed) = &*self.state;
@@ -96,11 +111,14 @@ impl Writer {
 fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
     let (lock, changed) = state;
     loop {
-        {
+        let memory_only = {
             let mut guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             loop {
                 if guard.stop {
                     return;
+                }
+                if std::mem::take(&mut guard.memory_due) {
+                    break true;
                 }
                 match guard.due {
                     None => guard = changed.wait(guard).unwrap_or_else(PoisonError::into_inner),
@@ -108,7 +126,7 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                         let now = Instant::now();
                         if now >= due {
                             guard.due = None;
-                            break;
+                            break false;
                         }
                         guard = changed
                             .wait_timeout(guard, due - now)
@@ -117,10 +135,22 @@ fn run(mux: &Weak<Mux>, state: &(Mutex<WriterState>, Condvar)) {
                     }
                 }
             }
-        }
+        };
         let Some(mux) = mux.upgrade() else { return };
-        write_pass(&mux, &mux.output_store);
+        if memory_only {
+            memory_pass(&mux, &mux.output_store);
+        } else {
+            write_pass(&mux, &mux.output_store);
+        }
     }
+}
+
+/// Only the budget pass, when the resident scrollback crossed the budget
+/// between write passes; the snapshots keep their own interval.
+fn memory_pass(mux: &Arc<Mux>, store: &OutputStore) {
+    let policy = store.cached_policy().unwrap_or_else(|| PersistencePolicy::current(mux));
+    let _pass = store.lock_pass();
+    super::memory_budget::enforce(mux, store, policy.memory_total_bytes);
 }
 
 /// Write the snapshot of every terminal that printed since the last pass and

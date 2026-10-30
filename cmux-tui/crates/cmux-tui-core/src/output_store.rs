@@ -207,6 +207,9 @@ struct LogState {
     /// Full mode: bytes not yet in a segment file, from `pending_start`.
     pending: Vec<u8>,
     pending_start: u64,
+    /// The terminal's primary-screen resident bytes at its last output, as
+    /// counted in [`OutputStore::resident_total`].
+    resident: u64,
 }
 
 impl LogState {
@@ -249,6 +252,16 @@ pub(crate) struct OutputStore {
     /// that are no longer in the session.
     prune_pending: std::sync::atomic::AtomicBool,
     memory_budget: memory_budget::MemoryBudget,
+    /// Scrollback RAM of every terminal at its last output (the sum of the
+    /// logs' `resident`). The append path keeps it current, so the budget
+    /// pass starts when the growth crosses the budget, not on the writer's
+    /// snapshot timer (P-AUSTIN B8).
+    resident_total: std::sync::atomic::AtomicU64,
+    /// Above this total the next output asks the writer for a budget pass:
+    /// the budget, or where the last pass had to leave the total when every
+    /// terminal was at its floor (a pass would free nothing more). Set by
+    /// each pass; `u64::MAX` until the writer runs.
+    resident_trigger: std::sync::atomic::AtomicU64,
     /// Stream ends the snapshots recorded, by terminal: (generation, end).
     resume: Mutex<HashMap<TerminalPublicId, (String, u64)>>,
 }
@@ -269,6 +282,8 @@ impl OutputStore {
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
             memory_budget: memory_budget::MemoryBudget::default(),
+            resident_total: std::sync::atomic::AtomicU64::new(0),
+            resident_trigger: std::sync::atomic::AtomicU64::new(u64::MAX),
             resume: Mutex::new(HashMap::new()),
         }
     }
@@ -294,6 +309,7 @@ impl OutputStore {
             policy.max_total_bytes
         );
         self.cache_policy(policy);
+        self.set_resident_trigger(memory_budget::effective(policy.memory_total_bytes));
         self.full.set_enabled(policy.mode == PersistenceMode::Full);
         {
             let _pass = self.lock_pass();
@@ -331,6 +347,7 @@ impl OutputStore {
                 last_output: Instant::now(),
                 pending: Vec::new(),
                 pending_start: start,
+                resident: 0,
             }),
         });
         logs.insert(terminal_id.clone(), log.clone());
@@ -338,18 +355,27 @@ impl OutputStore {
     }
 
     /// Record output the terminal's parser accepted. Memory only: no disk
-    /// IO and no syscall on this path.
+    /// IO and no syscall on this path. `resident` is the terminal's
+    /// primary-screen resident bytes after the parser took `bytes` (read
+    /// under the parser lock; `None` when libghostty-vt cannot report it).
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
         generation: &Arc<str>,
         bytes: &[u8],
+        resident: Option<u64>,
     ) {
         if bytes.is_empty() {
             return;
         }
         let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(resident) = resident {
+            let previous = std::mem::replace(&mut state.resident, resident);
+            if self.account_resident(previous, resident) {
+                self.writer.request_memory_pass();
+            }
+        }
         if state.generation != *generation {
             // A new incarnation starts a new stream at offset 0.
             state.generation = generation.clone();
@@ -493,9 +519,14 @@ impl OutputStore {
     /// terminals that left the session.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
         self.memory_budget.forget(terminal_id);
-        if self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id).is_some()
-            && self.directory.is_some()
-        {
+        let removed = self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id);
+        if let Some(log) = &removed {
+            let resident = std::mem::take(
+                &mut log.state.lock().unwrap_or_else(PoisonError::into_inner).resident,
+            );
+            self.account_resident(resident, 0);
+        }
+        if removed.is_some() && self.directory.is_some() {
             self.prune_pending.store(true, std::sync::atomic::Ordering::Release);
             self.mark_dirty();
         }
@@ -566,6 +597,31 @@ impl OutputStore {
             )
         });
         snapshot::final_pass(mux, self, policy);
+    }
+
+    /// Move one terminal's share of [`Self::resident_total`] from `previous`
+    /// to `current`; true when it grew and the total is now over the pass
+    /// trigger (a shrink never asks for a pass).
+    fn account_resident(&self, previous: u64, current: u64) -> bool {
+        use std::sync::atomic::Ordering;
+        if current < previous {
+            let shrunk = previous - current;
+            let _ =
+                self.resident_total.fetch_update(Ordering::AcqRel, Ordering::Acquire, |total| {
+                    Some(total.saturating_sub(shrunk))
+                });
+            return false;
+        }
+        let grown = current - previous;
+        if grown == 0 {
+            return false;
+        }
+        let total = self.resident_total.fetch_add(grown, Ordering::AcqRel).saturating_add(grown);
+        total > self.resident_trigger.load(Ordering::Acquire)
+    }
+
+    fn set_resident_trigger(&self, trigger: u64) {
+        self.resident_trigger.store(trigger, std::sync::atomic::Ordering::Release);
     }
 
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {

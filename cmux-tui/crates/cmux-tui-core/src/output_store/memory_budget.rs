@@ -10,7 +10,19 @@
 //! it in its segment files).
 //!
 //! The pass runs on the output store's writer thread, after output (memory
-//! only grows when a terminal prints), so an idle session runs nothing.
+//! only grows when a terminal prints), so an idle session runs nothing. It
+//! runs as soon as the resident total crosses the budget: each PTY read
+//! reports its terminal's resident bytes to the store (`OutputStore::append`),
+//! and the crossing wakes the writer for this pass alone. The writer's
+//! snapshot pass (every `SNAPSHOT_INTERVAL`) also runs it, and gives limits
+//! back. Before P-AUSTIN B8 only that 30 s pass ran it: 16 terminals at
+//! 1 MB/s with a 1 GB `scrollback-limit` took the daemon to 2.25 GB against
+//! this 256 MiB budget before the pass cut it back.
+//!
+//! Owner: the output store (PL-daemon). The bound is the budget itself, up
+//! to the growth of one pass's latency on the writer thread; when every
+//! terminal is at its 1 MiB floor the total can stay over it, and the next
+//! pass waits for growth past where the last one left it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -45,15 +57,28 @@ impl MemoryBudget {
 
 /// One terminal's place in the pass.
 struct Entry {
-    terminal_id: TerminalPublicId,
+    log: Arc<TerminalLog>,
     surface: Arc<crate::Surface>,
     resident: u64,
     last_output: Instant,
 }
 
-/// Keep the terminals' scrollback RAM under `budget` bytes.
+/// The budget a setting of `budget` bytes enforces (it has a floor).
+pub(super) fn effective(budget: u64) -> u64 {
+    budget.max(MIN_MEMORY_TOTAL_BYTES)
+}
+
+/// Keep the terminals' scrollback RAM under `budget` bytes, then record the
+/// measured total and the next pass's trigger in the store.
 pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
-    let budget = budget.max(MIN_MEMORY_TOTAL_BYTES);
+    let budget = effective(budget);
+    let total = shrink_or_restore(mux, store, budget);
+    store.set_resident_trigger(total.max(budget));
+}
+
+/// One pass: shrink the least recently active terminals past the budget,
+/// or give limits back well under it. Returns the resident total after it.
+fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
     let logs: Vec<Arc<TerminalLog>> =
         store.logs.lock().unwrap_or_else(PoisonError::into_inner).values().cloned().collect();
     let mut entries = logs
@@ -65,9 +90,18 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
                 .ok()
                 .flatten()?;
             let last_output = log.state.lock().unwrap_or_else(PoisonError::into_inner).last_output;
-            Some(Entry { terminal_id: log.terminal_id.clone(), surface, resident, last_output })
+            Some(Entry { log, surface, resident, last_output })
         })
         .collect::<Vec<_>>();
+    // The pass measures every terminal: the store's running total restarts
+    // from these values (output between the reads moves it on as usual).
+    for entry in &entries {
+        let previous = std::mem::replace(
+            &mut entry.log.state.lock().unwrap_or_else(PoisonError::into_inner).resident,
+            entry.resident,
+        );
+        store.account_resident(previous, entry.resident);
+    }
     let mut total = entries.iter().map(|entry| entry.resident).sum::<u64>();
     // Ghostty's `scrollback-limit`, the per-terminal cap.
     let configured = mux.surface_options.lock().unwrap_or_else(PoisonError::into_inner).scrollback;
@@ -84,7 +118,7 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
                 .unwrap_or(usize::MAX)
                 .max(MIN_TERMINAL_SCROLLBACK_BYTES);
             let current =
-                limited.get(&entry.terminal_id).map_or(configured, |(_, applied)| *applied);
+                limited.get(&entry.log.terminal_id).map_or(configured, |(_, applied)| *applied);
             if keep >= current {
                 continue;
             }
@@ -98,7 +132,12 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
                 .flatten();
             let Some(after) = after else { continue };
             total = total.saturating_sub(entry.resident.saturating_sub(after));
-            limited.insert(entry.terminal_id.clone(), (configured, keep));
+            let previous = std::mem::replace(
+                &mut entry.log.state.lock().unwrap_or_else(PoisonError::into_inner).resident,
+                after,
+            );
+            store.account_resident(previous, after);
+            limited.insert(entry.log.terminal_id.clone(), (configured, keep));
         }
         if total > budget {
             eprintln!(
@@ -106,17 +145,17 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
                  after shrinking idle terminals"
             );
         }
-        return;
+        return total;
     }
     if limited.is_empty() || total * 100 >= budget * RESTORE_BELOW_PERCENT {
-        return;
+        return total;
     }
     // Room again: the most recently active terminals get their limit back
     // while the room lasts (a limit only bounds growth).
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.last_output));
     let mut room = budget * RESTORE_BELOW_PERCENT / 100 - total;
     for entry in &entries {
-        let Some((configured, applied)) = limited.get(&entry.terminal_id).copied() else {
+        let Some((configured, applied)) = limited.get(&entry.log.terminal_id).copied() else {
             continue;
         };
         let growth = u64::try_from(configured.saturating_sub(applied)).unwrap_or(u64::MAX);
@@ -131,13 +170,14 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
                 u64::try_from(restored.saturating_sub(applied)).unwrap_or(u64::MAX),
             );
             if restored == configured {
-                limited.remove(&entry.terminal_id);
+                limited.remove(&entry.log.terminal_id);
             } else {
-                limited.insert(entry.terminal_id.clone(), (configured, restored));
+                limited.insert(entry.log.terminal_id.clone(), (configured, restored));
             }
         }
         if room == 0 {
             break;
         }
     }
+    total
 }
