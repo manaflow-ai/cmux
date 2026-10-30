@@ -86,7 +86,7 @@ test("an ended turn's run keeps each group on its own line, with every command l
   expect(host.textContent).not.toContain("ran commands");
   // The group's line is open, and lists all seven commands, one step each.
   expect(host.querySelector('button.cv-tool[aria-expanded="true"]')?.textContent).toContain("7");
-  expect(texts(".cv-command__line")).toEqual(["echo c1", "echo c2", "echo c3", "echo c4", "echo c5", "echo c6", "echo c7"]);
+  expect(texts(".cv-command__line")).toEqual(commands.map((item) => item.tool!.command));
   expect(host.querySelectorAll(".cv-steps > .cv-step")).toHaveLength(7);
   expect(host.querySelector(".cv-tool-group__more")).toBeNull();
   // The read after the commands keeps its own row.
