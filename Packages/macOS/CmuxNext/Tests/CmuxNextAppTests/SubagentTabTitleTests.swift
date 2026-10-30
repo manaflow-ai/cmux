@@ -59,6 +59,32 @@ struct SubagentTabTitleTests {
         #expect(titles.title(ofTab: "tab-v") == "Later")
     }
 
+    /// Review of #28497 at 995299ff: a subagent pane shows the chat's other subagents in place, and its
+    /// "Subagent of" pill goes back to the chat; the name bound at open stayed on the tab through both.
+    @Test func theTabsNameFollowsWhatThePaneShows() {
+        let titles = SubagentTabTitles()
+        titles.name("reviewer", of: "s", title: "Reviewer")
+        titles.bind("reviewer", of: "s", toTab: "tab")
+        #expect(titles.title(ofTab: "tab") == "Reviewer")
+        titles.show("Auditor", inTab: "tab")
+        #expect(titles.title(ofTab: "tab") == "Auditor", "the pane showed another subagent under the first one's name")
+        titles.show(nil, inTab: "tab")
+        #expect(titles.title(ofTab: "tab") == nil, "back on the chat, the tab kept a subagent's name")
+        titles.show("  ", inTab: "tab")
+        #expect(titles.title(ofTab: "tab") == nil)
+    }
+
+    @Test func thePageReportsWhatThePaneShows() {
+        let shown = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": "a2", "title": "Auditor"]])
+        guard case .subagentShown(let agent, let title) = shown else { Issue.record("not decoded: \(shown)"); return }
+        #expect(agent == "a2" && title == "Auditor")
+        let chat = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": [String: Any]()])
+        guard case .subagentShown(let none, let noTitle) = chat else { Issue.record("not decoded: \(chat)"); return }
+        #expect(none == nil && noTitle == nil, "back on the chat: no subagent, no name")
+        let bad = AgentPaneRequest(body: ["method": "chat.subagentShown", "params": ["subagent": ""]])
+        if case .subagentShown = bad { Issue.record("an empty subagent id was taken") }
+    }
+
     @Test func thePagesRequestCarriesTheName() throws {
         let request = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1", "focus": false, "title": "Audit the stack"]])
         guard case .subagentPane(let agent, let focus, let title) = request else { Issue.record("not decoded: \(request)"); return }

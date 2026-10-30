@@ -11,6 +11,7 @@
 // showed it open none: they are history.
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { AcpmuxRow } from "../model";
+import type { Subagent } from "./subagentFold";
 import { subagentsIn } from "./subagentRows";
 
 /// The `revealTurn` prefix that opens a pane on a subagent's view.
@@ -57,6 +58,14 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
+
+/// The name subagent `agent`'s pane tab shows: its own (its task; the Agent tool's description), else
+/// `fallback` ("Subagent of" the chat). Leo 2026-10-30: "the sidebar tab shouldn't just be named claude
+/// sr2 coord if you can just say it's SUbagent of sr2 coord".
+export function subagentTabTitle(agent: Pick<Subagent, "id" | "name"> | undefined, fallback: string): string {
+  const own = agent?.name?.trim();
+  return own && own !== agent?.id ? own : fallback;
+}
 
 /// Asks the app for subagent `id`'s pane; false when it opened none. `title` is the subagent's own
 /// name, which the pane's tab shows instead of the chat's (Leo 2026-10-30: "subagents shouldn't be

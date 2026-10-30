@@ -1,12 +1,13 @@
 import Foundation
-import Observation
+public import Observation
 
 /// The names subagent panes' tabs show. A subagent's pane is a tab on its chat's own acpmux session
 /// (``AgentSubagentPanes``), so by session it would be named like the chat. Leo 2026-10-30:
 /// "subagents shouldn't be tab-named the exact same as the parent". The page sends the subagent's
 /// own name with `chat.subagentPane` (its task, for the Agent tool the call's description); the app
-/// gives it to the tab it opens (``name(_:of:title:)``, then ``bind(_:of:toTab:)``), and the tab title
-/// rule reads it (``title(ofTab:)``) after any name the person gave the tab.
+/// gives it to the tab it opens (``name(_:of:title:)``, then ``bind(_:of:toTab:)``), the page keeps it
+/// in step with the subagent the pane shows (`chat.subagentShown`, ``show(_:inTab:)``), and the tab
+/// title rule reads it (``title(ofTab:)``) after any name the person gave the tab.
 @MainActor @Observable
 public final class SubagentTabTitles {
     public static let shared = SubagentTabTitles()
@@ -35,6 +36,14 @@ public final class SubagentTabTitles {
         guard let title = names[Self.key(session, agent)] else { return }
         tabs = tabs.filter { isOpen($0.key) }
         tabs[tab] = title
+    }
+
+    /// Tab `tab` now shows a subagent named `title`, or (nil or blank) its chat again: a subagent pane
+    /// shows the chat's other subagents in place, and its "Subagent of" pill goes back to the chat.
+    /// Review of #28497 at 995299ff: the name bound at open stayed on the tab through those.
+    public func show(_ title: String?, inTab tab: String) {
+        let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        tabs[tab] = trimmed.isEmpty ? nil : String(trimmed.prefix(Self.limit))
     }
 
     /// The name tab `tab` shows as a subagent's pane, nil for any other tab.
