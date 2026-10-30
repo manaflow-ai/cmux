@@ -96,7 +96,7 @@ extension AgentPaneComputerUsePreview {
     /// Gives `view`'s page the card its model keeps (a page that just loaded).
     @MainActor static func replay(to view: AgentPaneView) {
         let event = AgentPageEvent.computerUsePreview(view.model.computerUsePreview)
-        view.deliver([event], scripts: ["window.cmuxAcpmuxComputerUsePreview?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 
     /// The reply to the page's click: the App's answer (``AgentPaneModel/onComputerUsePreview``) for

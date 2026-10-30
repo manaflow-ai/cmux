@@ -74,7 +74,7 @@ import Testing
         #expect(late === host)
         #expect(late.presentedHandles.isEmpty)
         #expect(!late.blocksWholeWindow)
-        #expect(late.escapeMonitor == nil)
+        #expect(late.escapeIntercept == nil)
         #expect(dialog.superview == nil)
         for _ in 0..<20 where !handle.isDismissed { await Task.yield() }
         #expect(handle.isDismissed)
@@ -83,7 +83,7 @@ import Testing
         window.orderFrontRegardless()
         let again = WindowOverlayHost.host(for: window)
         #expect(again !== host)
-        #expect(host.escapeMonitor == nil, "the closed host still watches Escape for the shown window")
+        #expect(host.escapeIntercept == nil, "the closed host still watches Escape for the shown window")
     }
 
     /// A host made while the window closes (its controller's teardown makes the overlay layer)

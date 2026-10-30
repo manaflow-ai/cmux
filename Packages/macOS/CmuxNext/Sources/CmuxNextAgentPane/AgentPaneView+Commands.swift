@@ -29,8 +29,7 @@ extension AgentPaneView {
     public func askSideQuestion() {
         guard let sessionId = model.sessionId else { return }
         focusChat()
-        let json = JSONValue.string(sessionId).compactText
-        deliver([.sideQuestion(sessionId)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"sideQuestion\",\(json));"])
+        deliver([.sideQuestion(sessionId)])
     }
     /// A chat that just opened from a fork (``AgentForkDestination``): the keyboard goes to its
     /// composer, so the next words go to the fork.
