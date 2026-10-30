@@ -176,7 +176,7 @@ def strip(key, run, arm, cold, label):
     # The page is the prewarmed spare, handed over, not a page loaded for this opening.
     recorded = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
     opening = recorded[-1] if len(recorded) > openings else {}
-    print(f"Cmd-{key.upper()} {label}{' (cold)' if cold else ''}: spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
+    print(f"Cmd-{key.upper()} {label} ({arm}): spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
           f"intermediate={reply['intermediate']:.0f} content_intermediate={reply.get('content_intermediate', 0):.0f} "
           f"strip_motion={reply.get('strip_intermediate', 0):.0f} "
           f"blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
