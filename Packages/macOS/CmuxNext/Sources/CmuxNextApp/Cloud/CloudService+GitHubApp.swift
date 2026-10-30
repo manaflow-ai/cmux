@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 import Foundation
 
 /// Set Up GitHub on This Machine asks first whether the machine's team can use the cmux GitHub App
@@ -31,35 +32,27 @@ extension CloudService {
     /// would not bound it. The late work is cancelled and its answer dropped.
     nonisolated static func firstAnswer<T: Sendable>(within deadline: Duration, otherwise fallback: T,
                                                      _ work: @escaping @Sendable () async -> T) async -> T {
-        let gate = FirstAnswer<T>()
+        let once = FirstAnswer<T>()
         return await withCheckedContinuation { (done: CheckedContinuation<T, Never>) in
-            gate.arm(done)
-            // concurrency-allow: the losing task is cancelled and its answer ignored (FirstAnswer resumes once)
-            let worker = Task { gate.give(await work()) }
+            once.begin(done)
+            // task-owner: the check's own work; cancelled by the deadline below, its late answer dropped
+            let worker = Task { once.give(await work()) }
+            // task-owner: one-shot deadline; it ends after `deadline`, and a give after the answer is a no-op
             Task {
                 // wakeup-allow: one-shot deadline for the GitHub App check
                 try? await Task.sleep(for: deadline)
                 worker.cancel()
-                gate.give(fallback)
+                once.give(fallback)
             }
         }
     }
 }
 
-/// Resumes its continuation with the first answer given; later answers are dropped.
-private nonisolated final class FirstAnswer<T: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<T, Never>?
-
-    func arm(_ continuation: CheckedContinuation<T, Never>) {
-        lock.withLock { self.continuation = continuation }
-    }
-
+/// Resumes a continuation once: the work's answer or the deadline's fallback, whichever comes first.
+private nonisolated final class FirstAnswer<T: Sendable>: Sendable {
+    private let state = Mutex<CheckedContinuation<T, Never>?>(nil)
+    func begin(_ continuation: CheckedContinuation<T, Never>) { state.withLock { $0 = continuation } }
     func give(_ value: T) {
-        let pending: CheckedContinuation<T, Never>? = lock.withLock {
-            defer { continuation = nil }
-            return continuation
-        }
-        pending?.resume(returning: value)
+        state.withLock { slot -> CheckedContinuation<T, Never>? in defer { slot = nil }; return slot }?.resume(returning: value)
     }
 }
