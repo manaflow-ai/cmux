@@ -85,3 +85,38 @@ test("learning a native chat thread seeds the live subagent fold even when unnam
   client.learnChatThread();
   expect(seeded).toBe("native-root");
 });
+
+test("learning an unnamed native chat thread publishes the fold rows it repairs", async () => {
+  const { AcpmuxDirectClient, OrderedRows } = await import("./direct");
+  const { SubagentFold } = await import("./subagents/subagentFold");
+  const client = Object.create(AcpmuxDirectClient.prototype) as any;
+  const fold = new SubagentFold();
+  client.summary = { agentSessionId: "native-root" };
+  client.sessions = [];
+  client.selectedSessionId = "chat";
+  client.subagents = fold;
+  client.rows = new OrderedRows();
+  client.streamingAssistant = undefined;
+  client.streamingAssistantMessageId = undefined;
+
+  const replay = (seq: number, update: any, acpmux: Record<string, unknown>) => {
+    const withCodex = { ...update, _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "native-root" } } } };
+    fold.reduce(
+      { seq, at: seq * 1000, msg: { method: "session/update", params: { update: withCodex, _meta: { acpmux } } } },
+      withCodex,
+    );
+  };
+  replay(1, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "stale", parent: null }] });
+  replay(2, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "stale" }] });
+  client.takeSubagentRows();
+  expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
+    "stale",
+  ]);
+
+  client.learnChatThread();
+
+  expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
+    "stale",
+  ]);
+  expect(fold.takeRows().flatMap((row) => row.subagents ?? []).map((agent) => agent.id)).toEqual(["child"]);
+});
