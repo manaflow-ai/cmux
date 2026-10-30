@@ -101,3 +101,27 @@ test("a page hidden again before its frame waits for the next show", () => {
   drawFrame();
   expect(runs).toBe(1);
 });
+
+test("a cancelled hidden wait runs nothing, and the listener goes with the last wait", () => {
+  let runs = 0;
+  setVisibility("hidden");
+  const added = jest.spyOn(dom.window.document, "addEventListener");
+  const removed = jest.spyOn(dom.window.document, "removeEventListener");
+  try {
+    const cancelFirst = nextFrame(() => (runs += 1));
+    const cancelSecond = nextFrame(() => (runs += 10));
+    // Every hidden wait shares one listener.
+    expect(added.mock.calls.filter(([type]) => type === "visibilitychange").length).toBe(1);
+    cancelFirst?.();
+    expect(removed.mock.calls.filter(([type]) => type === "visibilitychange").length).toBe(0);
+    cancelSecond?.();
+    expect(removed.mock.calls.filter(([type]) => type === "visibilitychange").length).toBe(1);
+  } finally {
+    added.mockRestore();
+    removed.mockRestore();
+  }
+  setVisibility("visible");
+  drawFrame();
+  jest.advanceTimersByTime(100);
+  expect(runs).toBe(0);
+});

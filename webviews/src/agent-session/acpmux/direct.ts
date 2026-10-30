@@ -948,11 +948,15 @@ function drawShown(): void {
 /// frame then draws everything that landed meanwhile (`emitInFrame` holds one waiting snapshot).
 /// Every page's waits share one listener, which goes with that show. A hidden page used to draw the
 /// shown chat's stream every 50 ms that nobody could see.
-export const nextFrame = (run: () => void) => {
+export const nextFrame = (run: () => void): (() => void) | undefined => {
   if (!pageShown()) {
     if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);
     waitingForShow.add(run);
-    return;
+    // A closed client's wait goes at once; the listener goes with the last one.
+    return () => {
+      if (!waitingForShow.delete(run) || waitingForShow.size > 0) return;
+      document.removeEventListener("visibilitychange", drawShown);
+    };
   }
   let ran = false;
   const once = () => {
@@ -964,6 +968,7 @@ export const nextFrame = (run: () => void) => {
   };
   requestAnimationFrame(once);
   setTimeout(once, 50);
+  return undefined;
 };
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
@@ -1180,7 +1185,7 @@ export class AcpmuxDirectClient {
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
-  static scheduleFrame: ((run: () => void) => void) | undefined;
+  static scheduleFrame: ((run: () => void) => (() => void) | void) | undefined;
   /// The connection state of the snapshot waiting for the next frame.
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
@@ -1188,7 +1193,12 @@ export class AcpmuxDirectClient {
   /// `isWorking` as the last snapshot said it, and a hidden page's draw of a change the native tab
   /// reads (`emitInFrame`): one 50 ms timer at a time, which ends when it fires.
   private drawnWorking = false;
+  private drawnWorkingSession?: string;
+  /// Turns of the shown chat this client saw end (`turnsEnded` in the snapshot).
+  private turnsEnded = 0;
   private hiddenDraw?: ReturnType<typeof setTimeout>;
+  /// The frame this client waits for, if any: one at a time, cancelled on close (`emitInFrame`).
+  private frameRequest?: { cancel?: () => void };
   private socket?: WebSocket;
   private nextRequest = 1;
   private pending = new Map<
@@ -3580,11 +3590,17 @@ export class AcpmuxDirectClient {
       }, HIDDEN_DRAW_MS);
       return;
     }
-    if (scheduled) return;
-    schedule(() => {
-      const pending = this.frameSnapshot;
-      if (pending !== undefined && !this.closed) this.emit(pending);
-    });
+    // A snapshot drawn since (a turn's start or end on a hidden page) left this frame nothing to
+    // draw, but it is still asked for: no second one, however many events land before it.
+    if (scheduled || this.frameRequest) return;
+    const request: { cancel?: () => void } = {};
+    this.frameRequest = request;
+    request.cancel =
+      schedule(() => {
+        if (this.frameRequest === request) this.frameRequest = undefined;
+        const pending = this.frameSnapshot;
+        if (pending !== undefined && !this.closed) this.emit(pending);
+      }) ?? undefined;
   }
 
   /// Whether the chat runs a turn, as the snapshot says it (`isWorking`).
@@ -4842,7 +4858,9 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const limits = subsessionLimits(summary?.subsessionLimits);
     const working = this.workingNow(summary);
+    if (this.drawnWorking && !working && this.drawnWorkingSession === this.selectedSessionId) this.turnsEnded += 1;
     this.drawnWorking = working;
+    this.drawnWorkingSession = this.selectedSessionId;
     // A chat no longer working has no Stop pending, even when no turn event said the turn ended.
     if (!working && this.replayThrough === undefined) this.stoppingEnded();
     const effort = (summary?.configOptions ?? []).find(
@@ -4934,6 +4952,7 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
+      turnsEnded: this.turnsEnded,
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
@@ -7118,6 +7137,8 @@ export class AcpmuxDirectClient {
     this.replayMode = false;
     this.closed = true;
     clearTimeout(this.hiddenDraw);
+    this.frameRequest?.cancel?.();
+    this.frameRequest = undefined;
     for (const gone of this.resendWaits.keys()) gone();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

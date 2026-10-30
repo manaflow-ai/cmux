@@ -36,7 +36,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { saveSnapshot, savedSessions } = await import("../src/agent-session/acpmux/App");
+const { saveSnapshot, savedSessions, turnEndedBetween } = await import("../src/agent-session/acpmux/App");
 
 afterAll(() => {
   for (const [key, had, value] of saved) {
@@ -132,4 +132,20 @@ test("a streaming frame's list, a new array of the same entries, is not chosen a
   const next = savedSessions(list(changed) as unknown as AcpmuxSnapshot);
   expect(next).not.toBe(first);
   expect(next.some((entry) => entry.sessionId === id(5))).toBe(true);
+});
+
+// A turn's end asks the native tab for the chat's pull request again (App.tsx `pane.tabState`).
+// React draws a hidden page's batch as one render, so a turn that started and ended in it read as
+// idle to idle; the client's `turnsEnded` count says it ended.
+test("a turn's end is seen across one render of its start and end", () => {
+  const chat = "0190a000-0000-7000-8000-000000000001";
+  const idle = { session: chat, working: false };
+  expect(turnEndedBetween({ ...idle, working: true }, idle)).toBe(true);
+  expect(turnEndedBetween({ ...idle, turnsEnded: 2 }, { ...idle, turnsEnded: 3 })).toBe(true);
+  expect(turnEndedBetween({ ...idle, turnsEnded: 3 }, { ...idle, turnsEnded: 3 })).toBe(false);
+  // A new client counts from 0: its first end is one, after an older client's five.
+  expect(turnEndedBetween({ ...idle, turnsEnded: 5 }, { ...idle, turnsEnded: 0 })).toBe(false);
+  expect(turnEndedBetween({ ...idle, turnsEnded: 0 }, { ...idle, turnsEnded: 1 })).toBe(true);
+  // Switching away from a working chat is no turn end.
+  expect(turnEndedBetween({ session: "other", working: true, turnsEnded: 1 }, { ...idle, turnsEnded: 2 })).toBe(false);
 });

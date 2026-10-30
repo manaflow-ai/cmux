@@ -292,6 +292,58 @@ test("a hidden pane draws its chat's turn start and end, not its stream", async 
   }
 });
 
+// A client waits for one frame at a time, however many snapshots a hidden page draws at once
+// meanwhile, and a closed client's wait goes: a hidden page that reconnects keeps no closed client.
+test("a hidden pane asks for one frame at a time and cancels it on close", async () => {
+  let latest: any;
+  const socket = new FakeAcpmux();
+  const client = await AcpmuxDirectClient.connect(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://coalesce.invalid/",
+      token: "t",
+      sessionId: SELECTED,
+    },
+    (message: any) => {
+      if (message?.type === "snapshot") latest = message;
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  await client.select(SELECTED);
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushFrames();
+  }
+  let asked = 0;
+  let cancelled = 0;
+  AcpmuxDirectClient.scheduleFrame = (run) => {
+    asked += 1;
+    frames.push(run);
+    return () => (cancelled += 1);
+  };
+  try {
+    setVisibility("hidden");
+    const ended = latest.turnsEnded ?? 0;
+    // Each turn's start and end draws at once; the stream between them waits for one frame.
+    for (let turn = 0; turn < 10; turn++) {
+      const seq = 401 + turn * 3;
+      record(socket, seq, "turn_end");
+      chunk(socket, seq + 1);
+      record(socket, seq + 2, "turn_started");
+    }
+    expect(asked).toBe(1);
+    // Ten ends, counted even where React would draw a start and its end as one render.
+    expect(latest.turnsEnded - ended).toBe(10);
+    client.close();
+    expect(cancelled).toBe(1);
+  } finally {
+    client.close();
+    setVisibility("visible");
+  }
+});
+
 test("bench: client time for 30 running chats changing 20 times (600 changes)", async () => {
   const { socket, client, snapshots } = await openPane();
   try {
