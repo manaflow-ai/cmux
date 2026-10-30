@@ -336,7 +336,7 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
           : CLOUD_ACTION_RUN;
     const pending = operations[pendingOp];
     operations[pendingOp] = async (params, context) => {
-      if (state.pendingAction === "browser" && (params as { action?: string }).action !== "cmux.browser.tab.open")
+      if (state.pendingAction === "browser" && (params as { action?: string }).action !== "browser.tab.open")
         return pending(params, context);
       return await new Promise<never>(() => undefined);
     };
