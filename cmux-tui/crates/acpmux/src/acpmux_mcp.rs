@@ -398,7 +398,7 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
-    let all = match daemon.request(method::MUX_SESSIONS, json!({})).await {
+    let all = match daemon.whole_list(method::MUX_SESSIONS, json!({})).await {
         Ok(v) => v,
         Err(e) => return refusal(e),
     };

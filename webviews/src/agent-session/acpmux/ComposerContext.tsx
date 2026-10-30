@@ -121,6 +121,7 @@ export function ComposerContext({
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
+  closeOnTrustAsk = false,
   showMachineLoadWarnings,
 }: {
   summary?: Summary;
@@ -185,6 +186,8 @@ export function ComposerContext({
   onCloudMachine?(machine: CloudMachine): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
   /// Gallery seam; the persisted composer setting is used when omitted.
   showMachineLoadWarnings?: boolean;
 }) {
@@ -532,6 +535,7 @@ export function ComposerContext({
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               {...(runMode && !started && !readOnly ? { runMode } : {})}
+              closeOnTrustAsk={closeOnTrustAsk}
             />
           ) : (
             <LocationPicker
@@ -576,6 +580,7 @@ export function ComposerContext({
                       ]
                     : undefined
               }
+              closeOnTrustAsk={closeOnTrustAsk}
               onPick={pickComputer}
             />
           )}
@@ -793,6 +798,7 @@ function LocationPicker({
   extras,
   onPick,
   onOpen,
+  closeOnTrustAsk = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -815,9 +821,15 @@ function LocationPicker({
   onPick(id: string): void;
   /// The list opened, and every few seconds while it stays open (useMachineRefresh).
   onOpen?(): void;
+  /// A trust question takes precedence over an open destination picker.
+  closeOnTrustAsk?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next && closeOnTrustAsk) return;
+    setPopoverOpen(next);
+  };
   const changeOpen = (next: boolean) => {
     setOpen(next);
     if (!next) setQuery("");
@@ -825,6 +837,11 @@ function LocationPicker({
   const press = usePopoverTrigger(open, changeOpen);
   const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
+  useEffect(() => {
+    if (!closeOnTrustAsk || !open) return;
+    setPopoverOpen(false);
+    setQuery("");
+  }, [closeOnTrustAsk, open, setPopoverOpen]);
   useMachineRefresh(open && !disabled, onOpen);
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(
