@@ -66,19 +66,15 @@ pub fn example(name: &str) -> Option<&'static str> {
 }
 
 pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
-    if let HarnessCmd::CodexRuntime { action } = cmd {
-        let value = match action {
-            CodexRuntimeCmd::Install => crate::managed_codex::install().await?,
-            CodexRuntimeCmd::Status => crate::managed_codex::status(),
-        };
-        if json_out {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        } else {
-            println!("{}", serde_json::to_string_pretty(&value)?);
-        }
-        return Ok(());
-    }
     match cmd {
+        HarnessCmd::CodexRuntime { action } => {
+            let value = match action {
+                CodexRuntimeCmd::Install => crate::managed_codex::install().await?,
+                CodexRuntimeCmd::Status => crate::managed_codex::status(),
+            };
+            println!("{}", serde_json::to_string_pretty(&value)?);
+            Ok(())
+        }
         HarnessCmd::List { folder: None } => list(json_out),
         HarnessCmd::List { folder: Some(dir) } => super::harness_folder::list(&dir, json_out),
         HarnessCmd::Enable { id, folder, yes } => {

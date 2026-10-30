@@ -1,6 +1,6 @@
 //! Opt-in managed Codex runtime. The binary is downloaded only on explicit
 //! request and is never preferred over a Codex already found on PATH.
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
