@@ -95,7 +95,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         .process_group(0)
         .kill_on_drop(false);
     // Below the GUI's CPU class (macOS), the tools it starts with it.
-    spec.cpu_class.apply(&mut cmd);
+    // Last before the spawn: its hook execs the harness (`cpu_class.rs`). Its complete env is
+    // the spec's (`env_clear` above).
+    spec.cpu_class.apply(&mut cmd, &spec.env);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)

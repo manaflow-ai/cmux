@@ -335,6 +335,14 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
     command_env_with(cmd, true)
 }
 
+/// The complete environment `cmd`, made by [`harness_command`] for `profile`, starts its
+/// process with: a remote profile's command clears the daemon's (`apply_remote_base`).
+pub(crate) fn harness_env(cmd: &Command, profile: &HarnessProfile) -> Vec<(String, String)> {
+    let cleared = resolved_profile_env(profile)
+        .is_ok_and(|env| env.get(REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1"));
+    command_env_with(cmd, !cleared)
+}
+
 /// The full environment of an `env_clear` command, for a remote durable
 /// host's SpawnSpec. The caller owns the remote-origin fact; it is never
 /// inferred from profile-controlled environment edits.

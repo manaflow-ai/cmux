@@ -121,6 +121,13 @@ pub fn background<T>(work: impl FnOnce() -> T) -> T {
     work()
 }
 
+/// The posix_spawn QoS clamp setter, when this macOS has it: the one mechanism that lowers a
+/// process and everything it starts (agent hosts here, background harnesses in `cpu_class.rs`).
+#[cfg(target_os = "macos")]
+pub(crate) fn clamp_setter() -> Option<imp::ClampFn> {
+    imp::clamp_fn()
+}
+
 /// The argv and environment an in-place re-exec runs with: this process's
 /// own, plus [`CLAMPED_ENV`], so the new image does not do it again.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -155,7 +162,8 @@ mod imp {
     }
 
     /// `int posix_spawnattr_set_qos_clamp_np(posix_spawnattr_t *, uint64_t)`.
-    type ClampFn = unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
+    pub(crate) type ClampFn =
+        unsafe extern "C" fn(*mut libc::posix_spawnattr_t, u64) -> libc::c_int;
 
     pub(super) fn disk_utility() {
         // SAFETY: plain syscall wrapper with constant arguments.
@@ -166,7 +174,7 @@ mod imp {
 
     /// The clamp setter, looked up at run time: it is not in the public SDK
     /// headers, so a macOS without it starts unclamped instead of failing to load.
-    fn clamp_fn() -> Option<ClampFn> {
+    pub(super) fn clamp_fn() -> Option<ClampFn> {
         // SAFETY: dlsym with a NUL-terminated name; the symbol, when present,
         // has this signature (spawn_private.h).
         let sym = unsafe {

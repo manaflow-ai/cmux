@@ -718,9 +718,10 @@ impl ChildAgent {
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Below the GUI's CPU class (macOS), the tools it starts with it (`cpu_class.rs`).
         // From the harness's own env: its profile's value as resolved.
-        let env = command_env(&cmd);
+        // Last before the spawn: its hook execs the harness with this complete env.
+        let env = command::harness_env(&cmd, profile);
         crate::cpu_class::CpuClass::for_session(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-            .apply(&mut cmd);
+            .apply(&mut cmd, &env);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         #[cfg(windows)]
         let job = {
