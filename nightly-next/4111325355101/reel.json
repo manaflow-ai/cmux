@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4111325355101",
+  "notes": "notes/4111325355101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28474,
+      "title": "test(changelog): whats-new-text-selection bundles in one scope again (base red from #28004)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28390,
+      "title": "fix(lint): check pixel literals alongside design tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28359,
+      "title": "fix(next): clamp page ids, driver timeouts, cookie dates and Firefox tab indexes before converting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28151,
+      "title": "fix(ci): excuse routed Guard status base reds without fixture crashes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28368,
+      "title": "fix(next): remote hunk header, crash report time and wire bitrate no longer trap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28283,
+      "title": "ci(next): a tip daemon suite gives the base a daemon-test verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28264,
+      "title": "fix(settings): keep row content in shared main layout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27790,
+      "title": "Session Info: opening or closing it moves nothing else in the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28361,
+      "title": "fix(next): an app-level Ghostty config change no longer leaks a config clone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28190,
+      "title": "carry of #23920: refresh nightly visual gate on current base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28276,
+      "title": "carry of #27675: add PlatformMachines snapshot deletion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28413,
+      "title": "acpmux: a chat's first task from another agent runs as its prompt, not an inbox notice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28473,
+      "title": "tool-evals: results of rounds 3 to 8 (GPT 6 Astra, the shell's cmux, the Codex login)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
