@@ -17,6 +17,8 @@ import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
 import type { MachineExecReply } from "./automation-machine.ts"
+import { ClientIdentityStore, mintClientSessionOn, sweepClientIdentities, type ClientSessionReply } from "./cloud-client-session.ts"
+import { teamPlan } from "./domains/cloud-plan.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -81,6 +83,11 @@ export class CloudDO extends CloudIdle {
       if (source !== `team:${entity}` || typeof user !== "string") continue
       this.leftAt.set(user, Date.now())
       if (this.isBound(entity)) this.closeSockets((p) => p.user === user, "left the team")
+      // Their client sessions end now too: the identities (and every token on them) are deleted at the provider.
+      if (this.hasClientIdentities()) {
+        const theirs = this.clientIdentityStore().forgetUser(user, Date.now())
+        await this.sweepClientIdentities(Date.now(), theirs).catch(() => this.retryClientIdentities())
+      }
     }
     const answers = items.filter((i) => i.op === "integration.approval.answered")
     const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS)
@@ -243,6 +250,72 @@ export class CloudDO extends CloudIdle {
     const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
     this.audit.record({ action: "automation.exec", machine, who: `automation:${entity}`, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
     return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
+  }
+
+  /**
+   * RPC from POST /v1/cloud/machines/{machine}/client-session (cloud-client-session.ts): NOT an op.
+   * No submit, no event, no ledger row; the audit row holds who, the machine, the user and the
+   * expiry, never the token.
+   */
+  async mintClientSession(entity: string, principal: Principal, machine: string, ttlSeconds: number): Promise<ClientSessionReply> {
+    if (principal.team !== entity) return { ok: false, refusal: "forbidden" }
+    if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
+    const rows = this.bind(entity).rows
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    return mintClientSessionOn(
+      {
+        team: entity,
+        machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
+        member: async (user, since) => {
+          if (entity === personalTeamIdFor(user)) return true
+          return (await this.creatorIsMember(entity, user).catch(() => false)) && (this.leftAt.get(user) ?? -1) < since
+        },
+        plan: async (p) => {
+          await this.entitlements.refresh(entity, p)
+          return teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, entity) !== null
+        },
+        limit: async (user) => !limit || (await limit.limit({ key: `cloud-client-session:${user}` })).success,
+        driver: (row) => Promise.resolve(this.driverFor(row)),
+        identities: this.clientIdentityStore(),
+        retryLater: () => this.retryClientIdentities(),
+        audit: (e) => this.audit.record(e),
+        now: () => Date.now() + this.skewMs,
+        inflight: this.clientInflight
+      },
+      principal,
+      machine,
+      ttlSeconds
+    )
+  }
+  private readonly clientInflight = new Map<string, Promise<unknown>>()
+  private clientIdentities: ClientIdentityStore | null = null
+  private clientIdentityStore(): ClientIdentityStore {
+    return (this.clientIdentities ??= new ClientIdentityStore(this.sqlStore))
+  }
+
+  /** A retired identity's delete failed: try again in an hour, unless an earlier alarm is already set. */
+  private retryClientIdentities(): void {
+    const at = Date.now() + 3_600_000
+    void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
+  }
+
+  /** Retires gone machines' identities and deletes retired ones; only for a team that ever minted one. */
+  private hasClientIdentities(): boolean {
+    return this.clientIdentities !== null || this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cloud_client_identity'`)[0]?.n === 1
+  }
+
+  protected override async sweepClientIdentities(now: number, first: ReadonlyArray<string> = []): Promise<void> {
+    if (!this.hasClientIdentities()) return
+    const entity = this.boundEntity()
+    if (!entity || !this.isBound(entity)) return
+    const rows = this.bind(entity).rows
+    const driver = await Promise.resolve(this.driverFor({ transport: "direct" }, "cleanup")).catch(() => null)
+    if (!driver) {
+      // No provider right now: whatever waits for its delete is tried again later.
+      if (this.clientIdentityStore().pending()) this.retryClientIdentities()
+      return
+    }
+    if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now, 10, first)) this.retryClientIdentities()
   }
 
   /**

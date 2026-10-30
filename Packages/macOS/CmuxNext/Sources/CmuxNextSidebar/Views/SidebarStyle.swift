@@ -26,6 +26,10 @@ enum SidebarStyle {
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
     /// Icon frame; the glyph inside is `kindGlyphSize`.
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
+    /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
+    /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
+    static func iconColumnCenterX(leading: CGFloat) -> CGFloat { leading + iconBox / 2 }
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }

@@ -797,17 +797,16 @@ sent as an ACP `resource_link` to that path.
 | Rule 2 question | Answer |
 | --- | --- |
 | Executes commands or opens content on local objects? | No. It creates one regular file. Nothing is executed, opened or indexed. The file mode follows the umask, without the executable bit. |
-| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short, long or oversized upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first and capped at `CMUX_MOBILE_UPLOAD_MAX_BYTES` (100 MiB by default). Receiving more than the declared size is refused. |
+| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short or long upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first, with no cap (attachments take files of any size), and the bytes stream to the part file as they arrive. Receiving more than the declared size, or fewer before the channel ends, is refused. |
 | Where can it write? | With `cwd`, the folder must exist and be either the folder of a tab the daemon lists right now (`list-workspaces`, canonicalized) or inside `CMUX_MOBILE_FILE_ROOTS`. The file goes to `<cwd>/.cmux/attachments/phone-<link session>/`, next to acpmux's own attachments, so the workspace's agent can read it without leaving its folder. hostd canonicalizes that folder again after creating it, so a `.cmux` or `attachments` symlink that points out of the workspace is refused. Without `cwd`, the file goes to `<CMUX_MOBILE_STATE_DIR>/uploads/<link session>/` (mode 0700). The phone never picks any other part of the path. |
 | Reads local state the remote should not see? | No. The reply contains only the path of the file the phone just wrote. |
 
 - **Rule 6 (tests):** `upload_names_are_safe`, `publish_never_replaces`, and
   the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
-  folder that is no tab's and outside the roots (`forbidden`), and an
-  oversized upload (`too_large`).
+  folder that is no tab's and outside the roots (`forbidden`), and
+  `an_upload_past_the_old_100_mib_cap_is_saved_whole` (no size cap).
 - **Open:** there is no total quota per phone, and old uploads are not
-  cleaned up. Both are bounded only by the per-file cap and the person's
-  disk.
+  cleaned up. Both are bounded only by the person's disk.
 
 ## `auth`: pairing a phone with this Mac
 

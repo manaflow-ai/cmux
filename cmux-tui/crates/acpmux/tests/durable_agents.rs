@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/carried_restart.rs"]
+mod carried_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
@@ -14,6 +16,8 @@ mod idle_adopted;
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/reconnect_priority.rs"]
+mod reconnect_priority;
 #[path = "durable_agents/restart_fence.rs"]
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]

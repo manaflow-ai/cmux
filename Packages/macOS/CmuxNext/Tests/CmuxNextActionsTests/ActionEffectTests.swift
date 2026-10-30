@@ -52,6 +52,25 @@ import Testing
         #expect(registry.effectBoundCount == 1)
     }
 
+    @Test func aResultEffectStartsAfterTheHandlerAndReturnsItsFields() async throws {
+        let world = World()
+        let registry = ActionRegistry(catalog: Self.catalog)
+        registry.bindEffect("test.rename", effect: { _ in
+            world.shown = "new"
+            return .applied(result: {
+                world.sent += 1
+                return .success(["status": .string("pending")])
+            })
+        })
+        let run = registry.capturingRun { registry.perform("test.rename") }
+        #expect(world.shown == "new")
+        #expect(world.sent == 0)
+        #expect(run.work.count == 1)
+        let result = try #require(run.results.first)
+        #expect(try await result.value.get()["status"] == .string("pending"))
+        #expect(world.sent == 1)
+    }
+
     /// A failure the person did not wait on (a key or menu run) rolls back and shows the notice once.
     @Test func aFailureRollsBackAndIsShownOnce() async {
         let world = World()
