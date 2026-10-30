@@ -209,9 +209,7 @@ impl Hub {
                 if meta.lineage.is_none() {
                     meta.lineage = lineage;
                 }
-                if meta.status != super::SessionStatus::Closed {
-                    self.subsessions.set_open(&session.id, &child.id, true);
-                }
+                self.subsessions.note_status(&session.id, &child.id, meta.status);
             }
         } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
             return Err(no_offer());
