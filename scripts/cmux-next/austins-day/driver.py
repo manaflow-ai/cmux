@@ -284,6 +284,19 @@ def open_fds(pid):
     return sum(1 for line in out.splitlines()[1:] if re.match(r"^\S+\s+\d+\s+\S+\s+\d+", line))
 
 
+def client_list_entries(parsed):
+    """The connections in `cmux --json client list`'s output: the daemon's resource result is a bare array
+    (resource_client_list), which the CLI prints as it is; a dict envelope ({"value": [...]} or a "clients"
+    or "items" list) is read too. None when there is no list (the call failed)."""
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        for key in ("value", "clients", "items"):
+            if isinstance(parsed.get(key), list):
+                return parsed[key]
+    return None
+
+
 def connection_holders(rows):
     """Who holds or waits for the daemon's connections now: the daemon's own client list (`list-clients`:
     each connection's name, kind, transport and age) by name and kind, and the live client processes on the
@@ -292,10 +305,7 @@ def connection_holders(rows):
     # `cmux client list` (the resource operation client.list): one object per connection with name,
     # client_kind, transport and connected_seconds. (`raw command list-clients` was refused: usage.invalid.)
     _, parsed, code = cli("client", "list", timeout=15)
-    listed = value(parsed) if parsed is not None else None
-    if isinstance(listed, dict):
-        listed = listed.get("clients") if isinstance(listed.get("clients"), list) else listed.get("items")
-    clients = listed if isinstance(listed, list) else None
+    clients = client_list_entries(parsed)
     by_label = {}
     ages = {}
     for client in clients or []:

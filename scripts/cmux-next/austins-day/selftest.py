@@ -368,6 +368,22 @@ class OldRuns(unittest.TestCase):
             self.assertEqual((m["acpmux_opens"], m["acpmux_open_failures"]), (2, 1))
 
 
+class ClientList(unittest.TestCase):
+    def test_the_client_list_output_is_read_as_the_cli_prints_it(self):
+        """`cmux --json client list` prints the daemon's bare array (review of f8a8afbee55: it was read as {})."""
+        source = open(os.path.join(HERE, "driver.py")).read()
+        start = source.index("def client_list_entries(")
+        end = source.index("def connection_holders(")
+        namespace = {}
+        exec(compile(source[start:end], "driver.py", "exec"), namespace)
+        entries = namespace["client_list_entries"]
+        sample = [{"id": "client_1", "name": "cmux-next", "client_kind": "app", "transport": "unix", "connected_seconds": "12"}]
+        self.assertEqual(entries(sample), sample)
+        self.assertEqual(entries({"value": sample}), sample)
+        self.assertIsNone(entries(None))
+        self.assertIsNone(entries({"error": "usage.invalid"}))
+
+
 class AgentFaults(unittest.TestCase):
     def test_missing_or_unhooked_agents_void_the_ab(self):
         head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()

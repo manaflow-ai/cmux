@@ -356,7 +356,6 @@ KEY = [  # (label, path in metrics) for the text summary
     ("daemon refused share of connects", ("daemon_connections", "refused_share")),
     ("daemon peak/limit", ("daemon_connections", "peak")),
     ("lock wait p99 us", ("daemon_lock_wait_us", "p99")),
-    ("registry lock held share", ("registry_lock_held_share",)),
     ("workspace close p99 ms", ("workspace_close_app_ms", "p99")),
     ("workspace close p95 ms", ("workspace_close_app_ms", "p95")),
     ("workspace close not done", ("workspace_close_not_done",)),
@@ -683,6 +682,9 @@ def main():
         lines.append(f"{r.get('arm')} round {r.get('round')} on {r.get('host')}: agents {m['agents_started']}/{m['agents']} "
                      f"(hooked {m['agents_hooked']}), hooks {m['agent_hooks']}; Austin's failures seen: {', '.join(seen) or 'NONE'}"
                      + (f"; HARNESS FAULTS: {'; '.join(m['harness_faults'])}" if m["harness_faults"] else ""))
+        if m.get("registry_lock_held_share") is not None:
+            lines.append(f"   registry lock held {m['registry_lock_held_share']:.1%} of the run's server-stats window "
+                         "(descriptive, no verdict: not yet A/A-tested; integer-mean estimate, up to ~1-2 points low)")
         lines.append(f"   stalls >100 ms: CODE {m['stall_code_count']} ({m['stall_code_total_ms']} ms), "
                      f"WAIT {m['stall_wait_count']} ({m['stall_wait_total_ms']} ms, max CPU share {m['stall_wait_cpu_share_max']}) "
                      f"next to swap max {m['swap_used_mb']['max']} MB, memory level min {m['memory_level_min']}; WAITs: owner B8 (memory)")
