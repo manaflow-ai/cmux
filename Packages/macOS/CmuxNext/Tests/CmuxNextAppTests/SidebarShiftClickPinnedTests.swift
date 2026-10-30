@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// #27701: Shift-click across pinned workspaces, as cmux classic. Shift-click selects every workspace drawn
@@ -45,7 +46,7 @@ struct SidebarShiftClickPinnedTests {
                 info.workspace = SidebarShiftClickPinnedTests.pinnedWorkspace(item)
                 model.itemInfo[item] = info
             }
-            hold = SidebarSelectionHold(model: model)
+            hold = SidebarSelectionHold(model: model, deadlines: .testing())
             sidebar = SidebarView(model: model, design: DesignSettings.shared)
             sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 480)
             window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 480), styleMask: [.titled], backing: .buffered, defer: false)

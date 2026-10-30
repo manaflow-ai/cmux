@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextComputerUse
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import CoreGraphics
 import Foundation
@@ -44,7 +45,7 @@ struct ComputerUseLiveCaptureTests {
         init() {
             let capture = ComputerUseLiveCapture(frames: frames, cursors: cursors, configuration: { [box] in box.value },
                                                  helperPID: { 77 }, clock: clock)
-            preview = ComputerUseLivePreview(host: host, makeSource: { LiveSource() }, resolver: NoApps(), clock: clock,
+            preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { LiveSource() }, resolver: NoApps(), clock: clock,
                                              capture: capture, sight: sight)
             capture.settled = { [unowned self] in
                 settles += 1

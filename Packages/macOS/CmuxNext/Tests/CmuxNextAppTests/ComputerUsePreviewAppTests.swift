@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextComputerUse
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -96,7 +97,7 @@ struct ComputerUsePreviewAppTests {
     func theLivePreviewLooksTheAppUpAndSendsItsIconWhenDone() async throws {
         let host = FakeHost()
         let resolver = FakeResolver(apps: [Self.calculator: .init(name: "Calculator", icon: Self.icon)])
-        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: resolver)
+        let preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { FakeSource() }, resolver: resolver)
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
         preview.apply(.newestFrame(session: "s", frame: "b1", at: ComputerUsePreviewBoardTests.at(1)))
@@ -111,7 +112,7 @@ struct ComputerUsePreviewAppTests {
     @Test(.timeLimit(.minutes(1)))
     func anAppNoOneAnswersForShowsNoTitle() async throws {
         let host = FakeHost()
-        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
+        let preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
         preview.apply(.newestFrame(session: "s", frame: "b1", at: ComputerUsePreviewBoardTests.at(1)))
@@ -124,7 +125,7 @@ struct ComputerUsePreviewAppTests {
     @Test(.timeLimit(.minutes(1)))
     func frameNoticesReadNoChats() async throws {
         let host = FakeHost()
-        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
+        let preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
         let reads = host.chatReads
@@ -139,7 +140,7 @@ struct ComputerUsePreviewAppTests {
     @Test(.timeLimit(.minutes(1)))
     func aTabThatSwitchesChatLosesTheOldChatsCardAtOnce() async throws {
         let host = FakeHost()
-        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
+        let preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]))
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
         preview.apply(.newestFrame(session: "s", frame: "b1", at: ComputerUsePreviewBoardTests.at(1)))
@@ -155,7 +156,7 @@ struct ComputerUsePreviewAppTests {
     /// A live preview on `clock` with session `s` running in chat `a`, its card shown.
     private static func running(on clock: ManualClock) async throws -> (FakeHost, ComputerUseLivePreview) {
         let host = FakeHost()
-        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]),
+        let preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]),
                                              clock: clock)
         preview.set(enabled: true)
         preview.apply(.sessions([Self.session()]))
@@ -238,7 +239,7 @@ struct ComputerUsePreviewAppTests {
     func oneChatsHideLeavesAnotherChatsCard() async throws {
         let clock = ManualClock()
         let host = FakeHost()
-        let preview = ComputerUseLivePreview(host: host, makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]),
+        let preview = ComputerUseLivePreview(host: host, deadlines: .testing(), makeSource: { FakeSource() }, resolver: FakeResolver(apps: [:]),
                                              clock: clock)
         preview.set(enabled: true)
         let s = ComputerUsePreviewBoardTests.session("s", acp: "acp-a")

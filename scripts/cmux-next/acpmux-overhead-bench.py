@@ -964,7 +964,7 @@ def build_turn_main(args, daemon: Daemon, stand: StandIn, scratch):
                     daemon.request("session/close", {"sessionId": sid}, timeout=20)
                 except Exception:
                     pass
-    summary = {m: {"p50": pct([r[m] for r in rows if r[m] is not None], 0.5),
+    summary = {m: {"p50": report.pct([r[m] for r in rows if r[m] is not None], 0.5, 1),
                    "min": min((r[m] for r in rows if r[m] is not None), default=None),
                    "max": max((r[m] for r in rows if r[m] is not None), default=None)} for m in ("end", "build_s", "pri")}
     results = {"claude": {"summary": summary, "runs": rows, "errors": errors},

@@ -15,11 +15,11 @@ import Testing
 struct PlacementWriteOrderTests {
     private nonisolated struct Seed: DaemonRequest {
         typealias Response = EmptyResponse
-        static let command = "gallery-seed-burst"
+        static let commandName: DaemonCommandName = "gallery-seed-burst"
     }
     private nonisolated struct Report: DaemonRequest {
         typealias Response = PlacementGalleryCaptured
-        static let command = "gallery-report"
+        static let commandName: DaemonCommandName = "gallery-report"
     }
 
     private static func burst(mixed: Bool, mode: String = "") async throws {

@@ -345,7 +345,7 @@ final class AppServices {
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
     /// view runs only while the person can see the chat's page.
     private(set) lazy var computerUsePreview = ComputerUseLivePreview(
-        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
+        host: self, deadlines: mainDeadlines, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()

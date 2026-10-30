@@ -1,4 +1,5 @@
 public import CmuxNextAgentActivity
+public import CmuxNextWakeups
 public import Foundation
 
 /// One Computer Use session as the live preview card needs it: what links it to a chat, the app it
@@ -111,9 +112,11 @@ public final class ComputerUseActivityPreviewSource: ComputerUseLivePreviewSourc
     /// The largest thumbnail taken, in base64 bytes (the helper's are about 320 px, tens of KB).
     nonisolated static let maximumFrameBytes = 4 << 20
 
-    public init(configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?) {
+    /// - Parameter deadlines: The app's deadline placer (`AppServices.mainDeadlines`): the socket source's waits.
+    public init(configuration: @escaping @MainActor () -> AgentActivitySocketSource.Configuration?,
+                deadlines: MainDeadlineScheduler) {
         self.configuration = configuration
-        activity = AgentActivitySocketSource(configuration: configuration)
+        activity = AgentActivitySocketSource(configuration: configuration, deadlines: deadlines)
     }
 
     public func start(_ sink: @escaping @MainActor (ComputerUseLivePreviewUpdate) -> Void) {

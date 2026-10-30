@@ -25,7 +25,7 @@ nonisolated final class ComputerUseHelperV2HostLink: Sendable {
 
     /// Connects, checks the peer and presents `secret`; nil on any failure.
     @concurrent static func connect(path: String, helperPID: pid_t, executable: URL, secret: Data,
-                                    team: String? = ComputerUseHelperV2.ownTeam) async -> ComputerUseHelperV2HostLink? {
+                                    team: String?) async -> ComputerUseHelperV2HostLink? {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return nil }

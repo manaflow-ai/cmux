@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextInputCore
@@ -265,8 +265,9 @@ struct NewTabPreloadTests {
         }
     }
 
-    /// The New Tab pane as a preloadable page: by default it parks rendering (no hide, no slot
-    /// cover); with `newTabParksHidden` its page view hides and shows again. No engine freezes it yet.
+    /// The New Tab pane as a preloadable page: by default it parks rendering (no slot cover) and
+    /// sleeps once its own frame was taken (#26975); with `newTabParksHidden` its page view hides and
+    /// shows again. No engine freezes it yet.
     @Test func theNewTabPageParksRenderingUnlessItParksHidden() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-preload-page")
@@ -281,12 +282,28 @@ struct NewTabPreloadTests {
             #expect(!rendering.preloadFreeze(), "a freeze no engine performs")
             rendering.preloadSetVisible(false)
             #expect(!pageView.isHidden, "a page that parks rendering was hidden")
+            // The frame it keeps is taken without a compositor (trunk #26975's test seams).
+            view.redraw.nextFrameOverride = { $0() }
+            view.redraw.snapshotOverride = { nil }
             var answered = false, cover: CGImage?
             rendering.preloadCaptureCover { image in
                 answered = true
                 cover = image
             }
             #expect(answered && cover == nil, "a page that parks rendering gave the slot a cover")
+            // Parked, it sleeps once its own frame was taken (#26975): no renderer runs until the claim.
+            try await PasswordManagerRouteTests.until({ pageView.isHidden })
+            // A capture of the app's New Tab frame wakes it, and it sleeps again after.
+            view.redraw.givesNewTabFrame = true
+            #expect(!pageView.isHidden, "the New Tab frame cannot be captured from a sleeping page")
+            view.redraw.givesNewTabFrame = false
+            try await PasswordManagerRouteTests.until({ pageView.isHidden })
+            // The claim shows it, and a late capture no longer hides the adopted page.
+            rendering.preloadSetVisible(true)
+            #expect(!pageView.isHidden && view.redraw.newTabFrameCaptureChanged == nil)
+            view.redraw.givesNewTabFrame = true
+            view.redraw.givesNewTabFrame = false
+            #expect(!pageView.isHidden, "a late capture hid the claimed page")
 
             let hidden = AgentPanePreloadPage(pane: view, parksHidden: true)
             #expect(!hidden.preloadFreeze(), "a freeze no engine performs")
