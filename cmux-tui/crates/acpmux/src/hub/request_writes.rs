@@ -191,6 +191,20 @@ fn mark_not_saved(value: &mut Value) {
 }
 
 impl Hub {
+    /// Runs one request under the rule (`server/request_task.rs` runs every request through it):
+    /// its handler in [`scope`], then [`Hub::wait_written`] for what it wrote, then [`answer`].
+    pub(crate) async fn answer_request(
+        &self,
+        request: BoxFuture<'_, Result<Value, RpcError>>,
+    ) -> Result<Value, RpcError> {
+        let (result, writes) = scope(request).await;
+        let kept = writes.kept();
+        // An error that committed records (a held agent message: "held, do not send it again")
+        // waits for them too; its answer stays the error.
+        let saved = self.wait_written(writes).await;
+        answer(result, saved, kept)
+    }
+
     /// Waits until what `writes` names is on disk; false when a log failed.
     pub(crate) async fn wait_written(&self, writes: Writes) -> bool {
         if writes.failed {

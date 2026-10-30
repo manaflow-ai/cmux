@@ -325,3 +325,93 @@ async fn request_writes_a_session_deleted_before_the_wait_is_saved_at_once() {
     let asked = held.lock().unwrap().as_ref().map_or(0, tokio::sync::watch::Sender::receiver_count);
     assert_eq!(asked, 0, "the wait asked the writer for a deleted session's progress");
 }
+
+/// A chat `s1` with one queued prompt, `p1`, restored from its log as a restart restores it. It
+/// is an agent's message (it has a provenance), so `_acpmux/prompt_withdraw` may unsend it.
+fn chat_with_a_queued_prompt(hub: &Arc<Hub>) -> Arc<Session> {
+    let session = chat(hub, "s1");
+    let provenance = json!({"from": "sender", "msgId": "m1"});
+    let queued = json!({"promptId": "p1", "turnId": "t1", "text": "hi", "client": "c",
+        "_meta": {"provenance": provenance}});
+    hub.append(&session, "mux", "queued", queued);
+    hub.restore_queue(&session);
+    assert_eq!(session.queue().len(), 1, "the queued prompt was not restored");
+    session
+}
+
+/// The requests that change the queue (`_acpmux/queue_edit`, `_acpmux/queue_remove`,
+/// `_acpmux/prompt_withdraw`), each run as the request runner runs it ([`Hub::answer_request`]).
+#[derive(Clone, Copy, Debug)]
+enum QueueChange {
+    Edit,
+    Remove,
+    Withdraw,
+}
+
+impl QueueChange {
+    const ALL: [Self; 3] = [Self::Edit, Self::Remove, Self::Withdraw];
+
+    async fn answer(self, hub: Arc<Hub>, session: Arc<Session>) -> Result<Value, RpcError> {
+        let (hub, session) = (&hub, &session);
+        let request: BoxFuture<'_, Result<Value, RpcError>> =
+            match self {
+                Self::Edit => Box::pin(async move {
+                    let params = json!({"promptId": "p1", "op": "update", "text": "edited"});
+                    hub.queue_edit(session, &params, crate::hub::Control::Local, false, None).await
+                }),
+                Self::Remove => Box::pin(async move {
+                    let removed = hub.withdraw_queued(session, "p1").await?;
+                    Ok(json!({"removed": removed}))
+                }),
+                Self::Withdraw => Box::pin(async move {
+                    hub.prompt_withdraw(session, &json!({"promptId": "p1"})).await
+                }),
+            };
+        hub.answer_request(request).await
+    }
+}
+
+/// One wait per request (merge of perf's `queue_change_logged`, 6a5173856d0, with this rule): a
+/// queue change on a chat deleted while it waits counts as saved, as every request does, since
+/// nothing of the chat is kept. A second wait inside the handler answered an internal error.
+#[tokio::test]
+async fn request_writes_a_queue_change_on_a_chat_deleted_while_it_waits_is_saved() {
+    for change in QueueChange::ALL {
+        let progress = crate::store::Progress { queued: 100, written: 0, failed: false };
+        let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+        let store = HeldStore { inner: MemoryStore::default(), progress: held.clone() };
+        let hub = hub_on(Box::new(store));
+        let session = chat_with_a_queued_prompt(&hub);
+        let answer = tokio::spawn(change.answer(hub.clone(), session.clone()));
+        // The request waits on the log's progress; the chat is deleted while it waits.
+        let subscribed = async {
+            while held.lock().unwrap().as_ref().is_some_and(|tx| tx.receiver_count() == 0) {
+                tokio::task::yield_now().await;
+            }
+        };
+        let wait = std::time::Duration::from_secs(5);
+        assert!(tokio::time::timeout(wait, subscribed).await.is_ok(), "{change:?} never waited");
+        session.purged.store(true, Ordering::SeqCst);
+        hub.sessions.lock().unwrap().remove("s1");
+        held.lock().unwrap().take();
+        let answer = answer.await.unwrap();
+        assert!(answer.is_ok(), "{change:?} on a chat deleted while it waited: {answer:?}");
+    }
+}
+
+/// The same merge: a queue change whose log failed answers `log.failed`, the reason every other
+/// request gives; the handler's own wait answered a plain internal error with no reason.
+#[tokio::test]
+async fn request_writes_a_queue_change_on_a_failed_log_answers_log_failed() {
+    for change in QueueChange::ALL {
+        let progress = crate::store::Progress { queued: 100, written: 0, failed: true };
+        let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+        let store = HeldStore { inner: MemoryStore::default(), progress: held };
+        let hub = hub_on(Box::new(store));
+        let session = chat_with_a_queued_prompt(&hub);
+        let answer = change.answer(hub, session).await;
+        let reason = answer.as_ref().err().and_then(|e| e.data.clone());
+        let expected = Some(json!({"reason": "log.failed"}));
+        assert_eq!(reason, expected, "{change:?} on a failed log: {answer:?}");
+    }
+}
