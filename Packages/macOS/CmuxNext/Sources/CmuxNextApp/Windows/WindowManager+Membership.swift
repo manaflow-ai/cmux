@@ -321,7 +321,12 @@ extension WindowManager {
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
         transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
-        if let first = workspaces.first { fileOpenedMachine(of: first, into: id) }
+        // Every Cloud machine the batch opens, once each (a drag can carry several).
+        var machines = Set<String>()
+        for workspace in workspaces {
+            guard let machine = services.machines.daemon(forWorkspace: workspace)?.machineID, machines.insert(machine).inserted else { continue }
+            fileOpenedMachine(of: workspace, into: id)
+        }
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
