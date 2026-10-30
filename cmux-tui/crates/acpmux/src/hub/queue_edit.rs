@@ -265,8 +265,11 @@ impl Hub {
         device: Option<&str>,
         editor: crate::author::Editor<'_>,
     ) -> Result<bool, RpcError> {
+        // Logged under the lock that changed it, as `queue_approved` is: two edits of one prompt
+        // reach the log in the order their revisions were given, so a restart restores the last
+        // words and never pairs an approval with older ones (`restore_queue`).
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (turn_id, run, text, revision) = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(q) = queue.iter_mut().find(|q| q.prompt_id == prompt_id) else {
                 return Ok(false);
             };
@@ -333,6 +336,7 @@ impl Hub {
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
+        drop(queue);
         Ok(true)
     }
 

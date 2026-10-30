@@ -974,7 +974,16 @@ impl Hub {
                     // and it has no `_meta.provenance` (the person rewrote it), unless the edit
                     // kept a person's own (`author.rs`).
                     "queue_updated" => {
-                        if let Some(q) = waiting.first_of_turn(turn_id) {
+                        // A revision never goes back: a log from before edits were logged under
+                        // the queue lock may hold an older edit after a newer one, and the newer
+                        // one is the words the queue had (and an approval may name).
+                        let revision = e.msg["revision"].as_u64();
+                        let stale = |had: &Value| {
+                            matches!((revision, had.as_u64()), (Some(new), Some(had)) if new < had)
+                        };
+                        if let Some(q) =
+                            waiting.first_of_turn(turn_id).filter(|q| !stale(&q.msg["revision"]))
+                        {
                             for k in [
                                 "text",
                                 "prompt",
