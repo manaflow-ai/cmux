@@ -217,7 +217,9 @@ export class CloudStore {
       if (session !== this.session) return;
       this.started = false;
       const failed = failure(error);
-      this.set({ loading: false, ...failed });
+      // A retry can fail after a transport refusal with a terminal page error. Clear the stale
+      // disconnected state so CloudPage can render that error instead of hiding it as a lost link.
+      this.set({ loading: false, connection: failed.connection ?? "connected", ...failed });
       if (failed.connection === "disconnected") this.startLater();
       return;
     }

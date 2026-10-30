@@ -25,6 +25,18 @@ class StartingProvider extends MockCloudProvider {
   }
 }
 
+class TerminalAfterTransportProvider extends StartingProvider {
+  terminal = false;
+
+  override async call<R>(op: string, params: unknown): Promise<R> {
+    if (op === CloudOps.authStatus && this.authReads > 0 && !this.terminal) {
+      this.terminal = true;
+      throw pageError("cmux.cloud.upstream_error", "the Cloud service did not answer", true);
+    }
+    return super.call<R>(op, params);
+  }
+}
+
 const settle = async () => {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 };
@@ -67,6 +79,20 @@ test("a signed-out page that recovers keeps no error and stops loading", async (
   expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
   expect(store.getSnapshot().auth?.signedIn).toBe(false);
   expect(store.getSnapshot().error).toBeUndefined();
+  unsubscribe();
+});
+
+test("a terminal retry error clears the stale disconnected state", async () => {
+  jest.useFakeTimers();
+  const provider = new TerminalAfterTransportProvider(1);
+  const store = new CloudStore(provider);
+  const unsubscribe = store.subscribe(() => undefined);
+  await settle();
+  expect(store.getSnapshot().connection).toBe("disconnected");
+  jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
+  await settle();
+  expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+  expect(store.getSnapshot().error).toBe("the Cloud service did not answer");
   unsubscribe();
 });
 
