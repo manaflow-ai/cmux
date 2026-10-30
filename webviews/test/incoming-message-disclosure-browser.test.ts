@@ -463,6 +463,15 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       expect(await page.getByText(/Read after this|Open chat|^From:/).count()).toBe(0);
       // Hovered, the actions show in the line's own plate, and the chevron stays put.
       await rows.nth(1).locator(":scope > .cv-disclosure__line").hover();
+      // Measure the revealed controls after their transition, not in its first frame.
+      const actions = await rows.nth(1).locator(".cv-received__hover").elementHandle();
+      try {
+        await page.waitForFunction((node) => node !== null && getComputedStyle(node).opacity === "1", actions, {
+          timeout: 5_000,
+        });
+      } finally {
+        await actions?.dispose();
+      }
       const hovered = await rows.nth(1).evaluate((row) => {
         const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
         return {
