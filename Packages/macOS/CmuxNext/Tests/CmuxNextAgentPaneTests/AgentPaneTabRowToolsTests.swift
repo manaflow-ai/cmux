@@ -32,7 +32,7 @@ import Testing
             "id": "terminal", "symbol": "terminal", "label": "Terminal", "enabled": true, "toggled": false,
             "contextMenu": [["id": "move", "label": "Move right", "enabled": true, "separatorBefore": true]],
         ]
-        let tool = try #require(AgentPaneTabRowTools.list([raw])).first
+        let tool = try #require(AgentPaneTabRowTools.list([raw])?.first)
         #expect(tool.contextMenu.first?.separatorBefore == true)
         #expect(AgentPaneRequest(body: [
             "method": "pane.tabRowTools.openMenu", "params": ["id": "chat-menu", "menuItemId": "continue"],
