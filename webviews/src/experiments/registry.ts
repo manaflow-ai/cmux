@@ -16,7 +16,6 @@ import { startedSessionCards } from "../agent-session/acpmux/started/startedSess
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
-import { accessOfferLook } from "../agent-session/acpmux/conversation/accessOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
@@ -39,7 +38,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
-  accessOfferLook,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,

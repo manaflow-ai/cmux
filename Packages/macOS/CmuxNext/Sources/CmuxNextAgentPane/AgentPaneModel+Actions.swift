@@ -15,21 +15,12 @@ extension AgentPaneModel {
     static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
-    /// we offer them to add credits or add their own api key"): Add API Key… opens Settings >
-    /// Accounts, at the provider's key field when the page names one, and Add Credits… takes the one
-    /// paid-plan path (``UpgradeToPro``) as the model router's paywall. webviews accessOffer.ts
-    /// ACCESS_ACTIONS names the same two. Each opens app UI, so each needs the person's gesture.
-    static let accessActions: Set<String> = ["accounts.show", "palette.pro.upgrade"]
-    /// The arguments an access action runs with, beside what the page names.
+    /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
+    /// path (``UpgradeToPro``) as the model router's paywall, with its fixed `source`. webviews
+    /// accessOffer.ts ACCESS_ACTIONS names the same one. It opens app UI, so it needs the person's gesture.
+    static let accessActions: Set<String> = ["palette.pro.upgrade"]
+    /// The arguments an access action runs with; the page names none.
     static let accessArguments: [String: [String: String]] = ["palette.pro.upgrade": ["source": "inference"]]
-
-    /// The arguments the page may name for `id`: a provider for Accounts, a short lowercase name
-    /// (`anthropic`, `openai`); anything else is dropped. The Accounts action checks it is a provider.
-    static func pageArguments(for id: String, _ arguments: [String: String]) -> [String: String] {
-        guard id == "accounts.show", let provider = arguments["provider"], !provider.isEmpty, provider.count <= 32,
-              provider.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }) else { return [:] }
-        return ["provider": provider]
-    }
 
     /// `action.run` from the page. Any agent tab may open the New Tab
     /// page (a blank chat's New), the command palette's chats page ("Show all", decision K1), and the
@@ -40,7 +31,7 @@ extension AgentPaneModel {
     /// sign-in and its continuation. An action the app did not run (turned off, or not for this tab)
     /// is an `unavailable` failure, so the page can say so; one that ran and
     /// then stopped reports itself in the app (its refusal or toast).
-    func runAction(_ id: String, session: String? = nil, arguments: [String: String] = [:]) -> [String: Any] {
+    func runAction(_ id: String, session: String? = nil) -> [String: Any] {
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id)
         guard id == "newTab.page" || id == "agentPane.searchChats" || gated, let onRunAction else {
             return Self.unsupported("action.run")
@@ -50,8 +41,7 @@ extension AgentPaneModel {
             return AgentPaneReply.failure(code: "unavailable", message: "This chat is no longer shown.")
         }
         if gated, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
-        let fixed = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
-        if onRunAction(id, Self.pageArguments(for: id, arguments).merging(fixed) { _, own in own }) { return AgentPaneReply.success() }
+        if onRunAction(id, Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]) { return AgentPaneReply.success() }
         return AgentPaneReply.failure(code: "unavailable", message: "The app did not run \(id).")
     }
 }

@@ -189,7 +189,7 @@ import { QUESTION_RECORD } from "./question/record";
 import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
-import { type StringKey, type Translate, translate, useT } from "./i18n";
+import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
@@ -450,7 +450,7 @@ import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferC
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
-import { ACCESS_ACTIONS, type AccessOffer, addKeyParams } from "./accessOffer";
+import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError, HostUnavailableLine } from "./HostError";
 import {
@@ -5143,18 +5143,17 @@ function AcpmuxPane() {
       live = false;
     };
   }, [connected, rulesLocal, snapshot.sessionId, turnWorking]);
-  // Add API Key… and Add Credits… (accessOffer.ts): the app's own Accounts and paid-plan paths, run on
-  // the person's click. One the app did not run (an older app) says so rather than nothing happening.
-  const access = useMemo<AccessOffer>(() => {
-    const run = (params: { id: string; provider?: string }, label: StringKey) =>
-      void callNative("action.run", params).catch(() =>
-        directClient.current?.notice(translate("composer.offloadNotRun", { action: translate(label) })),
-      );
-    return {
-      addKey: (harness) => run(addKeyParams(harness), "access.addKey"),
-      addCredits: () => run({ id: ACCESS_ACTIONS.addCredits }, "access.addCredits"),
-    };
-  }, []);
+  // Add Credits… (accessOffer.ts): the app's own paid-plan path, run on the person's click. One the app did
+  // not run (an older app) says so rather than nothing happening.
+  const access = useMemo<AccessOffer>(
+    () => ({
+      addCredits: () =>
+        void callNative("action.run", { id: ACCESS_ACTIONS.addCredits }).catch(() =>
+          directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("access.addCredits") })),
+        ),
+    }),
+    [],
+  );
   // A page without a session checks its own selected target (NewTabScreen); never a guessed one here.
   const [authRouteVersion, setAuthRouteVersion] = useState(0);
   const setChatRoute = useCallback(async (sessionId: string, routeId: string) => {

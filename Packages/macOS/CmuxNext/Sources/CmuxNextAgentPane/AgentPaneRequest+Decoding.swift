@@ -414,9 +414,7 @@ extension AgentPaneRequest {
             let session = params?["session"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
-                // Only a provider name rides along (Add API Key…'s Accounts row); the model checks it.
-                let provider = (params?["provider"] as? String).flatMap { $0.count <= 32 ? $0 : nil }
-                self = .runAction(id, session: session ?? nil, arguments: provider.map { ["provider": $0] } ?? [:])
+                self = .runAction(id, session: session ?? nil)
             } else {
                 self = .unsupported(method)
             }

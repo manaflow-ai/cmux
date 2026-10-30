@@ -90,9 +90,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editShortcut(AgentPaneTabKind)
     /// The new tab page asked the app to run a user facing action. `session`, when the page names
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
-    /// tab still shows it. `arguments`: what the page may name for it
-    /// (``AgentPaneModel/pageArguments(for:_:)``), checked before the action runs.
-    case runAction(String, session: String? = nil, arguments: [String: String] = [:])
+    /// tab still shows it.
+    case runAction(String, session: String? = nil)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the

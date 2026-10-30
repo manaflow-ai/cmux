@@ -38,11 +38,10 @@ import {
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, type FailureRoute, shortOfCredits } from "../failureCopy";
+import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
-import { accessOfferLook } from "./accessOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { ToolVerbColumn } from "./ToolVerb";
@@ -537,36 +536,15 @@ function TurnFailure({
       "auth",
       "needs-credits",
     ].includes(kind);
-  // The cmux model router refused the turn for want of credits (accessOffer.ts; Leo 2026-10-26: "we
-  // offer them to add credits or add their own api key"), placed by the `access-offer` arm. As
-  // buttons, the arm's first one is the card's one filled button; as links, Retry keeps it.
-  // A caller already on a plan but short of credits (`credits.insufficient`) gets no Add Credits…:
-  // the app has no credit top-up, and the paid-plan path would sell the plan they have.
+  // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
+  // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
+  // A paid plan lifts both, so Add Credits… leads as the card's one filled button.
   const accessOffer = kind === "needs-credits" ? access : undefined;
-  const offersCredits = accessOffer !== undefined && !shortOfCredits(message, code);
-  const accessArm = experimentArm(accessOfferLook);
-  const accessLeads = accessOffer !== undefined && accessArm !== "link";
-  const accessChoices = accessOffer
-    ? (
-        [
-          ["access.addKey", () => accessOffer.addKey(route?.harness)],
-          ["access.addCredits", accessOffer.addCredits],
-        ] as const
-      ).filter(([key]) => offersCredits || key !== "access.addCredits")
-    : [];
-  const accessButtons = accessLeads && (
-    <>
-      {(accessArm === "key-first" ? accessChoices : [...accessChoices].reverse()).map(([key, run], index) => (
-        <button
-          type="button"
-          key={key}
-          className={`cv-turn-auth-action${index === 0 ? " cv-turn-error__primary" : ""}`}
-          onClick={run}
-        >
-          {t(key)}
-        </button>
-      ))}
-    </>
+  const accessLeads = accessOffer !== undefined;
+  const accessButtons = accessOffer && (
+    <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={accessOffer.addCredits}>
+      {t("access.addCredits")}
+    </button>
   );
   // Continue or Retry is the way out, or the second one after Switch model for a key or proxy
   // failure; never for a sign-in or trust failure (errorRecovery.ts).
@@ -606,26 +584,6 @@ function TurnFailure({
             <>
               {" "}
               <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
-            </>
-          )}
-          {accessOffer && accessArm === "link" && (
-            <>
-              {" "}
-              {offersCredits && (
-                <>
-                  <button type="button" className="cv-turn-error__offer-link" onClick={accessOffer.addCredits}>
-                    {t("access.addCredits")}
-                  </button>
-                  {" · "}
-                </>
-              )}
-              <button
-                type="button"
-                className="cv-turn-error__offer-link"
-                onClick={() => accessOffer.addKey(route?.harness)}
-              >
-                {t("access.addKey")}
-              </button>
             </>
           )}
         </span>

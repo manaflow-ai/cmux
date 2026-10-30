@@ -93,8 +93,8 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
-  /// Add Credits… and Add API Key… on a turn the cmux model router refused for want of credits
-  /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs them on the person's click.
+  /// Add Credits… on a turn the cmux model router refused for want of a plan or credits
+  /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs it on the person's click.
   access?: AccessOffer;
   /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
   /// the chat offers it now; undefined while the chat is not connected.

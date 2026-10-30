@@ -1,24 +1,22 @@
 // l10n-allow-file: gallery fixtures (sample models and router errors), not shipped UI.
 // A model the person cannot use is never a dead end (Leo 2026-10-26: "if user picks a model they
-// don't have api key, we offer them to add credits or add their own api key"; accessOffer.ts). In
-// the model picker a signed-out harness lists Add Credits… after Log In (its own key goes in through
-// Log In); on a turn the cmux model router refused for want of credits, the card offers Add Credits…
-// and Add API Key…. Compare arms shows the `access-offer` experiment's three placements on the card.
+// don't have api key, we offer them to add credits or add their own api key"; accessOffer.ts). This is
+// the Add Credits half: in the model picker a signed-out harness lists Add Credits… after Log In; on a
+// turn the cmux model router refused (no plan and no credits, or too few credits), Add Credits… leads.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { ModelPickerProps } from "../modelPickerLayout";
-import { accessOfferLook } from "./accessOffer.experiment";
 
 type Props = {
   surface: "picker" | "turn";
-  /// The pane offers Add API Key… and Add Credits… (off: the picker before this change).
+  /// The pane offers Add Credits… (off: before this change).
   access: boolean;
   /// The failed turn's error (surface `turn`).
   error?: string;
 };
 
 const noop = () => undefined;
-const access = { addKey: noop, addCredits: noop };
+const access = { addCredits: noop };
 
 const catalog: ModelPickerProps["catalog"] = [
   {
@@ -79,7 +77,7 @@ const openSignedOut: Play = async (ctx) => {
 
 export default componentEntry<Props>({
   id: "agent-pane.access-offer",
-  title: "Add credits or your own API key",
+  title: "Add credits",
   area: "Agent pane",
   pane: true,
   height: 420,
@@ -89,7 +87,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
     "agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter",
   ],
-  keywords: ["api key", "credits", "paywall", "upgrade", "signed out", "model router", "402"],
+  keywords: ["credits", "paywall", "upgrade", "signed out", "model router", "402"],
   load: async () => {
     const [{ ModelPicker }, { TurnFooter }, { TurnActionsContext }] = await Promise.all([
       import("../ModelPicker"),
@@ -121,12 +119,12 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("../styles.css"), import("../modelPicker.css"), import("./conversation.css")]),
   variants: {
     "turn-no-credits": {
-      note: "The router refused the turn (no plan, no credits): Add Credits… and Add API Key… lead, Retry and Switch model after.",
+      note: "The router refused the turn (no plan, no credits): Add Credits… leads, Retry and Switch model after.",
       height: 220,
       props: { surface: "turn", access: true, error: noCredits },
     },
     "turn-low-credits": {
-      note: "On a plan but short of credits for this call: Add API Key… leads (no credit top-up exists), then Retry and Switch model.",
+      note: "Credits below this call's price, still no paid plan: the same offer.",
       height: 220,
       props: { surface: "turn", access: true, error: lowCredits },
     },
@@ -136,7 +134,7 @@ export default componentEntry<Props>({
       props: { surface: "turn", access: false, error: noCredits },
     },
     "picker-signed-out": {
-      note: "Codex is signed out: Log In, then Add Credits…, in place of its models; its API key goes in through Log In.",
+      note: "Codex is signed out: Log In, then Add Credits…, in place of its models.",
       props: { surface: "picker", access: true },
       play: openSignedOut,
     },
@@ -145,17 +143,5 @@ export default componentEntry<Props>({
       props: { surface: "picker", access: false },
       play: openSignedOut,
     },
-  },
-  experiment: {
-    definition: accessOfferLook,
-    script: [
-      // Runs on the first variant (turn-no-credits) in every arm: the card as it first draws.
-      {
-        name: "card drawn",
-        run: async (ctx) => {
-          await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-error") !== null);
-        },
-      },
-    ],
   },
 });
