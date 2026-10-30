@@ -162,6 +162,7 @@
     "dequeued": {"promptId": "string", "turnId": "string", "queued": "number (still waiting)"},
     "inbox": {"promptId": "string", "threadId": "string", "from": "string (the sender's name)", "fromSession": "string? (its session, when it names one)", "class": "block|question|result|fyi", "kind": "blocker|action|fyi", "report": "true? (a lane's report or a task's result)", "client": "string", "text": "string", "prompt": "ContentBlock[]", "_meta.provenance": "object? (as queued)", "note": "Another agent's message into the chat's inbox (hub/inbox.rs), never queued as a turn; session/prompt _meta.acpmux.pr (a number) or topic (one line) names its thread."},
     "inbox_noticed": {"noticePromptId": "string (the inbox_notice prompt that told the agent)", "promptIds": "string[]"},
+    "inbox_answered": {"noticePromptId": "string (a notice that went in)", "promptIds": "string[]", "answer": "object (its answer: a steer's steered, or its own turn's; a resend of one of its messages answers with it)"},
     "inbox_read": {"threadId": "string", "promptIds": "string[] (marked read by _acpmux/inbox_thread markRead)"},
     "inbox_removed": {"promptId": "string", "threadId": "string", "reason": "withdrawn (_acpmux/prompt_withdraw of an inbox item no notice carried yet; a restart drops it too)"},
     "queue_removed": {"promptId": "string", "turnId": "string", "queued": "number (still waiting)", "reason": "withdrawn? (_acpmux/prompt_withdraw; absent for _acpmux/queue_remove)"},

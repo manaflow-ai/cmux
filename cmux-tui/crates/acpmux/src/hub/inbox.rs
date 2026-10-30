@@ -36,13 +36,18 @@
 //!
 //! An agent's `session/prompt` waits for the notice that carries it and answers with that
 //! notice's answer: a steer's (`steered`, naming the turn it went into) or its own turn's; a
-//! chat that closes answers it with the closing error. A notice that does not go in (a steer
-//! refused or withdrawn, or a turn of its own stopped or failed before its prompt was written)
+//! chat that closes answers it with the closing error ([`Inbox::carrying`] holds the waiting
+//! senders, so a close reaches them). A notice goes in once its prompt is written to the agent
+//! (the writer confirmed it), as a steer or a turn of its own; only then are its messages noticed
+//! (an `inbox_noticed` record). The next notice goes no sooner than that, and behind a steer only
+//! once the agent took it at its tool step (its answer). One that does not go in (a
+//! steer refused or withdrawn, a turn of its own stopped or failed before its prompt was written)
 //! leaves its messages new, so none is lost; it is tried again no sooner than
-//! [`REFUSED_RETRY_MS`], or when a turn starts or ends. Its messages are noticed (an
-//! `inbox_noticed` record) only once it went in: a steer once answered, a turn once its prompt
-//! is written. A restart keeps the inbox (its records), a closed chat's included, and what was
-//! new is noticed again.
+//! [`REFUSED_RETRY_MS`], or when a turn starts or ends. A notice that went in logs its answer (an
+//! `inbox_answered` record): a resend of one of its messages, before or after a restart, answers
+//! with it, and a resend of one withdrawn before any notice carried it answers withdrawn
+//! ([`Inbox::removed`]). A restart keeps the inbox (its records), a closed chat's included, and
+//! what was new is noticed again.
 //!
 //! The timer: one per session ([`Inbox::timer`]), for an idle chat's next wake or flush. Stop
 //! condition: it wakes once, at its deadline, and ends; it is armed only while a new message
@@ -74,6 +79,8 @@ pub(super) struct Item {
     pub(super) prompt_id: String,
     /// The notice that carried it, once one went in: a resend answers with its outcome.
     pub(super) notice: Option<String>,
+    /// That notice's answer, once it ended (an `inbox_answered` record): a resend's answer.
+    pub(super) answered: Option<Value>,
     pub(super) thread: String,
     /// Its sender's name, and its session when it has one here (`sender_session`).
     pub(super) from: String,
@@ -89,25 +96,42 @@ pub(super) struct Item {
     /// The agent read it (`inbox_thread` with `markRead`).
     pub(super) read: bool,
     /// The waiting `session/prompt` that sent it, answered by its notice.
-    answer: Option<tokio::sync::watch::Sender<Option<super::queue::Answer>>>,
+    answer: Option<Waiter>,
 }
+
+/// The waiting `session/prompt` of an inbox message.
+type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
     pub(super) items: Vec<Item>,
-    /// The notice in flight: its prompt id and the messages it carries.
+    /// The notice in flight: its prompt id and the messages it carries. None goes after it until
+    /// it ends, or, a turn of its own, until its prompt is written to the agent.
     pub(super) in_flight: Option<(String, Vec<String>)>,
     /// The idle chat's wake timer.
     pub(super) timer: Option<tokio::task::AbortHandle>,
     /// Unix ms the chat last refused a notice; 0 since one went in or a turn started or ended.
     pub(super) refused_at: u64,
-    /// A notice whose turn started and whose prompt is not written yet: its prompt id and the
-    /// messages it carries, noticed (logged) once it is written (`inbox_prompt_written`).
-    pub(super) landing: Vec<(String, Vec<String>)>,
-    /// The notice turns whose prompt was written and whose task has not finished: they went in,
-    /// whatever their turn's end.
+    /// The notices whose prompt was written to the agent and whose task has not finished: they
+    /// went in, whatever their turn's end.
     pub(super) written: Vec<String>,
+    /// Every notice whose task has not finished: what it carries and the waiting senders it
+    /// answers. Here, not in its task, so a close answers them (`inbox_closed`).
+    pub(super) carrying: Vec<Carry>,
+    /// The messages withdrawn before any notice carried them (newest last, at most [`KEEP`]): a
+    /// resend of one answers withdrawn, never puts it back.
+    pub(super) removed: std::collections::VecDeque<String>,
+}
+
+/// A notice whose task has not finished (`Inbox::carrying`).
+pub(super) struct Carry {
+    pub(super) notice: String,
+    pub(super) ids: Vec<String>,
+    /// A steer: in flight until the agent took it at its tool step (its answer), so a turn
+    /// takes at most one notice per step.
+    steer: bool,
+    waiters: Vec<(String, Waiter)>,
 }
 
 /// What [`Hub::inbox_unsend`] did with an inbox item.
@@ -416,7 +440,8 @@ impl Hub {
         let text = prompt_text(blocks);
         let thread = thread_key(explicit, sender, &text);
         let (tx, mut rx) = tokio::sync::watch::channel(None);
-        let mut resent_notice: Option<Option<String>> = None;
+        let mut resent: Option<(Option<Value>, Option<String>)> = None;
+        let mut withdrawn = false;
         let fresh = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             // Read under the inbox's lock: `kill` marks the chat closed before `inbox_closed`
@@ -424,41 +449,63 @@ impl Hub {
             if session.meta().status == SessionStatus::Closed {
                 return Err(super::queue::closing_error());
             }
-            match inbox.items.iter_mut().find(|i| i.prompt_id == prompt_id) {
-                // A resend of one it holds: answered with it.
-                Some(item) if !item.noticed || item.answer.is_some() => {
-                    rx = item.answer.get_or_insert_with(|| tx.clone()).subscribe();
-                    false
+            let carry = inbox.carrying.iter_mut().find(|c| c.ids.iter().any(|id| id == prompt_id));
+            if let Some(carry) = carry {
+                // A resend of one a notice carries now: answered with that notice.
+                match carry.waiters.iter().find(|(id, _)| id == prompt_id) {
+                    Some((_, waiter)) => rx = waiter.subscribe(),
+                    None => carry.waiters.push((prompt_id.to_owned(), tx.clone())),
                 }
-                // A resend of one a notice carried and answered already (or before a restart):
-                // answered with that notice's outcome from the log, as a resend of a logged
-                // prompt is (`logged_prompt`).
-                Some(item) => {
-                    resent_notice = Some(item.notice.clone());
-                    false
-                }
-                None => {
-                    inbox.items.push(Item {
-                        prompt_id: prompt_id.to_owned(),
-                        notice: None,
-                        thread: thread.clone(),
-                        from: sender.to_owned(),
-                        from_session: sender_session(provenance),
-                        class,
-                        report: is_report(provenance),
-                        at: now_ms(),
-                        text: text.clone(),
-                        noticed: false,
-                        read: false,
-                        answer: Some(tx.clone()),
-                    });
-                    trim(&mut inbox);
-                    true
+                false
+            } else if inbox.removed.iter().any(|id| id == prompt_id) {
+                // A resend of one withdrawn before a notice carried it: never back in.
+                withdrawn = true;
+                false
+            } else {
+                match inbox.items.iter_mut().find(|i| i.prompt_id == prompt_id) {
+                    // A resend of one it holds: answered with it.
+                    Some(item) if !item.noticed || item.answer.is_some() => {
+                        rx = item.answer.get_or_insert_with(|| tx.clone()).subscribe();
+                        false
+                    }
+                    // A resend of one a notice carried and answered already (or before a restart):
+                    // answered with that notice's answer, as a resend of a logged prompt is
+                    // (`logged_prompt`).
+                    Some(item) => {
+                        resent = Some((item.answered.clone(), item.notice.clone()));
+                        false
+                    }
+                    None => {
+                        inbox.items.push(Item {
+                            prompt_id: prompt_id.to_owned(),
+                            notice: None,
+                            answered: None,
+                            thread: thread.clone(),
+                            from: sender.to_owned(),
+                            from_session: sender_session(provenance),
+                            class,
+                            report: is_report(provenance),
+                            at: now_ms(),
+                            text: text.clone(),
+                            noticed: false,
+                            read: false,
+                            answer: Some(tx.clone()),
+                        });
+                        trim(&mut inbox);
+                        true
+                    }
                 }
             }
         };
-        if let Some(notice) = resent_notice {
-            let logged = notice.and_then(|id| self.logged_prompt(session, &id));
+        if withdrawn {
+            accept(
+                json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "inbox": true, "withdrawn": true}),
+            );
+            return Ok(super::queue::withdrawn_reply(prompt_id, ""));
+        }
+        if let Some((answered, notice)) = resent {
+            let logged =
+                answered.or_else(|| notice.and_then(|id| self.logged_prompt(session, &id)));
             let mut done = logged.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
             merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
             tx.send_replace(Some(Ok(done)));
@@ -585,7 +632,7 @@ impl Hub {
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
         let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
-        let (text, parts, ids, waiters) = {
+        let (text, parts, ids) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
                 return;
@@ -608,7 +655,9 @@ impl Hub {
                 }
             }
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
-            (text, parts, ids, waiters)
+            let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
+            inbox.carrying.push(carry);
+            (text, parts, ids)
         };
         let provenance = json!({"kind": NOTICE_KIND, "noticeId": notice_id, "threads": parts});
         let opts = PromptOptions {
@@ -622,128 +671,105 @@ impl Hub {
         tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": text})];
             let result = Box::pin(hub.run_prompt(&s, blocks, CLIENT, steer, opts)).await;
-            // In unless it was withdrawn or cancelled; a turn of its own also once its prompt was
-            // written (`inbox_prompt_written`), however its turn then ended (a Stop after the
-            // agent read it).
-            let answered = result.as_ref().is_ok_and(|v| {
-                !matches!(
-                    v.get("stopReason").and_then(Value::as_str),
-                    Some("withdrawn") | Some("cancelled")
-                )
-            });
-            let went_in = hub.notice_written(&s, &notice_id) || answered;
-            hub.notice_done(&s, &notice_id, &ids, waiters, result, went_in);
+            // In once its prompt was written to the agent (`inbox_prompt_written`), as a steer
+            // or a turn of its own, however it then ended (a Stop after the agent read it).
+            hub.notice_done(&s, &notice_id, &ids, result);
         });
     }
 
-    /// A notice ended: in, its messages are noticed (logged) and their senders answered; not in,
-    /// they are new again and wait on, and a refusal holds the next try back.
-    #[allow(clippy::too_many_arguments)]
+    /// A notice ended: in (its prompt was written), its senders are answered with its answer;
+    /// not in, its messages are new again and wait on, and the refusal holds the next try back.
     fn notice_done(
         self: &Arc<Self>,
         session: &Arc<Session>,
         notice_id: &str,
         ids: &[String],
-        waiters: Vec<(String, tokio::sync::watch::Sender<Option<super::queue::Answer>>)>,
         result: super::queue::Answer,
-        went_in: bool,
     ) {
-        let first = {
+        let answered = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            // Not logged yet: still in flight (a steer), or its turn started and no written
-            // prompt logged it (`inbox_prompt_written`).
-            let first = inbox.in_flight.as_ref().is_some_and(|(id, _)| id == notice_id);
-            if first {
+            if inbox.in_flight.as_ref().is_some_and(|(id, _)| id == notice_id) {
                 inbox.in_flight = None;
             }
-            let landed = inbox.landing.iter().position(|(id, _)| id == notice_id);
-            let first = landed.map(|i| inbox.landing.remove(i)).is_some() || first;
+            let at = inbox.written.iter().position(|id| id == notice_id);
+            let went_in = at.map(|i| inbox.written.remove(i)).is_some();
+            let at = inbox.carrying.iter().position(|c| c.notice == notice_id);
+            let waiters = at.map(|i| inbox.carrying.remove(i).waiters).unwrap_or_default();
+            // Read under the inbox's lock, as `inbox_accept` reads it: a chat closed since
+            // answers its waiting senders here, else `inbox_closed` did or will.
+            let closed = super::queue::closing(session);
             if went_in {
                 inbox.refused_at = 0;
+                let answer = if closed { Err(super::queue::closing_error()) } else { result };
+                let answered = answer.as_ref().ok().cloned();
+                if let Some(v) = &answered {
+                    for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                        item.answered = Some(v.clone());
+                    }
+                }
+                for (_, waiter) in waiters {
+                    waiter.send_replace(Some(answer.clone()));
+                }
+                answered
             } else {
                 // Tried again after the backoff, or sooner when a turn starts or ends.
                 inbox.refused_at = now_ms();
                 for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
                     item.noticed = false;
                 }
-                // Read under the inbox's lock, as `inbox_accept` reads it: a chat closed since
-                // answers its waiting senders here, else `inbox_closed` will.
-                let closed = super::queue::closing(session);
-                for (id, answer) in waiters {
+                // One waiter per message while carried (`inbox_accept`): back on its message.
+                for (id, waiter) in waiters {
                     match inbox.items.iter_mut().find(|i| i.prompt_id == id) {
-                        Some(item) if !closed => item.answer = Some(answer),
+                        Some(item) if !closed => item.answer = Some(waiter),
                         _ => {
-                            answer.send_replace(Some(Err(super::queue::closing_error())));
+                            waiter.send_replace(Some(Err(super::queue::closing_error())));
                         }
                     }
                 }
-                drop(inbox);
-                self.inbox_review(session);
-                return;
+                None
             }
-            first
         };
-        if first {
-            self.log_noticed(session, notice_id, ids);
-        }
-        // A chat that closed meanwhile answers with the closing error, as `inbox_closed` does.
-        let result = match super::queue::closing(session) {
-            true => Err(super::queue::closing_error()),
-            false => result,
-        };
-        for (_, answer) in waiters {
-            answer.send_replace(Some(result.clone()));
+        if let Some(answer) = answered {
+            let msg = json!({"noticePromptId": notice_id, "promptIds": ids, "answer": answer});
+            self.append(session, "mux", "inbox_answered", msg);
         }
         self.inbox_review(session);
     }
 
-    fn log_noticed(&self, session: &Session, notice_id: &str, ids: &[String]) {
-        {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
-                item.notice = Some(notice_id.to_owned());
-            }
-        }
-        let msg = json!({"noticePromptId": notice_id, "promptIds": ids});
-        self.append(session, "mux", "inbox_noticed", msg);
-    }
-
-    /// A turn started (`run_prompt_joined`): the notice that is it went in. What is new steers
-    /// into it once its prompt is written (`inbox_review` there).
-    pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
+    /// A turn started (`run_prompt_joined`): a refusal before it no longer holds the next try
+    /// back, and its wake timer is done.
+    pub(super) fn inbox_turn_started(self: &Arc<Self>, session: &Arc<Session>) {
         self.disarm_inbox(session);
-        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-        inbox.refused_at = 0;
-        if let Some((id, ids)) = inbox.in_flight.take_if(|(id, _)| id == prompt_id) {
-            // No longer in flight, so what comes during its turn steers in; noticed (logged) only
-            // once its prompt is written, so a turn that fails before leaves its messages new.
-            inbox.landing.push((id, ids));
-        }
+        session.inbox.lock().unwrap_or_else(|e| e.into_inner()).refused_at = 0;
     }
 
-    /// A turn's prompt was written to its agent (`run_prompt_joined`): a notice that is it went
-    /// in, and what is new may steer in behind it.
+    /// A prompt was written to its agent (a turn's in `run_prompt_joined`, a steer's in
+    /// `steer_turn`): the notice in flight that is it went in, its messages are noticed (logged),
+    /// and what is new may follow it.
     pub(super) fn inbox_prompt_written(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         let landed = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            let at = inbox.landing.iter().position(|(id, _)| id == prompt_id);
-            let landed = at.map(|i| inbox.landing.remove(i));
-            if landed.is_some() {
-                inbox.written.push(prompt_id.to_owned());
+            // A turn of its own lets the next notice steer in behind it now; a steer is in
+            // flight until the agent took it (`notice_done`).
+            let steer = inbox.carrying.iter().any(|c| c.notice == prompt_id && c.steer);
+            let landed = match &inbox.in_flight {
+                Some((id, _)) if id == prompt_id && steer => inbox.in_flight.clone(),
+                Some((id, _)) if id == prompt_id => inbox.in_flight.take(),
+                _ => None,
+            };
+            if let Some((id, ids)) = &landed {
+                inbox.written.push(id.clone());
+                for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
+                    item.notice = Some(id.clone());
+                }
             }
             landed
         };
         if let Some((id, ids)) = landed {
-            self.log_noticed(session, &id, &ids);
+            let msg = json!({"noticePromptId": id, "promptIds": ids});
+            self.append(session, "mux", "inbox_noticed", msg);
         }
         self.inbox_review(session);
-    }
-
-    /// Whether notice `notice_id`'s turn had its prompt written; forgets it.
-    fn notice_written(&self, session: &Session, notice_id: &str) -> bool {
-        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-        let at = inbox.written.iter().position(|id| id == notice_id);
-        at.map(|i| inbox.written.remove(i)).is_some()
     }
 
     /// A turn ended (`finish_turn`, `fail_unstarted_turn`): a refusal during it no longer holds
@@ -757,10 +783,11 @@ impl Hub {
     pub(super) fn inbox_closed(&self, session: &Session) {
         self.disarm_inbox(session);
         let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-        for item in &mut inbox.items {
-            if let Some(answer) = item.answer.take() {
-                answer.send_replace(Some(Err(super::queue::closing_error())));
-            }
+        let carried = inbox.carrying.iter_mut().flat_map(|c| c.waiters.drain(..).map(|(_, w)| w));
+        let waiting: Vec<Waiter> = carried.collect();
+        let held = inbox.items.iter_mut().filter_map(|i| i.answer.take());
+        for answer in waiting.into_iter().chain(held.collect::<Vec<_>>()) {
+            answer.send_replace(Some(Err(super::queue::closing_error())));
         }
     }
 
@@ -794,7 +821,8 @@ impl Hub {
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
         let mut removed: std::collections::HashSet<String> = Default::default();
-        let kinds = ["inbox", "inbox_noticed", "inbox_read", "inbox_removed"];
+        let mut answered: std::collections::HashMap<String, Value> = Default::default();
+        let kinds = ["inbox", "inbox_noticed", "inbox_answered", "inbox_read", "inbox_removed"];
         let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let ids = || {
                 let ids = e.msg.get("promptIds").and_then(Value::as_array).cloned();
@@ -808,6 +836,7 @@ impl Hub {
                     items.push(Item {
                         prompt_id: field("promptId").to_owned(),
                         notice: None,
+                        answered: None,
                         thread: field("threadId").to_owned(),
                         from: field("from").to_owned(),
                         from_session: e
@@ -829,6 +858,12 @@ impl Hub {
                     let notice = notice.unwrap_or_default().to_owned();
                     noticed.extend(ids().map(|id| (id, notice.clone())));
                 }
+                "inbox_answered" => {
+                    let notice = e.msg.get("noticePromptId").and_then(Value::as_str);
+                    if let (Some(notice), Some(answer)) = (notice, e.msg.get("answer")) {
+                        answered.insert(notice.to_owned(), answer.clone());
+                    }
+                }
                 "inbox_read" => read.extend(ids()),
                 "inbox_removed" => {
                     let id = e.msg.get("promptId").and_then(Value::as_str).unwrap_or_default();
@@ -843,6 +878,9 @@ impl Hub {
         }
         let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
         for mut item in items {
+            if removed.contains(&item.prompt_id) && !inbox.removed.contains(&item.prompt_id) {
+                inbox.removed.push_back(item.prompt_id.clone());
+            }
             if item.prompt_id.is_empty()
                 || removed.contains(&item.prompt_id)
                 || inbox.items.iter().any(|i| i.prompt_id == item.prompt_id)
@@ -850,9 +888,13 @@ impl Hub {
                 continue;
             }
             item.notice = noticed.get(&item.prompt_id).cloned().filter(|n| !n.is_empty());
+            item.answered = item.notice.as_ref().and_then(|n| answered.get(n).cloned());
             item.noticed = noticed.contains_key(&item.prompt_id);
             item.read = read.contains(&item.prompt_id);
             inbox.items.push(item);
+        }
+        while inbox.removed.len() > KEEP {
+            inbox.removed.pop_front();
         }
         trim(&mut inbox);
     }
@@ -867,7 +909,13 @@ impl Hub {
             match inbox.items.iter().position(|i| i.prompt_id == prompt_id) {
                 None => return Unsend::Gone,
                 Some(i) if inbox.items[i].noticed => return Unsend::Noticed,
-                Some(i) => inbox.items.remove(i),
+                Some(i) => {
+                    if inbox.removed.len() >= KEEP {
+                        inbox.removed.pop_front();
+                    }
+                    inbox.removed.push_back(prompt_id.to_owned());
+                    inbox.items.remove(i)
+                }
             }
         };
         let why = json!({"promptId": prompt_id, "threadId": removed.thread, "reason": "withdrawn"});
@@ -1004,8 +1052,9 @@ fn trim(inbox: &mut Inbox) {
     let carried: std::collections::HashSet<String> = inbox
         .in_flight
         .iter()
-        .chain(inbox.landing.iter())
-        .flat_map(|(_, ids)| ids.iter().cloned())
+        .map(|(_, ids)| ids)
+        .chain(inbox.carrying.iter().map(|c| &c.ids))
+        .flat_map(|ids| ids.iter().cloned())
         .collect();
     let items = &mut inbox.items;
     while items.len() > KEEP {

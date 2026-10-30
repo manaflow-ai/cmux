@@ -462,7 +462,7 @@ impl Hub {
         self.arm_turn_cap(session, &turn_id);
         // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
         // (below), and what is new steers in then.
-        self.inbox_turn_started(session, &prompt_id);
+        self.inbox_turn_started(session);
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
@@ -697,6 +697,7 @@ impl Hub {
             false,
             fence.as_ref(),
             confirm_team_write,
+            None,
             || {
                 self.mark_team_messages(session, &team_messages);
                 if team_enabled {
@@ -846,6 +847,7 @@ impl Hub {
                                         false,
                                         fence.as_ref(),
                                         confirm_team_write,
+                                        None,
                                         || {
                                             self.mark_team_messages(session, &team_messages);
                                             if team_enabled {

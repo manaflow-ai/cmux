@@ -345,11 +345,23 @@ async fn an_inbox_message_is_unsent_until_a_notice_carries_it_then_retracted_in_
     assert_eq!(answered[&waiting]["_meta"]["acpmux"]["withdrawn"], true, "{answered:?}");
     let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
     assert_eq!(threads["threads"], json!([]), "{threads}");
+    // Sent again, a withdrawn message answers withdrawn and never goes back in.
+    let resent =
+        c.send(method::SESSION_PROMPT, from_agent(&id, "a-1", "lane-b", "merged", json!({}))).await;
+    let answered = answers(&mut c, &[resent]).await;
+    assert_eq!(answered[&resent]["_meta"]["acpmux"]["withdrawn"], true, "{answered:?}");
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(threads["threads"], json!([]), "{threads}");
 
     // A blocker wakes the chat; once its notice carried it, a withdraw retracts it in its thread.
     let blocker = from_agent(&id, "b-1", "lane-d", "blocked on #12", json!({"class": "blocker"}));
     let blocker = c.send(method::SESSION_PROMPT, blocker).await;
-    answers(&mut c, &[blocker]).await;
+    let first = answers(&mut c, &[blocker]).await;
+    // Sent again, it answers with its notice's answer, and no second notice carries it.
+    let resend = from_agent(&id, "b-1", "lane-d", "blocked on #12", json!({"class": "blocker"}));
+    let resend = c.send(method::SESSION_PROMPT, resend).await;
+    let again = answers(&mut c, &[resend]).await;
+    assert_eq!(again[&resend]["stopReason"], first[&blocker]["stopReason"], "{again:?} {first:?}");
     let retract = json!({"sessionId": id, "promptId": "b-1"});
     let retracted = c.request("_acpmux/prompt_withdraw", retract).await.unwrap();
     assert_eq!(retracted["outcome"], "retracted", "{retracted}");
