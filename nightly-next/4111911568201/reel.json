@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4111911568201",
+  "notes": "notes/4111911568201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28015,
+      "title": "acpmux: per-session usage (usageStats) in ls --wide, --json and session info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28332,
+      "title": "agent-pane-policy: allow acp.session.fork's live param, as the Swift host sends it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27808,
+      "title": "fix(agent-pane): make the Summary popover glass, not solid",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28412,
+      "title": "acpmux: a host start ends on the host's answer or exit, never on a 10 s clock (P-AUSTIN B10)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27929,
+      "title": "cmux NEXT agent page: hidden pages draw nothing; the reload copy keeps a bounded session list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28489,
+      "title": "iOS agent chat: Retry keeps the turn's attachments",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28477,
+      "title": "base red: acpmux: two #27921 regressions (inbox held 30 s after every turn; a put-back message's resend answered withdrawn)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28490,
+      "title": "ci(cmux-next): the Mac fast tier runs only on what it reads; an `on:`-only workflow edit is CI-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27752,
+      "title": "Home: read every page of the Cloud inbox (Mac, daemon, classic iOS)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28478,
+      "title": "cmux mcp: a script that destructures its argument runs; read-scrollback grader accepts v84",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
