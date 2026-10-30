@@ -83,6 +83,18 @@ struct WorkspaceTabHoverCardTests {
         #expect(selected?.1 == TabID("review"))
     }
 
+    @Test func cardStartsWithTabsAndCollapsedDetailsThenToggleRevealsDetails() throws {
+        let card = WorkspaceHoverCardView()
+        card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
+                       facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
+        card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("tab"), title: "Tab")])
+        #expect(card.lines.contains("Tab"))
+        #expect(!card.isDetailsExpanded)
+        card.detailsToggle.performClick(nil)
+        #expect(card.isDetailsExpanded)
+        #expect(card.lines.contains("Keep this detail"))
+    }
+
     @Test func overflowExpandsWithoutRemovingDetailsAndResetsForAnotherWorkspace() throws {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,

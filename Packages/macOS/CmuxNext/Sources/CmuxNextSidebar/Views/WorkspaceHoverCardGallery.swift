@@ -71,9 +71,10 @@ public struct WorkspaceHoverCardGallery {
             SidebarTab(id: TabID("docs-\($0)"), title: "Documentation \($0)", kind: .browser, state: .success)
         }
         let variants: [(String, WorkspaceHoverCardView.TabPlacement, Int, Bool)] = [
-            ("Tabs after status · 4 + more · chosen", .afterStatus, 4, true),
+            ("Tabs after status · 4 + more", .afterStatus, 4, true),
             ("Tabs below title · 3 + more", .afterTitle, 3, true),
             ("Tabs below details · 6 compact + more", .afterDetails, 6, false),
+            ("Tabs first · details collapsed · chosen", .afterTitle, 4, true),
         ]
         let tabCards = variants.map { name, placement, limit, details in
             let card = WorkspaceHoverCardView(tabPlacement: placement, tabLimit: limit, tabDetails: details)

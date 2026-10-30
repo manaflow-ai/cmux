@@ -261,6 +261,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardTextReporting {
     enum TabPlacement { case afterTitle, afterStatus, afterDetails }
     let tabList: WorkspaceTabHoverCardView
+    private let tabPlacement: TabPlacement
 
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool { tabList.handleHoverCardKeyDown(event) }
     private static var padding: CGFloat { Metrics.space4 }
@@ -305,6 +306,10 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let statsLabel = ChromeLabel(labelWithString: "")
     /// The stats line's row, which puts it on the text column (hidden with it).
     private let statsRow = NSStackView()
+    /// Rex-style default: tabs are the useful affordance; rich details stay behind an explicit toggle.
+    let detailsToggle = ClickableButton(title: "Show details", target: nil, action: nil)
+    private var detailsExpanded = false
+    var isDetailsExpanded: Bool { detailsExpanded }
     /// The scrollable history of prompts, waits and finished turns (u3320).
     let timeline = WorkspaceHoverCardTimelineView()
     /// The card's widest; the full history layout widens it.
@@ -332,6 +337,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private var activityWord: String?
 
     init(tabPlacement: TabPlacement = .afterStatus, tabLimit: Int = 4, tabDetails: Bool = true) {
+        self.tabPlacement = tabPlacement
         tabList = WorkspaceTabHoverCardView(rowHeight: tabDetails ? 36 : 26, rowLimit: tabLimit, showsFolder: tabDetails)
         super.init(frame: .zero)
         let content = self
@@ -355,6 +361,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         statsLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         statsLabel.lineBreakMode = .byTruncatingTail
         timeline.isHidden = true
+        detailsToggle.isBordered = false
+        detailsToggle.font = Typography.caption
+        detailsToggle.alignment = .left
+        detailsToggle.target = self
+        detailsToggle.action = #selector(toggleDetails)
 
         // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
         // grid), so the kind icon leads the name instead of floating after it.
@@ -385,10 +396,14 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         statsRow.setViews([statsLabel], in: .leading)
         statsRow.edgeInsets = NSEdgeInsets(top: 0, left: Self.textInset, bottom: 0, right: 0)
         statsRow.isHidden = true
-        builtIn = [titleRow, activityRow, statsRow, factsStack, timeline, resourceRow]
+        builtIn = [activityRow, statsRow, factsStack, timeline, resourceRow]
+        // The shipped card is Rex-style: tabs are immediately available and a one-click
+        // details disclosure keeps the existing rich content available. Gallery variants
+        // retain their requested tab placement when details are expanded.
         var rows: [NSView] = [customSlot, titleRow, activityRow, statsRow, factsStack, timeline, resourceRow, customError]
-        let index = tabPlacement == .afterTitle ? 2 : (tabPlacement == .afterStatus ? 4 : 7)
-        rows.insert(tabList, at: index)
+        let tabIndex = tabPlacement == .afterTitle ? 2 : (tabPlacement == .afterStatus ? 4 : 7)
+        rows.insert(tabList, at: tabIndex)
+        rows.insert(detailsToggle, at: tabIndex + 1)
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -464,6 +479,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
+        if self.content?.title != content.title { detailsExpanded = false }
         self.content = content
         width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
         widthLimit?.constant = width
@@ -508,6 +524,26 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
                                maxHeight: log ? Self.logMaxHeight : Self.timelineMaxHeight, textLines: log ? 3 : 2, now: now)
         }
         applyColors()
+        updateDetailsVisibility()
+    }
+
+    @objc private func toggleDetails() {
+        detailsExpanded.toggle()
+        if detailsExpanded, let content { configure(content) }
+        updateDetailsVisibility()
+        needsLayout = true
+    }
+
+    private func updateDetailsVisibility() {
+        detailsToggle.title = detailsExpanded ? "Hide details" : "Show details"
+        if !detailsExpanded {
+            for view in builtIn { view.isHidden = true }
+            customSlot.isHidden = true
+            customError.isHidden = true
+        }
+        // The card always has status/details available for this workspace; keep
+        // the control visible while collapsed so one click reveals them.
+        detailsToggle.isHidden = content == nil
     }
 
     /// Every text an embedded view shows, by its accessibility (a SwiftUI scene has no labels).
@@ -586,6 +622,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let error = content?.errorText
         customError.stringValue = error.map(Strings.customCardError) ?? ""
         customError.isHidden = error == nil || ready
+        updateDetailsVisibility()
         applyColors()
     }
 

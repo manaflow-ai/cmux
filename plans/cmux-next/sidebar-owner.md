@@ -577,9 +577,4 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Workspace hover preview includes its tabs (2026-10-30)
 
 Leo: "and also why dont we have the rex thing yet of being abel to access the individual tabs in a workspace on its hover preview the best of both worlds thing"
-The existing status, prompts, history and custom content stay visible. Four clickable inner tabs sit after the status;
-Show more exposes the remaining tabs in the same bounded scroll area. Each click uses the existing workspace/tab
-selection intent. The gallery compares this with three tabs under the title and six compact tabs below the details.
-This carries #24785's interaction and stale-press repair, without its proposed rich-details toggle.
-
-- Gallery variant audit is recorded with the chosen tabs-first default.
+Leo also said on 2026-10-24: "default just only show the inner tabs on hover and be able to go to and focus them when hovering ovre workspaces … wouldnt first prompt/input needing/whatever MAYBE be nice...? idk tho. we can tuck that behind toggle". The shipped card therefore opens with four clickable inner tabs and a one-click Show details control; Gallery count and overflow remain bounded. status, prompts, history, usage and custom content stay available behind that toggle. Show more exposes remaining tabs in the same bounded scroll area. Each click uses the existing workspace/tab selection intent. The gallery compares tabs below the title, tabs after status (chosen), and compact tabs below details, plus the collapsed-details default.
