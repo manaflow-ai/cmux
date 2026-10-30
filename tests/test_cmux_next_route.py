@@ -306,11 +306,53 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["daemon"], "true")
         self.assertIn("CmuxNextDaemonTests", result["swift_targets"].split())
 
-    def test_cmux_tui_runs_the_daemon_tier_and_the_scheme_compile(self):
-        result = tiers(["cmux-tui/crates/cmux-app-host/src/lib.rs"])
-        self.assertEqual(result["daemon"], "true")
+    def test_cmux_tui_runs_the_daemon_tier_without_a_mac_compile(self):
+        """Rust no Swift compile reads runs the daemon tier only: no fleet Release compile (cmux-next/compile)
+        and no scheme compile (#27921, #27815, #28180 held for hours on a compile that changed nothing)."""
+        for changed in (["cmux-tui/crates/cmux-app-host/src/lib.rs"],
+                        ["cmux-tui/crates/acpmux/src/peer.rs", "cmux-tui/crates/acpmux/tests/durable_agents.rs"],
+                        ["cmux-tui/crates/acpmux/Cargo.toml"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                self.assertEqual(result["daemon"], "true")
+                self.assertEqual(result["native"], "false")
+                self.assertEqual(result["scheme"], "false")
+                self.assertEqual(result["swift_targets"], "")
+
+    def test_cmux_tui_a_dev_build_still_bundles_it(self):
+        result = tiers(["cmux-tui/crates/acpmux/src/peer.rs"], labels=frozenset({"dev-build"}))
         self.assertEqual(result["scheme"], "true")
-        self.assertEqual(result["swift_targets"], "")
+        self.assertEqual(result["native"], "false")
+
+    def test_app_ffi_sources_run_the_swift_compiles(self):
+        """CCmuxAppFFI links into the app: its crates, and every crate they reach through Cargo path or
+        workspace dependencies (check-app-ffi-pin.sh --list-inputs), still run native and scheme."""
+        for path in ("cmux-tui/crates/cmux-app-ffi/src/lib.rs", "cmux-tui/crates/cmux-layout-reducer-ffi/src/lib.rs",
+                     "cmux-tui/crates/cmux-rd-ffi/src/lib.rs", "cmux-tui/crates/cmux-remote-browser/src/lib.rs",
+                     "cmux-tui/rust-toolchain.toml"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                self.assertEqual(result["native"], "true")
+                self.assertEqual(result["scheme"], "true")
+                self.assertEqual(result["daemon"], "true")
+
+    def test_app_ffi_inputs_match_the_pin_check(self):
+        """The router's CCmuxAppFFI crates are the ones check-app-ffi-pin.sh derives."""
+        import subprocess
+        import cmux_next_route as route_module
+        listed = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"), "--list-inputs"],
+                                check=True, capture_output=True, text=True).stdout.split()
+        crates = {p + "/" for p in listed if p.startswith("cmux-tui/crates/")}
+        self.assertTrue(crates)
+        self.assertLessEqual(crates, set(route_module.app_ffi_inputs(ROOT)))
+
+    def test_rust_an_app_scheme_build_phase_reads_runs_the_scheme_compile(self):
+        """The diff sidecar and mobile host phases build crates of their own; those still compile the scheme."""
+        for path in ("cmux-tui/crates/cmux-git/src/lib.rs", "cmux-tui/crates/cmux-wg/src/lib.rs", "cmux-tui/Cargo.lock"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                self.assertEqual(result["scheme"], "true")
+                self.assertEqual(result["native"], "false")
 
     def test_a_file_a_test_reads_selects_that_test(self):
         # CmuxNextSettingsTests reads the schema. Since the bundles are build output
