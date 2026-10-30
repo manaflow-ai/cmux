@@ -11,7 +11,11 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { backgroundGroups, type BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
-import { SubagentTranscript, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import {
+  NestedAgents,
+  SubagentTranscript,
+  WINDOW,
+} from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -196,4 +200,28 @@ test("a workflow agent opened from the panel draws its transcript, loading first
   );
   expect(transcript.textContent).toContain("Reviewed the diff");
   expect(transcript.textContent).not.toContain("Loading");
+});
+
+test("a workflow named in a subagent's transcript opens no empty transcript", async () => {
+  const container = installDom();
+  const opened: string[] = [];
+  const workflowRow: AcpmuxRow = {
+    id: "w",
+    version: 1,
+    at: 0,
+    kind: SUBAGENTS,
+    subagents: [{ id: "wf", parent: "a", name: "Workflow", kind: "workflow", state: "running", startedAt: 1 }],
+  };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <NestedAgents.Provider value={{ open: (id) => opened.push(id) }}>
+        <SubagentTranscript rows={[workflowRow]} running />
+      </NestedAgents.Provider>,
+    ),
+  );
+  const line = container.querySelector<HTMLButtonElement>(".acpmux-bg__task-open")!;
+  expect(line.disabled).toBe(true);
+  await act(async () => line.click());
+  expect(opened).toEqual([]);
 });

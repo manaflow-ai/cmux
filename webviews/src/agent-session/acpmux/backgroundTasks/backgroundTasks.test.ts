@@ -132,7 +132,9 @@ describe("backgroundGroups", () => {
     const workflow = agent("wf", {
       kind: "workflow",
       runId: "wf_run",
-      workflowAgents: new Map([[1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }]]),
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+      ]),
     });
     const [only] = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
     expect(only).toMatchObject({ stop: { kind: "agent", id: "wf" } });

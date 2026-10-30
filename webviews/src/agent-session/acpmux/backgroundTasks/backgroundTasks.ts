@@ -22,7 +22,10 @@
 // A Claude workflow (a subagent of kind `workflow`) has no rows of its own in `subagentViews`: its
 // agents' transcripts live in the run's folder and load through `_acpmux` (summary/
 // useWorkflowTranscript.ts). Its agents that started are its tasks, each with the workflow pane id
-// its transcript reads by (`workflow`); the workflow's own line opens no transcript, since it has none.
+// its transcript reads by (`workflow`), whether the workflow is a group of its own or nested under an
+// agent; the workflow's own line opens no transcript, since it has none. Stop is the workflow's own,
+// on its line, as in the workflow pane (summary/WorkflowSideTab.tsx): acpmux stops a run, not one
+// agent of it, so a workflow's agents carry no stop button of their own.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import type { BackgroundCommand } from "../inspector/processes";
 import type { StartedSession } from "../started/startedSessions";
@@ -259,6 +262,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
         ...(child.kind !== "workflow" && { agentId: child.id }),
         ...(child.state === "running" && { stop: { kind: "agent", id: child.id } as StopTarget }),
       });
+    // A nested workflow's agents are tasks of the top agent too, each opening its own transcript.
+    for (const child of descendants) if (child.kind === "workflow") tasks.push(...workflowTasks(child, sessionId));
     const state = agentState(agent);
     groups.push({
       id: `agent:${agent.id}`,

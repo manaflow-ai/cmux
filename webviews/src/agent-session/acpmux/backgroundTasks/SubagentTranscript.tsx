@@ -186,6 +186,8 @@ const TranscriptRow = memo(
               id={agent.id}
               name={agent.task?.trim() || agent.name}
               running={agent.state === "running"}
+              // A workflow has no transcript of its own (its agents' are listed in the panel).
+              opens={agent.kind !== "workflow"}
             />
           ))}
         </div>
@@ -215,8 +217,9 @@ export const NestedAgents = createContext<{
   stop?(agentId: string, name: string): ReactNode;
 }>({});
 
-function NestedAgent({ id, name, running }: { id: string; name: string; running: boolean }) {
-  const { open, stop } = useContext(NestedAgents);
+function NestedAgent({ id, name, running, opens }: { id: string; name: string; running: boolean; opens: boolean }) {
+  const { open: openAgent, stop } = useContext(NestedAgents);
+  const open = opens ? openAgent : undefined;
   return (
     <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
       <button type="button" className="acpmux-bg__task-open" disabled={!open} onClick={() => open?.(id)}>
