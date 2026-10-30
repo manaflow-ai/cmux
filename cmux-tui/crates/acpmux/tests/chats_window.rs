@@ -400,3 +400,60 @@ async fn a_query_window_ranks_like_the_palette_and_reports_how_many_matched() {
         "only chats that hold both words: {full}"
     );
 }
+
+/// No regression (lead, review of #28090): the palette ranked a chat the person chose before above
+/// one with the same match. The page sends its choice history (`history`: the palette ranker's
+/// frecency for `chat:<key>` and its clock), and acpmux ranks with it. With no query the window
+/// counts every chat it could show (`count`), so the page can say how many more there are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_query_window_ranks_past_choices_first_and_a_counted_window_reports_its_total() {
+    const N: usize = 30;
+    let base =
+        PathBuf::from("/tmp").join(format!("acpmux-window-history-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    let day_ago = std::time::SystemTime::now() - Duration::from_secs(86_400);
+    // Every chat's title is "fix the flaky build"; chat i was last used i seconds after a day ago.
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record(i, i, "fix the flaky build"))).unwrap();
+        let at = day_ago + Duration::from_secs(i as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0, VecDeque::new());
+
+    // The oldest chat was chosen often and lately: with an equal match it ranks first.
+    let now = 1_000_000.0;
+    let chosen = format!("chat:{}", key(0));
+    let history = json!({"now": now, "frecency": {"entries": {chosen: {"score": 5.0, "lastUsed": now - 60.0}},
+                                                  "halfLife": 259_200.0}});
+    let params = json!({"window": "chosen", "gen": 1, "query": "fix build", "limit": 3,
+                        "history": history.to_string()});
+    c.ok("_acpmux/chats_window", params).await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full)[0], key(0), "the chat chosen before ranks first: {full}");
+    assert_eq!(keys(&full)[1], key(N - 1), "then the newest: {full}");
+
+    // No query: the newest chats, and how many chats the window could show in all.
+    c.ok("_acpmux/chats_window", json!({"window": "newest", "gen": 1, "limit": 5, "count": true}))
+        .await;
+    let full = c.next_window().await;
+    assert_eq!(keys(&full).len(), 5, "{full}");
+    assert_eq!(keys(&full)[0], key(N - 1), "newest first: {full}");
+    assert_eq!(full["total"], N, "a counted window reports its total: {full}");
+}
