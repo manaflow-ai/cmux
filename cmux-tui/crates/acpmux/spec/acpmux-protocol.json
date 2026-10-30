@@ -4008,6 +4008,10 @@
         "name": {
           "type": "string"
         },
+        "nameGiven": {
+          "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
+          "type": "boolean"
+        },
         "parent": {
           "default": null,
           "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
@@ -4540,6 +4544,10 @@
         "name": {
           "type": "string"
         },
+        "nameGiven": {
+          "description": "Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`\ndefault. Absent otherwise, from a session named before it was kept, and from a peer on an\nolder acpmux.",
+          "type": "boolean"
+        },
         "parent": {
           "default": null,
           "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
@@ -4971,7 +4979,7 @@
       "description": "The running turn.",
       "properties": {
         "activity": {
-          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "description": "What the turn does right now: its latest tool call's title, masked\n(`secret_scan`); null until it calls one (`hub/activity.rs`).",
           "type": [
             "string",
             "null"
@@ -4981,7 +4989,7 @@
           "type": "string"
         },
         "planStep": {
-          "description": "Its plan's entry in progress; null without one.",
+          "description": "Its plan's entry in progress, masked; null without one.",
           "type": [
             "string",
             "null"

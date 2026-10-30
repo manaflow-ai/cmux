@@ -115,6 +115,28 @@ pub(super) struct Item {
     answer: Option<Waiter>,
 }
 
+#[cfg(test)]
+impl Item {
+    /// Message `prompt_id` from agent `from`, that a notice carries now.
+    pub(super) fn carried(prompt_id: &str, from: &str, text: &str) -> Self {
+        Self {
+            prompt_id: prompt_id.to_owned(),
+            notice: None,
+            answered: None,
+            thread: format!("from:{from}"),
+            from: from.to_owned(),
+            from_session: None,
+            class: PromptClass::Result,
+            report: false,
+            at: now_ms(),
+            text: text.to_owned(),
+            noticed: true,
+            read: false,
+            answer: None,
+        }
+    }
+}
+
 /// The waiting `session/prompt` of an inbox message.
 type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 
@@ -802,6 +824,11 @@ impl Hub {
                 None
             }
         };
+        // Its messages wait again. The cap's timer saw them carried, and the inbox steers none
+        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`).
+        if answered.is_none() && !ids.is_empty() && !super::queue::closing(session) {
+            self.turn_cap_recheck(session);
+        }
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
             match answer {
@@ -815,6 +842,18 @@ impl Hub {
             self.append(session, "mux", "inbox_answered", msg);
         }
         self.inbox_review(session);
+    }
+
+    /// Ends notice `notice_id`, carrying `ids`, as one refused before its prompt was written.
+    #[cfg(test)]
+    pub(super) fn inbox_notice_refused(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        notice_id: &str,
+        ids: &[String],
+    ) {
+        let refused = Err(RpcError::invalid_params("steer refused"));
+        self.notice_done(session, notice_id, ids, refused);
     }
 
     /// A turn started (`run_prompt_joined`): a refusal before it no longer holds the next try

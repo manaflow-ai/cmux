@@ -1735,7 +1735,7 @@ impl Hub {
         let cpu_class = crate::cpu_class::CpuClass::for_session(
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
-        let spec = crate::agent_host::SpawnSpec {
+        let mut spec = crate::agent_host::SpawnSpec {
             session_id: session.id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
@@ -1749,11 +1749,13 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
             cpu_class,
+            orphan_exit: None,
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
         let servers = LaunchServers::read(&launch, meta.family.clone().unwrap_or_default()).await;
+        spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
         let launched = |child: Arc<ChildAgent>| {
             child.record_launch(servers.clone());
             child

@@ -17,6 +17,12 @@ use super::require_all;
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
+    /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+    /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
+    /// older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub name_given: bool,
     pub harness: String,
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
@@ -342,10 +348,10 @@ pub struct TurnSummary {
     pub turn_id: String,
     pub prompt_id: String,
     pub turn_seq: u64,
-    /// What the turn does right now: its latest tool call's title; null
-    /// until it calls one (`hub/activity.rs`).
+    /// What the turn does right now: its latest tool call's title, masked
+    /// (`secret_scan`); null until it calls one (`hub/activity.rs`).
     pub activity: Option<String>,
-    /// Its plan's entry in progress; null without one.
+    /// Its plan's entry in progress, masked; null without one.
     pub plan_step: Option<String>,
     /// Since when it has stalled: no tool call in flight and no sign of its
     /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);

@@ -82,7 +82,9 @@ fn named(row: &Value) -> bool {
     if name.trim().is_empty() {
         return false;
     }
-    if text(row, "titleSource") == "named" {
+    // The daemon says so (`nameGiven`); a session from before it was kept says so by its title
+    // source, renamed (`named`) or started under a name and not yet prompted (`launched`).
+    if row["nameGiven"] == true || matches!(text(row, "titleSource"), "named" | "launched") {
         return true;
     }
     let harness = text(row, "harness");

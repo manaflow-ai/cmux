@@ -861,6 +861,12 @@ export type SessionDetail = {
   moving: boolean;
   name: string;
   /**
+   * Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+   * default. Absent otherwise, from a session named before it was kept, and from a peer on an
+   * older acpmux.
+   */
+  nameGiven?: boolean;
+  /**
    * The session whose agent started this one (`acpmux new` in its shell, or its
    * `start_session` tool), recorded at creation from the proven caller; null for a
    * session a person or the app started. Not the fork parent (`parentId`). Absent
@@ -1076,6 +1082,12 @@ export type SessionSummary = {
   moving: boolean;
   name: string;
   /**
+   * Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
+   * default. Absent otherwise, from a session named before it was kept, and from a peer on an
+   * older acpmux.
+   */
+  nameGiven?: boolean;
+  /**
    * The session whose agent started this one (`acpmux new` in its shell, or its
    * `start_session` tool), recorded at creation from the proven caller; null for a
    * session a person or the app started. Not the fork parent (`parentId`). Absent
@@ -1246,12 +1258,12 @@ export type ToolSummary = {
 /** The running turn. */
 export type TurnSummary = {
   /**
-   * What the turn does right now: its latest tool call's title; null
-   * until it calls one (`hub/activity.rs`).
+   * What the turn does right now: its latest tool call's title, masked
+   * (`secret_scan`); null until it calls one (`hub/activity.rs`).
    */
   activity: (string | null);
   client: string;
-  /** Its plan's entry in progress; null without one. */
+  /** Its plan's entry in progress, masked; null without one. */
   planStep: (string | null);
   prompt: string;
   promptId: string;
