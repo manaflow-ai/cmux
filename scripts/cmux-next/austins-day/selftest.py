@@ -525,6 +525,9 @@ class NamedSites(unittest.TestCase):
         self.assertEqual(after[key]["sites"], ["crates/cmux-tui-core/src/mux/frontend_projection.rs:20"])
         self.assertEqual(listed_absent[key]["hold_total_us"], 0)
         self.assertIsNone(unknown[key]["hold_total_us"])
+        # Absent from a full list: an upper bound, the smallest listed total (1 µs here), kept apart.
+        self.assertEqual(unknown[key]["hold_total_us_at_most"], 1)
+        self.assertIsNone(before[key]["hold_total_us_at_most"])
 
 
 class LockDetail(unittest.TestCase):

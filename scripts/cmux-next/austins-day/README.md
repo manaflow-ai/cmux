@@ -90,6 +90,10 @@ to explore, and say so next to any number you cite.
 - **Requested comparisons:** values a lead or a fix author asks for that are not verdict rows (the registry
   lock held share, the lock wait p99, the app request p99, named lock sites' hold p99 and total hold) get
   the same paired t-interval and n under "requested paired comparisons", with no verdict and no A/A check.
+  A named lock site (`NAMED_LOCK_SITES`: a function and its lock lines in the builds measured; check it
+  before using it on other builds) that is in neither top-20 list is 0 when the lock lists all its sites,
+  else unknown: that round is dropped and "dropped N" is shown, and each run's line gives an upper bound
+  instead (the smallest listed value), never mixed into the paired difference.
 - **Per metric, the base must show that metric's failure**, by a budget the product or the brief states
   (`METRIC_FAILURE` in `summarize.py`): refused connections, any; lock wait p99, over the daemon's own
   100 ms stall line; app request, p99 over 50 ms or any time-out (the B3 target); workspace close, over

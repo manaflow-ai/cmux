@@ -344,12 +344,24 @@ def run_metrics(run):
             return (sum(values) if key == "hold_total_us" else max(values)), sorted(s.get("site") for s in hits)
         complete = isinstance(lock_detail.get("sites"), int) and lock_detail["sites"] <= len(lock_detail.get("by_hold_total") or [])
         return (0 if complete else None), []
+
+    def site_bound(lock, key):
+        """Upper bound for a site in neither top-20 list: the smallest value in the list ranked by that key
+        (review of 7b1d2cd248a). Reported apart from the value, never mixed with a measured one."""
+        lock_detail = (detail or {}).get(lock) or {}
+        listing = lock_detail.get("by_hold_total" if key == "hold_total_us" else "by_hold_p99") or []
+        values = [s.get(key) for s in listing if isinstance(s.get(key), (int, float))]
+        return min(values) if values else None
     m["lock_sites"] = {}
     for lock in ("registry",):
         for name in NAMED_LOCK_SITES:
             p99, used = site_value(lock, name, "hold_p99_us")
             total, _ = site_value(lock, name, "hold_total_us")
-            m["lock_sites"][f"{lock}:{name}"] = {"hold_p99_us": p99, "hold_total_us": total, "sites": used}
+            m["lock_sites"][f"{lock}:{name}"] = {
+                "hold_p99_us": p99, "hold_total_us": total, "sites": used,
+                # When the site is in neither list (value None), at most this: the smallest listed value.
+                "hold_p99_us_at_most": site_bound(lock, "hold_p99_us") if p99 is None else None,
+                "hold_total_us_at_most": site_bound(lock, "hold_total_us") if total is None else None}
     m["lock_top_sites"] = None if not detail else {
         name: {"by_hold_total": [{k: s.get(k) for k in ("site", "acquisitions", "hold_total_us", "hold_p99_us", "hold_max_us")}
                                  for s in (detail.get(name) or {}).get("by_hold_total") or []],
@@ -484,8 +496,9 @@ def is_revert_pair(base_sha, head_sha, repo=REPO):
         return None
 
     def git(*args):
-        done = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=60)
-        return done.stdout if done.returncode == 0 else None
+        # Bytes, not text: a file in the reverted commit need not be UTF-8 (review of 7b1d2cd248a).
+        done = subprocess.run(["git", "-C", repo, *args], capture_output=True, timeout=60)
+        return done.stdout.decode("utf-8", "surrogateescape") if done.returncode == 0 else None
     try:
         parents = git("rev-list", "--parents", "-n", "1", base_sha)
         head = git("rev-parse", head_sha)
@@ -844,6 +857,14 @@ def main():
                     lines.append(f"   {lock} lock, top holders by total hold (since the daemon started; read after the load): " + "; ".join(
                         f"{s['site'].rsplit('/', 1)[-1]} {round((s.get('hold_total_us') or 0) / 1e6, 1)} s"
                         f" p99 {round((s.get('hold_p99_us') or 0) / 1000, 1)} ms" for s in top[:3]))
+        for site, v in (m.get("lock_sites") or {}).items():
+            def show(value, bound, unit):
+                if value is not None:
+                    return f"{round(value / unit, 1)}"
+                return f"absent from the top 20, so at most {round(bound / unit, 1)}" if bound is not None else "?"
+            lines.append(f"   {site}: total hold {show(v.get('hold_total_us'), v.get('hold_total_us_at_most'), 1e6)} s, "
+                         f"hold p99 {show(v.get('hold_p99_us'), v.get('hold_p99_us_at_most'), 1000)} ms"
+                         + (f" (lines {', '.join(s.rsplit(':', 1)[-1] for s in v['sites'])})" if v.get("sites") else ""))
         if m.get("registry_lock_held_share") is not None:
             lines.append(f"   registry lock held {m['registry_lock_held_share']:.1%} of the run's server-stats window "
                          "(descriptive, no verdict: not yet A/A-tested; the daemon's mean hold is a whole number of "
