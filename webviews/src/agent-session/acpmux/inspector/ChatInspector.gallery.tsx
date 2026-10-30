@@ -682,11 +682,11 @@ export default componentEntry<Props>({
     },
     "connectors-loaded": {
       note: "Connector inventory variant: two MCP servers loaded by the attached harness read as \"2 loaded\". This deliberately does not claim provider authentication or resource authorization.",
-      props: { ...full, summary: { ...summary, mcpServers: [{ name: \"github\", status: \"connected\" as const }, { name: \"linear\", status: \"connected\" as const }] } },
+      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "connected" as const }, { name: "linear", status: "connected" as const }] } },
     },
     "connectors-connecting": {
       note: "Connector inventory variant: one MCP server is still loading, so the head says \"1 connecting\" rather than a green connected count.",
-      props: { ...full, summary: { ...summary, mcpServers: [{ name: \"github\", status: \"pending\" as const }] } },
+      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
     },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
