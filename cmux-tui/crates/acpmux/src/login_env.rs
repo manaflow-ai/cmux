@@ -1061,7 +1061,13 @@ fn machine_files_stamp_in(home: &std::path::Path) -> Option<String> {
         match std::fs::symlink_metadata(path) {
             Ok(meta) => {
                 any = true;
-                let kind = if meta.is_file() { 'f' } else if meta.file_type().is_symlink() { 'l' } else { 'o' };
+                let kind = if meta.is_file() {
+                    'f'
+                } else if meta.file_type().is_symlink() {
+                    'l'
+                } else {
+                    'o'
+                };
                 let modified = meta
                     .modified()
                     .ok()
@@ -1092,7 +1098,8 @@ fn machine_files_stamp_in(home: &std::path::Path) -> Option<String> {
 }
 
 fn machine_files_stamp() -> Option<String> {
-    let home = std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
+    let home =
+        std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     machine_files_stamp_in(&home)
 }
 

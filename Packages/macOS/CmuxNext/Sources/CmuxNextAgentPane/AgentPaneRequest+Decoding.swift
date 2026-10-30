@@ -99,6 +99,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.commandAvailability":
+            if let commands = params?["commands"] as? [String] {
+                self = .commandAvailability(commands)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
@@ -303,6 +309,12 @@ extension AgentPaneRequest {
             // A session id is short; anything else never names a stored avatar.
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
+            } else { self = .unsupported(method) }
+        case "chief.face":
+            // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
+            if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
+               chief.utf8.allSatisfy({ $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: "-") || (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }) {
+                self = .chiefFace(chief)
             } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }

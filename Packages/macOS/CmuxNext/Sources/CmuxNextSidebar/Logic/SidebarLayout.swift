@@ -391,7 +391,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
                                                  workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
+                    let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: group.id, count: members.count)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
+                        if childIndex == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: group.id, index: gap.index) }
                         if childIndex < 0 {
                             Self.appendFold(childIndex, fold, count: depth, parent: index, color: group.color, last: position == drawn.count - 1,
                                             options: o, to: &rows, y: &y, metrics: m)
@@ -453,7 +455,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let drawn = Self.foldingDone(tree.map { ($0.index, $0.depth) },
                                              workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold,
                                              limits: { !isGroup(nodes[$0]) }, options: o)
+                let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: nil, count: nodes.count)
                 for (index, depth) in drawn {
+                    if index == foldedGap, let gap = o.gap { openGapIfNeeded(section: section.id, group: nil, index: gap.index) }
                     guard index < 0 else { emit(index, nodes[index], tree: treeRow[index] ?? TreeRow(index: index, depth: depth)); continue }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }

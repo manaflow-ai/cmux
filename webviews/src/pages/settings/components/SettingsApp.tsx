@@ -108,6 +108,8 @@ export function SettingsApp() {
       valueOf: (key) => valueOf(state, key),
       isChanged,
       devBuild: state.host?.dev_build === true,
+      scope: "user",
+      revision: state.revision,
     })[0]?.rows[0];
     if (first) reveal(first.key);
   };

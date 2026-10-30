@@ -37,8 +37,8 @@ struct ContextMenuEssentialsTests {
     private static let sidebarTrimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
         "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
-        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceID",
-        "palette.copyWorkspaceLink", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
+        // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
+        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
         "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
         "palette.openWorkspacePullRequests", "workspace.setRemoteLocalhost",
     ]
@@ -57,6 +57,29 @@ struct ContextMenuEssentialsTests {
         // The rest moved, not gone.
         #expect(allActions(menu).contains("palette.markWorkspaceUnread"))
         #expect(allActions(menu).contains("workspace.duplicate"))
+    }
+
+    /// Classic's row menu copies the workspace's id and link (#27709); here they sit in More > Copy,
+    /// so the top level keeps its essentials.
+    @Test func theWorkspaceMenuCopiesTheIDAndLinkUnderMore() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        #expect(!rows(menu).contains("palette.copyWorkspaceID"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceID") == true)
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceLink") == true)
+    }
+
+    /// The link comes before the ID, as on the tab and pane menus (Leo 2026-10-29: "there's no link to
+    /// workspace, which is, I mean, that seems pretty important, doesn't it?").
+    @Test func theWorkspaceRowMenuCopiesItsLinkThenItsID() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more != nil, "the workspace row menu has no More")
+        let ids = more.map(allActions) ?? []
+        let link = ids.firstIndex(of: "palette.copyWorkspaceLink"), id = ids.firstIndex(of: "palette.copyWorkspaceID")
+        #expect(link != nil, "More has no Copy Workspace Link: \(ids)")
+        #expect(id != nil, "More has no Copy Workspace ID: \(ids)")
+        if let link, let id { #expect(link < id, "the link comes before the ID") }
     }
 
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
