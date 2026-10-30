@@ -103,7 +103,7 @@ public struct BrowserFolderGrants: Sendable {
     public func awaiting(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [ImportBrowser] {
         var seen = Set<String>()
         return browsers.filter { browser in
-            guard needsGrant(browser) else { return false }
+            guard !Task.isCancelled, needsGrant(browser) else { return false }
             let directory = folder(browser)
             guard FileManager.default.fileExists(atPath: directory.path), seen.insert(Self.canonicalPath(directory)).inserted else { return false }
             return grantedFolder(browser) == nil

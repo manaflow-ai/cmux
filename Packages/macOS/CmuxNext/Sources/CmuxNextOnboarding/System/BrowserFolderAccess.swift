@@ -34,7 +34,8 @@ public final class BrowserFolderAccess {
 
     public func awaiting() async -> [ImportBrowser] {
         guard let grants else { return [] }
-        return await Task.detached { grants.awaiting() }.value
+        let scan = Task.detached { grants.awaiting() }
+        return await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
     }
 
     public func folder(_ browser: ImportBrowser) -> URL? { grants?.folder(browser) }

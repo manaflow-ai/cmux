@@ -226,11 +226,16 @@ public final class ImportStepModel {
         task?.cancel()
         phase = .detecting
         task = Task { [weak self, services] in
+            // A cancelled scan (stopDetecting, a newer redetect) stops before its next probe.
             let found = await services.detectBrowsers()
+            guard !Task.isCancelled else { return }
             let awaiting = await services.browsersAwaitingAccess()
+            guard !Task.isCancelled else { return }
             let chromiumPasswords = found.contains { $0.profiles.contains { $0.availability(of: .passwords).isImportable } }
             let store = chromiumPasswords ? await services.canImportPasswords() : false
+            guard !Task.isCancelled else { return }
             let choices = await services.importTargets()
+            guard !Task.isCancelled else { return }
             let earlier = await services.earlierImportTargets()
             guard let self, !Task.isCancelled else { return }
             targetChoices = choices

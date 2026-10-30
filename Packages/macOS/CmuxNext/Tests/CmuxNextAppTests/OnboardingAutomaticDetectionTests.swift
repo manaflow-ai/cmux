@@ -42,4 +42,18 @@ import Testing
         try? await Task.sleep(for: .milliseconds(200))
         #expect(model.importer.phase == .idle, "a cancelled scan must not land results on a closed step")
     }
+
+    @Test func closingDuringAProbeStopsTheRestOfTheScan() async {
+        let services = MockOnboardingServices()
+        services.holdsDetection = true
+        let model = OnboardingModel(services: services, step: .importData)
+        model.stepDidAppear()
+        await Self.until { services.detectionGate != nil }
+        model.leave()
+        services.detectionGate?.resume()
+        services.detectionGate = nil
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(services.awaitingProbes == 0, "no probe after the window closed")
+        #expect(model.importer.phase == .idle)
+    }
 }
