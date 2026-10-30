@@ -319,7 +319,7 @@ pub struct TurnInfo {
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
     /// What the turn does right now: its latest tool call's title and its
-    /// plan's step in progress, raw and masked (`activity.rs`).
+    /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
 }
 

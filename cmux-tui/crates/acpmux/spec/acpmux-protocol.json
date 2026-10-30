@@ -4965,7 +4965,7 @@
       "description": "The running turn.",
       "properties": {
         "activity": {
-          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "description": "What the turn does right now: its latest tool call's title, masked\n(`secret_scan`); null until it calls one (`hub/activity.rs`).",
           "type": [
             "string",
             "null"
@@ -4975,7 +4975,7 @@
           "type": "string"
         },
         "planStep": {
-          "description": "Its plan's entry in progress; null without one.",
+          "description": "Its plan's entry in progress, masked; null without one.",
           "type": [
             "string",
             "null"
