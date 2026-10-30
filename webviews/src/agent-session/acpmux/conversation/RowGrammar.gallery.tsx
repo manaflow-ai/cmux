@@ -5,7 +5,7 @@
 // (ToolGroupRow.tsx) and "Subagent finished" (SubagentDoneLine.tsx). Every one is the tool rows'
 // grid: icon, sentence, then the trailing column (status, then duration), then the chevron.
 // The variants compare the recipient's one look: the chip (shipped), a link, plain text.
-import { useEffect, useLayoutEffect, type ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
@@ -55,7 +55,9 @@ function Row({ children, label }: { children: ReactNode; label: string }) {
 }
 
 function RowGrammarGallery({ recipient, open = false }: Props) {
-  useEffect(() => resetTranscriptDisclosure("gallery-row-grammar"), []);
+  // Reset first, as a layout effect, so it runs before the `open` variant's clicks below and
+  // never closes what they opened.
+  useLayoutEffect(() => resetTranscriptDisclosure("gallery-row-grammar"), []);
   useLayoutEffect(() => {
     const root = document.documentElement;
     if (recipient === "chip") delete root.dataset.recipientStyle;
