@@ -1263,6 +1263,20 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/BareReferenceChip.tsx#BareReferenceChip",
   ],
   variants: {
+    "activity-tone-secondary": {
+      note: "Selected activity hierarchy: tool calls, Worked for and received peer messages (their Markdown too) use one AA-readable secondary tone; prompts and assistant text stay primary. Capture in light and dark.",
+      snapshot: messageSurfaceChat,
+    },
+    "activity-tone-tertiary": {
+      note: "Gallery arm: a stronger tertiary dimming for background activity, checked against the same light/dark fixture.",
+      snapshot: messageSurfaceChat,
+      documentAttributes: { "transcript-activity-tone": "tertiary" },
+    },
+    "activity-tone-readable": {
+      note: "Gallery arm: the most readable secondary tone, compared with the selected middle value before landing.",
+      snapshot: messageSurfaceChat,
+      documentAttributes: { "transcript-activity-tone": "readable" },
+    },
     "message-surfaces-bordered": {
       note: "Before arm: the bordered user bubble and agent-message cards, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
       documentAttributes: { "message-surfaces": "bordered" },

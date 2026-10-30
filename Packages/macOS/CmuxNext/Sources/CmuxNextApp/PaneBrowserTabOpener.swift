@@ -89,19 +89,21 @@ struct PaneBrowserTabOpener {
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
-            // A person's foreground tab: shown with its page in this turn (openStandIn).
-            if standInApplies(child: child, opener: opener, background: background) {
+            let controller = controller, model = controller.pane
+            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
+            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
+            // app, Split Browser, Duplicate Tab, a popup, the update card's Release Notes) is made there and
+            // moves to a column on its right, as the daemon reroutes it for a dock closed to tabs. A caller's
+            // `then` places it itself (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
+            let beside = then == nil && controller.isOpenPinnedDockPane
+            // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
+            // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
+            // 2026-10-29: "chief in home should not have horizontal tabbar").
+            if !beside, standInApplies(child: child, opener: opener, background: background) {
                 openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
                             profile: profile, notice: notice, then: then)
                 return true
             }
-            let controller = controller, model = controller.pane
-            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
-            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
-            // app, Split Browser, Duplicate Tab, a popup) is made there and moves to a column on its right,
-            // as the daemon reroutes it for a dock closed to tabs. A caller's `then` places it itself
-            // (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
-            let beside = then == nil && controller.isOpenPinnedDockPane
             let linkOpener = services.linkOpener
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {

@@ -45,10 +45,8 @@ extension SidebarListViewComponents {
                 return
             }
             let (oldItem, oldSelection) = (model.selectedItem, model.selection)
-            if flags.contains(.command) {
-                model.toggleSelection(id)
-            } else if flags.contains(.shift) {
-                model.extendSelection(to: id, visibleOrder: visibleWorkspaceOrder)
+            if modifierSelect(id, flags: flags) {
+                // Shift: the drawn range, pinned tiles too; Cmd: toggle; Cmd-Shift: add the range.
             } else if model.selection.contains(id), model.selection.count > 1 {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
@@ -203,7 +201,7 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: visibleWorkspaceOrder)
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
             } else {
                 return super.keyDown(with: event)
             }
