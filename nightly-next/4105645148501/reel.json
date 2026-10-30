@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4105645148501",
+  "notes": "notes/4105645148501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27925,
+      "title": "acpmux: an idle harness ends when its MCP server's path has a space in it or is relative",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28316,
+      "title": "test(chief): count the participant tag #27935 added (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27767,
+      "title": "cmux-next iOS: the slash-command list scrolls inside the room above the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28256,
+      "title": "fix(webviews): three react-apps-check base reds (prompt rail tests, tool output cap)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28248,
+      "title": "cmux mcp: terminals by tab or pane, waits on output, named missing fields, 'runs in cmux' (tool-evals round 3)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28309,
+      "title": "chat-open bench: each open's line says why it has no first content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28154,
+      "title": "acpmux + agent pane: Stop always ends the turn stopped with Continue; held agent messages say a Stop holds them",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
