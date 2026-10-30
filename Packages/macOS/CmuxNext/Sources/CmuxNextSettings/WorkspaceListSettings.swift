@@ -4,33 +4,27 @@ public import CmuxNextDesign
 /// sidebar when its entry point names no place (Cmd-N, the palette, the
 /// sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace,
 /// a link or an agent opening one).
-/// `top` (the default; the daemon places a new workspace by the same rule in
-/// its create): first in the group of the workspace the window shows when that
-/// one is in a group, and first in a group the new workspace is made in (its
-/// header's +, a Chief subagent's group; Lawrence 2026-10-28); outside a group, first in the workspace list, below the Pinned
-/// section and the Home row, above every group. `afterCurrent` (cmux classic's
-/// default): right after the workspace the window shows, inside its group when
-/// it has one (top when that workspace is pinned, Home, or on another machine).
-/// `bottom`: last in the
-/// group of the workspace the window shows; outside a group, after the last
-/// loose workspace, where the daemon puts it. An explicit place (a drop on a
-/// sidebar gap, New Workspace Above or Below) always wins; a reopened workspace
-/// keeps its old place.
+/// `afterCurrent` (the default): right after the workspace the window shows,
+/// inside its group when it has one (top when that workspace is pinned, Home,
+/// or on another machine). `bottom` (Chrome-style): after the last loose
+/// workspace, or at the end of the current group. `top` remains readable for
+/// older config files and keeps its historical behavior. An explicit place (a
+/// drop on a sidebar gap, New Workspace Above or Below) always wins; a
+/// reopened workspace keeps its old place.
 public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseIterable {
     case top, afterCurrent, bottom
 }
 
 /// The workspace list's shape (Lawrence 2026-10-08, cx-plf5): new workspaces
-/// at the top (`workspaces.newPlacement`; #23014 made it afterCurrent on
-/// 2026-10-20, back to top the same day: Lawrence asked for Cmd-N to always put
-/// it at the top, and the daemon's default is top) and one list without computer
+/// next to the current workspace by default (`workspaces.newPlacement`; the
+/// daemon uses the same rule in its create) and one list without computer
 /// headers unless `sidebar.groupByComputer` is on
 /// (`SidebarSectionsPreferences.groupsByComputer`). A workspace the user
 /// never named takes its front tab's name unless `workspaces.autoName` is
 /// off (hq#1957, `SidebarSectionsPreferences.autoNamesWorkspaces`).
 nonisolated extension CmuxConfigSnapshot {
     public static let newWorkspacePlacementPath = ["workspaces", "newPlacement"]
-    public static let newWorkspacePlacementFallback: NewWorkspacePlacement = .top
+    public static let newWorkspacePlacementFallback: NewWorkspacePlacement = .afterCurrent
     public static let groupByComputerPath = ["sidebar", "groupByComputer"]
     public static let autoNameWorkspacesPath = ["workspaces", "autoName"]
 
@@ -66,17 +60,17 @@ nonisolated enum WorkspaceListSettingsSchema {
         return [
             SettingDescriptor(
                 CmuxConfigSnapshot.newWorkspacePlacementPath, section: .general, group: sidebar,
-                title: SettingsText.keyed("settings.workspaces.newPlacement", "New Workspace Position"),
+                title: SettingsText.keyed("settings.workspaces.newPlacement", "New workspaces go to"),
                 help: SettingsText.keyed("settings.workspaces.newPlacement.help",
-                                        "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."),
+                                        "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. The default keeps it next to the current workspace; a workspace made in a group stays in that group."),
                 kind: .choice([
-                    SettingChoice(NewWorkspacePlacement.top.rawValue, SettingsText.keyed("settings.choice.top", "Top")),
                     SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue,
-                                  SettingsText.keyed("settings.choice.afterCurrentWorkspace", "After Current Workspace")),
-                    SettingChoice(NewWorkspacePlacement.bottom.rawValue, SettingsText.keyed("settings.choice.bottom", "Bottom")),
+                                  SettingsText.keyed("settings.choice.afterCurrentWorkspace", "Next to current")),
+                    SettingChoice(NewWorkspacePlacement.bottom.rawValue,
+                                  SettingsText.keyed("settings.choice.bottomChromeStyle", "Bottom (Chrome-style)")),
                 ]),
                 default: .string(CmuxConfigSnapshot.newWorkspacePlacementFallback.rawValue),
-                keywords: ["workspace", "new", "cmd-n", "position", "order", "top", "bottom", "after", "sidebar", "placement"]
+                keywords: ["workspace", "new", "cmd-n", "position", "order", "next", "current", "bottom", "sidebar", "placement"]
             ),
             SettingDescriptor(
                 CmuxConfigSnapshot.groupByComputerPath, section: .general, group: sidebar,

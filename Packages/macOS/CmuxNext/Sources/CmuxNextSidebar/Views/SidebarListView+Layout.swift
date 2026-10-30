@@ -267,6 +267,9 @@ extension SidebarListViewComponents {
             // A parked view (`recycle`) keeps its old place in the stack: put it at the bottom of the rows,
             // as a new one, so it never draws over a block that a move raised (scroll realization skips this).
             if existing == nil { addSubview(view, positioned: .above, relativeTo: decorations); rowViews[row.key] = view }
+            if insertsWorkspace && opens, let workspace = view as? WorkspaceRowView {
+                workspace.icon.animateEntrance()
+            }
             // Adopting: a row new to the list fades in at its slot (adoptRows), one only scrolled in shows at once.
             if adopting, existing == nil { view.alphaValue = old.row(for: row.key) == nil ? 0 : 1 }
             if suppressed.contains(row.key) {

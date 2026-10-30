@@ -175,7 +175,7 @@ fn selection_after_the_cascade_follows_the_close_workspace_rule() {
 fn reopen_restores_the_workspace_with_its_tab_name_group_and_place() {
     let session = Session::new("last-tab-reopen");
     let mux = session.open();
-    // Made in sidebar order; the reopen below runs with the default (top).
+    // Made in sidebar order; the reopen below runs with the default (after current).
     let bottom = crate::user_settings::NewWorkspacePlacement::Bottom.set_for_test();
     let a = mux.new_workspace(None, None).unwrap();
     let b = mux.new_workspace(Some("build".into()), None).unwrap();

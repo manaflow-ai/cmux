@@ -24,7 +24,12 @@ nonisolated enum SettingsSchemaSamples {
             if descriptor.path == BackdropSelectionSetting().configPath {
                 return (BackdropSelectionSetting.acceptedSamples, BackdropSelectionSetting.refusedSamples)
             }
-            return (choices.map { .string($0.value) }, [.string("__not_a_choice__"), .number(1), .bool(true)])
+            // `top` is a retired workspace-placement value. Keep it in the exported accepted
+            // domain so the daemon and CLI continue to read existing configs, while the
+            // descriptor's choices keep it out of the current Settings UI.
+            let accepted = choices.map { JSONValue.string($0.value) }
+                + (descriptor.path == CmuxConfigSnapshot.newWorkspacePlacementPath ? [.string(NewWorkspacePlacement.top.rawValue)] : [])
+            return (accepted, [.string("__not_a_choice__"), .number(1), .bool(true)])
         case .choiceOrNumber(let choices, let number):
             return (choices.map { .string($0.value) } + numbers(number).accept,
                     [.string("__not_a_choice__"), .bool(true)] + numbers(number).refuse)

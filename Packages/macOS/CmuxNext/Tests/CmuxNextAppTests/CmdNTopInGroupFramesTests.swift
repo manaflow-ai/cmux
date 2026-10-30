@@ -9,11 +9,11 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Leo 2026-10-22: "OH YEAH LAWRENCE WANTED DEFAULT NEW WORKSPACE AT THE TOP". With no setting
-/// (`workspaces.newPlacement` falls back to `top`), Cmd-N from a loose workspace and New Workspace in Section
-/// draw the new row first in every frame the list applies (never elsewhere, then moved). The in-group slot is
-/// pinned by `NewWorkspaceInGroupTests`: in this harness a group made through the state store is never listed
-/// in the window's sidebar (#22926), so a frame test cannot set one up.
+/// Leo 2026-10-22: "OH YEAH LAWRENCE WANTED DEFAULT NEW WORKSPACE AT THE TOP". The explicit
+/// section action keeps that top behavior; the shared Cmd-N fallback is now `afterCurrent`, so Cmd-N from a
+/// loose workspace draws after the selected row in every frame. The in-group slot is pinned by
+/// `NewWorkspaceInGroupTests`: in this harness a group made through the state store is never listed in the
+/// window's sidebar (#22926), so a frame test cannot set one up.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNTopInGroupFramesTests {
     /// Each frame as `section rows`: a group header as `g:<name>`, a member as `<group>/<id>`, a loose row as its id.
@@ -28,7 +28,7 @@ struct CmdNTopInGroupFramesTests {
         }
     }
 
-    @Test func cmdNFromALooseWorkspaceDrawsTheNewRowOnlyFirstUnderTheDefault() async throws {
+    @Test func cmdNFromALooseWorkspaceDrawsTheNewRowOnlyAfterCurrentUnderTheDefault() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
         let window = try #require(services.windows.active?.state.id)
@@ -46,7 +46,7 @@ struct CmdNTopInGroupFramesTests {
             _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string(String(format: "seed-%02d", press))]))
             await RapidWorkspaceCreateTests.wait(within: .seconds(20)) { settled(start + press) }
         }
-        // The last row (the oldest seed) is current: the new row still goes first.
+        // The last row (the oldest seed) is current: the default puts the new row immediately after it.
         let home = NewWorkspacePlacements.home(services.machines)
         let before = Self.rows(list.displayed, model: model, home: home)
         let current = try #require(before.last)
@@ -67,13 +67,15 @@ struct CmdNTopInGroupFramesTests {
         let id = try #require(made, "no workspace was made")
         print("cmdn-top-loose: before \(before)")
         for (index, frame) in frames.enumerated() { print("cmdn-top-loose: frame \(index) \(frame)") }
-        #expect(after == [id] + before, "rows \(before) became \(after)")
-        let misplaced = frames.filter { $0.contains(id) && $0.first != id }
-        #expect(misplaced.isEmpty, "frames that drew the new row away from the top: \(misplaced)")
+        #expect(after == before + [id], "rows \(before) became \(after)")
+        let expectedIndex = before.count
+        let misplaced = frames.filter { frame in
+            frame.contains(id) && frame.firstIndex(of: id) != expectedIndex
+        }
+        #expect(misplaced.isEmpty, "frames that drew the new row away from its after-current slot: \(misplaced)")
     }
 
-    /// New Workspace in Section on the workspace list, with a loose workspace current: under the default the new row is first
-    /// in every frame (it went to the bottom whatever `workspaces.newPlacement` said).
+    /// New Workspace in Section on the workspace list keeps #24374's explicit top slot, with a loose workspace current.
     @Test func newWorkspaceInSectionDrawsTheNewRowOnlyFirstUnderTheDefault() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services

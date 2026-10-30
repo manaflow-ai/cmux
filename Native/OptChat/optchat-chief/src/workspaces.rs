@@ -745,8 +745,9 @@ fn home_dir() -> PathBuf {
 
 /// The index a workspace takes in the personal group it joins, from the same
 /// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
-/// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
-/// `afterCurrent` keep the daemon's place, the end. None keeps the daemon default.
+/// `agent_memory::settings`). `top` keeps its legacy first position (index 0); `bottom` and
+/// `afterCurrent` keep the daemon's place, the end. Missing and unknown values use the shared
+/// `afterCurrent` default, which also leaves placement to the daemon.
 pub fn new_group_index(home: &Path) -> Option<usize> {
     let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
         doc.pointer("/workspaces/newPlacement")
@@ -754,9 +755,10 @@ pub fn new_group_index(home: &Path) -> Option<usize> {
             .map(str::to_owned)
     });
     match placement.as_deref() {
-        Some("bottom" | "afterCurrent") => None,
-        // No file, no key, or a value the app does not know: the app's default, `top`.
-        _ => Some(0),
+        Some("top") => Some(0),
+        Some("bottom" | "afterCurrent") | None => None,
+        // Invalid values use the shared `afterCurrent` default.
+        Some(_) => None,
     }
 }
 
@@ -770,8 +772,9 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
     place_in_personal_group_from(daemon, key, name, &home_dir())
 }
 
-/// [`place_in_personal_group`] with `workspaces.newPlacement` read from home folder `home`: under
-/// `top` (the default) the workspace goes first in its group, else last.
+/// [`place_in_personal_group`] with `workspaces.newPlacement` read from home folder `home`:
+/// legacy `top` puts the workspace first in its group; the shared `afterCurrent` default and
+/// `bottom` leave it to the daemon's end placement.
 pub fn place_in_personal_group_from(
     daemon: &Path,
     key: &str,
@@ -792,8 +795,8 @@ pub fn place_in_personal_group_from(
     let mut params = here();
     params["workspace"] = json!(workspace);
     params["group"] = json!(group);
-    // Lawrence 2026-10-28: a new workspace made in a group goes to the top of that group under
-    // `top` (the default), as Cmd-N in a group does; without an index the daemon put it last.
+    // A legacy `top` setting explicitly puts a new workspace first in its group. The shared
+    // `afterCurrent` default leaves the daemon's placement intact.
     if let Some(index) = new_group_index(home) {
         params["index"] = json!(index);
     }

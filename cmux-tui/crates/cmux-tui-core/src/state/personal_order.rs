@@ -115,7 +115,8 @@ pub(crate) fn created_workspaces(
 
 /// Give each created workspace its personal row, unless it already has one
 /// (a reopened workspace keeps its old place), at the place cmux.json
-/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default top),
+/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default after
+/// current),
 /// so a workspace made by any client (the app, iOS, the TUI, the CLI, an
 /// agent) lands in the same place. A caller that wants another place moves
 /// it after the creation (`workspace.place`, `set-personal-workspace`);
@@ -279,6 +280,19 @@ fn after_current_slot(
         return Ok(None);
     };
     if super::home_store::live_home(transaction)?.is_some_and(|(_, home)| home == current) {
+        return Ok(None);
+    }
+    // Sidebar-pinned workspaces are presented outside their machine/group section. They are not
+    // valid `afterCurrent` anchors; fall back to the shared top rule.
+    let current_pinned = transaction
+        .query_row(
+            "SELECT pinned FROM workspace_presentation WHERE workspace_key = ?1",
+            [current],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if current_pinned {
         return Ok(None);
     }
     let rows = read_workspaces(transaction)?

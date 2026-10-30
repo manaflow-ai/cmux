@@ -1,7 +1,7 @@
 //! A personal group a Chief subagent's workspace joins is made where `workspaces.newPlacement`
-//! says a new workspace goes: first under `top` (the default, with no settings file either),
-//! last under `bottom`. Before, the group was always made last, so the workspace the Chief
-//! made landed at the very end of the sidebar.
+//! says a new workspace goes: first under legacy `top`, last under the shared `afterCurrent`
+//! default or `bottom`. Before, the group was always made last, so the workspace the Chief made
+//! landed at the very end of the sidebar.
 
 use optchat_chief::workspaces::new_group_index;
 use std::path::Path;
@@ -17,15 +17,15 @@ fn home_with(settings: Option<&str>) -> tempfile::TempDir {
 }
 
 #[test]
-fn no_settings_file_puts_a_new_group_first() {
+fn no_settings_file_uses_the_shared_after_current_default() {
     let home = home_with(None);
-    assert_eq!(new_group_index(home.path()), Some(0));
+    assert_eq!(new_group_index(home.path()), None);
 }
 
 #[test]
-fn a_settings_file_without_the_key_puts_a_new_group_first() {
+fn a_settings_file_without_the_key_uses_the_shared_after_current_default() {
     let home = home_with(Some(r#"{"workspaces": {"autoName": true}}"#));
-    assert_eq!(new_group_index(home.path()), Some(0));
+    assert_eq!(new_group_index(home.path()), None);
 }
 
 #[test]
@@ -35,9 +35,9 @@ fn top_puts_a_new_group_first() {
 }
 
 #[test]
-fn an_unknown_value_gets_the_default_top() {
+fn an_unknown_value_gets_the_shared_after_current_default() {
     let home = home_with(Some(r#"{"workspaces": {"newPlacement": "sideways"}}"#));
-    assert_eq!(new_group_index(home.path()), Some(0));
+    assert_eq!(new_group_index(home.path()), None);
 }
 
 #[test]
@@ -56,6 +56,6 @@ fn after_current_keeps_the_daemon_place_last() {
 fn a_missing_home_reads_as_the_default() {
     assert_eq!(
         new_group_index(Path::new("/nonexistent/cmux-home-for-test")),
-        Some(0)
+        None
     );
 }

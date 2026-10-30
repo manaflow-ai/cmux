@@ -828,7 +828,7 @@
     "setting.workspaces.autoName": true,
     "setting.workspaces.hibernation.enabled": true,
     "setting.workspaces.hibernation.idleMinutes": 60,
-    "setting.workspaces.newPlacement": "top",
+    "setting.workspaces.newPlacement": "afterCurrent",
     "steps-aside.yieldsToCodeEditor": ["all common vscode shortcuts", "focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight", "toggleChecklistItemComplete", "toggleSplitZoom"],
     "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"],
     "steps-aside.yieldsToWebContent": ["toggleChecklistItemComplete"],

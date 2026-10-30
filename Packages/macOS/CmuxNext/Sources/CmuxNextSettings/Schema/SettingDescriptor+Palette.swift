@@ -59,7 +59,11 @@ extension SettingDescriptor {
                                       isCurrent: current == nil)
             return [unset] + choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
         case .choice(let choices), .choiceOrNumber(let choices, _), .choiceOrURL(let choices, _):
-            let options = choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
+            var options = choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
+            if path == CmuxConfigSnapshot.newWorkspacePlacementPath,
+               current?.stringValue == NewWorkspacePlacement.top.rawValue {
+                options.append(SettingOption(value: current, title: SettingsText.text("settings.choice.top", "Top"), isCurrent: true))
+            }
             return path == BackdropSelectionSetting().configPath ? Self.backgroundOptions(options, current: current) : options
         case .number(let number):
             var options: [SettingOption] = []

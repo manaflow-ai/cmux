@@ -103,6 +103,16 @@ fn kind_schema(row: &Row) -> Value {
     }
     match &row.kind {
         Kind::Toggle => json!({ "type": "boolean" }),
+        Kind::Choice(choices) if row.path == ["workspaces", "newPlacement"] => {
+            // Keep the retired `top` value accepted for existing config files
+            // without adding it to the current Settings choice list.
+            json!({
+                "anyOf": [
+                    choice(choices),
+                    { "const": "top", "description": "Legacy workspace placement" },
+                ],
+            })
+        }
         Kind::Choice(choices) => choice(choices),
         Kind::ChoiceOrNumber(choices, range) => {
             json!({ "anyOf": [choice(choices), number(range)] })

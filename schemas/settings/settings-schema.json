@@ -15014,31 +15014,24 @@
     },
     {
       "accepts" : [
-        "top",
         "afterCurrent",
-        "bottom"
+        "bottom",
+        "top"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.top",
-            "text" : "Top"
-          },
-          "value" : "top"
-        },
-        {
-          "title" : {
             "key" : "settings.choice.afterCurrentWorkspace",
-            "text" : "After Current Workspace"
+            "text" : "Next to current"
           },
           "value" : "afterCurrent"
         },
         {
           "title" : {
-            "key" : "settings.choice.bottom",
-            "text" : "Bottom"
+            "key" : "settings.choice.bottomChromeStyle",
+            "text" : "Bottom (Chrome-style)"
           },
           "value" : "bottom"
         }
@@ -15046,7 +15039,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -15054,7 +15047,7 @@
       },
       "help" : {
         "key" : "settings.workspaces.newPlacement.help",
-        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. The default keeps it next to the current workspace; a workspace made in a group stays in that group."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.newPlacement",
@@ -15064,9 +15057,9 @@
         "cmd-n",
         "position",
         "order",
-        "top",
+        "next",
+        "current",
         "bottom",
-        "after",
         "sidebar",
         "placement"
       ],

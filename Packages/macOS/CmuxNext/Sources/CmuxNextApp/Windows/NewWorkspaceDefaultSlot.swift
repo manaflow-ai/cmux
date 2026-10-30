@@ -10,17 +10,12 @@ import CmuxNextSidebar
 /// session, else the owning daemon's order. Either survives a relaunch and
 /// shows in every window.
 ///
-/// The rule: `top` is the first slot of the window's current workspace's
-/// group when that one is in a group (Cmd-N in a group keeps the new one in
-/// it, at the group's top, Lawrence 2026-10-28); else the first slot of the workspace's machine section, which
-/// lists no pinned workspace (they show in the Pinned section above), above
-/// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
-/// when the new one was asked for, inside its group when it has one; `top`
-/// when that workspace is not in the section (pinned, Home, another machine,
-/// none). `bottom` is the last slot of the current workspace's group; outside a
-/// group it leaves the daemon's place, the end of the loose rows. So a new
-/// workspace opened from inside a group stays in it under every value (cx-caoh).
+/// The default `afterCurrent` rule is right after the workspace the window
+/// showed when the new one was asked for, inside its group when it has one;
+/// `top` is used when that workspace is not in the section (pinned, Home,
+/// another machine, none). `top` and `bottom` remain explicit compatibility
+/// choices. A new workspace opened from inside a group stays in it under every
+/// value (cx-caoh).
 struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     var placement: NewWorkspacePlacement
     /// The workspace the window showed when the new one was asked for.
@@ -37,7 +32,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return nil
         case .afterCurrent:
-            if let current, current != id, current != home,
+            if let current, current != id, current != home, !Self.isPinned(current, in: sections),
                WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
                 return .below(current)
             }
@@ -53,13 +48,17 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 
     /// The move the app sends once the daemon reports new workspace `id`, or nil when the daemon's
     /// create already put it at ``slot(for:section:in:home:)``: the daemon places every new workspace
-    /// by `workspaces.newPlacement` in the commit that creates it (first below Home under `top`,
-    /// last under `bottom`), so a second write would be a second state change and a second render
+    /// by `workspaces.newPlacement` in the commit that creates it, so a second write would be a second state change and a second render
     /// for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon does
     /// not know is moved to: inside the current workspace's group, after the window's current one.
     func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
-        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        // The local daemon normally applies the setting in the create commit. Compare the
+        // resulting row's actual position with the desired slot before using the drag path: this
+        // keeps the common case to one layout pass while repairing a pinned or cross-window race.
+        guard let desired = slot.position(moving: [id], section: section, in: sections),
+              let actual = Self.position(of: id, in: section, sections: sections),
+              desired != actual else { return nil }
         return slot
     }
 
@@ -86,6 +85,39 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         }.first
         if let home, first == home { return .below(home) }
         return .top(anchor: nil)
+    }
+
+    /// Pinned rows are rendered in their own section and are deliberately excluded from the
+    /// `afterCurrent` fallback. The daemon's create path has the same rule; a stale pinned row
+    /// must not become an anchor for a new workspace in the machine section.
+    private static func isPinned(_ id: String, in sections: [SidebarRowSection]) -> Bool {
+        sections.first(where: { $0.id == .pinned })?.nodes.contains { node in
+            guard case let .workspace(workspace) = node else { return false }
+            return workspace.id.rawValue == id
+        } == true
+    }
+
+    /// The current projection's position for `id`, when its row has arrived.
+    /// A pending create must stay pending while this is nil: the daemon can
+    /// report the workspace before the sidebar projection includes its row.
+    static func position(of id: String, in section: SectionID, sections: [SidebarRowSection]) -> DropPosition? {
+        guard let listed = sections.first(where: { $0.id == section }) else { return nil }
+        for (index, node) in listed.nodes.enumerated() {
+            switch node {
+            case let .workspace(workspace) where workspace.id.rawValue == id:
+                return DropPosition(section: section, index: index)
+            case let .group(group):
+                if let index = group.members.firstIndex(where: { member in
+                    if case let .workspace(workspace) = member { return workspace.id.rawValue == id }
+                    return false
+                }) {
+                    return DropPosition(section: section, group: group.id, index: index)
+                }
+            default:
+                break
+            }
+        }
+        return nil
     }
 }
 
@@ -122,11 +154,13 @@ enum NewWorkspacePlacements {
     }
 
     /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
-    /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).
-    /// The same rule as the Chief's subagent groups (`new_group_index` in optchat-chief workspaces.rs).
+    /// New Group): #24374's section-create behavior keeps the default and explicit `top` first;
+    /// explicit `bottom` remains last (`Int.max`).
     static func newGroupIndex(_ services: AppServices) -> Int {
         newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
     }
 
-    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .top ? 0 : .max }
+    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int {
+        placement == .bottom ? .max : 0
+    }
 }

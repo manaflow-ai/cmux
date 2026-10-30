@@ -1,7 +1,7 @@
-//! Cmd-N lands on top in one state change (plans/cmux-next/sidebar-ordering-DESIGN.md,
-//! "A new workspace is first, in one change"): a create is one commit, and that commit carries the
-//! new workspace's sidebar document item at the top of its machine section (below Home), so a
-//! client applying the commit's batch has the final order and never sends a move of its own.
+//! Cmd-N lands next to the active workspace in one state change: a create is
+//! one commit, and that commit carries the new workspace's sidebar document
+//! item at its final slot, so a client applying the batch never sends a move of
+//! its own.
 
 use serde_json::{Value, json};
 
@@ -22,7 +22,7 @@ fn document_order(mux: &Arc<Mux>, ids: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn a_create_is_one_commit_that_puts_the_new_workspace_first_in_the_document() {
+fn a_create_is_one_commit_that_puts_the_new_workspace_next_to_current_in_the_document() {
     let session = Session::new("new-doc-top");
     let mux = session.open();
     let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
@@ -47,10 +47,7 @@ fn a_create_is_one_commit_that_puts_the_new_workspace_first_in_the_document() {
         "the create's batch has no sidebar item for the new workspace: {changes:?}"
     );
     let ids = [home.as_str(), a.as_str(), b.as_str(), c.as_str()];
-    assert_eq!(
-        document_order(&mux, &ids),
-        [home.as_str(), c.as_str(), b.as_str(), a.as_str()],
-        "the new workspace is not first below Home in the document"
-    );
+    assert_eq!(document_order(&mux, &ids), [home.as_str(), c.as_str(), b.as_str(), a.as_str()],
+               "the new workspace is not next to the current row in the document");
     mux.shutdown();
 }

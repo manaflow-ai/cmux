@@ -432,12 +432,12 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 ```json
 {
-  "workspaces": { "newPlacement": "top" }
+  "workspaces": { "newPlacement": "afterCurrent" }
 }
 ```
 
-- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"top"`: legacy compatibility behavior: first in the current group, or first in the workspace list when there is no current group.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.

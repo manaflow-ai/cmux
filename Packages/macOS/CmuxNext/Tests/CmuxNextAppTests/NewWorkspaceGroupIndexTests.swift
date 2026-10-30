@@ -2,18 +2,18 @@
 import CmuxNextSettings
 import Testing
 
-/// A group formed for a new workspace (New Workspace in New Group) follows `workspaces.newPlacement`,
-/// as the workspace itself does: first under `top` (the default), last otherwise. Before, the entry
-/// always formed the group last, so the new group sat at the bottom of the sidebar under the default.
+/// A group formed for a new workspace (New Workspace in New Group) follows
+/// `workspaces.newPlacement`, preserving #24374's top-oriented section/new-group
+/// behavior for the default and explicit `top`; explicit Bottom forms it last.
 @MainActor
 @Suite struct NewWorkspaceGroupIndexTests {
     @Test func topFormsTheGroupFirst() {
         #expect(NewWorkspacePlacements.newGroupIndex(for: .top) == 0)
     }
 
-    @Test func bottomAndAfterCurrentFormTheGroupLast() {
+    @Test func bottomFormsTheGroupLast() {
         #expect(NewWorkspacePlacements.newGroupIndex(for: .bottom) == .max)
-        #expect(NewWorkspacePlacements.newGroupIndex(for: .afterCurrent) == .max)
+        #expect(NewWorkspacePlacements.newGroupIndex(for: .afterCurrent) == 0)
     }
 
     @Test func theDefaultPlacementFormsTheGroupFirst() {

@@ -9,6 +9,13 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
+/// Both suites drive one same-tree daemon each through process-wide sidebar
+/// state (`SidebarDocStore.current`, `SidebarDocWiring.docSections`, and
+/// `PendingWorkspaceRows.shared`). Keep them in one serialized suite so a
+/// concurrent group run cannot read the other test's placement or anchor.
+@MainActor @Suite(.serialized)
+struct CmdNRowSlotSuites {
+
 /// Austin 2026-10-20: Cmd-N "draws the new workspace somewhere in the sidebar and then moves it via an
 /// animation / glitch to the right place". On the sidebar document (`sidebar-doc-v1`) the daemon's
 /// workspace replaced Cmd-N's pending row in the turn it took over the stand-in, while the document's
@@ -64,12 +71,15 @@ struct CmdNRowSlotTests {
         }
         try #require(anchorReady, "anchor row was not displayed before Cmd-N: \(rows(list.displayed))")
 
+        let beforeLayout = list.displayed
         var frames: [[String]] = []
+        list.motionProbe.start()
         list.onApply = { frames.append(rows($0)) }
         _ = services.registry.perform("newTab")
         await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { settled(start + 4) && rows(list.displayed).count > before.count }
         if !settled(start + 4) { print("cmd-n-slot: not settled after the press: \(describe())") }
         list.onApply = nil
+        let motion = list.motionProbe.stop()
         let after = rows(list.displayed)
         await launched.stop()
 
@@ -77,6 +87,24 @@ struct CmdNRowSlotTests {
         #expect(after == Array(before[...at]) + [created] + before[(at + 1)...], "rows \(before) became \(after)")
         let elsewhere = frames.filter { frame in frame.contains(created) && frame.firstIndex(of: created) != frame.firstIndex(of: anchor).map { $0 + 1 } }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot below \(anchor): \(elsewhere)")
+
+        let aboveIDs = before[...at]
+        let aboveKeys = Set(aboveIDs.map { String(describing: SidebarRowKey.workspace(WorkspaceID($0))) })
+        let baseline = Dictionary(uniqueKeysWithValues: aboveIDs.compactMap { id -> (String, CGFloat)? in
+            guard let row = beforeLayout.row(for: .workspace(WorkspaceID(id))) else { return nil }
+            return (String(describing: SidebarRowKey.workspace(WorkspaceID(id))), list.frame(for: row).minY)
+        })
+        let existingKeys = Set(before.map { String(describing: SidebarRowKey.workspace(WorkspaceID($0))) })
+        for frame in motion {
+            for key in aboveKeys {
+                if let shown = frame.views[key], let y = baseline[key] {
+                    #expect(abs(shown.minY - y) < 0.75, "row above Cmd-N moved in a display frame: \(key) from \(y) to \(shown.minY)")
+                }
+            }
+            for key in existingKeys where frame.views[key] != nil {
+                #expect((frame.opacity[key] ?? 0) > 0.01, "an existing row was hidden during Cmd-N: \(key)")
+            }
+        }
     }
 }
 
@@ -208,4 +236,5 @@ struct CmdNInGroupRowSlotTests {
         }
         #expect(elsewhere.isEmpty, "frames that drew the new row away from its slot by \(anchor): \(elsewhere.count) of \(frames.count): \(tags)")
     }
+}
 }

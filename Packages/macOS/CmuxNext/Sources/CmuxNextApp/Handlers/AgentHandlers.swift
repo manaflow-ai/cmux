@@ -414,11 +414,13 @@ enum AgentHandlers {
                 switch route {
                 case let .command(command): line = command + "\n"
                 case let .acp(harness, session):
-                    guard let environment else { return }
+                    guard let environment else { windows.abandonPendingPlacement(key.rawValue); return }
                     let forked = try await environment.forkChat(harness: harness, agentSessionId: session, cwd: cwd)
-                    guard let resume = TerminalAgentFork.resumeLine(harness: harness, session: forked) else { return }
+                    guard let resume = TerminalAgentFork.resumeLine(harness: harness, session: forked) else { windows.abandonPendingPlacement(key.rawValue); return }
                     line = resume + "\n"
-                case .noSession, .unsupported: return
+                case .noSession, .unsupported:
+                    windows.abandonPendingPlacement(key.rawValue)
+                    return
                 }
                 let surface: SurfaceID?
                 var workspace: WorkspaceKey?
@@ -448,6 +450,7 @@ enum AgentHandlers {
                 }
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
+                if destination == .workspace || destination == .window { windows.abandonPendingPlacement(key.rawValue) }
                 // The person asked for a fork: say why there is none (acpmux's reason).
                 refusals.show(error.localizedDescription, in: windows.active?.window)
             }

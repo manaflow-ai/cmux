@@ -166,6 +166,10 @@ extension SidebarListViewComponents {
             _ = SidebarFoldAction(list: self).toggle(press.key)
             return
         case let .emptyGroup(group):
+            // The optional per-group offer is disabled by default. Keep the row as a drop target,
+            // but do not let a stale hit-test path invoke the editor callback when its affordance
+            // is not wired.
+            guard (rowViews[.emptyGroup(group)] as? EmptyGroupRowView)?.onAdd != nil else { return syncRowStates() }
             // The group's empty row makes a workspace in it, as the header's + does; the new row lays the list out.
             onGroupEditorItem?(group, "workspaceGroup.newWorkspace")
             return syncRowStates()

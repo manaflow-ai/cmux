@@ -119,6 +119,7 @@ enum AgentSessionWorkspace {
                 // by the key chosen here (as CloudHandlers finds its anchor).
                 guard let pane = await daemon.store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
+                    windows.abandonPendingPlacement(key.rawValue)
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
                 // Selected wherever the workspace is shown later, never shown now.
@@ -132,9 +133,11 @@ enum AgentSessionWorkspace {
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
+                windows.abandonPendingPlacement(key.rawValue)
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
+                windows.abandonPendingPlacement(key.rawValue)
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
