@@ -606,7 +606,6 @@
   z-index: 2;
   inset-block-start: 0;
   inset-inline-end: 0;
-  display: none;
   min-inline-size: var(--acpmux-effort-column);
   margin: 0;
   padding: var(--ui-popup-padding, 4px);
@@ -614,8 +613,15 @@
   border-radius: var(--ds-radius-control);
   background: var(--surface-popup, var(--agent-bg));
   box-shadow: var(--elevation-2, 0 6px 18px rgb(0 0 0 / 0.28));
+  /* Laid out but unseen and unclickable until its row is active: the levels stay in the menu's
+     roving focus, so Down from a model reaches them (a display:none item would be skipped). */
+  opacity: 0;
+  pointer-events: none;
 }
-.acpmux-quick-model-effort:is(:hover, :has([data-highlighted]), :focus-within) > .acpmux-quick-efforts { display: block; }
+.acpmux-quick-model-effort:is(:hover, :has([data-highlighted]), :focus-within) > .acpmux-quick-efforts {
+  opacity: 1;
+  pointer-events: auto;
+}
 .acpmux-quick-efforts > [role="group"] {
   display: flex;
   flex-direction: column;

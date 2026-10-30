@@ -254,7 +254,11 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
           .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
         expect(rows.length).toBeGreaterThan(1);
         expect(rows.every((height) => height === 28), `row heights ${rows.join(",")}`).toBe(true);
-        expect(await page.locator(".acpmux-quick-effort-segment:visible").count()).toBe(0);
+        const shownLevels = () =>
+          page
+            .locator(".acpmux-quick-efforts")
+            .evaluateAll((nodes) => nodes.filter((node) => getComputedStyle(node).opacity !== "0").length);
+        expect(await shownLevels()).toBe(0);
         // Pointing at the running model opens its levels beside it, one under another.
         const row = page.locator(".acpmux-quick-model-effort[data-running]").first();
         await row.locator("> .acpmux-quick-item").hover();
@@ -270,7 +274,11 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         const name = await row.locator("> .acpmux-quick-item").boundingBox();
         expect(boxes[0].x).toBeGreaterThan(name!.x + name!.width / 2);
         // Only that row's levels show.
-        expect(await page.locator(".acpmux-quick-efforts:visible").count()).toBe(1);
+        expect(await shownLevels()).toBe(1);
+        // The keyboard reaches the levels: Down from the running model lands on its first level.
+        await row.locator("> .acpmux-quick-item").focus();
+        await page.keyboard.press("ArrowDown");
+        expect(await row.locator(".acpmux-quick-effort-segment").first().evaluate((node) => node === document.activeElement || node.hasAttribute("data-highlighted"))).toBe(true);
       } finally {
         await page.close();
       }
