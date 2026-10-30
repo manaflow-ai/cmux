@@ -143,9 +143,9 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
 
 /// ACP's `session/list`: every session, its summary under `_meta.acpmux`. A list too large
 /// for one message (one daemon's was 17 MB with 5241 rows, 2026-10-30) goes in pages of at most
-/// [`ACP_PAGE_BYTES`], each with the `nextCursor` ACP's client follows, by `sessionId` rather
-/// than newest first ([`byte_page`](crate::hub::session_pages::byte_page)); one that fits goes
-/// whole, newest first, as before.
+/// [`ACP_PAGE_BYTES`], each with the `nextCursor` ACP's client follows, in an order that
+/// updates do not change rather than newest first ([`byte_page`](crate::hub::session_pages::byte_page));
+/// one that fits goes whole, newest first, as before.
 pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
     let cursor = match params.get("cursor") {
@@ -154,23 +154,25 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
     };
     reply(hub, conn, None, |list| {
-        let whole = list.made(if raw { "acp" } else { "acp masked" }, |list| {
-            let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
-            let sessions: Vec<Value> =
-                full["sessions"].as_array().into_iter().flatten().map(acp_row).collect();
-            let result = json!({"sessions": sessions});
-            if raw { result.to_string() } else { masked(result) }
-        });
-        if cursor.is_none() && whole.len() <= ACP_PAGE_BYTES {
-            return Ok(whole);
+        let full = list.full_rows(hub);
+        // An ACP row holds its summary whole, so rows already over the budget are no whole
+        // reply: that one is not made only to be dropped.
+        if cursor.is_none() && full.bytes() <= ACP_PAGE_BYTES {
+            let whole = list.made(if raw { "acp" } else { "acp masked" }, |list| {
+                let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
+                let sessions: Vec<Value> =
+                    full["sessions"].as_array().into_iter().flatten().map(acp_row).collect();
+                let result = json!({"sessions": sessions});
+                if raw { result.to_string() } else { masked(result) }
+            });
+            if whole.len() <= ACP_PAGE_BYTES {
+                return Ok(whole);
+            }
         }
-        let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
-        let rows = full["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
         let page = |budget: usize| -> Result<String, RpcError> {
-            let row = |s: &Value| acp_row_within(s, budget);
-            let size = |s: &Value| row(s).to_string().len();
-            let (page, next) = crate::hub::session_pages::byte_page(rows, cursor, budget, size)?;
-            let sessions: Vec<Value> = page.into_iter().map(row).collect();
+            let row = |at: usize| acp_row_within(&full.row(at), budget);
+            let (sessions, next) =
+                crate::hub::session_pages::byte_page(full.keys(), cursor, budget, row)?;
             let mut result = json!({"sessions": sessions});
             if let Some(next) = next {
                 result["nextCursor"] = Value::String(next);
@@ -178,11 +180,11 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
             Ok(if raw { result.to_string() } else { masked(result) })
         };
         // A peer reads the page masked (`peer_text.rs`), which may make it longer than the
-        // budget it was cut to: then it is cut again, smaller.
+        // budget it was cut to: then it is cut again, smaller. A raw page fits as it is cut.
         let mut budget = ACP_PAGE_BYTES;
         loop {
             let text = page(budget)?;
-            if raw || text.len() <= ACP_PAGE_BYTES || budget < MIN_PAGE_BYTES {
+            if text.len() <= ACP_PAGE_BYTES || budget < MIN_PAGE_BYTES {
                 return Ok(Arc::new(text));
             }
             budget /= 2;

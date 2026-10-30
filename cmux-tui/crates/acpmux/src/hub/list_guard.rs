@@ -94,7 +94,33 @@ pub(crate) struct Snapshot {
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
-    full: StdMutex<Option<Arc<String>>>,
+    full: StdMutex<Option<Arc<FullRows>>>,
+}
+
+/// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
+/// and its paging keys: a page of it parses only its own rows.
+pub(crate) struct FullRows {
+    whole: Arc<String>,
+    spans: Vec<Range<usize>>,
+    keys: Vec<Value>,
+}
+
+impl FullRows {
+    /// Each row's `sessionId` and `peer`, in the order of [`Self::row`].
+    pub(crate) fn keys(&self) -> &[Value] {
+        &self.keys
+    }
+
+    /// The bytes of every row together.
+    pub(crate) fn bytes(&self) -> usize {
+        self.whole.len()
+    }
+
+    /// Row `at`, parsed.
+    pub(crate) fn row(&self, at: usize) -> Value {
+        let text = self.spans.get(at).and_then(|span| self.whole.get(span.clone()));
+        text.and_then(|text| serde_json::from_str(text).ok()).unwrap_or_default()
+    }
 }
 
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
@@ -116,11 +142,17 @@ impl Snapshot {
 
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
+        self.full_rows(hub).whole.clone()
+    }
+
+    /// [`Self::full_whole`] with where each row is, for ACP's pages.
+    pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             let mut rows = Rows::default();
             hub.visit_session_summaries(true, |row| rows.push(&row));
-            Arc::new(rows.finish().0)
+            let (whole, spans, keys) = rows.finish();
+            Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
     }
