@@ -17,9 +17,14 @@ enum PageMenuCallout {
     /// queued on the main run loop runs only in such a pass.
     @MainActor static func drain(until done: () -> Bool) async {
         for _ in 0..<500 where !done() {
-            CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {}
-            _ = CFRunLoopRunInMode(.defaultMode, 0.01, false)
+            runPass()
             await Task.yield()
         }
+    }
+
+    /// One pass of the main run loop (CFRunLoopRunInMode is unavailable from async code).
+    @MainActor private static func runPass() {
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {}
+        _ = CFRunLoopRunInMode(.defaultMode, 0.01, false)
     }
 }
