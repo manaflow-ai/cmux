@@ -787,6 +787,10 @@ impl Hub {
 }
 
 #[cfg(test)]
+#[path = "import_publish_tests.rs"]
+mod import_publish_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
