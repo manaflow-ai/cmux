@@ -43,16 +43,17 @@ nonisolated enum TabSettingsSchema {
     }
 
     /// `newTerminal.opensWorkspace`: whether New Terminal creates a workspace
-    /// in the current space instead of a tab in the focused workspace.
+    /// in the current space instead of a tab in the focused workspace, and a
+    /// person's Cmd-N a terminal workspace instead of the New Tab page (#26051).
     static func newTerminalOpensWorkspace(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             NewTerminalWorkspaceSetting.configPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.newTerminal.opensWorkspace", "New Terminal Opens a Workspace"),
+            title: SettingsText.keyed("settings.newTerminal.opensWorkspace", "New Terminal Opens a Workspace (cmux classic)"),
             help: SettingsText.keyed("settings.newTerminal.opensWorkspace.help",
-                                     "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."),
+                                     "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option when clicking New Terminal to reverse this once."),
             kind: .toggle,
             default: .bool(NewTerminalWorkspaceSetting.fallback),
-            keywords: ["new terminal", "workspace", "space", "tab", "option"]
+            keywords: ["new terminal", "workspace", "space", "tab", "option", "classic", "cmd-n"]
         )
     }
 

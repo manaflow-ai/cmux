@@ -126,6 +126,8 @@ extension AppActions {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
+        // `newTerminal.opensWorkspace` (#26051): a person's Cmd-N opens a terminal workspace, as in cmux classic.
+        if invocation.origin == .user, services.settings?.snapshot.newTerminalOpensWorkspace == true { spawn.opensNewTabPage = false }
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused

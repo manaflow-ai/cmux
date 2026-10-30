@@ -51433,128 +51433,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "فتح مساحة عمل عند إنشاء طرفية جديدة (cmux classic)"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Novi terminal otvara radni prostor (cmux classic)"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Ny terminal åbner et arbejdsområde (cmux classic)"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Neues Terminal öffnet einen Arbeitsbereich (cmux classic)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Terminal Opens a Workspace"
+            "value": "New Terminal Opens a Workspace (cmux classic)"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Un terminal nuevo abre un espacio de trabajo (cmux classic)"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Un nouveau terminal ouvre un espace de travail (cmux classic)"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Un nuovo terminale apre uno spazio di lavoro (cmux classic)"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "新規ターミナルでワークスペースを開く（cmux classic）"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "ស្ថានីយថ្មីបើកកន្លែងធ្វើការ (cmux classic)"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "새 터미널이 작업 공간 열기 (cmux classic)"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Ny terminal åpner et arbeidsområde (cmux classic)"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Nowy terminal otwiera obszar roboczy (cmux classic)"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Novo terminal abre um espaço de trabalho (cmux classic)"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Новый терминал открывает рабочее пространство (cmux classic)"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "เทอร์มินัลใหม่เปิดพื้นที่ทำงาน (cmux classic)"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Yeni Terminal çalışma alanı açar (cmux classic)"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Новий термінал відкриває робочий простір (cmux classic)"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "Terminal mới mở không gian làm việc (cmux classic)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "新建终端时打开工作区（cmux classic）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "New Terminal Opens a Workspace"
+            "state": "translated",
+            "value": "新增終端機時開啟工作區（cmux classic）"
           }
         }
       }
@@ -51564,128 +51564,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "ينشئ «طرفية جديدة» وCmd-N مساحة عمل تحتوي على طرفية في المجلد الحالي، كما في cmux classic. اضغط مطولًا على Option عند النقر على «طرفية جديدة» لعكس هذا السلوك مرة واحدة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Novi terminal i Cmd-N kreiraju radni prostor s terminalom u trenutnoj fascikli, kao u cmux classic. Držite Option dok klikate na Novi terminal da jednom obrnete ovo ponašanje."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Ny terminal og Cmd-N opretter et arbejdsområde med en terminal i den aktuelle mappe, som i cmux classic. Hold Option nede, mens du klikker på Ny terminal, for at vende denne adfærd om én gang."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "„Neues Terminal“ und Cmd-N erstellen wie in cmux classic einen Arbeitsbereich mit einem Terminal im aktuellen Ordner. Halte beim Klicken auf „Neues Terminal“ die Wahltaste gedrückt, um dies einmalig umzukehren."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "value": "New Terminal and Cmd-N create a workspace with a terminal in the current folder, as in cmux classic. Hold Option when clicking New Terminal to reverse this once."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Nuevo terminal y Cmd-N crean un espacio de trabajo con un terminal en la carpeta actual, como en cmux classic. Mantén pulsada Opción al hacer clic en Nuevo terminal para invertir este comportamiento una vez."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Nouveau terminal et Cmd-N créent un espace de travail avec un terminal dans le dossier actuel, comme dans cmux classic. Maintenez Option en cliquant sur Nouveau terminal pour inverser ce comportement une fois."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Nuovo terminale e Cmd-N creano uno spazio di lavoro con un terminale nella cartella attuale, come in cmux classic. Tieni premuto Opzione mentre fai clic su Nuovo terminale per invertire questo comportamento una sola volta."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "「新規ターミナル」と Cmd-N は、cmux classic と同様に現在のフォルダでターミナルを含むワークスペースを作成します。Option キーを押しながら「新規ターミナル」をクリックすると、その一回だけ動作が逆になります。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "ស្ថានីយថ្មី និង Cmd-N បង្កើតកន្លែងធ្វើការដែលមានស្ថានីយនៅក្នុងថតបច្ចុប្បន្ន ដូចក្នុង cmux classic។ សង្កត់ Option ពេលចុចស្ថានីយថ្មី ដើម្បីប្ដូរឥរិយាបថនេះទៅវិញតែមួយលើក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "새 터미널과 Cmd-N은 cmux classic처럼 현재 폴더에 터미널이 있는 작업 공간을 만듭니다. Option을 누른 채 새 터미널을 클릭하면 이번 한 번만 반대로 동작합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Ny terminal og Cmd-N oppretter et arbeidsområde med en terminal i gjeldende mappe, som i cmux classic. Hold Option inne mens du klikker på Ny terminal for å snu denne virkemåten én gang."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Nowy terminal i Cmd-N tworzą obszar roboczy z terminalem w bieżącym folderze, tak jak w cmux classic. Przytrzymaj Option podczas klikania Nowy terminal, aby jednorazowo odwrócić to działanie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Novo terminal e Cmd-N criam um espaço de trabalho com um terminal na pasta atual, como no cmux classic. Mantenha Option pressionado ao clicar em Novo terminal para inverter esse comportamento uma vez."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "«Новый терминал» и Cmd-N создают рабочее пространство с терминалом в текущей папке, как в cmux classic. Удерживайте Option при нажатии «Новый терминал», чтобы изменить это поведение на противоположное один раз."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "เทอร์มินัลใหม่และ Cmd-N จะสร้างพื้นที่ทำงานพร้อมเทอร์มินัลในโฟลเดอร์ปัจจุบัน เช่นเดียวกับ cmux classic กด Option ค้างไว้ขณะคลิกเทอร์มินัลใหม่เพื่อสลับพฤติกรรมนี้เฉพาะครั้งนั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Yeni Terminal ve Cmd-N, cmux classic gibi geçerli klasörde terminal içeren bir çalışma alanı oluşturur. Bu davranışı bir kez tersine çevirmek için Yeni Terminal tıklanırken Option tuşunu basılı tutun."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "«Новий термінал» і Cmd-N створюють робочий простір із терміналом у поточній теці, як у cmux classic. Утримуйте Option під час натискання «Новий термінал», щоб змінити цю поведінку на протилежну один раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "Terminal mới và Cmd-N tạo không gian làm việc có terminal trong thư mục hiện tại, như trong cmux classic. Giữ Option khi bấm Terminal mới để đảo ngược hành vi này một lần."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "“新建终端”和 Cmd-N 会在当前文件夹创建包含终端的工作区，与 cmux classic 相同。按住 Option 点击“新建终端”，即可单次反转此行为。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+            "state": "translated",
+            "value": "「新增終端機」和 Cmd-N 會在目前資料夾建立含有終端機的工作區，與 cmux classic 相同。按住 Option 點按「新增終端機」，即可單次反轉此行為。"
           }
         }
       }
