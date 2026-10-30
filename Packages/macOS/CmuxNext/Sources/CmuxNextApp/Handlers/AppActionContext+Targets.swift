@@ -185,7 +185,8 @@ extension AppActionContext {
     /// The targeted daemon pane, found in any workspace.
     func daemonPane(_ invocation: ActionInvocation) -> PaneModel? {
         if let target = explicitTarget(invocation, kinds: [.pane]) {
-            let panes = services.activeDaemon.store.workspaces.flatMap(\.screens).flatMap(\.panes)
+            // Any machine's pane, as `daemonTab` finds any machine's tab.
+            let panes = services.machines.daemons.flatMap(\.store.workspaces).flatMap(\.screens).flatMap(\.panes)
             return panes.first { $0.id == target.id } ?? notFound(RefusalStrings.noPaneID(target.id))
         }
         if explicitTarget(invocation, kinds: [.tab]) != nil { return daemonTab(invocation)?.pane }
