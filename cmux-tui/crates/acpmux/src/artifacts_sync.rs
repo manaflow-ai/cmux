@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::debug;
 
+use crate::artifacts_fs::Dir;
 use crate::config::ArtifactsSyncConfig;
 
 const MAX_PUSH_BYTES: usize = 64 * 1024 * 1024;
@@ -177,16 +178,18 @@ struct SyncRoot {
 }
 
 impl SyncRoot {
-    /// A root reached through a symlink, at itself or any folder above it below the anchor
-    /// (`~/.claude/projects/work -> /elsewhere`), is not synced: its files live somewhere else.
+    /// The root, opened for one pass. A root reached through a symlink, at itself or any folder
+    /// above it below the anchor (`~/.claude/projects/work -> /elsewhere`), is not synced: its
+    /// files live somewhere else. Every read and write of the pass goes through the opened folder
+    /// (`artifacts_fs.rs`), so a folder swapped for a symlink after this check leads nowhere.
+    fn open(&self) -> Option<Dir> {
+        let relative = self.local.strip_prefix(&self.anchor).ok()?;
+        Dir::open(&self.anchor, relative).ok().flatten()
+    }
+
+    #[cfg(test)]
     fn usable(&self) -> bool {
-        let Ok(relative) = self.local.strip_prefix(&self.anchor) else { return false };
-        let mut path = self.anchor.clone();
-        relative.components().all(|part| {
-            path.push(part);
-            matches!(part, std::path::Component::Normal(_))
-                && fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir())
-        })
+        self.open().is_some()
     }
 }
 
@@ -391,11 +394,8 @@ impl ArtifactsSync {
         let mut deleted = Vec::new();
         // A copy: pushing a full batch mid-walk borrows `self` mutably.
         for root in self.roots.clone() {
-            if !root.usable() {
-                continue;
-            }
-            let mut files = Vec::new();
-            collect_files(&root.local, &root.local, &mut files)?;
+            let Some(dir) = root.open() else { continue };
+            let files = dir.read_tree()?;
             let mut present = std::collections::BTreeSet::new();
             for (path, bytes) in files {
                 let remote =
@@ -428,10 +428,8 @@ impl ArtifactsSync {
                         path.starts_with(&root.remote_prefix) && !present.contains(*path)
                     })
                     .filter(|path| {
-                        self.local_for_remote(path).is_some_and(|local| {
-                            fs::symlink_metadata(local)
-                                .is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
-                        })
+                        path.strip_prefix(&root.remote_prefix)
+                            .is_some_and(|relative| dir.missing(Path::new(relative)))
                     })
                     .cloned()
                     .collect::<Vec<_>>(),
@@ -598,10 +596,10 @@ impl ArtifactsSync {
             self.mark(path, bytes, if sent { commit.clone() } else { None });
         }
         for (path, read, bytes) in writes {
-            if let Some(destination) = self.local_for_remote(&path) {
+            if let Some((dir, relative)) = self.locate(&path) {
                 // A file edited again since this pass read it keeps that edit for the next pass.
                 let read = read.as_deref().map(sha256);
-                replace_if_unchanged(&destination, read.as_deref(), &bytes)?;
+                replace_if_unchanged(&dir, &relative, read.as_deref(), &bytes)?;
             }
         }
         Ok(count)
@@ -676,7 +674,7 @@ impl ArtifactsSync {
             if item.id.is_some() {
                 continue; // a saved artifact's folder, not a file
             }
-            let Some(local) = self.local_for_remote(&item.path) else { continue };
+            let Some((dir, relative)) = self.locate(&item.path) else { continue };
             let synced = self.state.synced.get(&item.path);
             if item.commit.is_some()
                 && synced.and_then(|synced| synced.commit.as_ref()) == item.commit.as_ref()
@@ -693,7 +691,7 @@ impl ArtifactsSync {
             // hasn't taken yet stays, and the next pass sends it. A file deleted here but changed
             // remotely since comes back: the remote edit wins over the delete.
             let expected = self.synced_digest(&item.path).map(str::to_owned);
-            if !replace_if_unchanged(&local, expected.as_deref(), &bytes)? {
+            if !replace_if_unchanged(&dir, &relative, expected.as_deref(), &bytes)? {
                 report.conflicts += 1;
                 continue;
             }
@@ -736,15 +734,13 @@ impl ArtifactsSync {
         Err(anyhow!("artifact list longer than {} items", LIST_PAGE * LIST_PAGES))
     }
 
-    /// The local file for a remote path, only when it stays inside its root: a listed path is the
-    /// server's text, and `..`, an absolute path or a backslash must never reach outside the memory
-    /// and artifact folders.
-    fn local_for_remote(&self, remote: &str) -> Option<PathBuf> {
+    /// The opened root and the path in it for a remote path, only when it stays inside: a listed
+    /// path is the server's text, and `..`, an absolute path or a backslash must never reach
+    /// outside the memory and artifact folders. A symlink below the root is refused where it is
+    /// used (`artifacts_fs.rs`).
+    fn locate(&self, remote: &str) -> Option<(Dir, PathBuf)> {
         self.roots.iter().find_map(|root| {
             let relative = remote.strip_prefix(&root.remote_prefix)?;
-            if !root.usable() {
-                return None;
-            }
             let inside = !relative.is_empty()
                 && !relative.contains(['\\', '\0'])
                 && Path::new(relative)
@@ -753,16 +749,14 @@ impl ArtifactsSync {
             if !inside {
                 return None;
             }
-            // A symlink below the root would lead the write somewhere else (`shared -> ~/work`).
-            let mut path = root.local.clone();
-            for part in Path::new(relative).components() {
-                path.push(part);
-                if fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-                    return None;
-                }
-            }
-            Some(path)
+            Some((root.open()?, PathBuf::from(relative)))
         })
+    }
+
+    #[cfg(test)]
+    fn local_for_remote(&self, remote: &str) -> Option<PathBuf> {
+        let root = self.roots.iter().find(|root| remote.starts_with(&root.remote_prefix))?;
+        self.locate(remote).map(|(_, relative)| root.local.join(relative))
     }
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.config.base_url.trim_end_matches('/'), path)
@@ -841,47 +835,39 @@ fn discover_roots() -> Vec<SyncRoot> {
     roots
 }
 
-fn collect_files(root: &Path, current: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) -> io::Result<()> {
-    if !current.exists() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(current)? {
-        let entry = entry?;
-        let path = entry.path();
-        // Not followed: a symlink would upload a file from outside the root.
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            collect_files(root, &path, out)?;
-        } else if kind.is_file() {
-            out.push((path.strip_prefix(root).unwrap_or(&path).to_path_buf(), fs::read(path)?));
+/// Write `bytes` to `relative` in `dir` only when nothing is there, the file still has the digest
+/// `expected`, or it already holds `bytes`. Returns whether it now holds `bytes`; anything else
+/// (a local edit, or something that is not a plain file) is kept.
+fn replace_if_unchanged(
+    dir: &Dir,
+    relative: &Path,
+    expected: Option<&str>,
+    bytes: &[u8],
+) -> io::Result<bool> {
+    if !dir.missing(relative) {
+        match dir.read(relative)? {
+            Some(current) if current == bytes => return Ok(true),
+            Some(current) if expected == Some(sha256(&current).as_str()) => {}
+            _ => return Ok(false),
         }
     }
-    Ok(())
-}
-
-/// Write `bytes` to `path` only when the file is missing, still has the digest `expected`, or
-/// already holds `bytes`. Returns whether the file now holds `bytes`; anything else is a local
-/// edit to keep.
-fn replace_if_unchanged(path: &Path, expected: Option<&str>, bytes: &[u8]) -> io::Result<bool> {
-    match fs::read(path) {
-        Ok(current) if current == bytes => return Ok(true),
-        Ok(current) if expected != Some(sha256(&current).as_str()) => return Ok(false),
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, bytes)?;
+    dir.write(relative, bytes)?;
     Ok(true)
 }
 
 fn conflict_sibling(path: &str) -> String {
-    let machine = env::var("HOSTNAME").unwrap_or_else(|_| "machine".into());
+    // One plain name part: a HOSTNAME with `/` or `..` never adds a folder to the path.
+    let machine: String = env::var("HOSTNAME")
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .take(64)
+        .collect();
+    let machine = if machine.is_empty() { "machine".to_owned() } else { machine };
+    // Milliseconds, so two conflicts on one file in the same second keep both copies.
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+        .map_or(0, |d| d.as_millis());
     let path = Path::new(path);
     let stem = path.file_stem().and_then(|v| v.to_str()).unwrap_or("artifact");
     let ext =

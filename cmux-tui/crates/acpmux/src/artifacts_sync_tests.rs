@@ -300,7 +300,7 @@ async fn a_root_below_a_symlinked_folder_is_not_synced() {
         anchor: home.path().to_path_buf(),
     }];
     assert!(!sync.roots[0].usable());
-    assert_eq!(sync.local_for_remote("memory/claude/work/secret.md"), None);
+    assert!(sync.locate("memory/claude/work/secret.md").is_none());
     // Nothing to send: an upload would reach the server at port 9 and fail.
     assert_eq!(sync.sync_once(Trailers::default()).await.unwrap(), SyncReport::default());
     fs::create_dir_all(home.path().join(".claude/projects/real/memory")).unwrap();
@@ -316,9 +316,11 @@ fn a_root_that_is_a_symlink_is_not_synced() {
     std::os::unix::fs::symlink(outside.path(), dir.path().join("memories")).unwrap();
     let sync = sync_at("http://127.0.0.1:9".into(), &dir.path().join("memories"));
     assert!(!sync.roots[0].usable());
-    assert_eq!(sync.local_for_remote("memory/codex/x.md"), None);
+    assert!(sync.locate("memory/codex/x.md").is_none());
 }
 
+/// No read or write goes through a symlink below a root: the walk skips them, a pull into one
+/// writes nothing outside, and a file that is a symlink is replaced, not written through.
 #[cfg(unix)]
 #[test]
 fn symlinks_below_a_root_are_never_followed() {
@@ -330,12 +332,41 @@ fn symlinks_below_a_root_are_never_followed() {
         .unwrap();
     fs::write(dir.path().join("own.md"), "mine").unwrap();
     let sync = sync_at("http://127.0.0.1:9".into(), dir.path());
-    assert_eq!(sync.local_for_remote("memory/codex/shared/notes.md"), None);
-    assert_eq!(sync.local_for_remote("memory/codex/link.md"), None);
-    assert_eq!(sync.local_for_remote("memory/codex/own.md"), Some(dir.path().join("own.md")));
-    let mut files = Vec::new();
-    collect_files(dir.path(), dir.path(), &mut files).unwrap();
-    assert_eq!(files, vec![(PathBuf::from("own.md"), b"mine".to_vec())]);
+    let root = sync.roots[0].open().unwrap();
+    assert_eq!(root.read_tree().unwrap(), vec![(PathBuf::from("own.md"), b"mine".to_vec())]);
+    assert_eq!(root.read(Path::new("shared/notes.md")).unwrap(), None);
+    assert!(!root.missing(Path::new("shared/notes.md")), "a symlink in the way is something");
+    let (into_link, relative) = sync.locate("memory/codex/shared/notes.md").unwrap();
+    assert!(!replace_if_unchanged(&into_link, &relative, None, b"pulled").unwrap());
+    let (over_link, relative) = sync.locate("memory/codex/link.md").unwrap();
+    assert!(!replace_if_unchanged(&over_link, &relative, None, b"pulled").unwrap());
+    assert_eq!(fs::read_to_string(outside.path().join("notes.md")).unwrap(), "elsewhere");
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+}
+
+/// A folder checked when the root opened and then swapped for a symlink (another process, mid
+/// pass) leads nowhere: the write goes through the folder that was opened, or fails.
+#[cfg(unix)]
+#[test]
+fn a_folder_swapped_for_a_symlink_mid_pass_leads_nowhere() {
+    let home = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path().join("memories/notes")).unwrap();
+    let mut sync = sync_at("http://127.0.0.1:9".into(), &home.path().join("memories"));
+    sync.roots[0].anchor = home.path().to_path_buf();
+    let (dir, relative) = sync.locate("memory/codex/notes/a.md").unwrap();
+    // The root is open; now its folder becomes a symlink to somewhere else.
+    fs::rename(home.path().join("memories"), home.path().join("moved")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), home.path().join("memories")).unwrap();
+    assert!(replace_if_unchanged(&dir, &relative, None, b"pulled").unwrap());
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0, "nothing outside the root");
+    assert_eq!(fs::read_to_string(home.path().join("moved/notes/a.md")).unwrap(), "pulled");
+    // A subfolder swapped the same way is refused, never followed.
+    fs::rename(home.path().join("moved/notes"), home.path().join("moved/notes-old")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), home.path().join("moved/notes")).unwrap();
+    assert!(!replace_if_unchanged(&dir, &relative, None, b"again").unwrap());
+    assert!(dir.write(&relative, b"again").is_err());
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0, "nothing outside the root");
 }
 
 #[test]
