@@ -1358,6 +1358,8 @@ export class AcpmuxDirectClient {
   /// The turns this page saw end (`turn_result`): a summary that still names one as running was
   /// read before it ended (``staleRun``).
   private endedTurns = new Set<string>();
+  /// Named turns a newer turn opened over: an end naming one is late, whatever the running turn names.
+  private supersededTurns = new Set<string>();
   /// A forced Stop retires its compaction. The next explicit prompt fences the old compaction's
   /// delayed boundary; a new running update after that prompt starts a fresh row but cannot
   /// attribute a later unscoped boundary. Only the turn's terminal result can settle that row.
@@ -2086,6 +2088,7 @@ export class AcpmuxDirectClient {
     this.interrupting = undefined;
     this.awaiting = undefined;
     this.endedTurns.clear();
+    this.supersededTurns.clear();
     this.retiredCompactionTurnId = undefined;
     this.compactionFenceSeq = undefined;
     this.continuations.clear();
@@ -3878,6 +3881,7 @@ export class AcpmuxDirectClient {
     this.interrupting = undefined;
     this.awaiting = undefined;
     this.endedTurns.clear();
+    this.supersededTurns.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
     this.firstSeq = undefined;
@@ -4134,6 +4138,8 @@ export class AcpmuxDirectClient {
   /// A turn opening after a Stop bound to a known turn: one that is not that turn ends the Stop's
   /// hold on what runs (a legacy turn with no id included).
   private stopSeesTurnOpen(event: EventRecord, turnId: string | undefined): void {
+    for (const known of [this.runningTurnId, this.stopTurnId])
+      if (known !== undefined && known !== turnId) this.supersededTurns.add(known);
     if (this.stopAfterSeq === undefined || this.stopTurnId === undefined || event.seq <= this.stopAfterSeq) return;
     if (turnId !== this.stopTurnId) this.stopSuperseded = true;
   }
@@ -4340,14 +4346,14 @@ export class AcpmuxDirectClient {
       const ambiguous =
         this.compactionFenceSeq !== undefined &&
         (terminalTurnId === undefined || terminalTurnId !== this.runningTurnId);
-      // An end naming another turn than the running one is that turn's, late. That includes the stopped
-      // turn's own end once a newer turn that names none has opened (stopSuperseded). An end naming no
-      // turn while an unnamed turn runs cannot be told apart, and ends what runs, as before.
+      // An end naming another turn than the running one is that turn's, late. That includes any named
+      // turn a newer, unnamed turn opened over (supersededTurns), for each of its ends. An end naming
+      // no turn while an unnamed turn runs cannot be told apart, and ends what runs, as before.
       const stale =
         terminalTurnId !== undefined &&
         (this.runningTurnId !== undefined
           ? terminalTurnId !== this.runningTurnId
-          : this.stopSuperseded && terminalTurnId === this.stopTurnId);
+          : this.supersededTurns.has(terminalTurnId));
       if (ambiguous || stale) {
         // The old Stop can be acknowledged independently, before any turn-scoped side effects
         // (including foreground subagents) see a result that belongs to a different turn.
@@ -4515,8 +4521,9 @@ export class AcpmuxDirectClient {
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
         if (msg.steer !== true) {
-          this.runningTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
-          this.stopSeesTurnOpen(event, this.runningTurnId);
+          const openedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+          this.stopSeesTurnOpen(event, openedTurnId);
+          this.runningTurnId = openedTurnId;
           // The fence covers the turn the forced Stop's next prompt started. A later explicit prompt
           // starts a turn whose unscoped boundaries are its own again, so its compactions can end.
           if (this.compactionFenceSeq !== undefined && event.seq > this.compactionFenceSeq)
