@@ -141,6 +141,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var y = m.topPadding
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
+        // User-chosen folder/status views and drag targets keep their own layout.
+        let groupsSessions = o.sessionTree?.hosts.isEmpty == false && !filtering
+            && !o.grouping.byStatus && !o.groupsByFolder && !o.showEmptyPinned && o.gap == nil
         // One machine needs no machine header: its name adds nothing.
         let machineCount = SidebarSection.machineCount(sections)
         // One list (cx-mdo0, Lawrence 2026-10-10: "just have linear list of
@@ -450,7 +453,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
                 let fold = SidebarDoneFoldID(section: section.id, group: nil)
-                let tree = Self.treeRows(nodes.map { $0.node }, tree: o.sessionTree, filtering: filtering)
+                let tree = Self.treeRows(nodes.map { $0.node }, tree: groupsSessions ? nil : o.sessionTree, filtering: filtering)
                 let treeRow = Dictionary(tree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
                 let drawn = Self.foldingDone(tree.map { ($0.index, $0.depth) },
                                              workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold,
@@ -489,6 +492,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         )
         layout.rowSpacing = m.rowSpacing
         (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
+        if groupsSessions, let tree = o.sessionTree {
+            return layout.groupingSessions(tree, sections: sections, metrics: m)
+        }
         return layout
     }
 }

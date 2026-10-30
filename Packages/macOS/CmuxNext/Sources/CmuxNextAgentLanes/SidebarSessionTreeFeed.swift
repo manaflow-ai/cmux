@@ -145,6 +145,12 @@ public final class SidebarSessionTreeFeed {
             return nil
         }
         var state = SidebarSessionTreeState()
+        for (id, refs) in chats {
+            guard let ref = refs.first(where: { $0.session != nil }) else { continue }
+            let host = keys(ref.host).min() ?? ref.host
+            state.hosts[id] = host
+            state.hostNames[host] = state.hostNames[host] ?? ref.hostName ?? ref.host
+        }
         var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []
         for (id, refs) in remote {
