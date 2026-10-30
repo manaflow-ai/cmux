@@ -162,6 +162,16 @@ struct SidebarSessionHostIntegrationTests {
             for point in targets { try exercise(point, document: false) }
             for point in targets { try exercise(point, document: true) }
 
+            // External tab drops use the same host-header gate only for
+            // structural reorders; taking a tab into an existing workspace is
+            // still accepted.
+            let workspacePoint = NSPoint(x: 80, y: plain.y + plain.height / 2)
+            #expect(list.externalDragMoved(windowPoint: workspacePoint, sourceMachine: nil) != nil)
+            list.externalDragExited()
+            let endPoint = NSPoint(x: 80, y: list.displayed.totalHeight - 4)
+            #expect(list.externalDragMoved(windowPoint: endPoint, sourceMachine: nil) == nil)
+            #expect(list.externalDragEnded() == nil)
+
             // Control: with no host header, the ordinary resolver still opens a gap.
             SidebarSessionTreeFeed.publish(Self.pass(enabled: false), to: .shared)
             list.reload(animated: false)
