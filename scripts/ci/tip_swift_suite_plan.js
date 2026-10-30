@@ -118,9 +118,13 @@ async function plan({ github, context, now = Date.now(), suite: requested }) {
   // does not reach the suite. No run with a verdict at all: dispatch.
   let green = '';
   let red = '';
+  // The newest verdict of either kind: the everyLandings floor counts from it, so a red periodic run
+  // after the last green does not make every later tick dispatch again.
+  let latest = '';
   for (const run of runs) {
     const v = await verdict({ github, owner, repo, run, reads, suite });
     if (v === undefined) break;
+    if (!latest && (v === 'pass' || v === 'fail')) latest = testedSha(suite, run);
     if (v === 'pass') { green = testedSha(suite, run); break; }
     // A deferred run of an older sha (its same-tree run may still come) is no verdict here.
     if (v === 'fail' && !red) red = testedSha(suite, run);
@@ -133,8 +137,19 @@ async function plan({ github, context, now = Date.now(), suite: requested }) {
   const what = green ? 'the last green' : 'the last red';
   if (cmp.status === 'identical') return out('skip', `the tip is ${what} commit`, base);
   if (cmp.status !== 'ahead') return out('dispatch', `${what} ${base} is not an ancestor of the tip`, base);
-  if (suite.everyLandings && cmp.ahead_by >= suite.everyLandings) {
-    return out('dispatch', `the tip is ${cmp.ahead_by} commits past ${what} ${base}`, base);
+  if (suite.everyLandings) {
+    let since = { sha: base, by: cmp.ahead_by };
+    if (latest && latest !== base) {
+      const { data: last } = await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${latest}...${tip}`, per_page: 1,
+      });
+      if (last.status === 'identical') return out('skip', `the tip is the newest ${suite.job} verdict's commit`, base);
+      // Not an ancestor (a force push): the floor counts from the green, as before.
+      if (last.status === 'ahead') since = { sha: latest, by: last.ahead_by };
+    }
+    if (since.by >= suite.everyLandings) {
+      return out('dispatch', `the tip is ${since.by} commits past the newest verdict ${since.sha}`, base);
+    }
   }
   return out('route', `diff ${what} ${base} with the tip`, base);
 }

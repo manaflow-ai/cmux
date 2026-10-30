@@ -63,7 +63,9 @@ const github = { rest: {
   git: { getRef: async () => ({ data: { object: { sha: fixture.tip } } }) },
   repos: { compareCommitsWithBasehead: async (args) => {
     calls.push(['compare', args.basehead]);
-    return { data: { status: fixture.compare || 'ahead', ahead_by: fixture.ahead_by || 1 } };
+    const base = args.basehead.split('...')[0];
+    const by = (fixture.ahead_by_from || {})[base] ?? fixture.ahead_by ?? 1;
+    return { data: { status: fixture.compare || 'ahead', ahead_by: by } };
   } },
   actions: {
     listWorkflowRuns: async (args) => {
@@ -122,7 +124,7 @@ def swift_job(conclusion, failed_step=None):
             {"name": "cmux-next swift test", "status": "completed", "conclusion": conclusion, "steps": steps}]
 
 
-def run(runs, jobs=None, compare="ahead", suite=None, ahead_by=1, refuse=False):
+def run(runs, jobs=None, compare="ahead", suite=None, ahead_by=1, refuse=False, ahead_by_from=None):
     from datetime import datetime, timezone
     for r in runs:
         r["created_at"] = datetime.fromtimestamp(r.pop("created_at_ms") / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
@@ -131,6 +133,7 @@ def run(runs, jobs=None, compare="ahead", suite=None, ahead_by=1, refuse=False):
         if r["conclusion"] == "success":
             jobs.setdefault(r["id"], daemon_job("success") if suite == "daemon" else swift_job("success"))
     fixture = {"tip": TIP, "now": NOW, "runs": runs, "compare": compare, "suite": suite, "ahead_by": ahead_by,
+               "ahead_by_from": ahead_by_from or {},
                "refuse": refuse, "jobs": {str(k): v for k, v in jobs.items()}}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
@@ -262,6 +265,19 @@ p, calls = run([daemon_run(GREEN, conclusion="success")], suite="daemon", ahead_
 check(p["action"] == "dispatch", f"20 landings past the last daemon verdict must dispatch, got {p}")
 p, calls = run([daemon_run(GREEN, conclusion="success")], suite="daemon", ahead_by=19)
 check(p["action"] == "route", f"19 landings past the last daemon verdict go to the router, got {p}")
+# The floor counts from the newest verdict, red included: a green 21 landings back and a red periodic
+# run 1 landing back route on the router; the routing base stays the green.
+RED = "b" * 40
+red_run, green_run = daemon_run(RED, age_min=40), daemon_run(GREEN, conclusion="success", age_min=90)
+p, calls = run([red_run, green_run], jobs={red_run["id"]: daemon_job("failure", "Run the live-daemon suites")},
+               suite="daemon", ahead_by_from={GREEN: 21, RED: 1})
+check(p["action"] == "route" and p["base"] == GREEN,
+      f"a red verdict 1 landing back must hold the floor and route from the green, got {p}")
+check(["compare", f"{RED}...{TIP}"] in calls, "the floor reads the distance from the newest verdict")
+red_run, green_run = daemon_run(RED, age_min=40), daemon_run(GREEN, conclusion="success", age_min=90)
+p, calls = run([red_run, green_run], jobs={red_run["id"]: daemon_job("failure", "Run the live-daemon suites")},
+               suite="daemon", ahead_by_from={GREEN: 41, RED: 20})
+check(p["action"] == "dispatch", f"20 landings past the newest (red) verdict must dispatch, got {p}")
 p, calls = run([tip_run(GREEN, conclusion="success")], ahead_by=500)
 check(p["action"] == "route", f"the Swift suite keeps routing on its tier alone, got {p}")
 # Cadence per suite: a daemon run in flight holds only the daemon leg.
