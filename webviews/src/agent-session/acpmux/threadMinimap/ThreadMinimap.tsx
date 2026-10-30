@@ -14,7 +14,7 @@ import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useRailPlacement } from "./useRailPlacement";
 import { usePromptMarks } from "./promptMarks";
-import { useHoverIntent } from "../../../ui/hoverIntent";
+import { HOVER_INTENT, useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import {
   animateScroll,
@@ -186,8 +186,12 @@ export function ThreadMinimap({
     }
     setRailRevealed(true);
   };
+  // The leave grace is a hover-intent delay off the motion scale (HOVER_INTENT.cardGrace). It fires
+  // once, re-entry or focus cancels it, and it is skipped (the rail hides at once) under Reduce
+  // Motion or while the page is hidden; the unmount and visibility effects below clear it.
   const hideRailAfterGrace = () => {
     if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
+    const grace = reducedMotion() || document.hidden ? 0 : HOVER_INTENT.cardGrace;
     railHideTimer.current = setTimeout(() => {
       railHideTimer.current = undefined;
       setRailRevealed(false);
@@ -198,14 +202,24 @@ export function ThreadMinimap({
       if (held && active && !keyboardFocused(active as HTMLElement)) (active as HTMLElement).blur();
       else if (held) return;
       intend(null);
-    }, 120);
+    }, grace);
   };
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const clear = () => {
+      if (railHideTimer.current === undefined) return;
+      clearTimeout(railHideTimer.current);
+      railHideTimer.current = undefined;
+      setRailRevealed(false);
+    };
+    const onVisibility = () => {
+      if (document.hidden) clear();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
   /// The row keyboard focus is on.
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
