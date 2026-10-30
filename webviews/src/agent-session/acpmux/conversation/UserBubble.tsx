@@ -290,7 +290,8 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
-  const shown = useStableImage({ id: image.id, read: promptImage }, image);
+  // Bytes the row holds (this pane's own send) draw at once; acpmux cannot read a composer id.
+  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);

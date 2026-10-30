@@ -115,6 +115,8 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
         : {}),
       ...(typeof raw.width === "number" ? { width: raw.width } : {}),
       ...(typeof raw.height === "number" ? { height: raw.height } : {}),
+      // This pane's own row keeps its image's bytes until acpmux, which names it otherwise, echoes it.
+      ...(typeof raw.src === "string" && raw.src.startsWith("data:") ? { src: raw.src } : {}),
       ...placed,
     };
   if (!["file", "document", "audio", "pasted", "resource_link"].includes(String(kind))) return undefined;
