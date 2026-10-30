@@ -393,8 +393,8 @@ fn loopback_bulk_and_interactive_latency() {
         )
         .await;
         let wireguard = measure_competing(
-            connect_ws(&a, TOKEN, None).await.unwrap(),
-            connect_ws(&a, TOKEN, None).await.unwrap(),
+            connect_ws(&a, TOKEN, Some("benchmark-peer-token")).await.unwrap(),
+            connect_ws(&a, TOKEN, Some("benchmark-peer-token")).await.unwrap(),
             payload,
         )
         .await;
