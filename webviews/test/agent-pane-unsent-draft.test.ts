@@ -49,12 +49,19 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
     await page.addInitScript(
       ({ draft }) => {
         const unsent: string[] = [];
+        const nativeCalls: { method: string; params: Record<string, unknown> }[] = [];
         Object.assign(window, {
+          nativeCalls,
+          cmuxAcpmuxMockNative: {
+            "harness.health": { health: { id: "claude", auth: "signedOut", login: "claude auth login" } },
+          },
+          cmuxGalleryLog: [],
           unsentDrafts: unsent,
           webkit: {
             messageHandlers: {
               agentSession: {
                 postMessage: async ({ method, params }: { method: string; params: Record<string, unknown> }) => {
+                  nativeCalls.push({ method, params });
                   if (method === "chat.unsentDraft") unsent.push(String(params.text));
                   return { ok: true, value: null };
                 },
@@ -98,6 +105,30 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("compare the two retry policies");
       expect(await lastUnsent(page, "compare the two retry policies")).toBe("compare the two retry policies");
+      await page.close();
+    });
+
+    test("a signed-out fresh chat shows Log In before send and keeps its draft", async () => {
+      const page = await newChat();
+      const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");
+      const notice = page.locator('[data-harness-notice="signedOut"]');
+      await notice.waitFor();
+      expect(await notice.innerText()).toContain("Log In");
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("set up the retry policy");
+      await page.locator('[data-harness-notice="signedOut"] [data-notice-action="login"]').click();
+      expect((await prompt.innerText()).trim()).toBe("set up the retry policy");
+      expect(await lastUnsent(page, "set up the retry policy")).toBe("set up the retry policy");
+      const calls = await page.evaluate(
+        () => (window as unknown as { nativeCalls: { method: string; params: Record<string, unknown> }[] }).nativeCalls,
+      );
+      expect(calls.filter(({ method }) => method === "tab.open")).toEqual([
+        { method: "tab.open", params: { kind: "terminal", text: "claude auth login", run: true } },
+      ]);
+      const daemon = await page.evaluate(
+        () => (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog,
+      );
+      expect(daemon.some(({ method }) => method === "acpmux session/new" || method === "acpmux session/prompt")).toBe(false);
       await page.close();
     });
 
