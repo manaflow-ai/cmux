@@ -43,10 +43,11 @@ pub const MAX_CAPABILITY_TOKEN_BYTES: usize = 64;
 /// grows with each daemon feature (5,765 bytes on 2026-10-29), and a fixed
 /// 4,096-byte cap refused `put-session`, so connected machines were not
 /// recorded and the next launch did not restore them (P-AUSTIN B7a). The
-/// bound comes from where the record goes: its `personal.session.put`
-/// journal fact must fit the journal's event payload budget, and every other
-/// field of the record is a few KiB at most (session id, names, transport,
-/// icon), so half of the budget is the list's.
+/// bound is half of the journal's budget for one client event payload
+/// (`MAX_EVENT_PAYLOAD_BYTES`): the journal applies that budget to client
+/// ingress, not to this record's `personal.session.put` fact, but it is the
+/// size the journal is built to carry per event, and every other field of
+/// the record is a few KiB at most (session id, names, transport, icon).
 pub const MAX_SESSION_CAPABILITIES_BYTES: usize =
     super::journal_extensions::MAX_EVENT_PAYLOAD_BYTES / 2;
 /// Longest accepted theme spec, in characters.

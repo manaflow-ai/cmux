@@ -45,13 +45,18 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     /// The daemon has recorded `session`'s current record.
     public func isRecorded(session: String) -> Bool { sent[session] != nil }
 
-    /// A refusal the same request gets again, or a failure that may pass on a later attempt.
+    /// A refusal the same request gets again, or a failure that may pass on a later attempt. The daemon
+    /// answers a request it refuses as invalid with a `bad request:` message and no code (cmux-tui
+    /// `send_bad_request`, `validate_*`); any other `ok:false` (a store or I/O error) can pass later.
     public static func classify(_ error: any Error) -> Failure {
-        if case .command(_, let message, _, _, let retryable) = error as? DaemonError, retryable != true {
+        if case .command(_, let message, _, _, let retryable) = error as? DaemonError, retryable != true,
+           message.hasPrefix(Self.invalidRequestPrefix) {
             return .refused(message)
         }
         return .unreachable
     }
+
+    static var invalidRequestPrefix: String { "bad request" }
 }
 
 extension RetryPolicy {
