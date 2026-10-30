@@ -58,9 +58,11 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
 
     /// The transcript: a collection view of reused rows (`ChatTranscriptList`).
     private let list: ChatTranscriptList
-    private var scrollView: UICollectionView { list.collectionView }
-    /// The soft top edge: text fades out under the status bar (a workspace tab, no bar)
-    /// or the navigation bar (pushed), as in the ChatGPT and Claude apps.
+    private var scrollView: ChatTranscriptCollectionView { list.collectionView }
+    /// Workspace chats have no navigation bar to provide a native top edge.
+    private let topShelf = UIView()
+    /// Like the embedded terminal, iOS 26 also needs a gradient fallback:
+    /// a bare top edge container alone does not obscure text under the clock.
     private let topFade = TopFadeView()
     private let emptyHost: UIHostingController<AnyView>
     private var dockHost: UIHostingController<AnyView>?
@@ -195,12 +197,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
-        scrollView.backgroundColor = .clear
+        scrollView.backgroundColor = .cmuxMobileBackground
+        scrollView.topEdgeEffect.style = .soft
         list.scrollDelegate = self
         view.addSubview(scrollView)
-        topFade.isUserInteractionEnabled = false
-        topFade.isAccessibilityElement = false
-        view.addSubview(topFade)
+        setContentScrollView(scrollView, for: .top)
+
+        if placement == .external {
+            topShelf.isUserInteractionEnabled = false
+            view.addSubview(topShelf)
+            let topEdge = UIScrollEdgeElementContainerInteraction()
+            topEdge.scrollView = scrollView
+            topEdge.edge = .top
+            topShelf.addInteraction(topEdge)
+            if #unavailable(iOS 27) {
+                topFade.isUserInteractionEnabled = false
+                topFade.isAccessibilityElement = false
+                view.addSubview(topFade)
+            }
+        }
 
         for host in [emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) {
             addChild(host)
@@ -346,10 +361,14 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             view.layoutIfNeeded()
             return
         }
-        let top = topInset ?? view.safeAreaInsets.top
+        let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
-        let fadeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + TopFadeView.tail)
-        if topFade.frame != fadeFrame { topFade.frame = fadeFrame }
+        scrollView.edgeTopInset = top
+        if placement == .external {
+            let chromeFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top)
+            if topShelf.frame != chromeFrame { topShelf.frame = chromeFrame }
+            if topFade.superview != nil, topFade.frame != chromeFrame { topFade.frame = chromeFrame }
+        }
 
         // As in Messages, a transcript drag takes the keyboard once the finger
         // reaches the stack's top edge.
@@ -361,6 +380,22 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     // MARK: Insets and position
+
+    /// SwiftUI can consume the safe area before forwarding it to this full-screen
+    /// controller. Resolve visible chrome in our coordinates as well, so neither
+    /// a pushed chat nor a workspace page can start above the clock or title.
+    private var headerBottom: CGFloat {
+        var top = max(topInset ?? 0, view.safeAreaInsets.top)
+        if let window = view.window {
+            let safeTop = view.convert(CGPoint(x: 0, y: window.safeAreaInsets.top), from: window).y
+            top = max(top, safeTop)
+        }
+        if placement == .owned, let navigation = navigationController, !navigation.isNavigationBarHidden {
+            let bar = navigation.navigationBar
+            top = max(top, view.convert(bar.bounds, from: bar).maxY)
+        }
+        return max(0, top)
+    }
 
     /// The stack's top is its bottom (which only the keyboard or the
     /// resting place moves) less its height as drawn this frame.
@@ -404,7 +439,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private func updateInsets() {
         guard view.bounds.height > 0 else { return }
         let bottom = bottomInset
-        let headerBottom = topInset ?? view.safeAreaInsets.top
+        let headerBottom = self.headerBottom
         let visible = view.bounds.height - headerBottom - bottom
         let top = max(headerBottom, headerBottom + visible - contentHeight)
         let old = scrollView.contentInset
@@ -859,11 +894,11 @@ final class ChatKeyboardTrace {
 #endif
 
 #if os(iOS)
-/// A gradient from the screen background to clear: solid over the chrome, fading over
-/// `tail` points below it, so transcript text softens instead of cutting hard.
+/// Solid over the status bar, then fades to clear at the content inset so the
+/// first row at rest is unobscured. Matches the embedded terminal's fallback.
 @MainActor
-final class TopFadeView: UIView {
-    static let tail: CGFloat = 24
+private final class TopFadeView: UIView {
+    private static let tail: CGFloat = 18
 
     override class var layerClass: AnyClass { CAGradientLayer.self }
 
@@ -882,13 +917,13 @@ final class TopFadeView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let solid = max(0, bounds.height - Self.tail * 2) / max(bounds.height, 1)
+        let solid = max(0, bounds.height - Self.tail) / max(bounds.height, 1)
         gradient.locations = [0, NSNumber(value: Double(solid)), 1]
     }
 
     private func updateColors() {
         let color = UIColor(Color.cmuxMobileBackground).resolvedColor(with: traitCollection)
-        gradient.colors = [color.withAlphaComponent(0.92).cgColor, color.withAlphaComponent(0.85).cgColor, color.withAlphaComponent(0).cgColor]
+        gradient.colors = [color.cgColor, color.cgColor, color.withAlphaComponent(0).cgColor]
     }
 }
 #endif

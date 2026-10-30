@@ -118,8 +118,11 @@ extension SidebarListViewComponents {
     func railReach(for row: SidebarRow) -> CGFloat {
         guard case .group = row.key else { return 0 }
         let membersX = inset + indentOffset(for: row)
+        // `inside` uses Chrome's corner geometry all the way to the list edge. The general
+        // header padding would clamp that overhang and put the line back under a member row.
+        let edgePadding = SidebarStyle.groupLineLayout == .inside ? 0 : SidebarStyle.groupEdgePadding
         let barX = max(0, SidebarStyle.groupLineX(membersMinX: membersX) - SidebarStyle.groupHeaderOverhang)
-        return membersX - min(membersX, max(barX, SidebarStyle.groupEdgePadding))
+        return membersX - min(membersX, max(barX, edgePadding))
     }
     /// Whether `group` sits somewhere under `ancestor`, by the groups' parent links (cycle-safe).
     static func isNested(_ group: SidebarGroup, under ancestor: GroupID, in groups: [GroupID: SidebarGroup]) -> Bool {
@@ -174,7 +177,17 @@ extension SidebarListViewComponents {
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
-        if !animate, !adopting {
+        // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
+        // even though `animate` is true. Park leaving views before that snap realizes replacements too.
+        if (!animate || !Motion.sidebar.animatesMovement), !adopting {
+            // An animated apply removes a leaving row from `rowViews` but keeps it in the list until its
+            // close finishes. A no-motion reload can arrive before that completion and otherwise leave the
+            // old, still-visible row's spring running beside a newly realized row for the same key.
+            let active = Set(rowViews.values.map { ObjectIdentifier($0) })
+            for view in subviews.compactMap({ $0 as? SidebarRowView })
+                where !view.isHidden && !active.contains(ObjectIdentifier(view)) {
+                recycle(view)
+            }
             for (key, view) in rowViews where layout.row(for: key) == nil {
                 rowViews[key] = nil
                 recycle(view)
@@ -292,6 +305,7 @@ extension SidebarListViewComponents {
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
+            view.region.selectedWorkspaces = selectedWorkspaces
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }

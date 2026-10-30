@@ -111,12 +111,14 @@ struct ChatRowView: View {
             EditedFilesCard(changeSet: changes)
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
-        case .failed(let prompt, let errorText):
+        case .failed(_, let errorText):
             let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
             let turn = store.turns.last { $0.id == row.turnID }
+            // The latest failed turn retries through acpmux (its input and context kept).
             FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                        canRetry: turn.map { store.canRetryFailedTurn($0) } ?? false,
                         retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) }) {
-                store.send(prompt: prompt)
+                if let turn { store.retryFailedTurn(turn) }
             }
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {

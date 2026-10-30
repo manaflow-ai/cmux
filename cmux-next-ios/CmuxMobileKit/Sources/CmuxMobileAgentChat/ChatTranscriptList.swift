@@ -230,6 +230,21 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 final class ChatTranscriptCollectionView: UICollectionView {
     var didLayout: (() -> Void)?
 
+    /// Content insets are manual; the system top edge effect needs the same top
+    /// boundary as the transcript content, even when the workspace host consumes
+    /// the UIKit safe area.
+    var edgeTopInset: CGFloat = 0 {
+        didSet {
+            if edgeTopInset != oldValue { safeAreaInsetsDidChange() }
+        }
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.top = max(insets.top, edgeTopInset)
+        return insets
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         didLayout?()
