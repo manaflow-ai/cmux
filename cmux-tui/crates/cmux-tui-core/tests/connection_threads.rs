@@ -49,6 +49,40 @@ fn process_threads() -> usize {
     info.pti_threadnum as usize
 }
 
+/// The names of this process's threads, sorted (Linux: `/proc/self/task/*/comm`).
+#[cfg(target_os = "linux")]
+fn thread_names() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir("/proc/self/task")
+        .expect("/proc/self/task")
+        .filter_map(|task| std::fs::read_to_string(task.ok()?.path().join("comm")).ok())
+        .map(|name| name.trim_end().to_string())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The names of this process's threads (not read on macOS).
+#[cfg(target_os = "macos")]
+fn thread_names() -> Vec<String> {
+    Vec::new()
+}
+
+/// The names in `after` that `before` does not hold (each name counted).
+fn added_names(before: &[String], after: &[String]) -> Vec<String> {
+    let mut left = before.to_vec();
+    after
+        .iter()
+        .filter(|name| match left.iter().position(|seen| seen == *name) {
+            Some(index) => {
+                left.swap_remove(index);
+                false
+            }
+            None => true,
+        })
+        .cloned()
+        .collect()
+}
+
 /// The thread count once it held still for 300 ms.
 fn settled_threads() -> usize {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -114,6 +148,7 @@ fn sixty_idle_connections_add_at_most_two_threads() {
     let mut connections = vec![Connection::open(&socket)];
     connections[0].settle_in();
     let before = settled_threads();
+    let names_before = thread_names();
 
     for _ in 1..CONNECTIONS {
         let mut connection = Connection::open(&socket);
@@ -123,8 +158,9 @@ fn sixty_idle_connections_add_at_most_two_threads() {
     let after = settled_threads();
     assert!(
         after <= before + THREAD_BUDGET,
-        "{CONNECTIONS} idle connections took {} threads ({before} -> {after})",
-        after.saturating_sub(before)
+        "{CONNECTIONS} idle connections took {} threads ({before} -> {after}); new: {:?}",
+        after.saturating_sub(before),
+        added_names(&names_before, &thread_names())
     );
 
     // Every connection is still served.
