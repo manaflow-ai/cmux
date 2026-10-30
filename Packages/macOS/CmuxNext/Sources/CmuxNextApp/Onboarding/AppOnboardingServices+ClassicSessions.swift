@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextOnboarding
+import CmuxNextSidebar
 import CmuxNextWakeups
 import Foundation
 
@@ -119,13 +120,16 @@ extension AppOnboardingServices {
     }
 
     /// Waits for a new workspace's slot placement: listed (queued) within 5 s, then
-    /// through the queue. A workspace whose window went away is never listed.
+    /// through the queue. A workspace whose window went away is never listed. On the
+    /// sidebar document the slot is a document move instead (`sidebar.apply`, not the
+    /// queue): its reply must come before the group write too (#28425).
     private static func placementLanded(_ listed: FirstOutcome<Void>, queue: PersonalPlacementQueue) async {
         let bound = DemandTimer(owner: "ClassicImport.placementLanded")
         bound.schedule(after: .seconds(5)) { listed.resolve(()) }
         await listed.value()
         bound.cancel()
         await queue.drained()
+        await SidebarDocStore.current?.settled()
     }
 
     /// The daemon a classic workspace opens on: this Mac's, or the one for

@@ -306,29 +306,15 @@ final class ClassicUpgradeSimulator {
         NSApp.modalWindow != nil || NSApp.windows.contains { $0.attachedSheet != nil }
     }
 
-    /// Waits until the tree stops changing (the daemon's last events of a run
-    /// land after the run returns): first until the store has applied every
-    /// event the daemon sent before now (its event sequence, the barrier
-    /// `WorkspaceSpawner.settled` takes), then until the workspaces and the
-    /// sidebar are unchanged for 0.5 s (the app's own follow-ups: placements,
-    /// group moves). Each wait has a 60 s ceiling, not a budget: a loaded Mac
-    /// gets there later, an idle one at once.
-    func settle() async {
-        let clock = ContinuousClock()
-        await services.placementsSettled()
-        let deadline = clock.now + .seconds(60)
-        var last = "\(made().sorted { $0.key < $1.key })\(windows())"
-        var stableSince = clock.now
-        while clock.now < deadline, clock.now - stableSince < .milliseconds(500) {
-            try? await Task.sleep(for: .milliseconds(100))
-            let now = "\(made().sorted { $0.key < $1.key })\(windows())"
-            // A placement still queued is not quiet: the order it writes has not landed (#26153).
-            if now != last || !services.personalPlacements.isIdle {
-                last = now
-                stableSince = clock.now
-            }
-        }
-        await services.placementsSettled()
+    /// Waits until every placement the run asked for has landed (the daemon's
+    /// last events of a run land after the run returns): the personal queue
+    /// through, the sidebar document's moves and adopts answered, the store
+    /// caught up with the daemon after them, no new-workspace placement left and
+    /// the sidebar's projection current (``AppServices/placementsSettled(timeout:sourceLocation:)``).
+    /// No quiet window: an idle Mac gets there at once, a loaded one later, and a
+    /// hang past 60 s is recorded as an issue naming what is still in flight.
+    func settle(sourceLocation: SourceLocation = #_sourceLocation) async {
+        await services.placementsSettled(sourceLocation: sourceLocation)
     }
 
     /// Checks `profile`'s promise against the tree after the run(s).

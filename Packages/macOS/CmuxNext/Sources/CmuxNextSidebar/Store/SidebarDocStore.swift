@@ -65,7 +65,10 @@ public final class SidebarDocStore {
     @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
     /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
     @MainActor public static var undoOrigin: AnyObject?
-    @ObservationIgnored private var loading = false
+    @ObservationIgnored private(set) var loading = false
+    /// Changes and adopts sent and not answered yet, and who waits for none (``settled()``).
+    @ObservationIgnored var inFlight = 0
+    @ObservationIgnored var settledWaiters: [CheckedContinuation<Void, Never>] = []
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
     /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
@@ -160,6 +163,7 @@ public final class SidebarDocStore {
             defer {
                 self?.loading = false
                 if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
+                self?.resumeIfSettled()
             }
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
                   let dropped = mirror.load(data) else {
@@ -234,9 +238,11 @@ public final class SidebarDocStore {
         let fresh = refs.filter { !adopting.contains($0) }
         guard isActive, !isProvisional, !fresh.isEmpty, let remote else { return } // adopts wait for the daemon's document
         adopting.formUnion(fresh)
+        inFlight += 1
         // task-owner: one sidebar.adopt; its batch places the rows. A failed adopt is
         // tried again on the next structural change.
         Task { [weak self] in
+            defer { self?.answered() }
             if (try? await remote.adopt(fresh, key: Self.newKey())) == nil { self?.adopting.subtract(fresh) }
         }
     }
@@ -381,8 +387,10 @@ public final class SidebarDocStore {
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
+        inFlight += 1
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
+            defer { self?.answered() }
             // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
             for asked in 1...Self.unsettledAsks {
@@ -456,45 +464,7 @@ public final class SidebarDocStore {
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
 }
 
-/// A change sent with no answer (a timeout, a closed connection): the daemon may have applied it. The store sends it
-/// again under the same idempotency key (the daemon replays a committed change) instead of dropping it.
-public nonisolated struct SidebarDocUnsettled: Error, Hashable, Sendable {
-    public init() {}
-}
-
 /// A change refused before it was sent, with the message the refusal HUD shows.
 public nonisolated struct SidebarDocSendRefusal: Error, Hashable, Sendable {
     public var message: String
-}
-
-/// The daemon side of the document (the App's home daemon connection).
-@MainActor
-public protocol SidebarDocRemote: AnyObject {
-    /// The home daemon is connected and serves `sidebar-doc-v1`.
-    var isAvailable: Bool { get }
-    /// `sidebar.get`, as JSON.
-    func get() async throws -> Data
-    func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply
-    func pin(_ items: [String], key: String) async throws -> SidebarDocReply
-    func unpin(_ items: [String], key: String) async throws -> SidebarDocReply
-    func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply
-    /// `sidebar.apply {ops}`; `ops` is a JSON array.
-    func apply(ops: Data, key: String) async throws -> SidebarDocReply
-}
-
-/// A mutation's reply: the revision after it and its inverse ops (a JSON array).
-public nonisolated struct SidebarDocReply: Hashable, Sendable {
-    public var revision: UInt64?
-    public var inverse: Data
-
-    public init(revision: UInt64?, inverse: Data) {
-        self.revision = revision
-        self.inverse = inverse
-    }
-
-    /// The inverse holds at least one op.
-    public var hasInverse: Bool {
-        guard let ops = try? JSONSerialization.jsonObject(with: inverse) as? [Any] else { return false }
-        return !ops.isEmpty
-    }
 }
