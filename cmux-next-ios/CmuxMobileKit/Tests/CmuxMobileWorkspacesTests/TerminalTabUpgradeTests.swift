@@ -52,8 +52,25 @@ import Testing
         let macB = TerminalFrameKey(accountID: account, macID: "mac-b", surfaceID: "s1")
         let frameA = Data([0xA1])
 
-        // Mac A's frame is saved before its host cools out of the warm set.
-        store.save(frameA, for: macA)
+        // Model Ghostty's four-host warm set: visiting four newer A surfaces
+        // cools A/s1 and persists its last frame.
+        var warm: [TerminalFrameKey] = []
+        var lastFrames: [TerminalFrameKey: Data] = [:]
+        func visit(_ key: TerminalFrameKey, frame: Data) {
+            warm.removeAll { $0 == key }
+            warm.append(key)
+            lastFrames[key] = frame
+            if warm.count > 4, let cooled = warm.first {
+                warm.removeFirst()
+                if let frame = lastFrames.removeValue(forKey: cooled) { store.save(frame, for: cooled) }
+            }
+        }
+        visit(macA, frame: frameA)
+        for index in 2...5 {
+            visit(TerminalFrameKey(accountID: account, macID: "mac-a", surfaceID: "s\(index)"), frame: Data([UInt8(index)]))
+        }
+        #expect(lastFrames[macA] == nil)
+        #expect(store.load(macA) == frameA)
         // A pre-fix, unscoped entry cannot be assigned to either Mac.
         try Data([0xFF]).write(to: dir.appendingPathComponent("s1.jpg"))
         // Mac B opens its same-numbered tab before live output arrives.
