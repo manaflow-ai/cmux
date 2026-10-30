@@ -353,7 +353,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t), centered
         // on the trailing column every row's dot and spinner share (SidebarStyle+TrailingColumn).
         let chevronSide = min(b.height, SidebarStyle.trailingSlotSide)
-        chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: chevronSide)
+        chevronFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.horizontalInset, centerY: b.height / 2, side: chevronSide)
         chevron.frame = chevronFrame
         let control = barHeight - Metrics.space1
         // The more button and the + center on the slots left of the chevron (`trailingSlotCenterX`), the lines a hovered
@@ -361,7 +361,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // At most one slot wide, so neighbors never overlap (at a comfortable app density the control outgrows the pitch).
         let slotWidth = min(control, SidebarStyle.trailingSlotPitch)
         func slotFrame(_ slot: Int) -> NSRect {
-            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: slot) - slotWidth / 2)
+            let x = max(pad, SidebarStyle.trailingSlotCenterX(rowWidth: b.width - SidebarStyle.horizontalInset, slot: slot) - slotWidth / 2)
             return NSRect(x: x, y: (b.height - control) / 2, width: slotWidth, height: control)
         }
         moreButton.frame = slotFrame(1)
@@ -402,7 +402,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
         let ind = SidebarStyle.indicatorSize
-        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
+        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width - SidebarStyle.horizontalInset, centerY: b.height / 2, side: ind)
         setHoverSlotShown(activitySlot, onColumn, frame: slotFrame, fades: (fadesNextActivity || fades) && !showsActions) { [weak self] in
             guard let self, self.activityEnding else { return }
             self.activityEnding = false
