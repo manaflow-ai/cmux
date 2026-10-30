@@ -29,6 +29,9 @@ fn listing_open_chats_does_not_read_their_log_directories() {
             },
         )
         .unwrap();
+    // The log writer writes the line on its own thread and makes `events` then: watch the folder
+    // once the line is on disk.
+    store.log.settle("chat");
     // Observe actual getdents access, not opens for the privacy/ACL checks, which remain.
     // SAFETY: creates a new descriptor; OwnedFd below owns its successful result.
     let raw = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };

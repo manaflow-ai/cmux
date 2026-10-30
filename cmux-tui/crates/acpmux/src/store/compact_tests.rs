@@ -262,6 +262,9 @@ fn archive_mode_keeps_the_old_segments() {
 fn a_compaction_a_crash_cut_short_is_done_again_and_still_lists() {
     let (_home, store) = Home::new();
     chat(&store, "c1");
+    // The log writer writes the chat's lines on its own thread and makes `events` then; the
+    // record below goes in that folder, as a real compaction's does after it read the log.
+    store.log.settle("c1");
     // What a crash between the record and the renames leaves: the record, not yet complete.
     let marker = json!({"lastSeq": 15, "at": 1, "complete": false, "bytesBefore": 0, "bytesAfter": 0, "dropped": 0, "trimmed": 0});
     std::fs::write(store.marker("c1"), marker.to_string()).unwrap();
