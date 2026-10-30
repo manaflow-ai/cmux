@@ -12,7 +12,7 @@ import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
-import { type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
 import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import {
   defaultRow,
@@ -371,6 +371,7 @@ export function NewTabPage({
   const [picked, setProjectCwd] = useState<string | undefined>(undefined);
   const [browseError, setBrowseError] = useState<string>();
   const browseRequest = useRef(0);
+  const browsePending = useRef(false);
   useEffect(
     () => () => {
       browseRequest.current += 1;
@@ -383,17 +384,23 @@ export function NewTabPage({
     setProjectCwd(path);
   };
   const browseProject = async (request?: BrowseRequest): Promise<BrowseResult> => {
+    if (browsePending.current) return BROWSE_BUSY;
+    browsePending.current = true;
     // The Add Project dialog owns its result and errors until it commits the choice.
-    if (request?.deferPick) return onBrowseProject?.(request);
-    const id = ++browseRequest.current;
-    setBrowseError(undefined);
     try {
-      const path = await onBrowseProject?.(request);
-      if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
-      return path;
-    } catch (error) {
-      if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
-      return undefined;
+      if (request?.deferPick) return (await onBrowseProject?.(request)) ?? undefined;
+      const id = ++browseRequest.current;
+      setBrowseError(undefined);
+      try {
+        const path = await onBrowseProject?.(request);
+        if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
+        return path;
+      } catch (error) {
+        if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
+        return undefined;
+      }
+    } finally {
+      browsePending.current = false;
     }
   };
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));

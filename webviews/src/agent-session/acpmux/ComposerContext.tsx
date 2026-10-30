@@ -495,14 +495,19 @@ export function ComposerContext({
                       {
                         id: "newChatHere",
                         label: t(CONTEXT_LABELS.newChatHere),
-                        onSelect: () => onNewChat?.(currentFolder),
+                        onSelect: () => {
+                          browseRequest.current += 1;
+                          onNewChat?.(currentFolder);
+                        },
                       },
                     ]
                   : undefined
               }
               onPick={(cwd) => {
-                if (newChats) onNewChat?.(cwd);
-                else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+                if (newChats) {
+                  browseRequest.current += 1;
+                  onNewChat?.(cwd);
+                } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
               }}
             />
           )}
