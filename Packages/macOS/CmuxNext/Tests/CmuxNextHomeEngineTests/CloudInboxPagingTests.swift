@@ -22,13 +22,15 @@ struct CloudInboxPagingTests {
             "k1": CloudInboxList(entries: [Self.entry("conv_b", lastSeq: 9), Self.entry("conv_c")], revision: .string("8"), nextCursor: "k2"),
             "k2": CloudInboxList(entries: [Self.entry("conv_d")], revision: .string("9")),
         ])
-        let source = CloudSourceHarness.connected(to: daemon)
+        // The source's own daemon takes configure's background inbox read; `daemon` only allPages'.
+        let source = CloudSourceHarness.connected(to: FakeCloudDaemon())
         let list = try await source.allPages(daemon, identity: Self.identity)
         #expect(list.entries.map(\.conversation) == ["conv_a", "conv_b", "conv_c", "conv_d"])
         #expect(list.entries.first { $0.conversation == "conv_b" }?.lastSeq == 1)
         #expect(list.revision == .string("7"))
         #expect(list.nextCursor == nil)
-        #expect(await daemon.inboxCursors == [nil, "k1", "k2"])
+        let cursors = await daemon.inboxCursors
+        #expect(cursors == [nil, "k1", "k2"])
     }
 
     @Test func aCursorThatDoesNotMoveEndsTheRead() async throws {
@@ -37,19 +39,23 @@ struct CloudInboxPagingTests {
             "": CloudInboxList(entries: [Self.entry("conv_a")], nextCursor: "k1"),
             "k1": CloudInboxList(entries: [Self.entry("conv_b")], nextCursor: "k1"),
         ])
-        let source = CloudSourceHarness.connected(to: daemon)
+        // The source's own daemon takes configure's background inbox read; `daemon` only allPages'.
+        let source = CloudSourceHarness.connected(to: FakeCloudDaemon())
         let list = try await source.allPages(daemon, identity: Self.identity)
         #expect(list.entries.map(\.conversation) == ["conv_a", "conv_b"])
-        #expect(await daemon.inboxCursors == [nil, "k1"])
+        let cursors = await daemon.inboxCursors
+        #expect(cursors == [nil, "k1"])
     }
 
     /// An older daemon sends no cursor: its one page is the list.
     @Test func anOlderDaemonsOnePageIsTheList() async throws {
         let daemon = FakeCloudDaemon()
         await daemon.scriptInbox(["": CloudInboxList(entries: [Self.entry("conv_a")])])
-        let source = CloudSourceHarness.connected(to: daemon)
+        // The source's own daemon takes configure's background inbox read; `daemon` only allPages'.
+        let source = CloudSourceHarness.connected(to: FakeCloudDaemon())
         let list = try await source.allPages(daemon, identity: Self.identity)
         #expect(list.entries.map(\.conversation) == ["conv_a"])
-        #expect(await daemon.inboxCursors == [nil])
+        let cursors = await daemon.inboxCursors
+        #expect(cursors == [nil])
     }
 }
