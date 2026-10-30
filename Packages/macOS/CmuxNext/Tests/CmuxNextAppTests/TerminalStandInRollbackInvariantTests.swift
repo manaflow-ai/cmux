@@ -19,7 +19,7 @@ import Testing
     @Test func theDaemonsRefusalOrTheConnectionsEndMayTakeItBack() {
         for intent in [ctrlBacktick, cmdD] {
             #expect(!DaemonService.takesTerminalStandInBackOnClock(intent, error: DaemonError.notConnected))
-            #expect(!DaemonService.takesTerminalStandInBackOnClock(intent, error: NewTerminalTabFailure()))
+            #expect(!DaemonService.takesTerminalStandInBackOnClock(intent, error: DaemonError.command(cmd: "new-tab", message: "unknown pane 3", code: nil)))
         }
     }
 
