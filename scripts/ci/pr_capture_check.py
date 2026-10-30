@@ -86,8 +86,25 @@ def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None
 
 def visual_judgment(body: str) -> bool:
     """Whether the body records that its after image was viewed and judged."""
-    text = INDENTED_CODE.sub("", FENCE.sub("", body or ""))
-    text = COMMENT.sub("", text)
+    # Remove comments before indented code: otherwise an indented `-->` can be
+    # deleted first and leave hidden proof text looking like ordinary Markdown.
+    text = COMMENT.sub("", body or "")
+    text = FENCE.sub("", text)
+    # A fenced example inside a blockquote is still code.  Strip quoted fences
+    # line-by-line because the ordinary fence regex does not see the `>` prefix.
+    quoted_fence: str | None = None
+    visible_lines: list[str] = []
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^\s{0,3}>\s{0,3}(```|~~~)", line)
+        if quoted_fence:
+            if marker and marker.group(1) == quoted_fence:
+                quoted_fence = None
+            continue
+        if marker:
+            quoted_fence = marker.group(1)
+            continue
+        visible_lines.append(line)
+    text = INDENTED_CODE.sub("", "".join(visible_lines))
     verdict = VISUAL_VERDICT.search(text)
     if not VIEWED_AFTER.search(text) or not verdict:
         return False
