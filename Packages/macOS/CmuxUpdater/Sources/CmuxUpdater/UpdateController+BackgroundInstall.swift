@@ -40,17 +40,6 @@ extension UpdateController {
         driver.stagedItem
     }
 
-    /// Sparkle can leave its silent installer in `.installing` after the running build is pulled.
-    /// Release that stale handoff before a replacement check: ``requestUpdateCheck(_:)`` otherwise
-    /// (correctly for a real install) refuses to start while the stale model state remains active.
-    func releaseSparkleSilentInstallForCheck() {
-        guard let item = driver.quitInstallItem else { return }
-        driver.quitInstallItem = nil
-        driver.relaunchIsAutomatic = false
-        model.setState(.idle)
-        log.append("background install: released Sparkle silent installer \(item.versionString) for replacement check")
-    }
-
     /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
     /// through Sparkle's own silent driver, not this app's driver (the update harness's
     /// `background` run, and what a scheduled check does).
@@ -148,14 +137,15 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    /// quits). Sparkle's ready reply does not skip its version; a resumed silent installer uses
+    /// the foreground Skip reply to cancel it. No-op without one; returns whether cancelled.
     @discardableResult
     public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
     }
 
     /// Whether this driver holds the staged update's installer, so ``cancelStagedUpdate()`` would
-    /// cancel it (not Sparkle's own silent install, nor one already handed to the installer).
+    /// cancel it (not one still resuming from Sparkle's silent cycle or already installing).
     public var canCancelStagedUpdate: Bool {
         driver.stagedCancel != nil
     }
@@ -210,11 +200,11 @@ extension UpdateController {
         get { driver.refusesBuild }
         set { driver.refusesBuild = newValue }
     }
+
     /// Refreshes the host's refusal policy before an appcast item is offered or downloaded.
     /// A bounded async read may finish after the appcast, but the item waits for this read.
     public var prepareUpdate: (@MainActor () async -> Void)? {
         get { driver.prepareUpdate }
         set { driver.prepareUpdate = newValue }
     }
-
 }

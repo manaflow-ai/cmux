@@ -133,17 +133,34 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        guard let prepareUpdate else { return handleUpdateFound(appcastItem, reply: reply) }
+        Task { @MainActor [weak self] in
+            await prepareUpdate()
+            guard let self else { return reply(.dismiss) }
+            self.handleUpdateFound(appcastItem, reply: reply)
+        }
+    }
+
+    private func handleUpdateFound(_ appcastItem: SUAppcastItem,
+                                   reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
+        let resumesSilentInstall = quitInstallItem?.versionString == appcastItem.versionString
+        if resumesSilentInstall { quitInstallItem = nil }
         if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
             log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
             setState(.idle)
-            return reply(.dismiss)
+            return reply(resumesSilentInstall ? .skip : .dismiss)
         }
         // Before the background accept too: a refused build never downloads.
         if refusesBuild?(appcastItem.versionString) == true {
             log.append("not offering \(appcastItem.versionString): the host refuses it")
             setState(.idle)
-            return reply(.dismiss)
+            return reply(resumesSilentInstall ? .skip : .dismiss)
+        }
+        if resumesSilentInstall, installsInBackground {
+            backgroundItem = appcastItem
+            stageInBackground(reply)
+            return
         }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in

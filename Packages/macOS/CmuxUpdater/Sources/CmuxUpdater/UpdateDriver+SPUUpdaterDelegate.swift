@@ -59,6 +59,14 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         log.append("silent install staged \(item.versionString) (\(item.displayVersionString))")
         model.clearDetectedUpdate()
+        if installsInBackground {
+            // YES stalls Sparkle's cycle and provides no cancellation API. NO permits a new
+            // foreground cycle, where showUpdateFound supplies the reply that can cancel the
+            // installer (Skip). Never retain the uncancellable immediate-install block here.
+            quitInstallItem = item
+            eventDelegate?.updateDriverNeedsSilentInstallResume()
+            return false
+        }
         // Sparkle's own silent install: only a click starts it, never the idle policy.
         relaunchIsAutomatic = false
         quitInstallItem = item

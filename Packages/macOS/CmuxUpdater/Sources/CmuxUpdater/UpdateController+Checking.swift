@@ -7,13 +7,11 @@ import Foundation
 extension UpdateController {
     /// Check for updates (used by the menu item).
     public func checkForUpdates() {
-        releaseSparkleSilentInstallForCheck()
         requestUpdateCheck(.manual)
     }
 
     /// Check for updates using the custom popover-based UI.
     public func checkForUpdatesInCustomUI() {
-        releaseSparkleSilentInstallForCheck()
         requestUpdateCheck(.manual)
     }
 
@@ -216,6 +214,14 @@ extension UpdateController {
 }
 
 extension UpdateController: UpdateDriverEventDelegate {
+    func updateDriverNeedsSilentInstallResume() {
+        // Returning NO from willInstallUpdateOnQuit ends Sparkle's silent cycle. Resume it as
+        // a foreground cycle only after that callback, so the user driver gets a cancellable
+        // reply instead of trapping the updater in its private silent-install session.
+        pendingCheckIntent = .manual
+        showPreparingCheck()
+    }
+
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil

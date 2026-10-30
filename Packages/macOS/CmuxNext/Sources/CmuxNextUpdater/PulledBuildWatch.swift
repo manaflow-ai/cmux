@@ -85,9 +85,10 @@ public final class PulledBuildWatch {
     }
 
     /// Reads the pulled list at launch and after every update cycle `controller` finishes.
-    func start(controller: UpdateController?) {
+    @discardableResult
+    func start(controller: UpdateController?) -> Task<Void, Never> {
         controller?.onUpdateCycleFinished = { [weak self] in self?.refresh() }
-        refresh()
+        return refresh()
     }
 
     /// Reads the pulled list now (joins a read in flight).
