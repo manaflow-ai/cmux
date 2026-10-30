@@ -425,7 +425,13 @@ export function ThreadMinimap({
     if (!node || !turn) return undefined;
     const target = () =>
       Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
-    const row = mountedRow(node, turn.id);
+    let row = mountedRow(node, turn.id);
+    // Keep the mounted target through the settle. Virtualization may replace it, so a stale
+    // element is looked up again; ordinary frames never scan all mounted transcript rows.
+    const targetRow = () => {
+      if (!row || !node.contains(row) || row.dataset.rowId !== turn.id) row = mountedRow(node, turn.id);
+      return row;
+    };
     const to = target();
     // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
     // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
@@ -438,7 +444,7 @@ export function ThreadMinimap({
       settleScroll(
         node,
         () => {
-          const box = mountedRow(node, turn.id)?.getBoundingClientRect();
+          const box = targetRow()?.getBoundingClientRect();
           // Not drawn yet, or no layout to measure (a hidden pane).
           if (!box || box.height === 0) return undefined;
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
@@ -454,8 +460,7 @@ export function ThreadMinimap({
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
-      else
-        requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(mountedRow(node, turn.id)))));
+      else requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(targetRow()))));
     }
     return to;
   });
@@ -1084,6 +1089,36 @@ const TickList = memo(function TickList({
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
+  // An entrance belongs to a logical prompt, not each virtualized DOM mount. Only the first
+  // visible set and prompts appended later enter. Prepending history introduces no animation.
+  // ticks stays identical during streaming; only a changed prompt list scans for its old tail.
+  const committed = useRef<
+    | {
+        sessionId?: string;
+        ticks: readonly MinimapTickRow[];
+        pending: Set<string>;
+      }
+    | undefined
+  >(undefined);
+  let entrance = committed.current;
+  if (!entrance || entrance.sessionId !== sessionId || entrance.ticks !== ticks) {
+    const initial = !entrance || entrance.sessionId !== sessionId;
+    const tail = initial ? undefined : entrance!.ticks.at(-1)?.key;
+    const after = tail === undefined ? -1 : ticks.findIndex((tick) => tick.key === tail);
+    const pending = new Set(initial ? [] : entrance!.pending);
+    if (initial) {
+      for (const [from, to] of ranges) for (let index = from; index < to; index++) pending.add(ticks[index]!.key);
+    } else if (after >= 0 || entrance!.ticks.length === 0) {
+      for (let index = after + 1; index < ticks.length; index++) pending.add(ticks[index]!.key);
+    }
+    entrance = { sessionId, ticks, pending };
+  }
+  const entering = entrance;
+  useLayoutEffect(() => {
+    committed.current = entering;
+    for (const [from, to] of ranges)
+      for (let index = from; index < to; index++) entering.pending.delete(ticks[index]!.key);
+  });
   const drawn: React.ReactNode[] = [];
   let next = 0;
   for (const [from, to] of ranges) {
@@ -1100,6 +1135,7 @@ const TickList = memo(function TickList({
     return (
       <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
         <Tick
+          entering={entering.pending.has(tick.key)}
           index={index}
           place={index - listFirst}
           last={ticks.length - 1}
@@ -1137,6 +1173,7 @@ type TickActions = {
 
 /// One prompt's row: a 10 px by 36 px button with its tick and, when marked, the bookmark dot.
 const Tick = memo(function Tick({
+  entering,
   index,
   place,
   last,
@@ -1148,6 +1185,7 @@ const Tick = memo(function Tick({
   label,
   actions,
 }: {
+  entering: boolean;
   index: number;
   /// Its row's place in the list's view when it mounted, for its entrance stagger
   /// (threadMinimap.css). Read only at mount, so a scroll re-renders no tick (tickPropsEqual).
@@ -1161,6 +1199,8 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
+  // Capture eligibility at mount: consuming it after commit must not cancel this entrance.
+  const [enter] = useState(entering);
   const [entrance] = useState(place);
   const length = tickLength(progress);
   return (
@@ -1171,6 +1211,7 @@ const Tick = memo(function Tick({
       // Every row is a tab stop, as the Codex rail's buttons are.
       active
       data-tick={index}
+      data-entering={enter || undefined}
       className="acpmux-minimap__tick"
       data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
@@ -1220,9 +1261,11 @@ const Tick = memo(function Tick({
   );
 }, tickPropsEqual);
 
-/// A tick's props as `memo` compares them, but for `place`, which only its mount reads.
+const MOUNT_ONLY = new Set(["place", "entering"]);
+
+/// A tick's props as `memo` compares them, but for `place` and `entering`, which only its mount reads.
 function tickPropsEqual(was: Readonly<Record<string, unknown>>, next: Readonly<Record<string, unknown>>): boolean {
-  for (const key in next) if (key !== "place" && !Object.is(was[key], next[key])) return false;
+  for (const key in next) if (!MOUNT_ONLY.has(key) && !Object.is(was[key], next[key])) return false;
   for (const key in was) if (!(key in next)) return false;
   return true;
 }

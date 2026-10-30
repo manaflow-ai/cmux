@@ -911,8 +911,11 @@ jobs:
               echo '- scheduled tip daemon suite: the live-daemon suites on the feat-cmux-next tip.'
             } >> "$GITHUB_STEP_SUMMARY"
           else
+            # --base-rev: the merge commit's first parent, so a change to this workflow that leaves
+            # every Mac job and what it needs as it was (`on:` paths, a Linux-only job) is CI-only.
+            # The router runs every tier when it cannot read or compare that base.
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
-              --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+              --labels "$labels" --base-rev HEAD^1 --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           fi
           # Whether this pull request changes the cmux-tui it would test against:
           # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
