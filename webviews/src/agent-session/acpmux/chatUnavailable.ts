@@ -15,7 +15,7 @@
 /// One peer as `_acpmux/status` last said.
 export type PeerStatus = {
   connected?: boolean;
-  /// acpmux's link state: `connecting`, `connected`, `degraded`, `reconnecting` or `offline`.
+  /// acpmux's link state: `connecting`, `connected`, `degraded`, `reconnecting`, `restarting` or `offline`.
   state?: string;
   /// When the peer last answered, in milliseconds since the epoch.
   lastSeen?: number;
@@ -64,10 +64,11 @@ function settled(status: PeerStatus): boolean {
 }
 
 /// A peer still on its way up: acpmux's first attempt (`connecting`), a socket whose handshake has
-/// not finished (`degraded`), or a saved peer a restarted daemon has not tried yet.
+/// not finished (`degraded`), a peer whose daemon announced a restart (`restarting`), or a saved
+/// peer a restarted daemon has not tried yet.
 function stillConnecting(status: PeerStatus): boolean {
   if (settled(status)) return false;
-  if (status.state === "connecting" || status.state === "degraded") return true;
+  if (status.state === "connecting" || status.state === "degraded" || status.state === "restarting") return true;
   return status.state === "reconnecting" && (status.attempts ?? 0) === 0;
 }
 

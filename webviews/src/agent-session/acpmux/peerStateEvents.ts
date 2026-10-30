@@ -67,6 +67,15 @@ export class PeerStateEvents {
     return true;
   }
 
+  /// A `_acpmux/status` read that started at revision `since` landed: it is newer than every entry
+  /// no note has updated since, so those entries are dropped and the status read speaks for them. A
+  /// failed restart goes restarting -> reconnecting, both `reconnecting` on the wire, so the daemon
+  /// sends no note and only a status read says so.
+  statusRead(since: number): void {
+    for (const [name, entry] of this.links) if (entry.revision <= since) this.links.delete(name);
+    this.authoritative = false;
+  }
+
   *entries(): IterableIterator<[string, Link]> {
     for (const [name, entry] of this.links) yield [name, entry.link];
   }
