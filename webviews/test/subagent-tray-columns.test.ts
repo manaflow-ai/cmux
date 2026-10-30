@@ -365,7 +365,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 return {
                   time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
                   status: rect(".acpmux-running-tray__status", head),
-                  stop: rect(".acpmux-running-tray__stop-slot", head),
+                  // The header has no stop slot: its trailing track is the tray's padding, and its
+                  // chevron ends on the lines' x (the one grid, subagents.css).
+                  chevron: rect(".acpmux-running-tray__status > svg", head),
                 };
               })(),
             };
@@ -379,7 +381,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.head.time.right).toBe(initialFirst!.time.right);
         expect(initial.head.status.left).toBe(initialFirst!.status.left);
         expect(initial.head.status.right).toBe(initialFirst!.status.right);
-        expect(initial.head.stop.left).toBe(initialFirst!.stop.left);
+        expect(initial.head.chevron.right).toBe(initialFirst!.chevron!.right);
         expect(initial.rows.some((row) => row.hasStop)).toBe(true);
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
@@ -465,7 +467,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(narrow.head.time.right).toBe(narrowFirst!.time.right);
           expect(narrow.head.status.left).toBe(narrowFirst!.status.left);
           expect(narrow.head.status.right).toBe(narrowFirst!.status.right);
-          expect(narrow.head.stop.left).toBe(narrowFirst!.stop.left);
+          expect(narrow.head.chevron.right).toBe(narrowFirst!.chevron!.right);
           await page.waitForFunction(
             (previous) =>
               [...document.querySelectorAll<HTMLElement>(".acpmux-agent-line__time")].some(
