@@ -50,10 +50,10 @@ const row = {
   text: "with image",
   images: [{ id: "image-1", mimeType: "image/png", name: "old.png" }],
 };
-const render = (promptImage: (id: string) => Promise<string | undefined>) =>
+const render = (promptImage: (id: string) => Promise<string | undefined>, imageId = "image-1") =>
   root.render(
     <TurnActionsContext.Provider value={{ promptImage }}>
-      <UserBubble row={row} text="with image" />
+      <UserBubble row={{ ...row, images: [{ ...row.images[0]!, id: imageId }] }} text="with image" />
     </TurnActionsContext.Provider>,
   );
 
@@ -63,23 +63,25 @@ try {
       render(async () => {
         throw new Error("attachment unavailable");
       });
-      await Promise.resolve();
+      for (let index = 0; index < 5; index++) await Promise.resolve();
     });
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
     expect(host.querySelector(".cv-user__images img")).toBeNull();
   });
 
+  // The row now names another image (an id names an image's bytes: the same id is the same
+  // image, so only a new id may change what the slot shows).
   test("a session switch cannot leave the previous thumbnail visible", async () => {
     await act(async () => {
-      render(async () => "data:image/png;base64,AA==");
-      await Promise.resolve();
+      render(async () => "data:image/png;base64,AA==", "image-2");
+      for (let index = 0; index < 5; index++) await Promise.resolve();
     });
     expect(host.querySelector(".cv-user__images img")?.getAttribute("src")).toBe("data:image/png;base64,AA==");
     await act(async () => {
       render(async () => {
         throw new Error("session closed");
-      });
-      await Promise.resolve();
+      }, "image-3");
+      for (let index = 0; index < 5; index++) await Promise.resolve();
     });
     expect(host.querySelector(".cv-user__images img")).toBeNull();
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();

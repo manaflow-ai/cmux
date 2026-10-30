@@ -52,7 +52,7 @@ public struct PaletteKeyMap {
         context[KeyContext.paletteCaretAtStart] = .bool(caretAtStart ?? queryIsEmpty)
         context[KeyContext.paletteTogglesInPlace] = .bool(selectedTogglesInPlace)
         context[KeyContext.listFocus] = .bool(true)
-        let table = KeyBindingTable(RegistryKeyBindings(registry).table.entries.filter { commands[$0.command] != nil })
+        let table = RegistryKeyBindings(registry).subtable("palette") { commands[$0.command] != nil }
         for shortcut in shortcuts(for: event) {
             if let winner = table.resolve([shortcut], in: context, isRunnable: { _ in true }).winner {
                 return commands[winner.command]

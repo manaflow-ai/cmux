@@ -370,6 +370,47 @@ async fn wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls() {
     assert_eq!(turn.stream_connections(), 1);
 }
 
+/// Once a client's `connect` returns, the fake routes signals to it: a dial
+/// sent right then is never refused as `not_owner` (on a loaded runner
+/// `wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls` once lost
+/// that race). Here the server stalls while the Mac connects, so `connect`
+/// must wait out the stall until the Mac is recorded.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fake_signaling_records_a_device_before_its_connect_returns() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let connect = |device: String| {
+        let base_url = server.base_url.clone();
+        async move { SignalingClient::connect(&base_url, "user:alice", "team", &device).await.unwrap() }
+    };
+    let phone = connect(uuid::Uuid::new_v4().to_string()).await;
+    // The stall blocks a runtime worker, which can hold up tokio's timers:
+    // time `connect` on the wall clock, not with `tokio::time::timeout`, from
+    // before the stall so a late wake-up here cannot shorten it.
+    let started = std::time::Instant::now();
+    server.stall_for(Duration::from_millis(600));
+    connect(uuid::Uuid::new_v4().to_string()).await.close();
+    let took = started.elapsed();
+    assert!(
+        took >= Duration::from_millis(500),
+        "connect returned after {took:?}, before the server recorded the device"
+    );
+    // And after the stall, a Mac that just connected gets the dial.
+    let mut refusals = phone.events();
+    for round in 0..50 {
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = connect(mac_id.clone()).await;
+        let offer = cmux_mobile_link::signaling::SignalPayload::WebrtcOffer {
+            sdp: String::new(),
+            lanes: Vec::new(),
+            media_for: None,
+        };
+        phone.send_signal(&mac_id, &format!("round-{round}"), offer).unwrap();
+        let reached = tokio::time::timeout(Duration::from_secs(2), mac.next_session()).await;
+        assert!(matches!(reached, Ok(Some(_))), "round {round}: {:?}", refusals.try_recv());
+        mac.close();
+    }
+}
+
 /// Without any TURN server, relay only and UDP blocked have no path: the
 /// dial fails at once instead of waiting for the backend relay that is gone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -430,6 +471,56 @@ async fn wireguard_survives_one_way_udp_through_the_peers_turn() {
     let run = exercise_turn_idle(phone, mac, Duration::from_secs(2), Duration::from_secs(13)).await;
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
+}
+
+/// The phone's TURN server misses the dial's allocation window (UDP to it is
+/// lost for the first seconds, as when it answers slowly), and the Mac's UDP
+/// to the phone is lost, so TURN is the only route. The dial goes on without
+/// an allocation; the session takes one once the server answers and the link
+/// comes up through it. (A phone that dialed without TURN used to keep
+/// retrying the handshake until the dial timed out: the CI flake of
+/// `wireguard_survives_one_way_udp_through_the_peers_turn`.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_takes_the_turn_allocation_it_missed_while_dialing() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
+    let mac = DialOptions { drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let (run, ()) = tokio::join!(exercise_turn_for(phone, mac, Duration::from_secs(2)), async {
+        // Past the dial's 2 s allocation window, well inside its 20 s timeout.
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        turn.set_udp_blocked(false);
+    });
+    assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
+}
+
+/// The Mac's network looks to drop UDP (its STUN server never answers), so it
+/// asks for its own TURN allocation, and the server misses the answer's
+/// allocation window. The Mac's plain UDP to the phone is lost, so that
+/// allocation is the only route. The answer goes on without one; the session
+/// takes it once the server answers and the link comes up through it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_mac_takes_the_turn_allocation_it_missed_while_answering() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    // Nothing answers STUN on the discard port.
+    let silent_stun =
+        cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
+    let mac = DialOptions {
+        ice_servers: vec![turn.udp_only(), silent_stun],
+        drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START),
+        ..options()
+    };
+    let (run, ()) = tokio::join!(exercise_turn_for(options(), mac, Duration::from_secs(2)), async {
+        // Well past the answer's STUN wait and allocation window (3.5 s),
+        // well inside the dial's 20 s timeout.
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        turn.set_udp_blocked(false);
+    });
+    // The phone reaches the Mac through the Mac's allocation. (Its plain UDP
+    // still arrives here, so the Mac's own label follows that, not TURN.)
+    assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
+    assert!(run.mac.is_some(), "{run:?}");
 }
 
 /// While set, the Mac's plain UDP to anything but TURN relayed addresses is

@@ -406,12 +406,12 @@ title** (problem 6).
 
 | Section | Rows | When there is no control channel |
 | --- | --- | --- |
-| Header | Avatar (section 2), 72 pt; name title2 bold; status footnote `label2` | Status = the reason (`session.unavailableReason`, e.g. "Your Mac isn't reachable"), never "Runs on your Mac" |
+| Header | As Messages' contact details (`verify/chief-info.md`): avatar (section 2) 80 pt in the navigation bar's row; name title bold; status subheadline `label2`; Message and Stop quick actions | Status = the reason (`session.unavailableReason`, e.g. "Your Mac isn't reachable"), never "Runs on your Mac" |
 | Model | Harness, Model, Effort as menu pickers (as now). The default item reads "Default (GPT-6.1 Sol)", from `offered` and the harness default. Footer: "Changes apply to Chief's next turn, on every device." | One row, "Connect to your Mac to choose Chief's model.", `label2`. No pickers |
-| Running | "Stop Chief" (destructive) while Chief is typing (as now) | Hidden |
+| Running | The Stop quick action in the header, enabled while Chief is typing | Dimmed |
 | Recent Turns | Up to 5 rows. Line 1: model display name ("Claude Opus", "GPT-6.1 Sol"), or the harness name ("Claude", "Codex"). Line 2: "Failed · 2 min 57 s · 3 tools · $0.04", with the status localized (Completed, Failed, Stopped) | Hidden |
 | Notifications | Hide Alerts, Send Read Receipts: native `Toggle`s (as now; the native switch animation was verified live on 10-13) and footer (as now) | Disabled with the standard dimming (they need a conversation id) |
-| Identity | "Name" row: label left, value right (`label2`), pushes a one-field edit page with Save. "Avatar" row the same, if the Mac exposes it (section 2) | Hidden. No dead controls |
+| Identity | Under Edit in the bar: "Name" row: label left, value right (`label2`), pushes a one-field edit page with Save. "Avatar" row the same, if the Mac exposes it (section 2) | Hidden. No dead controls |
 | Footer | "Chief's memory and traces open on the Mac." | Same |
 
 Every control either acts on the Mac's Chief or on this phone, or it is not

@@ -1,6 +1,7 @@
 //! Viewer sizes and parser resizes of a terminal host.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl HostShared {
     pub(crate) fn set_viewer_size(
@@ -47,9 +48,9 @@ impl HostShared {
         // size and cell_pixels, matching the other geometry mutation
         // paths, so concurrent viewer and cell-metric updates cannot
         // acquire the locks in opposite orders.
-        let _source_order = self.source_order_lock.lock().unwrap();
-        let mut size = self.size.lock().unwrap();
-        let cell_pixels = self.cell_pixels.lock().unwrap();
+        let _source_order = self.source_order_lock.lock().recover_poison();
+        let mut size = self.size.lock().recover_poison();
+        let cell_pixels = self.cell_pixels.lock().recover_poison();
         let changed = *size != (cols, rows);
         if !changed && !acknowledge_with_replay {
             let targeted = targeted_ack.map(|(request_id, tap)| {
@@ -86,11 +87,8 @@ impl HostShared {
         // old size and parses on the old grid.
         let pty_previous = if changed {
             let previous = pty_size(size.0, size.1, *cell_pixels);
-            if let Err(error) = self
-                .master
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .resize(pty_size(cols, rows, *cell_pixels))
+            if let Err(error) =
+                self.master.lock().recover_poison().resize(pty_size(cols, rows, *cell_pixels))
             {
                 self.smart.close_failed_transition(source_cursor);
                 return Err(error);
@@ -101,11 +99,7 @@ impl HostShared {
         };
         let restore_pty = || {
             if let Some(previous) = pty_previous {
-                let _ = self
-                    .master
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .resize(previous);
+                let _ = self.master.lock().recover_poison().resize(previous);
             }
         };
         let (response_sender, response_receiver) = sync_channel(1);
@@ -181,11 +175,11 @@ impl HostShared {
         cell_pixels: (u16, u16),
         pty_previous: Option<PtySize>,
     ) -> ParserResizeResult {
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().recover_poison();
         let previous = (term.cols(), term.rows());
         let acknowledgement_queued = (|| -> anyhow::Result<bool> {
             let requested_change = previous != (cols, rows);
-            let master = self.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let master = self.master.lock().recover_poison();
             let resize_sizes = if requested_change {
                 Some((
                     pty_size(previous.0, previous.1, cell_pixels),
@@ -202,7 +196,7 @@ impl HostShared {
                 frame.request_id = *request_id;
                 (tap, frame)
             });
-            let has_legacy_clients = !self.taps.lock().unwrap().is_empty();
+            let has_legacy_clients = !self.taps.lock().recover_poison().is_empty();
             let publish_legacy_resize =
                 acknowledge_with_replay || (requested_change && has_legacy_clients);
             let replay_is_safe = term.vt_stream_is_ground();
@@ -243,7 +237,7 @@ impl HostShared {
                         // the canonical resize and make compatibility clients
                         // reconnect instead of attempting a destructive
                         // inverse resize after Ghostty has reflowed state.
-                        let mut taps = self.taps.lock().unwrap();
+                        let mut taps = self.taps.lock().recover_poison();
                         for tap in taps.values() {
                             tap.close();
                         }
@@ -315,11 +309,7 @@ impl HostShared {
             && previous != (cols, rows)
             && let Some(pty_previous) = pty_previous
         {
-            let _ = self
-                .master
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .resize(pty_previous);
+            let _ = self.master.lock().recover_poison().resize(pty_previous);
         }
         ParserResizeResult {
             acknowledgement_queued: acknowledgement_queued.map_err(|error| error.to_string()),

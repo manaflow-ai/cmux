@@ -12,6 +12,7 @@ import {
   chatDisplayVariables,
   chatMetrics,
   DEFAULT_CHAT_DISPLAY,
+  ENVIRONMENT_PLACEMENT_KEY,
   resolveChatDisplay,
 } from "../src/agent-session/acpmux/chatDisplay";
 import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
@@ -22,7 +23,7 @@ describe("chat display resolution", () => {
     expect(display).toEqual(DEFAULT_CHAT_DISPLAY);
     expect(Object.values(chatDisplayVariables(display)).every((value) => value === null)).toBe(true);
     const metrics = chatMetrics(display);
-    expect(metrics.measureFont).toBe("14px system-ui");
+    expect(metrics.measureFont).toBe('14px "Inter", system-ui, sans-serif');
     expect(metrics.lineHeight).toBe(22.75);
     expect(metrics.codeLineHeight).toBe(20);
     expect(metrics.inlineCodeSize).toBe(13);
@@ -79,6 +80,13 @@ describe("chat display resolution", () => {
     expect(display.codeFamily).toBeNull();
     expect(display.fullWidth).toBe(false);
   });
+
+  test("the environment chip is left by default and accepts right or off", () => {
+    expect(resolveChatDisplay({}).environmentPlacement).toBe("left");
+    expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "right" }).environmentPlacement).toBe("right");
+    expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "off" }).environmentPlacement).toBe("off");
+    expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "center" }).environmentPlacement).toBe("left");
+  });
 });
 
 describe("chat display drawing", () => {
@@ -88,7 +96,7 @@ describe("chat display drawing", () => {
     expect(variables["--cv-font-size"]).toBe("16px");
     expect(variables["--cv-line-height"]).toBe("24px");
     expect(chatMetrics(display).lineHeight).toBe(24);
-    expect(chatMetrics(display).measureFont).toBe("16px system-ui");
+    expect(chatMetrics(display).measureFont).toBe('16px "Inter", system-ui, sans-serif');
     // Code keeps its share of the text: 13/14 inline and 12/14 in blocks.
     expect(chatMetrics(display).blockCodeSize).toBeCloseTo((12 * 16) / 14, 2);
   });
@@ -120,8 +128,10 @@ describe("chat display drawing", () => {
 
   test("the user's width replaces the column trial; Full Width fills the pane", () => {
     const wide = resolveChatDisplay({ "agentPane.display.width": 1200 });
-    expect(chatColumnOf("standard", wide).max).toBe(1200);
-    expect(chatDisplayVariables(wide)["--cv-column"]).toBe("clamp(720px, 100%, 1200px)");
+    expect(chatColumnOf("standard", wide, 1.25).max).toBe(960);
+    expect(chatDisplayVariables(wide)["--cv-column"]).toBe(
+      "clamp(calc(720px / var(--cmux-ui-scale, 1)), 100%, calc(1200px / var(--cmux-ui-scale, 1)))",
+    );
     const full = resolveChatDisplay({ "agentPane.display.fullWidth": true });
     expect(chatColumnOf("wide", full).max).toBe(Infinity);
     expect(chatDisplayVariables(full)["--cv-column"]).toBe("100%");

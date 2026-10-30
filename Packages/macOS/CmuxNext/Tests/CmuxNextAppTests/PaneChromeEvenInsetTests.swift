@@ -81,8 +81,8 @@ import Testing
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 120, height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2)))
         toolbar.show(more: true, lit: false)
         toolbar.layoutSubtreeIfNeeded()
-        // Where "…" rests once shown (it slides in from the leading side as the bar is hovered).
-        let more = toolbar.moreFrame(revealed: true)
+        // The fixed trailing slot, at rest and throughout the hover fade.
+        let more = toolbar.moreFrame()
         let trailing = toolbar.bounds.maxX - more.maxX, top = more.minY
         #expect(top > 0)
         #expect(abs(trailing - top) <= 0.01, "\(density): \(trailing) pt after \"…\", \(top) pt above it")

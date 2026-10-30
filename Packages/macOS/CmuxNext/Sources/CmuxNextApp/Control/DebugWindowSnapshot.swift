@@ -1,8 +1,11 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import WebKit
+import CmuxNextScreenshots
 
 /// `debug.window_snapshot`: one of this app's own windows as the window
 /// server composited it (vibrancy, glass and Metal as on screen; an app may
@@ -21,8 +24,16 @@ import WebKit
 /// visible child windows the image includes) and `child_windows_failed`
 /// (how many it leaves out because the window server gave no image of
 /// them; AppKit drawing never includes a child window). Child windows are
-/// composited by the window server over the window: a Chromium page draws
-/// into its own child window, and overlay panels sit above content. The
+/// composited by the window server with the window: a Chromium page draws
+/// into its own child window, and overlay panels and popovers sit above content.
+/// `floating_windows` counts the app's other windows the window server shows
+/// above the window and over it, cut to its frame: an open
+/// context menu (not in AppKit's window list), a hover card or popover that is
+/// not its child; another of the app's titled windows in front at the same
+/// level, with its own child windows and sheets, is left out. The window, its
+/// child windows and those windows are one window server composite
+/// (``NSWindow/compositedSnapshotWithOverlays()``), so a glass popover or menu
+/// blurs the window under it, as on screen (composited apart, it came out grey). The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
 /// since the window server
@@ -38,6 +49,21 @@ import WebKit
 /// far. Check those (or `debug.toast`) instead of looking for the toast in
 /// the PNG.
 enum DebugWindowSnapshot {
+    /// How long `debug.window_snapshot` may take, instead of the 2 s control-plane deadline. The
+    /// capture runs on the main actor and takes about 50 ms once it runs, but on a capture mini
+    /// that also runs builds and tests, or while the app is still launching, the wait for the
+    /// main actor alone passed 2 s: the snapshot timed out and the capture had no still. Its
+    /// callers wait 10 to 90 s (pr-capture's driver 30 s).
+    static let deadline: Duration = .seconds(30)
+
+    /// The control route, `debug.window_snapshot`, with its own ``deadline``.
+    static func controlMethod(services: AppServices) -> ControlMethod {
+        .async("debug.window_snapshot") { [weak services] call in
+            guard let services = await MainActor.run(body: { services }) else { return .null }
+            return await captureAsync(call.params, services: services)
+        }.withDeadline(.fixed(deadline))
+    }
+
     @MainActor
     static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -45,15 +71,20 @@ enum DebugWindowSnapshot {
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            let snapshot = try window.snapshotImage()
+            // The window with its child windows and the app's menus, cards and popovers over it,
+            // composited together as on screen; else AppKit drawing (no child windows).
+            let together = window.compositedSnapshotWithOverlays()
+            let snapshot = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) } ?? window.snapshotImage()
             // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
-            try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
+            let output = snapshot.image
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
-                "path": .string(path), "width": JSONValue(snapshot.image.width), "height": JSONValue(snapshot.image.height),
+                "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
                 "child_windows": JSONValue(snapshot.method == .composited ? children : 0),
                 "child_windows_failed": JSONValue(snapshot.method == .composited ? 0 : children),
+                "floating_windows": JSONValue(together?.floating ?? 0),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -62,12 +93,12 @@ enum DebugWindowSnapshot {
     }
 
     /// Captures the window and paints each visible page over the window
-    /// image, in screen order: the window (with its page child windows), the
-    /// WebKit pages, the Chromium pages, the overlay panels above content,
-    /// then the app's menus open over it. The base is the window server's
-    /// image whenever it gives one: it is the window as on screen, WebKit
-    /// pages included (they are layers of this window), so no WebKit image
-    /// is painted over it. AppKit drawing
+    /// image, in screen order: the window (with its child windows and the
+    /// app's menus open over it), the WebKit pages, the Chromium pages, then
+    /// the overlay panels and menus again where they cover a page. The base is
+    /// the window server's image whenever it gives one: it is the window as on
+    /// screen, WebKit pages and overlays included (WebKit pages are layers of
+    /// this window), so no WebKit image is painted over it. AppKit drawing
     /// is only the fallback (no window server image, a host without a lit
     /// display): it leaves out WebKit's remote content, so each page's own
     /// image is painted there, and it drops Liquid Glass with the views
@@ -86,20 +117,25 @@ enum DebugWindowSnapshot {
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
             let webViews = visibleWebViews(in: window)
-            // The window server's image first: it shows the window as on
-            // screen, WebKit pages included. Only without it, AppKit drawing
-            // with the live web views hidden, so the page snapshots below fill
-            // each rectangle exactly once. The overlay panels go on top at the
-            // end, so either base has only the page windows.
-            let composited = window.compositedSnapshot(includeChild: WindowOverlayHost.isPageWindow)
-            let base = try composited.map { (image: $0, method: WindowSnapshotMethod.composited) }
+            // The window server's image first: the window as on screen, WebKit
+            // pages, child windows and the app's menus and popovers over it
+            // composited together, so glass over the window blurs it. Only
+            // without it, AppKit drawing with the live web views hidden, so the
+            // page snapshots below fill each rectangle exactly once, and the
+            // overlay panels painted on top at the end.
+            let together = window.compositedSnapshotWithOverlays()
+            let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
                 ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
+            // The overlays cut from the composite now, before the page images' awaits: a popover
+            // that opened meanwhile is not in the composite, and its cut would be the window under it.
+            let overlays = base.method == .composited
+                ? window.overlays(cutFrom: base.image, includeChild: { !WindowOverlayHost.isPageWindow($0) }) : nil
             var layers: [WindowImageLayer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
             let children = window.visibleChildWindows
             let pageChildren = children.filter(WindowOverlayHost.isPageWindow).count
-            var childrenIncluded = base.method == .composited ? pageChildren : 0
+            var childrenIncluded = base.method == .composited ? children.count : 0
             if base.method == .appkit, let pageWindows = window.childWindowsSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
                 layers.append(.window(pageWindows))
                 childrenIncluded += pageChildren
@@ -131,14 +167,31 @@ enum DebugWindowSnapshot {
                     pagesFailed += 1
                 }
             }
-            if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
-                layers.append(.window(panels))
-                childrenIncluded += children.count - pageChildren
+            // React pages on the Chromium engine (the agent page, Settings) draw the same way.
+            let reactPages = PageRegistry.shownChromiumPages(in: window)
+            for (page, rect) in reactPages {
+                guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
             }
-            // Menus are not child windows: an open one goes on top.
-            let floating = window.floatingWindowsSnapshot()
-            if let floating { layers.append(.window(floating.image)) }
-            let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
+            var floatingCount = together?.floating ?? 0
+            if base.method == .composited {
+                // A Chromium page image covered the panels, popovers and menus over its page:
+                // their pixels come back from the window server's composite, the page under them.
+                if !layers.isEmpty, let overlays {
+                    layers.append(.window(overlays))
+                }
+            } else {
+                if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+                    layers.append(.window(panels))
+                    childrenIncluded += children.count - pageChildren
+                }
+                // Menus, and cards or popovers not attached to the window, go on top.
+                let floating = window.floatingWindowsSnapshot()
+                if let floating { layers.append(.window(floating.image)) }
+                floatingCount = floating?.count ?? 0
+            }
+            let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
+            let output = painted ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
             // PNG compression and the file write run off-main.
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
@@ -148,8 +201,9 @@ enum DebugWindowSnapshot {
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
-                "floating_windows": JSONValue(floating?.count ?? 0),
-                "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
+                "floating_windows": JSONValue(base.method == .composited || painted != nil ? floatingCount : 0),
+                "chromium_pages": JSONValue(pages.count + reactPages.count),
+                "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
@@ -157,6 +211,31 @@ enum DebugWindowSnapshot {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.capture_backdrop` (DEBUG builds): shows `pattern` (`checker`, `stripes`,
+    /// `image:/absolute/path`; `none` removes it) just behind the window `window` or `kind` names,
+    /// as for a snapshot, so a snapshot of that window composites it behind the window and its
+    /// translucency and glass show (``CaptureBackdropPanel``). Returns `pattern`, `window_number`
+    /// and `backdrop_number` (null after `none`).
+    @MainActor
+    static func captureBackdrop(_ params: [String: JSONValue], pattern: CaptureBackdropPattern?, image: Data?,
+                                services: AppServices) -> JSONValue {
+        let name = params["pattern"]?.stringValue ?? ""
+        guard name == "none" || pattern != nil else {
+            return .object(["error": .string("pattern must be checker, stripes, image:/absolute/path or none")])
+        }
+        guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
+        var picture: NSImage?
+        if case .image(let url) = pattern {
+            guard let image, let decoded = NSImage(data: image) else { return .object(["error": .string("no image at \(url.path)")]) }
+            picture = decoded
+        }
+        let backdrop = window.setCaptureBackdrop(pattern, image: picture)
+        return .object(["pattern": .string(name), "window_number": JSONValue(window.windowNumber),
+                        "backdrop_number": backdrop.map { JSONValue($0.windowNumber) } ?? .null])
+    }
+    #endif
 
     /// The refusal HUD's message while it shows, else null.
     static func hudMessage(_ services: AppServices) -> JSONValue {

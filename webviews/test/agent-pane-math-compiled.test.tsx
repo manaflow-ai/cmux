@@ -72,9 +72,9 @@ test("math drawn before KaTeX loads typesets when it arrives, with the React Com
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   act(() => root.render(<MathInline tex="x^2 + y^2" />));
-  for (let i = 0; i < 50 && !host.querySelector(".katex"); i++)
+  for (let i = 0; i < 1000 && !host.querySelector(".katex"); i++)
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   expect(host.querySelector(".cv-math-source")).toBeNull();
   expect(host.querySelector(".cv-math[data-tex] .katex")).not.toBeNull();

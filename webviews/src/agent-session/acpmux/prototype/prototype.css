@@ -25,18 +25,13 @@ body {
   grid-template-columns: 52px 252px 1fr;
   height: 100%;
   color: var(--agent-text);
-  font:
-    13px -apple-system,
-    BlinkMacSystemFont,
-    "Helvetica Neue",
-    sans-serif;
+  font: 13px var(--font-ui);
   letter-spacing: 0.04px;
 }
 .proto-window button {
   font: inherit;
   letter-spacing: inherit;
   color: inherit;
-  cursor: default;
 }
 
 /* Rail and stack: one translucent sidebar surface. */
@@ -125,7 +120,7 @@ body {
   border-radius: 8px;
   background: none;
   text-align: left;
-  transition: background-color 0.5s;
+  transition: background-color var(--cmux-motion-quick);
 }
 .proto-workspace svg {
   flex: none;
@@ -421,32 +416,56 @@ body {
 .proto-history header button:hover {
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
-.proto-history .acpmux-sidebar {
-  display: flex;
-  position: static;
+.proto-history-list {
   flex: 1;
   min-height: 0;
-  width: auto;
-  border: 0;
-  background: none;
-  box-shadow: none;
-}
-.proto-history .acpmux-sidebar-scroll {
+  margin: 0;
   padding: 4px 8px 16px;
+  list-style: none;
+  overflow-y: auto;
+}
+.proto-history-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--agent-soft, var(--agent-muted));
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: start;
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.proto-history-row > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proto-history-row:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.proto-history-row[aria-current] {
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
 /* Rows already open in a tab read at full strength and say so; the rest are history. */
-.proto-history .acpmux-session-row:not(.is-open) {
-  color: var(--agent-soft, var(--agent-muted));
+.proto-history-row.is-open {
+  color: var(--agent-text);
 }
-.proto-history .acpmux-session-row.is-open::after {
-  content: "Open";
+.proto-history-row > small {
   flex: none;
   padding: 0 5px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 4px;
   color: var(--agent-muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
   line-height: 16px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* Content: a quiet tab strip over the active tab. */
@@ -539,12 +558,6 @@ body {
 }
 .proto-agent[hidden] {
   display: none;
-}
-/* The pane's own session list is the history layer now. */
-.proto-agent .acpmux-sidebar,
-.proto-agent .acpmux-sidebar-toggle,
-.proto-agent .acpmux-sidebar-scrim {
-  display: none !important;
 }
 .proto-terminal {
   height: 100%;
@@ -653,7 +666,7 @@ body {
   height: 7px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--dot) 45%, transparent);
-  transition: transform 0.15s;
+  transition: transform var(--cmux-motion-micro);
 }
 .proto-space-dot:hover i {
   background: color-mix(in srgb, var(--dot) 75%, transparent);
@@ -687,7 +700,7 @@ body {
   backdrop-filter: blur(40px) saturate(1.2);
   box-shadow: var(--elevation-2);
   overflow: hidden;
-  animation: proto-mini-in 0.2s ease-out;
+  animation: proto-mini-in var(--cmux-motion-standard) ease-out;
 }
 @keyframes proto-mini-in {
   from {
@@ -793,12 +806,6 @@ body {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-}
-/* The history layer is the session list alone: the pane's own rail and New chat stay in the pane. */
-.proto-history .acpmux-sidebar-rail,
-.proto-history .acpmux-sidebar-action,
-.proto-history .acpmux-account {
-  display: none;
 }
 
 /* Classic cmux (?style=terminal): the chrome takes the terminal's font and agent sessions are one

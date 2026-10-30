@@ -12,19 +12,50 @@ struct AgentPaneForkOwnTabTests {
     }
 
     /// The sessions the host opened a tab on.
-    @MainActor private final class Opened { var ids: [String] = [] }
+    @MainActor private final class Opened {
+        var ids: [String] = []
+        var destinations: [AgentForkDestination] = []
+    }
 
     private static func pane(opens: Bool = true, opened: Opened = Opened()) -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost(), sessionId: "chat")
-        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, openTab: {
-            opened.ids.append($0)
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, openTab: { id, destination in
+            opened.ids.append(id)
+            opened.destinations.append(destination)
             return opens
         })
         return model
     }
 
-    private static func openTab(_ session: String) -> AgentPaneRequest {
-        AgentPaneRequest(body: ["method": "chat.openTab", "params": ["sessionId": session]])
+    private static func openTab(_ session: String, placement: String? = nil) -> AgentPaneRequest {
+        var params: [String: Any] = ["sessionId": session]
+        if let placement { params["placement"] = placement }
+        return AgentPaneRequest(body: ["method": "chat.openTab", "params": params])
+    }
+
+    /// The palette's Fork Conversation step and the chat's right-click Fork name a destination
+    /// (`placement`); the host opens the fork there. No placement (the chat page's own Fork, an
+    /// older page) uses the default destination; an unknown one uses the same default.
+    @Test(arguments: [
+        ("right", AgentForkDestination.right), ("left", .left), ("up", .up), ("down", .down),
+        ("tab", .tab), ("workspace", .workspace), ("window", .window),
+    ])
+    func aForkOpensAtTheDestinationThePageNames(placement: String, destination: AgentForkDestination) async {
+        let opened = Opened()
+        let model = Self.pane(opened: opened)
+        model.transport.sessions.add("fork")
+        let reply = await model.respond(to: Self.openTab("fork", placement: placement))
+        #expect(reply["ok"] as? Bool == true)
+        #expect(opened.destinations == [destination])
+    }
+
+    @Test(arguments: [nil, "sideways"] as [String?])
+    func aForkWithoutAPlacementUsesTheSharedDefault(placement: String?) async {
+        let opened = Opened()
+        let model = Self.pane(opened: opened)
+        model.transport.sessions.add("fork")
+        _ = await model.respond(to: Self.openTab("fork", placement: placement))
+        #expect(opened.destinations == [.default])
     }
 
     @Test func aForkOpensInItsOwnTabAndTheChatKeepsItsSession() async {

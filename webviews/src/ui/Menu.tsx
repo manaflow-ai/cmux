@@ -9,6 +9,7 @@ import {
   useState,
   type ComponentProps,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
@@ -18,6 +19,7 @@ import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvid
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { popupCollision, type UiPopupFlip } from "./openSide";
 import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
@@ -40,8 +42,11 @@ interface MenuContextValue {
   /** The last input in the open menu was a key (Base UI's close type names how it opened). */
   keyed: RefObject<boolean>;
   beginPointer(event: PointerEvent<HTMLElement>): void;
+  /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
+  takePress(): boolean;
   movePointer(event: PointerEvent<HTMLElement>): void;
-  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
+  /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
+  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
   endPointer(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
@@ -55,6 +60,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const opener = useRef<Element | null>(null);
   const keyed = useRef(false);
   const captured = useRef(false);
+  // Set by a mouse press that opened or closed the menu on its pointerdown; the press's mousedown
+  // takes it (MenuButton).
+  const pressed = useRef(false);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
@@ -71,7 +79,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
     opener,
     keyed,
     beginPointer(event) {
+      pressed.current = false;
       if (!isMousePress(event)) return;
+      pressed.current = true;
       const wasOpen = isOpen;
       pointerCleanup.current?.();
       pointerCleanup.current = null;
@@ -93,8 +103,26 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
-        pick: (row) => row.click(),
-        picked: () => setMenuOpen(false),
+        pick: (row, event) => {
+          const View = row.ownerDocument.defaultView!.MouseEvent;
+          row.dispatchEvent(
+            new View("click", {
+              bubbles: true,
+              cancelable: true,
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              metaKey: event.metaKey,
+              shiftKey: event.shiftKey,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              button: event.button,
+            }),
+          );
+        },
+        // A row that keeps its menu open (`MenuItem` `closeOnClick={false}`) keeps it open here too.
+        picked: (row) => {
+          if (!row.hasAttribute("data-keeps-open")) setMenuOpen(false);
+        },
         close: () => setMenuOpen(false),
         end: () => {
           pointerCleanup.current = null;
@@ -102,19 +130,24 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
         },
       });
     },
+    takePress() {
+      const taken = pressed.current;
+      pressed.current = false;
+      return taken;
+    },
     movePointer(event) {
       const current = session.current;
       if (!current || current.pointerId !== event.pointerId) return;
       if (!current.moved)
         current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
     },
-    activatePointer(event, activate) {
+    activatePointer(event, activate, keepOpen) {
       const current = session.current;
       if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
       if (current.handled) return true;
       current.handled = true;
       activate();
-      setMenuOpen(false);
+      if (!keepOpen) setMenuOpen(false);
       return true;
     },
     endPointer() {
@@ -199,10 +232,17 @@ export function MenuButton({
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
       }}
-      onMouseDown={(event) => {
-        // WebKit dispatches a native mousedown after pointerdown. While an open trigger is
-        // closing the menu on press, cancel that follow-up so Base UI cannot reopen it on click.
-        if (context?.isOpen && event.button === 0) event.preventDefault();
+      onMouseDown={(event: MouseEvent<HTMLButtonElement> & { preventBaseUIHandler?: () => void }) => {
+        // WebKit dispatches a native mousedown after pointerdown. The press already opened or
+        // closed the menu, so Base UI's own mousedown toggle must not act on it again: once React
+        // has drawn the opened menu before this mousedown (a busy page, Leo's long chat on nightly
+        // 3a63d6d), that toggle read it as open and closed it a frame later, and the click did
+        // nothing. On a close, it would reopen it.
+        if (event.button !== 0) return;
+        if (context?.takePress()) {
+          event.preventDefault();
+          event.preventBaseUIHandler?.();
+        } else if (context?.isOpen) event.preventDefault();
       }}
       onClick={(event) => {
         // A mouse click has already opened on press; keep it open after release. Keyboard clicks
@@ -221,8 +261,9 @@ export interface MenuPopupProps {
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
-  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
-  flip?: boolean;
+  /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
+   *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
+  flip?: UiPopupFlip;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -239,6 +280,12 @@ export interface MenuPopupProps {
    * it; without one, or when the button has no such ancestor, the box is the window.
    */
   boundary?: string;
+  /**
+   * False keeps the menu in the page when it has no room (default: it goes past the window's edge,
+   * popupHost.ts). For a menu the native panel cannot draw: a rail beside its rows, a scroll area of
+   * its own. It then fits by its own max height.
+   */
+  escapes?: boolean;
   children: ReactNode;
 }
 
@@ -261,6 +308,7 @@ export function MenuPopup({
   finalFocus,
   onKeyDown,
   boundary,
+  escapes = true,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -288,11 +336,16 @@ export function MenuPopup({
     [host],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
-  useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
-    side: side === "top" ? "top" : "bottom",
-    align: align === "end" ? "end" : "start",
-    gap: UI_ANCHOR_GAP,
-  });
+  useEscapingPopup(
+    escapes && (side === "top" || side === "bottom") ? host : null,
+    popup,
+    () => anchorElement(anchor, popup),
+    {
+      side: side === "top" ? "top" : "bottom",
+      align: align === "end" ? "end" : "start",
+      gap: UI_ANCHOR_GAP,
+    },
+  );
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner
@@ -300,17 +353,19 @@ export function MenuPopup({
         positionMethod={positionMethod}
         anchor={anchor}
         side={side}
-        collisionAvoidance={flip ? undefined : { side: "none" }}
+        collisionAvoidance={popupCollision(flip)}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
+          // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
+          data-popup-shift={flip === "shift" ? "" : undefined}
           // Only a page with a host measures its menus; the others render as they did.
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-menu", className)}
+          className={cx("ui-popup ui-glass ui-menu", className)}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
@@ -381,32 +436,52 @@ export interface MenuItemProps {
   className?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
-  onSelect?(): void;
+  onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
 }
 
-export function MenuItem({ className, disabled, shortcut, onSelect, children }: MenuItemProps) {
+export function MenuItem({
+  className,
+  disabled,
+  shortcut,
+  onSelect,
+  closeOnClick,
+  expanded,
+  controls,
+  children,
+}: MenuItemProps & {
+  /** False keeps the menu open after a click (a row that shows or hides rows of its own menu). */
+  closeOnClick?: boolean;
+  /** A disclosure row: whether the rows it controls show. */
+  expanded?: boolean;
+  /** A disclosure row: the id of the rows it shows and hides. */
+  controls?: string;
+}) {
   const context = use(MenuContext);
   const handledClick = useRef(false);
   return (
     <BaseMenu.Item
       className={cx("ui-menu-item", className)}
       disabled={disabled}
+      {...(closeOnClick === undefined ? {} : { closeOnClick })}
+      {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
+      {...(controls ? { "aria-controls": controls } : {})}
+      {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;
-        if (context?.activatePointer(event, () => onSelect?.())) {
+        if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
           handledClick.current = true;
           event.preventDefault();
         }
         context?.endPointer();
       }}
-      onClick={() => {
+      onClick={(event) => {
         if (handledClick.current) {
           handledClick.current = false;
           return;
         }
-        onSelect?.();
+        onSelect?.(event);
       }}
     >
       {children}
@@ -523,28 +598,91 @@ export function MenuSeparator() {
   return <BaseMenu.Separator className="ui-separator" />;
 }
 
+/** Keys a menu search field passes on to its menu: the arrows into the rows, Tab, Escape. */
+const MENU_SEARCH_PASSES = new Set(["ArrowDown", "ArrowUp", "Tab", "Escape"]);
+
+export interface MenuSearchFieldProps {
+  value: string;
+  onChange(value: string): void;
+  /** The field's accessible name and placeholder. */
+  label: string;
+}
+
+/** A search field at the top of a long menu: what it types narrows the rows below. The menu's
+ * typeahead and Home/End never see its keys; the arrows move into the rows, Escape closes. */
+export function MenuSearchField({ value, onChange, label }: MenuSearchFieldProps) {
+  return (
+    <input
+      className="ui-field ui-menu-search"
+      type="search"
+      value={value}
+      aria-label={label}
+      placeholder={label}
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (!MENU_SEARCH_PASSES.has(event.key)) event.stopPropagation();
+      }}
+    />
+  );
+}
+
 export interface SubmenuProps {
   label: ReactNode;
   className?: string;
   /** Extra classes on the nested popup, so it matches its parent menu's surface. */
   popupClassName?: string;
   disabled?: boolean;
+  /** Vertical alignment of the nested popup; omitted keeps the room-aware default. */
+  align?: "start" | "end";
   children: ReactNode;
 }
 
 /** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
- * wears the parent popup's surface unless `popupClassName` names another. */
-export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
+ * wears the parent popup's surface unless `popupClassName` names another.
+ *
+ * It grows the way its menu opened: up from the row's bottom in a menu that opened up (a composer's
+ * menu at the window's foot), as Claude Code's and macOS's menus do (Leo 2026-10-21: "this effort
+ * should open up top instead of bottom"), and down from the row's top in a menu that opened down. A
+ * menu that opened sideways (a submenu's submenu) grows toward the room its row has. Base UI's
+ * collision avoidance still flips or shifts it when that side has no room. */
+export function Submenu({ label, className, popupClassName, disabled, align: requestedAlign, children }: SubmenuProps) {
   const surface = use(PopupSurface);
+  const boundary = use(PopupBoundary);
+  const trigger = useRef<HTMLDivElement | null>(null);
+  const [align, setAlign] = useState<"start" | "end">(requestedAlign ?? "start");
   return (
-    <BaseMenu.SubmenuRoot>
-      <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
+    <BaseMenu.SubmenuRoot
+      onOpenChange={(open) => {
+        const row = trigger.current;
+        if (open && row) setAlign(requestedAlign ?? (growsUp(row, boundary) ? "end" : "start"));
+      }}
+    >
+      <BaseMenu.SubmenuTrigger
+        ref={trigger}
+        className={cx("ui-menu-item ui-submenu-trigger", className)}
+        disabled={disabled}
+      >
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start" className={popupClassName ?? surface}>
+      <MenuPopup side="inline-end" align={align} className={popupClassName ?? surface}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>
   );
+}
+
+/// Whether a submenu row's submenu grows up: when its menu opened up, never when it opened down
+/// (a taller menu can put the row past the window's middle). Otherwise, whether the row has more
+/// room above it than below it, inside the menu's box (the window when it has none).
+function growsUp(row: Element, boundary: Element | undefined): boolean {
+  const opened = row.closest(".ui-popup")?.getAttribute("data-side");
+  if (opened === "top") return true;
+  if (opened === "bottom") return false;
+  const view = row.ownerDocument.defaultView;
+  const box = boundary?.getBoundingClientRect() ?? { top: 0, bottom: view?.innerHeight ?? 0 };
+  const rect = row.getBoundingClientRect();
+  return rect.bottom - box.top > box.bottom - rect.top;
 }

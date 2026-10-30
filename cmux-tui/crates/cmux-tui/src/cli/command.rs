@@ -26,9 +26,10 @@ mod history;
 mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
-mod plan;
+pub(super) mod plan;
 mod screen;
 mod server_ensure;
+mod settings;
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -156,7 +157,8 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         .first()
         .map(String::as_str)
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
-    if tokens.argv.is_some() && !takes_argv(scope, &strs(&tokens.words[1..])) {
+    let words = tokens.words.get(1..).unwrap_or_default();
+    if tokens.argv.is_some() && !takes_argv(scope, &strs(words)) {
         return Err(UsageError::new(format!(
             "`{}` runs no command: drop the words after --",
             tokens.words.join(" ")
@@ -164,37 +166,31 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => {
-            machine::parse(&tokens.words[1..], &mut selectors, &mut tokens.flags, surface)?
-        }
-        "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "workspace" => {
-            parse_workspace(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "screen" => {
-            parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
-        "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "conversation" => {
-            conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
-        }
-        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
-        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags, tokens.argv)?,
-        "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags)?,
+        "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
+        "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
+        "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
+        "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "settings" | "config" => settings::parse(words, &mut tokens.flags, tokens.argv.as_deref())?,
+        "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
+        "browser" => parse_browser(words, &mut selectors, &mut tokens.flags)?,
+        "notification" => parse_notification(words, &mut tokens.flags)?,
+        "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
+        "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
+        "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
+        "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
+        "notify" => parse_notify(words, &mut tokens.flags)?,
+        "agent" => parse_agent(words, &mut tokens.flags, tokens.argv)?,
+        "sidebar" => parse_sidebar(words, &mut selectors, &mut tokens.flags)?,
+        "pairing" => parse_pairing(words, &mut selectors, &mut tokens.flags)?,
+        "projection" => parse_projection(words, &mut selectors, &mut tokens.flags)?,
+        "provider" => parse_provider(words, &mut selectors, &mut tokens.flags)?,
+        "raw" => parse_raw(words, &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value, surface)),
     };
     tokens.flags.reject_remaining()?;
@@ -206,10 +202,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
-        ["stop"] => super::lifecycle::ServerAction::Stop {
-            force: flags.boolean("force"),
-            end_terminals: flags.boolean("end-terminals"),
-        },
+        ["stop"] => stop_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
@@ -246,6 +239,30 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
 
+/// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
+/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// defaults to the bound `server ensure` gives a restore
+/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
+fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    let restore_wait = match flags.take("restore-wait-seconds") {
+        None => crate::local_owner::RESTORE_DEADLINE,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
+            _ => {
+                return Err(UsageError::new(
+                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
+                ));
+            }
+        },
+    };
+    Ok(super::lifecycle::ServerAction::Stop {
+        force: flags.boolean("force"),
+        end_terminals: flags.boolean("end-terminals"),
+        restore_wait,
+    })
+}
+
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     let mut words = Vec::new();
     let mut flags = Flags::default();
@@ -280,7 +297,7 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if flags.values.insert(name.to_string(), flag_value).is_some() {
                 return Err(UsageError::new(format!("duplicate flag --{name}")));
             }
-        } else if value.starts_with('-') && value != "-" {
+        } else if value.starts_with('-') && value != "-" && value.parse::<f64>().is_err() {
             // A lone `-` is a word: standard input, for commands that read it.
             return Err(UsageError::new(format!("unknown short flag {value:?}")));
         } else {
@@ -291,17 +308,22 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
-/// Whether the command `scope words…` reads the words after `--`: workspace
-/// create and run, pane split and run (also under a workspace or screen
-/// path), the workspace status/progress/log and checklist commands (which
-/// check their own verbs), and agent messages. Every other command would drop
+/// Whether the command `scope words…` reads the words after `--`: workspace,
+/// screen, pane and terminal-tab create, workspace and pane run, pane split
+/// (also under a workspace, screen or pane path), the workspace
+/// status/progress/log and checklist commands (which check their own verbs),
+/// and agent messages. Every other command would drop
 /// them, so the caller is told instead.
 fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn tab(words: &[&str]) -> bool {
+        matches!(words, ["create", "terminal"])
+    }
     fn pane(words: &[&str]) -> bool {
-        matches!(words, [_, "split"] | [_, "run", ..])
+        matches!(words, ["create"] | [_, "split"] | [_, "run", ..])
+            || matches!(words, [_, "tab", tail @ ..] if tab(tail))
     }
     fn screen(words: &[&str]) -> bool {
-        matches!(words, [_, "pane", tail @ ..] if pane(tail))
+        matches!(words, ["create"]) || matches!(words, [_, "pane", tail @ ..] if pane(tail))
     }
     fn workspace(words: &[&str]) -> bool {
         let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
@@ -317,8 +339,33 @@ fn takes_argv(scope: &str, words: &[&str]) -> bool {
         "workspace" => workspace(words),
         "screen" => screen(words),
         "pane" => pane(words),
+        "tab" => tab(words),
         "agent" => matches!(words, ["message", ..]),
+        "settings" | "config" => {
+            matches!(words, ["get", ..] | ["set", ..] | ["reset", ..] | ["unset", ..])
+        }
         _ => false,
+    }
+}
+
+/// `argv` (the words after `--`) or `--shell SCRIPT` for a command that
+/// creates a terminal: the new terminal runs it instead of a plain shell.
+fn insert_creation_command(
+    params: &mut Map<String, Value>,
+    argv: Option<Vec<String>>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    match (argv, flags.take("shell")) {
+        (None, None) => Ok(()),
+        (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+            params.insert("argv".into(), json!(argv));
+            Ok(())
+        }
+        (None, Some(script)) if !script.is_empty() => {
+            params.insert("shell".into(), Value::String(script));
+            Ok(())
+        }
+        _ => Err(UsageError::new("give exact argv after -- or one --shell script")),
     }
 }
 
@@ -485,10 +532,7 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: super::lifecycle::ServerAction::Stop {
-                    force: flags.boolean("force"),
-                    end_terminals: flags.boolean("end-terminals"),
-                },
+                action: stop_action(flags)?,
                 session,
             }))
         }
@@ -728,6 +772,7 @@ fn parse_pane_strings(
             let mut params = Map::new();
             add_size(&mut params, flags)?;
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::PaneCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -756,16 +801,7 @@ fn parse_pane_strings(
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             // The new pane runs this instead of a shell, so no empty shell
             // tab is left beside the command's (agent evals, mode 3).
-            match (argv, flags.take("shell")) {
-                (None, None) => {}
-                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
-                    params.insert("argv".into(), json!(argv));
-                }
-                (None, Some(script)) if !script.is_empty() => {
-                    params.insert("shell".into(), Value::String(script));
-                }
-                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
-            }
+            insert_creation_command(&mut params, argv, flags)?;
             // A script's split keeps the user's focus unless it asks.
             if flags.boolean("focus") {
                 params.insert("focus".into(), Value::Bool(true));
@@ -849,7 +885,7 @@ fn parse_pane_strings(
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
-            parse_tab_strings(tail, selectors, flags)
+            parse_tab_strings(tail, selectors, flags, argv)
         }
         _ => usage("pane action"),
     }
@@ -859,15 +895,17 @@ fn parse_tab(
     words: &[String],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
-    parse_tab_strings(&refs, selectors, flags)
+    parse_tab_strings(&refs, selectors, flags, argv)
 }
 
 fn parse_tab_strings(
     words: &[&str],
     selectors: &mut Selectors,
     flags: &mut Flags,
+    argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
@@ -884,6 +922,7 @@ fn parse_tab_strings(
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
@@ -1920,9 +1959,7 @@ fn request(
     flags: &mut Flags,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    for (key, value) in selectors.params() {
-        params.insert(key, value);
-    }
+    params.extend(selectors.params());
     add_routing_defaults(operation, &mut params);
     if correlated_creation(operation)
         && let Some(correlation_key) = flags.take("correlation-key")
@@ -1937,6 +1974,7 @@ fn request(
         params.insert("expected_revision".into(), Value::String(revision));
     }
     finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+        .map(|plan| plan::with_caller_lookup(plan, &selectors.values))
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {
@@ -3278,6 +3316,44 @@ mod tests {
             CommandPlan::Protocol(plan) => *plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn settings_crud_routes_to_daemon_operations() {
+        let get = protocol(&["settings", "get", "appearance.theme"]);
+        assert_eq!(operation(&get), "settings.get");
+        assert_eq!(
+            get.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let set = protocol(&["settings", "set", "appearance.theme", "dark"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "appearance.theme", "value": "dark", "machine": "current", "session": "current"})
+        );
+
+        let reset = protocol(&["settings", "reset", "appearance.theme"]);
+        assert_eq!(operation(&reset), "settings.reset");
+        assert_eq!(
+            reset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let unset = protocol(&["settings", "unset", "appearance.theme"]);
+        assert_eq!(operation(&unset), "settings.reset");
+        assert_eq!(
+            unset.params,
+            serde_json::json!({"key": "appearance.theme", "machine": "current", "session": "current"})
+        );
+
+        let negative = protocol(&["settings", "set", "custom.counter", "-1"]);
+        assert_eq!(negative.params["value"], -1);
+
+        let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
+        assert_eq!(literal.params["key"], "custom.label");
+        assert_eq!(literal.params["value"], "--literal");
     }
 
     #[test]

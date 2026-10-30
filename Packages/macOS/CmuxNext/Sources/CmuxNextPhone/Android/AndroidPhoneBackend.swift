@@ -127,7 +127,7 @@ public actor AndroidPhoneBackend: PhoneBackend {
             try await run(serial, ["shell", "input", "keyevent", Self.keycode(button)], "adb input keyevent")
         case .openURL(let url):
             try await run(serial, ["shell", "am start -a android.intent.action.VIEW -d " + Self.quoted(url.absoluteString)], "adb am start")
-        case .pasteboard:
+        case .pasteboard, .softwareKeyboard:
             throw PhoneError.unsupported(mode: id.mode, what: input.kind)
         case .appearance(let appearance):
             try await run(serial, ["shell", "cmd", "uimode", "night", appearance == .dark ? "yes" : "no"], "adb cmd uimode")
@@ -177,10 +177,24 @@ public actor AndroidPhoneBackend: PhoneBackend {
         (sdk.adb, try await serial(id))
     }
 
-    /// Rotates an emulator a quarter turn (the console's `rotate`).
+    /// Rotates an emulator a quarter turn clockwise (the console's `rotate`).
     public func rotate(_ id: PhoneDeviceID) async throws {
+        try await rotate(id, .right)
+    }
+
+    /// Rotates an emulator a quarter turn: the console's `rotate` turns clockwise, so left is three turns.
+    public func rotate(_ id: PhoneDeviceID, _ direction: PhoneRotation) async throws {
         guard id.mode == .emulator else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }
-        try await run(try await serial(id), ["emu", "rotate"], "adb emu rotate")
+        let serial = try await serial(id)
+        for _ in 0..<(direction == .right ? 1 : 3) {
+            try await run(serial, ["emu", "rotate"], "adb emu rotate")
+        }
+    }
+
+    /// Whether night mode is on (`cmd uimode night` answers "Night mode: yes|no|auto"; auto reads as light).
+    public func appearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance {
+        let text = try await shell(try await serial(id), ["cmd", "uimode", "night"])
+        return text.lowercased().hasSuffix("yes") ? .dark : .light
     }
 
     // MARK: - Helpers

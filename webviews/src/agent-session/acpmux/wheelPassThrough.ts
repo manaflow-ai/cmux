@@ -4,9 +4,10 @@
 // stack (questions, notices, the queue, the composer and its footer) is a no-scroll zone (Leo
 // 2026-10-20: "all of these areas are essentially a no-scroll zone"): the wheel over its parts
 // scrolls neither the transcript nor the stack, and a part that scrolls itself (a long prompt, the
-// queue, a menu's list) keeps the wheel at its ends too. The gutters beside and under the composer's
-// card are not part of it: the dock passes them through, so the wheel there scrolls the transcript
-// (Leo 2026-10-20: "if it's not in the composer it should just scroll"; bottomStack.css).
+// queue, a menu's list) keeps the wheel at its ends too. The gutters and empty room beside each part's
+// card are not part of it (Leo 2026-10-20: "if it's not in the composer it should just scroll"): the
+// composer passes the pointer through beside its card (bottomStack.css), and the other parts' bands,
+// which take the pointer so nothing reaches the masked rows under them, send the wheel on here.
 
 /// The event's vertical distance in pixels (a line is 16px, a page the scroller's height).
 export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pageHeight: number): number {
@@ -15,20 +16,46 @@ export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pag
   return event.deltaY;
 }
 
-/// Sends the wheel over Jump to latest in `main` to `scroller`. The scroller first gets a copy of the
-/// event, so its own wheel listeners run as for a wheel over it (the scroll counts as the reader's, a
-/// glide or a Jump to latest in flight ends). The listener is passive: a wheel over the transcript
-/// itself never waits on it. Returns the remover.
+/// Whether the wheel over `target` goes to the transcript: over Jump to latest, or over a part of the
+/// floating stack itself (its gutters and empty room, not what it holds), unless that part scrolls.
+/// The composer passes the pointer through instead, and the dictation notice is a card of its own.
+function passesThrough(target: Element): boolean {
+  if (target.closest(".acpmux-jump-latest")) return true;
+  if (!target.parentElement?.matches(".acpmux-main[data-dock=float] > .acpmux-dock")) return false;
+  if (target.matches(".acpmux-composer, .acpmux-dictation-notice")) return false;
+  return target.scrollHeight <= target.clientHeight;
+}
+
+/// Scrolls `scroller` by a vertical wheel that landed outside it. The scroller first gets a copy of
+/// the event, so its own wheel listeners run as for a wheel over it (the scroll counts as the
+/// reader's, a glide, a minimap jump or a Jump to latest in flight ends). A pinch (ctrl) or a mostly
+/// sideways wheel is left alone.
+export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
+  if (event.defaultPrevented || event.ctrlKey) return;
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  const copy = new WheelEvent("wheel", {
+    deltaX: event.deltaX,
+    deltaY: event.deltaY,
+    deltaMode: event.deltaMode,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+    cancelable: true,
+  });
+  Object.defineProperty(copy, "wheelDeltaY", { value: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY });
+  scroller.dispatchEvent(copy);
+  if (!copy.defaultPrevented) scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
+}
+
+/// Sends the wheel over Jump to latest, or over a floating stack part's empty room, in `main` to
+/// `scroller` (forwardWheel). The listener is passive: a wheel over the transcript itself never
+/// waits on it. Returns the remover.
 export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement): () => void {
   const onWheel = (event: WheelEvent) => {
-    if (event.defaultPrevented || event.ctrlKey) return;
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     const target = event.target instanceof Element ? event.target : null;
-    if (!target?.closest(".acpmux-jump-latest") || scroller.contains(target)) return;
-    scroller.dispatchEvent(
-      new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
-    );
-    scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
+    if (!target || !passesThrough(target) || scroller.contains(target)) return;
+    forwardWheel(scroller, event);
   };
   main.addEventListener("wheel", onWheel, { passive: true });
   return () => main.removeEventListener("wheel", onWheel);

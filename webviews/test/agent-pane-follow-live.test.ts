@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -82,6 +83,8 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
   const paragraph = (turn: number, index: number) =>
     `Turn ${turn}, paragraph ${index}. A client that fails waits a little longer before each retry, ` +
     "and adds a random jitter so a crowd of clients does not retry in step.\n\n";
+  /// The page the reply streams to: a paragraph goes out every two frames it paints.
+  let streamingTo: Page | undefined;
   /// acpmux's run of a prompt: its row, then the reply streamed a paragraph at a time, then its end.
   async function run(ws: { send(data: string): void }, params: Record<string, any>, id: number, turn: number) {
     const send = (event: Event) => ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
@@ -90,7 +93,7 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
     send(record("mux", "turn_started", {}));
     for (let index = 1; index <= 30; index++) {
       send(record("in", "agent_message_chunk", update(paragraph(turn, index))));
-      await Bun.sleep(40);
+      for (let frame = 0; frame < 2; frame++) await streamingTo?.evaluate(() => window.cmuxPaintFrame());
     }
     send(record("mux", "turn_result", { status: "completed" }));
     ws.send(JSON.stringify({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } }));
@@ -142,19 +145,57 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
       const last = lines.at(-1)!.getBoundingClientRect().bottom;
       return Math.max(0, Math.round(last - scroller.getBoundingClientRect().bottom));
     });
+  /// Resolves once the view is at rest: no finite animation running, and three painted frames in a row show the
+  /// transcript scrolled and sized as the frame before.
+  const settle = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<void>((done, fail) => {
+          let last = "";
+          let alike = 0;
+          const deadline = performance.now() + 10_000;
+          window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const gliding = scroller
+              .getAnimations({ subtree: true })
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+              );
+            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight}`;
+            alike = !gliding && now === last ? alike + 1 : 0;
+            last = now;
+            if (alike >= 3) {
+              done();
+              return false;
+            }
+            if (performance.now() > deadline) {
+              fail(new Error(`the view did not come to rest in 10 s (gliding: ${gliding})`));
+              return false;
+            }
+          });
+        }),
+    );
   async function sendAndStream(page: Page, prompt: string, turn: number) {
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type(prompt);
     await page.keyboard.press("Enter");
     await page.getByText(`Turn ${turn}, paragraph 30.`, { exact: false }).waitFor({ state: "attached" });
     await page.getByRole("button", { name: "Stop" }).waitFor({ state: "detached" });
-    await page.waitForTimeout(400);
+    await settle(page);
+  }
+  /// A page on the pane, streamed to.
+  async function newPage(name: string) {
+    const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+    await installPaintedFrames(page);
+    streamingTo = page;
+    return page;
   }
 
   test.each(engines.map(([name]) => name))(
     "%s: a reply sent from the composer is followed to its latest line, turn after turn",
     async (name) => {
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+      const page = await newPage(name);
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -171,7 +212,7 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: a reply stays followed when the view moves a pixel the reader did not move",
     async (name) => {
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+      const page = await newPage(name);
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -190,7 +231,7 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
       });
       await page.getByText(`Turn ${turn}, paragraph 30.`, { exact: false }).waitFor({ state: "attached" });
       await page.getByRole("button", { name: "Stop" }).waitFor({ state: "detached" });
-      await page.waitForTimeout(400);
+      await settle(page);
       const first = await belowView(page);
       await sendAndStream(page, "Now with jitter again", turns + 1);
       expect({ first, second: await belowView(page) }).toEqual({ first: 0, second: 0 });
@@ -201,7 +242,7 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: a chat opened while hidden follows its reply once it shows",
     async (name) => {
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+      const page = await newPage(name);
       // The chat opens behind another page (a New Tab starts its chat behind it): its transcript
       // has no height when it first lays out.
       await page.addInitScript(() => {
@@ -214,7 +255,8 @@ await requireBrowserLane("agent-pane-follow-live.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
       await page.getByText("Hi there.").waitFor({ state: "attached" });
-      await page.waitForTimeout(300);
+      // A few frames lay the hidden transcript out with no height.
+      for (let frame = 0; frame < 3; frame++) await page.evaluate(() => window.cmuxPaintFrame());
       await page.evaluate(() => document.getElementById("behind")?.remove());
       await page.getByText("Hi there.").waitFor();
       await sendAndStream(page, "Explain backoff once more", turns + 1);

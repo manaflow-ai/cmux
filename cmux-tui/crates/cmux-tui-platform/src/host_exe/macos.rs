@@ -56,6 +56,44 @@ static SIBLING_IDENTITY: OnceLock<&'static str> = OnceLock::new();
 /// The sibling failed (install or identity): this daemon does not try it
 /// again and copies its own executable instead.
 static SIBLING_REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The holder's verified copy (`holder_copy`), checked again before each use.
+static HOLDER: Mutex<Option<Installed>> = Mutex::new(None);
+
+/// The verified copy of the standalone holder `source` under the host-exe
+/// root, installed when missing; the source itself when there is no root.
+/// `None` when the copy cannot be made or its `--version` is refused.
+pub(super) fn holder_copy(source: &Path, accepts: &dyn Fn(&str) -> bool) -> Option<PathBuf> {
+    let Some(root) = root() else {
+        return super::holder_answers(source, accepts).then(|| source.to_path_buf());
+    };
+    let mut holder = HOLDER.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(copy) = holder.as_ref()
+        && file_key(&copy.path).ok() == Some(copy.key)
+    {
+        return Some(copy.path.clone());
+    }
+    *holder = None;
+    let copy = match install(&root, source, super::HOLDER_NAME) {
+        Ok(copy) => copy,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: the terminal holder copy at {} is not usable: {error}",
+                root.display()
+            );
+            return None;
+        }
+    };
+    if !super::holder_answers(&copy.path, accepts) {
+        eprintln!(
+            "cmux-tui: {} does not answer as a terminal holder this daemon speaks",
+            copy.path.display()
+        );
+        return None;
+    }
+    let path = copy.path.clone();
+    *holder = Some(copy);
+    Some(path)
+}
 
 pub(super) fn use_sibling_host(identity: &'static str) {
     let _ = SIBLING_IDENTITY.set(identity);
@@ -97,13 +135,12 @@ pub(super) fn prepare_in_background() {
             }
             // A new file's first exec checks its code signature; a host
             // started after this one does not wait for that check.
-            use std::os::unix::process::CommandExt;
-            let _ = std::process::Command::new(&path)
+            let _ = cmux_process::Command::new(&path)
                 .arg0(EXE_NAME)
                 .arg("--version")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(cmux_process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::null())
                 .status();
         };
         let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
@@ -200,12 +237,11 @@ fn sibling_host(own: &Path) -> Option<(PathBuf, &'static str)> {
 /// daemon's build. That first exec also pays its code-signature check before
 /// a terminal waits on it.
 fn check_identity(copy: &Path, identity: &str) -> io::Result<()> {
-    use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new(copy)
+    let output = cmux_process::Command::new(copy)
         .arg0(SIBLING_NAME)
         .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .output()?;
     let answer = String::from_utf8_lossy(&output.stdout);
     let expected = format!("{SIBLING_NAME} {identity}");

@@ -91,6 +91,19 @@ public final class EmptyWorkspaceRepair {
     /// is repaired. Tests replace it.
     @ObservationIgnored public var isLive: @MainActor () -> Bool
     @ObservationIgnored private var observation: Task<Void, Never>?
+    /// The store observed; weak, the store owns its life.
+    @ObservationIgnored private weak var store: DaemonStore?
+    /// One pane observation per workspace in the store (`watch`).
+    @ObservationIgnored private var watchers: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// The live tree epoch whose workspaces were all examined.
+    @ObservationIgnored private var checkedTreeEpoch: Int??
+    /// Whether each watched workspace had a pane when last examined.
+    @ObservationIgnored private var seenPane: [ObjectIdentifier: Bool] = [:]
+    /// Emptied workspaces to examine again on the next change (`retryPending`).
+    @ObservationIgnored private var retries: Set<WorkspaceKey> = []
+    /// Workspaces examined for a missing pane since launch: a store change
+    /// that touches none of them must examine none (sidebar churn).
+    @ObservationIgnored private(set) var visited = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
     /// The daemon-facing closures come from the App (`init(daemon:)`), which
@@ -116,53 +129,114 @@ public final class EmptyWorkspaceRepair {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
+            for task in watchers.values { task.cancel() }
         }
     }
 
-    /// Every workspace, shown or not: which have a pane, and the connection.
+    /// One observation per workspace of whether it has a pane, which wakes
+    /// only when that workspace gains its first pane or loses its last, plus
+    /// one store observation of membership and of the connection's first live
+    /// tree. A move, a group change or a change to another workspace wakes
+    /// nothing here (sidebar churn: this looked at every workspace on each).
     private func observe(_ store: DaemonStore) {
+        self.store = store
         observation = Task { [weak self, weak store] in
             for await _ in ObservationStream({ () -> [String] in
                 guard let store else { return [] }
                 // Turning live counts as a change: a tree drawn from the
                 // launch snapshot is first seen on a connection then.
-                return ["live:\(store.isLoaded)"] + store.workspaces.map { "\($0.key?.rawValue ?? ""):\(Self.hasPane($0))" }
+                return [String(store.isLoaded), String(store.isProvisional), String(store.workspaceSetRevision),
+                        store.liveTreeEpoch.map(String.init) ?? "-"]
             }) {
                 guard let self, let store else { return }
-                self.storeDidChange(store)
+                self.membershipDidChange(store)
             }
         }
     }
 
-    private func storeDidChange(_ store: DaemonStore) {
-        // The launch snapshot can contain a pane before the live tree arrives.
-        // Remember that evidence, but do not close or repair anything until
-        // the daemon has supplied a live snapshot.
-        for workspace in store.workspaces {
-            guard let key = workspace.key, Self.hasPane(workspace) else { continue }
-            everPopulated.insert(key)
+    /// Watches the workspaces that joined, stops watching the ones that left,
+    /// and forgets what it held for those. On a connection's first live tree
+    /// it examines every workspace once: what was seen with a pane on the old
+    /// connection counts again only if the new one shows it with a pane.
+    /// O(workspaces) only on a membership change or a new connection.
+    private func membershipDidChange(_ store: DaemonStore) {
+        let current = store.workspaces
+        let everyOne = isLive() && checkedTreeEpoch != store.liveTreeEpoch
+        if everyOne { checkedTreeEpoch = store.liveTreeEpoch }
+        var live = Set<ObjectIdentifier>()
+        live.reserveCapacity(current.count)
+        for workspace in current {
+            let id = ObjectIdentifier(workspace)
+            live.insert(id)
+            let joined = watchers[id] == nil
+            if joined { watchers[id] = watch(workspace) }
+            if joined || everyOne { workspaceDidChange(workspace) }
         }
-        guard isLive() else { return }
-        for workspace in store.workspaces where !Self.isHome(workspace) {
-            guard let key = workspace.key else { continue }
-            if Self.hasPane(workspace) {
-                notePopulated(key)
-            } else {
-                closeIfEmptied(key)
-            }
+        for (id, task) in watchers where !live.contains(id) {
+            task.cancel()
+            watchers[id] = nil
+            seenPane[id] = nil
         }
-        let present = Set(store.workspaces.compactMap(\.key))
+        let present = Set(current.compactMap(\.key))
         populated = populated.filter { present.contains($0.key) }
         for key in states.keys where !present.contains(key) && states[key] == .closing { states[key] = nil }
         for key in failures.keys where !present.contains(key) { clearFailure(key) }
         keptAfterFailedClose.formIntersection(present)
+        retries.formIntersection(present)
+        retryPending()
+    }
+
+    /// Follows whether `workspace` has a pane; wakes only when that flips.
+    private func watch(_ workspace: WorkspaceModel) -> Task<Void, Never> {
+        // task-owner: one per watched workspace in `watchers`, cancelled when it leaves the store or the repair goes
+        Task { [weak self, weak workspace] in
+            for await hasPane in ObservationStream({ workspace.map(Self.hasPane) ?? false }) {
+                guard let self, let workspace else { return }
+                // The membership pass examined it when it joined; only a flip since counts.
+                guard self.seenPane[ObjectIdentifier(workspace)] != hasPane else { continue }
+                self.workspaceDidChange(workspace)
+                self.retryPending()
+            }
+        }
+    }
+
+    /// `workspace` gained its first pane or lost its last.
+    private func workspaceDidChange(_ workspace: WorkspaceModel) {
+        visited += 1
+        let hasPane = Self.hasPane(workspace)
+        seenPane[ObjectIdentifier(workspace)] = hasPane
+        guard let key = workspace.key else { return }
+        // The launch snapshot can contain a pane before the live tree arrives.
+        // Remember that evidence, but do not close or repair anything until
+        // the daemon has supplied a live snapshot.
+        if hasPane { everPopulated.insert(key) }
+        guard isLive(), !Self.isHome(workspace) else { return }
+        if hasPane {
+            notePopulated(key)
+        } else {
+            closeIfEmptied(key)
+        }
+    }
+
+    /// Emptied workspaces whose close could not start (no connection to
+    /// send it on): examined again on the next change this repair sees
+    /// (O(retries), never every workspace).
+    private func retryPending() {
+        guard !retries.isEmpty, let store else { return }
+        let pending = retries
+        retries.removeAll()
+        for key in pending {
+            guard let workspace = store.workspace(id: key.rawValue), workspace.key == key else { continue }
+            workspaceDidChange(workspace)
+        }
     }
 
     /// The store's home workspace (workspace-kind-v1) starts empty on
     /// purpose and the daemon never closes it: HomeService owns its content
-    /// (the Chief conversation tab), so it is neither repaired nor closed.
+    /// (the Chief conversation tab), so it is neither repaired nor closed; nor is a window's own
+    /// Home (cmux#27880), whose page the app makes.
     private static func isHome(_ workspace: WorkspaceModel) -> Bool {
-        workspace.kind == "home"
+        workspace.isAnyHome
     }
 
     private static func hasPane(_ workspace: WorkspaceModel) -> Bool {
@@ -181,9 +255,11 @@ public final class EmptyWorkspaceRepair {
     /// else owns it. Returns whether `key` is (being) closed.
     @discardableResult
     private func closeIfEmptied(_ key: WorkspaceKey) -> Bool {
-        guard populated[key] == epoch(), states[key] == nil, canCreate() else { return states[key] == .closing }
+        guard populated[key] == epoch(), states[key] == nil else { return states[key] == .closing }
+        // Disconnected: the next change this repair sees tries again.
+        guard canCreate() else { retries.insert(key); return false }
         states[key] = .closing
-        populated[key] = nil
+        let populatedEpoch = populated.removeValue(forKey: key)
         let close = close, cause = cause, create = create
         // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
@@ -207,8 +283,21 @@ public final class EmptyWorkspaceRepair {
             do {
                 try await close(key)
             } catch {
-                // Still open and empty: the next change repairs it instead.
-                if states[key] == .closing { states[key] = nil }
+                // Still open: keep the last-tab-close evidence, so the next
+                // change this repair sees closes it again instead of refilling
+                // it with a terminal (#17632). Only when nothing newer replaced
+                // it: after a reconnect (a new epoch) the old evidence is stale,
+                // and a pane seen on the new connection already recorded its own.
+                // Either way the workspace is examined again on the next change:
+                // its pane changes were ignored while the close owned it, so it
+                // may be empty again with that newer evidence.
+                if states[key] == .closing {
+                    states[key] = nil
+                    if let populatedEpoch, populatedEpoch == epoch(), populated[key] == nil {
+                        populated[key] = populatedEpoch
+                    }
+                    if populated[key] == epoch() { retries.insert(key) }
+                }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }
         }

@@ -2,6 +2,13 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 
+/// A native page's content whose keyboard goes to a view inside it (a Mac
+/// Screen tab's input surface), not to the content view itself.
+@MainActor
+protocol InternalPageFocusing: NSView {
+    var focusTarget: NSView { get }
+}
+
 /// A page tab's content: the provider's view filling the pane, under the
 /// provider's optional native bar (``InternalPageProvider/makeTopBar(for:)``,
 /// the Markdown omnibar), or above it with `browser.toolbarPosition` bottom. `content` is always the provider's view, so code
@@ -69,10 +76,12 @@ final class InternalPageView: NSView {
 
     /// The view that takes the keyboard when the tab is focused: a native
     /// page's primary input (the docked Home's message box), a React page's
-    /// web content itself, so typing reaches the page without a click first.
+    /// web content itself, so typing reaches the page without a click first,
+    /// or the view a native page names (``InternalPageFocusing``).
     var focusTarget: NSView {
         if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
-        return (content as? PageWebView)?.focusView ?? content
+        if let page = content as? PageWebView { return page.focusView }
+        return (content as? any InternalPageFocusing)?.focusTarget ?? content
     }
 
     override var acceptsFirstResponder: Bool { false }

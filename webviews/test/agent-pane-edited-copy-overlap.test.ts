@@ -7,7 +7,8 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -149,6 +150,23 @@ await requireBrowserLane("agent-pane-edited-copy-overlap.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  /// Waits for the page to come to rest: its finite animations and transitions have finished, then
+  /// two frames have painted, so what is read next is laid out as drawn.
+  const atRest = (page: Page) =>
+    page.evaluate(async () => {
+      const finite = () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          );
+      for (let moving = finite(); moving.length > 0; moving = finite())
+        await Promise.allSettled(moving.map((animation) => animation.finished));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
+
   /// Visible buttons outside the card whose box meets a control inside it.
   const overlaps = (page: import("playwright").Page) =>
     page.evaluate(() => {
@@ -185,16 +203,17 @@ await requireBrowserLane("agent-pane-edited-copy-overlap.test.ts", async () => {
       await page.goto(url(CHAT));
       await page.getByText("Retry added to the uploader.").waitFor();
       await page.locator(".acpmux-edited-file").first().waitFor();
+      await installPaintedFrames(page);
       // Hovered, then with focus inside the card (a click or Tab onto one of its controls): the
       // row's floating Copy showed on :focus-within, at the row's top-right, over View changes.
       for (const target of [".acpmux-edited-head", ".acpmux-edited-file"]) {
         await page.locator(target).first().hover();
-        await page.waitForTimeout(200);
+        await atRest(page);
         expect({ target, hits: await overlaps(page) }).toEqual({ target, hits: [] });
       }
       for (const control of await page.locator(".acpmux-edited button").all()) {
         await control.focus();
-        await page.waitForTimeout(200);
+        await atRest(page);
         const target = await control.evaluate((node) => node.getAttribute("class") ?? node.textContent ?? "");
         expect({ target, hits: await overlaps(page) }).toEqual({ target, hits: [] });
       }

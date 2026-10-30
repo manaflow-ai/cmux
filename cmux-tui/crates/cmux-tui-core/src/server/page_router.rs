@@ -13,6 +13,7 @@
 //! with a host confirmation for exactly it). Transport: the Unix socket and
 //! authenticated WebSocket connections, as for the person's conversations.
 
+use crate::panic_free::JsonFields;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -211,7 +212,7 @@ fn apps_store(
         }
         let mut extra = json!({"code": error.code});
         if let Some(details) = error.details {
-            extra["details"] = details;
+            extra.insert("details", details);
         }
         ResourceError::operation_failed(operation, error.message, extra)
     })

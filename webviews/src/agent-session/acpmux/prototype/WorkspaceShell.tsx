@@ -1,5 +1,5 @@
 // Sidebar prototype (#16688), dev server only: prototype.html. One stack of open workspaces is the
-// main sidebar; agent history (the pane's project-grouped session list) is a layer opened from the
+// main sidebar; agent history (a plain list of the fixture's sessions) is a layer opened from the
 // rail, and opening a row there jumps to the tab already showing it instead of opening a copy.
 // Dots at the bottom switch spaces, and links from a terminal open in the mini window
 // until Cmd-O promotes them into the workspace. Rows are minimal unless `sidebar.rowDetail` (the
@@ -7,8 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AcpmuxApp } from "../App";
 import { mockSessions, sessionSummary } from "../mockFixture";
-import { SessionSidebar } from "../SessionSidebar";
-import { sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
+import { sessionEntry, sessionMark, sessionTitle, type AcpmuxSessionEntry } from "../sessionList";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import {
@@ -341,12 +340,24 @@ export function WorkspaceShell() {
                 <CloseIcon />
               </button>
             </header>
-            <SessionSidebar
-              sessions={history}
-              selectedId={activeTab.sessionId}
-              openIds={openIds}
-              onSelect={openSession}
-            />
+            <ul className="proto-history-list">
+              {history.map((session) => {
+                const open = openIds.has(session.sessionId);
+                return (
+                  <li key={session.sessionId}>
+                    <button
+                      type="button"
+                      className={`proto-history-row${open ? " is-open" : ""}`}
+                      aria-current={session.sessionId === activeTab.sessionId ? "true" : undefined}
+                      onClick={() => openSession(session.sessionId)}
+                    >
+                      <span>{sessionTitle(session)}</span>
+                      {open && <small>Open</small>}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </aside>
         </>
       )}

@@ -1,0 +1,35 @@
+/* A Claude workflow's dot per agent, in the Session Info panel (inspector/WorkflowTasks.tsx) and the
+   transcript card (summary/WorkflowCard.tsx): done is filled, running the accent, queued an outline,
+   failed red. Fixed size, so a change of state never moves the rows. */
+.acpmux-workflow-dots {
+  /* Glyphs, not controls: their size and gap are their own, off the spacing scale. */
+  --acpmux-workflow-dot: 6px;
+  --acpmux-workflow-dot-gap: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--acpmux-workflow-dot-gap);
+  padding: 0 8px;
+  margin-bottom: 2px;
+}
+.acpmux-workflow-dot {
+  flex: none;
+  width: var(--acpmux-workflow-dot);
+  height: var(--acpmux-workflow-dot);
+  box-sizing: border-box;
+  border-radius: 1.5px;
+  border: 1px solid color-mix(in oklab, var(--agent-muted) 70%, transparent);
+}
+.acpmux-workflow-dot[data-state="completed"] {
+  border-color: transparent;
+  background: var(--agent-muted);
+}
+.acpmux-workflow-dot[data-state="running"],
+.acpmux-workflow-dot[data-state="paused"] {
+  border-color: transparent;
+  background: var(--agent-accent);
+}
+.acpmux-workflow-dot[data-state="failed"],
+.acpmux-workflow-dot[data-state="cancelled"] {
+  border-color: transparent;
+  background: var(--agent-status-failure);
+}

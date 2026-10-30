@@ -75,6 +75,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenameWorkspaceRequest, "release");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
+    try expectExplicitNullRejected(protocol.SendRequest, "submit");
     try expectExplicitNullRejected(protocol.SendResult, "queued");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
@@ -89,6 +90,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationLiveEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationPresenceEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationRunChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationTypingEvent, "account");
@@ -223,6 +225,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
     try expectExplicitNullRejected(protocol.MintTerminalRendererResult, "supports_viewer_size_priority");
+    try expectExplicitNullRejected(protocol.NewRowResult, "pane_id");
+    try expectExplicitNullRejected(protocol.NewRowResult, "tab_id");
     try expectExplicitNullRejected(protocol.NewRowResult, "transaction");
     try expectExplicitNullRejected(protocol.NotificationMarker, "source");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");

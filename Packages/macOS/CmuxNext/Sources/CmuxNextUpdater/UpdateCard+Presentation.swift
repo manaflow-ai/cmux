@@ -20,8 +20,8 @@ nonisolated public struct UpdateCardPresentation: Equatable, Sendable {
 
 extension UpdateCard {
     /// The card for the running build (`version` = CFBundleShortVersionString,
-    /// `build` = CFBundleVersion).
-    nonisolated public func presentation(version: String, build: String) -> UpdateCardPresentation {
+    /// `build` = CFBundleVersion); `install` says what an ``installing`` card waits on.
+    nonisolated public func presentation(version: String, build: String, install: UpdateInstallStatus? = nil) -> UpdateCardPresentation {
         let current = Self.versionLabel(version: version, build: build)
         switch self {
         case .checking:
@@ -43,8 +43,7 @@ extension UpdateCard {
                                               progress: transfer.fraction, dismissible: false)
             }
         case .installing:
-            return UpdateCardPresentation(symbol: "arrow.clockwise.circle", title: UpdaterStrings.installingUpdate,
-                                          detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
+            return Self.installing(install)
         case .available(let found):
             return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.noticeAvailable,
                                           detail: found.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.youHave(current),
@@ -61,12 +60,32 @@ extension UpdateCard {
         case .note(.needsNewerMacOS(let found, let required)):
             return UpdateCardPresentation(symbol: "desktopcomputer", title: UpdaterStrings.noticeAvailable,
                                           detail: UpdaterStrings.needsMacOSDetail(found, required))
-        case .pulled(let reason, let kept):
-            // "Wait for the Fix" is the default (first, prominent); Roll Back only when it would run.
-            return UpdateCardPresentation(symbol: "exclamationmark.octagon", title: UpdaterStrings.pulledTitle,
-                                          detail: reason.isEmpty ? nil : reason,
-                                          actions: kept == nil ? [.waitForFix] : [.waitForFix, .rollBack],
-                                          lines: [kept.map(UpdaterStrings.pulledKept) ?? UpdaterStrings.pulledNothingKept])
+        case .gettingNewest(let transfer, let pulled):
+            // One line, no button: the newest build downloads, then the Update Ready card (or the click) installs it.
+            return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.gettingNewest,
+                                          detail: pulled ? UpdaterStrings.runningBuildPulled : transfer?.bytesText,
+                                          showsProgress: true, progress: transfer?.fraction, dismissible: false)
+        }
+    }
+
+    /// The installing card for `status` (``UpdateInstallStatus``): the short text first, then
+    /// the step and its seconds, or that the install never relaunched (with Details).
+    nonisolated static func installing(_ status: UpdateInstallStatus?) -> UpdateCardPresentation {
+        let symbol = "arrow.clockwise.circle"
+        guard let status else {
+            return UpdateCardPresentation(symbol: symbol, title: UpdaterStrings.installingUpdate,
+                                          detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
+        }
+        switch status.stage {
+        case .stalled:
+            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.installStalled,
+                                          detail: UpdaterStrings.installStalledDetail(minutes: max(1, status.seconds / 60)),
+                                          actions: [.details])
+        case .preparing:
+            return UpdateCardPresentation(symbol: symbol, title: UpdaterStrings.installingUpdate,
+                                          detail: status.isSlow ? UpdaterStrings.checkingNewVersion(seconds: status.seconds)
+                                                                : UpdaterStrings.relaunchingDetail,
+                                          showsProgress: true, dismissible: false)
         }
     }
 
@@ -90,7 +109,7 @@ extension UpdateCard {
         case .note(.checkFailed): "check_failed"
         case .note(.found): "found"
         case .note(.needsNewerMacOS): "requires_newer_macos"
-        case .pulled: "pulled"
+        case .gettingNewest: "getting_newest"
         }
     }
 }

@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("markdown-wide-table-scroll.test.ts", async () => {
@@ -61,6 +62,7 @@ await requireBrowserLane("markdown-wide-table-scroll.test.ts", async () => {
   const open = async (engine: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 640, height: 520 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
+    await installPaintedFrames(page);
     for (let attempt = 1; ; attempt++) {
       await page.goto(`http://127.0.0.1:${port}${galleryFrame("pages.markdown", { variant: "wide-table" })}`);
       try {
@@ -90,12 +92,41 @@ await requireBrowserLane("markdown-wide-table-scroll.test.ts", async () => {
       return { page: box(".md-scroll"), table: box(".md-prose .tableWrapper"), code: box(".md-prose .md-code pre") };
     });
 
-  /** Wheels over the middle of `selector` and waits for the scroll to land. */
+  /** Wheels over the middle of `selector` and waits for the scroll to land: something has moved,
+   *  and a painted frame shows it where the one before did. A wheel that moves nothing stops
+   *  waiting after 300 frames, and the test's own checks fail. */
   const wheel = async (page: Page, selector: string, dx: number, dy: number) => {
     const rect = (await page.locator(selector).first().boundingBox())!;
     await page.mouse.move(rect.x + rect.width / 2, rect.y + Math.min(rect.height / 2, 40));
+    // The scroll offsets of the page scroller, the table's box and the code block, as one key.
+    await page.evaluate(() => {
+      const state = window as unknown as { offsets(): string; from: string };
+      state.offsets = () =>
+        [".md-scroll", ".md-prose .tableWrapper", ".md-prose .md-code pre"]
+          .map((at) => {
+            const element = document.querySelector<HTMLElement>(at)!;
+            return `${element.scrollLeft},${element.scrollTop}`;
+          })
+          .join(" ");
+      state.from = state.offsets();
+    });
     await page.mouse.wheel(dx, dy);
-    await page.waitForTimeout(250);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const state = window as unknown as { offsets(): string; from: string };
+          let last = state.from;
+          let left = 300;
+          window.cmuxAfterPaint(() => {
+            const at = state.offsets();
+            const landed = at !== state.from && at === last;
+            last = at;
+            if (!landed && --left > 0) return true;
+            resolve();
+            return false;
+          });
+        }),
+    );
   };
 
   for (const [engine] of engines)

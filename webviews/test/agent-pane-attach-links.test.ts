@@ -67,6 +67,8 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
   };
   session = local;
   const prompts: unknown[] = [];
+  /// Runs on the next `session/prompt` the daemon takes.
+  let prompted = () => {};
 
   function answer(method: string): unknown {
     switch (method) {
@@ -101,7 +103,10 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { prompt?: unknown } };
-          if (message.method === "session/prompt") prompts.push(message.params?.prompt);
+          if (message.method === "session/prompt") {
+            prompts.push(message.params?.prompt);
+            prompted();
+          }
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
@@ -177,10 +182,33 @@ await requireBrowserLane("agent-pane-attach-links.test.ts", async () => {
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("Compare these");
     prompts.length = 0;
+    const sent = new Promise<void>((resolve) => (prompted = resolve));
     await page.keyboard.press("Enter");
-    for (let i = 0; i < 100 && prompts.length === 0; i++) await page.waitForTimeout(50);
+    await sent;
     expect(prompts[0]).toEqual([
       { type: "text", text: "Compare these" },
+      { type: "resource_link", uri: "file:///home/dev/notes/drafts", name: "drafts/" },
+      { type: "resource_link", uri: "file:///home/dev/notes/release%20notes.md", name: "release notes.md" },
+    ]);
+    await context.close();
+  });
+
+  test("a slash command with instructions goes as a prompt and keeps its attached files", async () => {
+    session = local;
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    await attach(page).click();
+    const composer = page.locator(".acpmux-composer");
+    await composer.getByText("release notes.md").waitFor({ timeout: 5_000 });
+    await page.locator(".acpmux-composer-prompt").click();
+    await page.keyboard.type("/plan compare these");
+    prompts.length = 0;
+    const sent = new Promise<void>((resolve) => (prompted = resolve));
+    await page.keyboard.press("Enter");
+    await sent;
+    expect(prompts[0]).toEqual([
+      { type: "text", text: "/plan compare these" },
       { type: "resource_link", uri: "file:///home/dev/notes/drafts", name: "drafts/" },
       { type: "resource_link", uri: "file:///home/dev/notes/release%20notes.md", name: "release notes.md" },
     ]);

@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextPalette
+import CmuxNextLayout
 
 /// Palette target lists for screen actions: the focused workspace's screen
 /// groups (Add Screen to Group…) and every workspace (Move Screen to

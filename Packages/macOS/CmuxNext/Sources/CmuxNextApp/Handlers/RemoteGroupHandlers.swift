@@ -11,10 +11,20 @@ import CmuxNextSidebar
 /// with the host's name and status, in one list. New workspaces in it run on the host.
 @MainActor
 enum RemoteGroupHandlers {
+    static func shouldContinueMarking(status: SSHConnectionMachine.Status) -> Bool {
+        status != .offline
+    }
+
+    /// A focus request makes an automated run interactive for this action even
+    /// while the registry is capturing its refusal output.
+    static func shouldOfferInteractiveFlow(_ invocation: ActionInvocation) -> Bool {
+        invocation.allowsViewChange
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let ssh = context.services.ssh
         CloudHandlers.bind("remote.newGroup", registry, reason: { ssh.unavailableReason }) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            let interactive = shouldOfferInteractiveFlow(invocation)
             let make = { (text: String) throws in
                 let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
                 markWhenNamed(session)
@@ -32,8 +42,7 @@ enum RemoteGroupHandlers {
             guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
             }
-            let ops = SidebarDocHostGroupPlan(session: session, records: store.records, on: false).ops
-            guard !ops.isEmpty else { return }
+            let ops = try removalOps(session: session, records: store.records)
             do throws(SidebarDocSendRefusal) {
                 try store.sendChecked(ops: ops, title: RemoteStrings.newGroupTitle)
             } catch {
@@ -64,6 +73,14 @@ enum RemoteGroupHandlers {
         }
     }
 
+    /// The ops that turn daemon session `session`'s remote group back into rows of the one list.
+    /// Throws when its machine section is not a remote group: nothing to remove is not a success.
+    static func removalOps(session: String, records: SidebarDocRecords) throws(ActionFailure) -> [[String: Any]] {
+        let ops = SidebarDocHostGroupPlan(session: session, records: records, on: false).ops
+        guard !ops.isEmpty else { throw ActionFailure.invalidTarget(RemoteStrings.notARemoteGroup) }
+        return ops
+    }
+
     private static func route(_ machine: String, _ machines: MachineRegistry) -> MachineReconnectRoute {
         MachineReconnectRoute(isLocal: machine == MachineRegistry.localID, isSSH: machines.sshSession(machine) != nil,
                               isServer: machines.server(machine) != nil, isCloud: machines.session(machine) != nil)
@@ -86,19 +103,15 @@ enum RemoteGroupHandlers {
                     mark(session: name)
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed: return
-                }
+                if Self.shouldContinueMarking(status: status) { continue }
+                return
             }
         }
     }
 
-    /// Sends the document ops that make the machine section of daemon session `session` a remote group.
-    static func mark(session: String) {
-        guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else { return }
-        let ops = SidebarDocHostGroupPlan(session: session, records: store.records).ops
-        guard !ops.isEmpty else { return }
-        store.send(ops: ops, title: RemoteStrings.newGroupTitle, undoable: false)
+    /// Makes the machine section of daemon session `session` a remote group; nothing for an unnamed session.
+    /// New Remote Group, New Cloud Workspace and a new Cloud machine call it: a Cloud machine's workspaces sit in one group.
+    static func mark(session: String?) {
+        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle) }
     }
 }

@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 import os
+import CmuxNextFocusUI
 
 /// Registers every catalog action marked `isGlobalHotKey` as a system-wide
 /// hot key with its effective shortcut, so it runs while another app is

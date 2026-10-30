@@ -86,7 +86,7 @@ import Testing
     @Test func leavingAnUnchangedNameRenamesNothing() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         var renamed: [String] = []
-        view.onRename = { renamed.append($0); return true }
+        view.onRename = { renamed.append($0); return nil }
         view.setName("Chief")
         #expect(view.commitName() == nil)
         view.nameField.stringValue = "  Ada  "
@@ -100,7 +100,7 @@ import Testing
     @Test func clearingTheNameShowsItAgain() async {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         var renamed: [String] = []
-        view.onRename = { renamed.append($0); return true }
+        view.onRename = { renamed.append($0); return nil }
         view.setName("Chief")
         view.nameField.stringValue = "   "
         view.renamed()

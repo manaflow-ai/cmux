@@ -6,6 +6,14 @@ import { SUBAGENTS, type Subagent } from "./subagentFold";
 export const SUBAGENT_ROW = "subagent";
 /// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
 export const SUBAGENT_OF = "subagentOf";
+/// The known child has no recorded messages or tool calls yet.
+export const SUBAGENT_EMPTY = "subagentEmpty";
+/// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
+/// runningTray.ts).
+export const SUBAGENT_DONE = "subagentDone";
+/// A Claude workflow's card where it started (Labs `workflowLabs`, summary/WorkflowCard.tsx;
+/// runningTray.ts `withSubagentLines`): a row per workflow a group started, in the group's place.
+export const WORKFLOW_CARD = "workflowCard";
 
 /// Every subagent the rows list, nested views' included.
 export function subagentsIn(
@@ -45,10 +53,20 @@ export function childView(
     subagents: [agent],
     text: parent,
   };
-  return [pill, ...withSubagentRows(views?.[id] ?? [], expanded)];
+  const content = withSubagentRows(views?.[id] ?? [], expanded);
+  // Views are populated by recorded child events, not a separate fetch. An absent entry does
+  // not mean a request is pending; describe the empty transcript without claiming it is loading.
+  return content.length
+    ? [pill, ...content]
+    : [pill, { id: `${id}:empty`, version: 1, at: agent.startedAt, kind: SUBAGENT_EMPTY }];
 }
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
+
+/// A group that is one agent a shell call started (subagentFold.ts `reduceRun`): its card
+/// (AgentRunCard.tsx) stays where it started, in the tray's layout too, and never opens to a list.
+export const isRunGroup = (row: AcpmuxRow) =>
+  row.kind === SUBAGENTS && row.subagents?.length === 1 && row.subagents[0]!.command !== undefined;
 
 /// The latest turn's groups, nested views' included, with an agent still running: in a working
 /// turn they start open (App.tsx), after Codex and Claude Code. An earlier turn's group stays as
@@ -100,7 +118,7 @@ export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: ReadonlyS
   if (!rows.some(isSubagentGroup)) return rows as AcpmuxRow[];
   const out: AcpmuxRow[] = [];
   for (const row of rows) {
-    if (!isSubagentGroup(row)) {
+    if (!isSubagentGroup(row) || isRunGroup(row)) {
       out.push(row);
       continue;
     }

@@ -91,7 +91,9 @@ final class QuickComposerController {
         let window = window ?? makeWindowOnce()
         // Summoned to type in: a floating chat folded to its compact bar opens back out.
         if floatingState.collapsed { setCollapsed(false) }
-        window.present(chat, focus: chat.webView)
+        window.present(chat, focus: chat.focusTarget)
+        // A Chromium page takes the keys in its own window once the panel shows.
+        if chat.chromiumPage != nil { chat.focusChat() }
     }
 
     /// Orders the panel out; the chat and its draft stay.

@@ -3,9 +3,12 @@ public import CmuxNextSidebar
 public import Foundation
 
 /// Ranks every agent chat for the sidebar's Priority view by what needs the person: a permission
-/// prompt or question first, then a result nobody has seen, then a failed or lost turn, then the
-/// ones working, then idle. Within a tier pinned chats come first, then the most recent change.
-/// acpmux decides each session's lane; this only orders them and applies the person's marks.
+/// prompt or question first, then a result nobody has seen, then a failed or lost turn, then Red
+/// CI (a pull request of the chat's with failing checks), then the ones working, then idle. Within
+/// a tier pinned chats come first, then the most recent change. acpmux decides each session's
+/// lane and the session tree's pull request badge whose checks fail; this only orders them and
+/// applies the person's marks. The sidebar rows' chip (`SidebarLaneStatus.chip`) reads the same
+/// `state` and `tier`.
 public nonisolated struct AgentPriorityRanking: Sendable {
     /// An idle chat with nothing unseen leaves the view after this long, unless pinned.
     public var idleHorizon: TimeInterval = 24 * 60 * 60
@@ -13,16 +16,20 @@ public nonisolated struct AgentPriorityRanking: Sendable {
     public init() {}
 
     /// The rows in rank order: snoozed and archived chats left out, and idle ones older than
-    /// `idleHorizon` unless pinned.
-    public func entries(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [SidebarPriorityEntry] {
+    /// `idleHorizon` unless pinned. `failingChecks` are the ids of the chats with a pull request
+    /// whose checks fail; `machine` is each row's machine tag (the lane's peer unless the caller
+    /// names its machine).
+    public func entries(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date,
+                        failingChecks: Set<String> = [],
+                        machine: (AgentActivityLane) -> String? = { $0.peer }) -> [SidebarPriorityEntry] {
         let ranked = lanes.compactMap { lane -> (entry: SidebarPriorityEntry, tier: Int, since: Date)? in
             let stamp = AgentPriorityMarks.stamp(lane)
             guard !marks.archived.contains(lane.id), !marks.isSnoozed(lane.id, stamp: stamp, now: now) else { return nil }
             let read = marks.read[lane.id] == stamp
             let pinned = marks.pinned.contains(lane.id)
-            let state = Self.state(lane, read: read)
+            let state = Self.state(lane, read: read, failingChecks: failingChecks.contains(lane.id))
             if state == .idle, !pinned, let since = lane.since, now.timeIntervalSince(since) > idleHorizon { return nil }
-            let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: lane.peer,
+            let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: machine(lane),
                                              preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned)
             return (entry, Self.tier(state), lane.since ?? .distantPast)
         }
@@ -36,27 +43,33 @@ public nonisolated struct AgentPriorityRanking: Sendable {
 
     /// When the rows next change with no lane or mark change: a snooze ends, or an idle chat passes
     /// `idleHorizon` and leaves. Nil when nothing is pending.
-    public func nextChange(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> Date? {
+    public func nextChange(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date,
+                           failingChecks: Set<String> = []) -> Date? {
         let changes = lanes.compactMap { lane -> Date? in
             guard !marks.archived.contains(lane.id) else { return nil }
             let stamp = AgentPriorityMarks.stamp(lane)
             // A snooze on the chat's current state ends; one on an older state no longer applies.
             if let snooze = marks.snoozed[lane.id], snooze.stamp == stamp, snooze.until > now { return snooze.until }
-            guard !marks.pinned.contains(lane.id), Self.state(lane, read: marks.read[lane.id] == stamp) == .idle else { return nil }
+            let state = Self.state(lane, read: marks.read[lane.id] == stamp, failingChecks: failingChecks.contains(lane.id))
+            guard !marks.pinned.contains(lane.id), state == .idle else { return nil }
             return lane.since?.addingTimeInterval(idleHorizon)
         }
         return changes.filter { $0 > now }.min()
     }
 
-    /// The chip a lane shows. Marking a finished, failed or lost chat read drops it to idle.
-    static func state(_ lane: AgentActivityLane, read: Bool) -> SidebarPriorityEntry.State {
-        switch lane.state {
+    /// The chip a lane shows: its turn's, unless `failingChecks` (a pull request of the chat's has
+    /// failing checks) ranks higher, which it does over working and idle. Marking a finished,
+    /// failed or lost chat read drops it to idle, or to Red CI while the checks still fail: a read
+    /// mark does not hide them, a snooze does.
+    static func state(_ lane: AgentActivityLane, read: Bool, failingChecks: Bool = false) -> SidebarPriorityEntry.State {
+        let turn: SidebarPriorityEntry.State = switch lane.state {
         case .input: .needsYou
         case .working: .working(since: lane.since)
         case .failed: read ? .idle : .failed
         case .lost: read ? .idle : .lost
         case .idle: lane.unread && !read ? .done : .idle
         }
+        return failingChecks && tier(.ciFailing) < tier(turn) ? .ciFailing : turn
     }
 
     static func tier(_ state: SidebarPriorityEntry.State) -> Int {
@@ -64,8 +77,9 @@ public nonisolated struct AgentPriorityRanking: Sendable {
         case .needsYou: 0
         case .done: 1
         case .failed, .lost: 2
-        case .working: 3
-        case .idle: 4
+        case .ciFailing: 3
+        case .working: 4
+        case .idle: 5
         }
     }
 

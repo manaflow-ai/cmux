@@ -48,3 +48,58 @@ pub(super) fn commit_terminal_lifecycle(
     )?;
     Ok((terminal, commit.revision))
 }
+
+/// Each terminal's own result, then the last revision committed, if any.
+pub(super) type AdoptingCommit = (Vec<Result<(), String>>, Option<u64>);
+
+/// Mark every terminal in `terminals` adopting with its host's incarnation
+/// in one registry transaction: one commit each cost a daemon start 2.6 ms
+/// per surviving host before its first answer
+/// (plans/cmux-next/service-start-PERF.md 5b). Each result is that
+/// terminal's own; a failed one keeps its row. Returns the last revision
+/// committed, if any.
+pub(super) fn commit_terminals_adopting(
+    registry: &mut WorkspaceRegistry,
+    terminals: &[(RegistryTerminal, String)],
+) -> anyhow::Result<AdoptingCommit> {
+    let generation = registry.generation().to_string();
+    let mut intents = Vec::with_capacity(terminals.len());
+    for (terminal, incarnation) in terminals {
+        // One mutation each: a shared mutation id would replay the first.
+        let mutation = WorkspaceMutation::daemon_local("cmux-tui-runtime");
+        let mut terminal = terminal.clone();
+        terminal.lifecycle = TerminalLifecycle::Adopting;
+        terminal.incarnation = Some(incarnation.clone());
+        terminal.exit = None;
+        intents.push(registry.prepare_terminal_commit(
+            &mutation,
+            &serde_json::json!({
+                "op": "adopt-terminal",
+                "terminal_id": terminal.terminal_id,
+                "incarnation": terminal.incarnation,
+                "lifecycle": terminal.lifecycle,
+            }),
+            Some(&generation),
+            None,
+            "terminal-adopting",
+            &terminal,
+            &serde_json::json!({
+                "terminal_id": terminal.terminal_id,
+                "workspace_key": terminal.workspace_key,
+                "incarnation": terminal.incarnation,
+                "state": terminal.lifecycle,
+            }),
+        )?);
+    }
+    let mut last_revision = None;
+    let results = registry
+        .commit_terminals_together(intents)?
+        .into_iter()
+        .map(|commit| {
+            commit.map(|commit| {
+                last_revision = Some(commit.revision);
+            })
+        })
+        .collect();
+    Ok((results, last_revision))
+}

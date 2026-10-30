@@ -25,6 +25,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     var contentView: NSView { tab.contentView }
 
+    /// The tab's holes for native UI (`CEFTab.occlusionRects`, `contentView` coordinates).
+    var occlusionRects: [CGRect] {
+        get { tab.occlusionRects }
+        set { if tab.occlusionRects != newValue { tab.occlusionRects = newValue } }
+    }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
@@ -83,6 +89,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
+    func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
+
     func close() {
         guard !closed else { return }
         closed = true
@@ -120,10 +128,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 }
 
 extension TabContent {
-    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page in Chromium.
+    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page
+    /// (an agent chat or New Tab page too) in Chromium.
     var childWindowTab: (any BrowserTab)? {
-        if case .browser(let entry) = self, entry.tab.presentation == .childWindow { return entry.tab }
-        guard case .page(let view) = self else { return nil }
-        return ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
+        switch self {
+        case .browser(let entry): entry.tab.presentation == .childWindow ? entry.tab : nil
+        case .page(let view): ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
+        case .agent(let view): (view.chromiumPage as? CEFPageChromiumPage)?.tab
+        default: nil
+        }
     }
 }

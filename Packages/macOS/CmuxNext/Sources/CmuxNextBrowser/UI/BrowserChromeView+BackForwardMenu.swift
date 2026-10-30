@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// Forward button for the tab's entries, nearest first (plans/cmux-next/
 /// history.md 4.1). Only for tabs whose engine lists its entries
 /// (`BrowserBackForwardListing`). Reload has its own menu (`BrowserReloadMenu`).
-/// Both take the cmux NEXT menu look (`NSMenu.themeRows(in:)`) in the toolbar's theme.
+/// Both are standard macOS menus in the toolbar's light or dark look (`NSMenu.themeRows(in:)`).
 extension BrowserChromeView {
     static let backForwardMenuLimit = 16
 

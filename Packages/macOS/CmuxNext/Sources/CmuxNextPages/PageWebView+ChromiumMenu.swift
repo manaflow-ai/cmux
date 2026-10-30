@@ -25,6 +25,16 @@ extension PageWebView {
     /// ``contextMenuEditor`` (or kept to the desktop default), at the click. Nothing shows when the
     /// menu ends up empty. Chromium hears the menu closed either way.
     func showChromiumMenu(_ request: PageChromiumContextMenu) {
+        guard let wait = chromiumMenuWait else { return buildChromiumMenu(request) }
+        // task-owner: one menu per right-click; Chromium waits for it to close (`finish`)
+        Task { @MainActor [weak self] in
+            await wait()
+            guard let self else { return request.finish() }
+            self.buildChromiumMenu(request)
+        }
+    }
+
+    private func buildChromiumMenu(_ request: PageChromiumContextMenu) {
         defer { request.finish() }
         let menu = NSMenu()
         if !request.selection.isEmpty {

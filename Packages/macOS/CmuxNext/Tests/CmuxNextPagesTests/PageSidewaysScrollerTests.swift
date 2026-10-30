@@ -31,7 +31,15 @@ struct PageSidewaysScrollerTests {
           <div class="tableWrapper"><table id="code">\(row(["tab", code, "<code>tab_a85e</code>"]))</table></div>
           <div class="tableWrapper"><table id="tall">\(tall)</table></div>
           <div class="tableWrapper"><table id="small">\(row(["Left", "Center", "Right"]))</table></div>
-        </div></body></html>
+          <div id="shadowWide"></div>
+          <div id="shadowFits"></div>
+        </div><script>
+          // A code card as @pierre/diffs draws one: its sideways scroller is inside the host's shadow root.
+          for (const [id, text] of [['shadowWide', '\(long)\(long)'], ['shadowFits', 'short line']]) {
+            const root = document.getElementById(id).attachShadow({ mode: 'open' });
+            root.innerHTML = '<pre style="margin:0;overflow:scroll clip;white-space:pre"><code>' + text + '</code></pre>';
+          }
+        </script></body></html>
         """
     }()
 
@@ -109,5 +117,14 @@ struct PageSidewaysScrollerTests {
         #expect(try await page.pointer(over: "small") == false)
         #expect(try await page.pointer(over: "long"))
         #expect(try await page.pointer(over: nil) == false)
+    }
+
+    /// A code block or diff drawn in a shadow root (@pierre/diffs in the agent chat): the box that
+    /// scrolls sideways is inside it, where `document.elementFromPoint` does not reach.
+    @Test func aScrollerInsideAShadowRootScrollsSideways() async throws {
+        let page = Page()
+        await page.load()
+        #expect(try await page.pointer(over: "shadowWide"))
+        #expect(try await page.pointer(over: "shadowFits") == false)
     }
 }

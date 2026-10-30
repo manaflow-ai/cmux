@@ -4,6 +4,10 @@
 // screen.
 // #22264 review: a chat's own answer during that hold (its model options) must not land on the
 // chat opening, and a grouped permission answer from the drawn chat must not leave an error on it.
+// #20930 review: a Use tools toggle (Sources +) during that hold goes to the chat on screen, and a
+// reply that comes back after the pane switched away and back does not overwrite the chat's tools.
+// #24272 review: an MCP server's Reconnect (the Inspector's Connectors) during that hold goes to the
+// chat on screen, whose server it names, not the chat opening.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -28,6 +32,9 @@ afterAll(() => {
 });
 
 const GROUP_OPS = ["_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"];
+
+/** The row a held `_acpmux/set_tools` reply carries. */
+const STALE_TOOL = { id: "mcp:stale", name: "stale", kind: "mcp", source: "claude", enabled: false, canToggle: true };
 
 type Message = { id?: number; method: string; params?: Record<string, unknown> };
 
@@ -54,6 +61,11 @@ class HoldingSocket {
   private heldGroupsB?: Message;
   private groupsB?: () => void;
   readonly readingGroupsB = new Promise<void>((resolve) => (this.groupsB = resolve));
+  /** Holds `_acpmux/set_tools` until `releaseSetTools`. */
+  holdSetTools = false;
+  private heldSetTools?: Message;
+  private setTools?: () => void;
+  readonly settingTools = new Promise<void>((resolve) => (this.setTools = resolve));
   private heldB?: Message;
   private attachedB?: () => void;
   readonly attachingB = new Promise<void>((resolve) => (this.attachedB = resolve));
@@ -79,6 +91,11 @@ class HoldingSocket {
       this.groupsB?.();
       return;
     }
+    if (message.method === "_acpmux/set_tools" && this.holdSetTools) {
+      this.heldSetTools = message;
+      this.setTools?.();
+      return;
+    }
     queueMicrotask(() => this.reply(message));
   }
 
@@ -88,6 +105,10 @@ class HoldingSocket {
 
   releaseB(): void {
     if (this.heldB) this.reply(this.heldB);
+  }
+
+  releaseSetTools(): void {
+    if (this.heldSetTools) this.reply(this.heldSetTools);
   }
 
   releaseGroupsB(): void {
@@ -112,7 +133,9 @@ class HoldingSocket {
               ? { events: [], hasMore: false, lastSeq: 0 }
               : message.method === "session/set_config_option"
                 ? { configOptions: [{ id: "model", currentValue: `${sessionId}-model`, options: [] }] }
-                : {};
+                : message.method === "_acpmux/set_tools"
+                  ? { tools: [STALE_TOOL], toolsMutable: true, applied: "now" }
+                  : {};
     if (message.method === "_acpmux/permission_groups") return this.fail(message);
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
   }
@@ -189,6 +212,59 @@ test("a grouped permission answer during a switch's hold leaves no error on the 
     await expect(client.permissionGroup("group-a", 1, "allow_once")).rejects.toThrow();
     expect(client.permissions.state.error).toBeUndefined();
     expect(socket.sent.filter((message) => message.method === "_acpmux/permission_group_respond")).toHaveLength(0);
+    socket.releaseB();
+    await switching;
+  } finally {
+    client.close();
+  }
+});
+
+test("a Use tools toggle during a switch's hold goes to the chat on screen, not the chat opening", async () => {
+  const socket = new HoldingSocket();
+  const client = await connect(socket);
+  try {
+    const switching = client.select(SESSION_B);
+    await socket.attachingB;
+    // The pane still draws chat A: the person turns one of its tools off in Sources +.
+    await client.setTool("mcp:github", false);
+    const sets = socket.sent.filter((message) => message.method === "_acpmux/set_tools");
+    expect(sets.map((message) => message.params?.sessionId)).toEqual([SESSION_A]);
+    socket.releaseB();
+    await switching;
+  } finally {
+    client.close();
+  }
+});
+
+test("a Use tools reply that lands after a switch away and back leaves the chat's tools alone", async () => {
+  const socket = new HoldingSocket();
+  socket.holdB = false;
+  socket.holdSetTools = true;
+  const client = await connect(socket);
+  try {
+    const toggling = client.setTool("mcp:github", false);
+    await socket.settingTools;
+    await client.select(SESSION_B);
+    await client.select(SESSION_A);
+    socket.releaseSetTools();
+    await toggling;
+    const tools = (client as unknown as { summary?: { tools?: { id: string }[] } }).summary?.tools;
+    expect(tools?.map((tool) => tool.id) ?? []).not.toContain(STALE_TOOL.id);
+  } finally {
+    client.close();
+  }
+});
+
+test("an MCP Reconnect during a switch's hold goes to the chat on screen, not the chat opening", async () => {
+  const socket = new HoldingSocket();
+  const client = await connect(socket);
+  try {
+    const switching = client.select(SESSION_B);
+    await socket.attachingB;
+    // The pane still draws chat A: the person presses Reconnect on one of its failed servers.
+    await client.reconnectMcp("github");
+    const asks = socket.sent.filter((message) => message.method === "_acpmux/mcp/reconnect");
+    expect(asks.map((message) => message.params?.sessionId)).toEqual([SESSION_A]);
     socket.releaseB();
     await switching;
   } finally {

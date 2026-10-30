@@ -62,7 +62,7 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
           <DictationNotice dictation={dictation} />
         </div>
         <div className="acpmux-composer">
-          <div className="acpmux-composer-box">
+          <div className="ui-glass acpmux-composer-box">
             <div className="acpmux-composer-bar">
               <div className="acpmux-composer-actions">
                 <DictationMic dictation={dictation} />

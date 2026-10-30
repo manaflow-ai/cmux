@@ -56,6 +56,10 @@ export type ResourceId = VmId | SnapshotId | MeshId | DeviceId | TunnelId;
 export const ApiKeyId = Schema.String.pipe(Schema.pattern(opaque("vmk_")), Schema.brand("ApiKeyId"));
 export type ApiKeyId = typeof ApiKeyId.Type;
 
+/** A client session: one provider identity token for one VM. The id is public; the token is shown once. */
+export const ClientSessionId = Schema.String.pipe(Schema.pattern(opaque("vcs_")), Schema.brand("ClientSessionId"));
+export type ClientSessionId = typeof ClientSessionId.Type;
+
 /** A tenant is a Stack Auth team id. */
 export const TenantId = Schema.String.pipe(
   Schema.minLength(1),
@@ -103,6 +107,8 @@ export const newMeshId = (): MeshId => MeshId.make(RESOURCE_PREFIXES.mesh + rand
 export const newDeviceId = (): DeviceId => DeviceId.make(RESOURCE_PREFIXES.device + randomIdBody());
 export const newTunnelId = (): TunnelId => TunnelId.make(RESOURCE_PREFIXES.tunnel + randomIdBody());
 export const newApiKeyId = (): ApiKeyId => ApiKeyId.make("vmk_" + randomIdBody());
+export const newClientSessionId = (): ClientSessionId => ClientSessionId.make("vcs_" + randomIdBody());
+export const parseClientSessionId = Schema.decodeUnknownOption(ClientSessionId);
 
 /** Decodes a public VM id; any malformed input is simply "no such VM". */
 export const parseVmId = Schema.decodeUnknownOption(VmId);

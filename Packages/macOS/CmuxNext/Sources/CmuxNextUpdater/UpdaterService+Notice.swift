@@ -10,7 +10,8 @@ extension UpdaterService {
     /// The card's icon, text and actions for the running build, or nil.
     public var cardPresentation: UpdateCardPresentation? {
         guard let card else { return nil }
-        var shown = card.presentation(version: identity.shortVersion, build: identity.build)
+        var shown = card.presentation(version: identity.shortVersion, build: identity.build,
+                                      install: card == .installing ? installStatus : nil)
         switch card {
         case .available, .note(.found):
             // The found build's short version, date and first changelog lines.
@@ -18,7 +19,7 @@ extension UpdaterService {
                 shown.detail = changelog.detail ?? shown.detail
                 shown.lines = changelog.lines
             }
-        case .checking, .downloading, .installing, .note, .pulled:
+        case .checking, .downloading, .installing, .note, .gettingNewest:
             break
         }
         return shown
@@ -31,7 +32,7 @@ extension UpdaterService {
         switch card {
         case .available(let found): version = found
         case .note(.found(let found)): version = found
-        case .checking, .downloading, .installing, .note, .pulled, nil: return nil
+        case .checking, .downloading, .installing, .note, .gettingNewest, nil: return nil
         }
         return version.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
@@ -41,11 +42,10 @@ extension UpdaterService {
     /// (``cardReleaseNotesURL``); the others act here.
     public func performCardAction(_ action: UpdateCardAction) {
         switch action {
-        case .update: installClicked()
+        case .update: downloadClicked()
         case .retry: checkForUpdates()
         case .details: presentUpdateUI?()
         case .releaseNotes: break
-        case .rollBack, .waitForFix: pulledWatch.perform(action)
         }
     }
 
@@ -57,9 +57,10 @@ extension UpdaterService {
             closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
-        case .pulled:
-            pulledWatch.perform(.waitForFix)
-        case .checking, .downloading, .installing, nil:
+        case .installing:
+            // Only the card of an install that never relaunched has an x.
+            if installStatus?.stage == .stalled { installCardDismissed = true }
+        case .checking, .downloading, .gettingNewest, nil:
             break
         }
         followCardExpiry()
@@ -69,7 +70,7 @@ extension UpdaterService {
     /// cancels it when the card changed to one that waits.
     func followCardExpiry() {
         let shown = card
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The update harness's timeline: what the user sees, as it changes.
         let kind = shown?.kind ?? (readyCard == nil ? "none" : "ready")
         if kind != markedCardKind {

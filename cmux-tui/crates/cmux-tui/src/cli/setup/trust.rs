@@ -8,6 +8,12 @@
 //! Claude Code's and Codex's own files keep their one writer: this never
 //! touches them. The record already holding the level is "ok" and writes
 //! nothing; `undo` names the level the record held before.
+//!
+//! A linked worktree, or any folder in a repository, takes the record made
+//! for its worktree's root or its repository's (`via` in `acp.trust.get`).
+//! That answer already holding the level is "ok" too; forgetting it forgets
+//! it there, as the pane's Undo does, so every worktree of the repository
+//! asks again. `written` names the folder whose record changed.
 
 use std::path::{Path, PathBuf};
 
@@ -15,6 +21,7 @@ use acpmux::trust::{self, Level, Paths};
 use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "trust";
 
@@ -31,7 +38,20 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let before = recorded(&paths, &folder)?;
     let current = read(&paths, &folder)?;
     let wanted = (request.level != Level::Unknown).then_some(request.level);
-    let undo = command(&folder, before.unwrap_or(Level::Unknown));
+    // The folder whose record answers for this one, when it is not this
+    // folder's own, and the level it holds.
+    let via = current["via"].as_str().map(str::to_owned);
+    let held = match via {
+        Some(_) => current["level"].as_str().and_then(Level::parse),
+        None => before,
+    };
+    // Forgetting an inherited answer forgets it where it was made; anything
+    // else is this folder's own record.
+    let (written, old) = match (&via, wanted) {
+        (Some(via), None) => (via.clone(), held),
+        _ => (folder.clone(), before),
+    };
+    let undo = command(&written, old.unwrap_or(Level::Unknown));
     let mut report = json!({
         "schema_version": 1,
         "task": TASK,
@@ -39,28 +59,31 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "folder": folder,
         "level": request.level.as_str(),
         "recorded": before.map(Level::as_str),
+        "via": via,
         "before": current,
         "after": Value::Null,
-        "via": Value::Null,
+        "written": Value::Null,
+        "through": Value::Null,
         "undo": Value::Null,
         "user_action": Value::Null,
     });
-    if before == wanted {
-        report["state"] = json!("ok");
-        report["after"] = report["before"].clone();
+    if held == wanted {
+        report.set("state", json!("ok"));
+        report.set("after", report["before"].clone());
         return Ok(Outcome { report, failed: false });
     }
+    report.set("written", json!(written));
     if request.dry_run {
-        report["state"] = json!("planned");
-        report["undo"] = json!(undo);
+        report.set("state", json!("planned"));
+        report.set("undo", json!(undo));
         return Ok(Outcome { report, failed: false });
     }
-    let via = write(&paths, &folder, request.level)?;
+    let through = write(&paths, &written, request.level)?;
     let after = read(&paths, &folder)?;
-    report["state"] = json!("changed");
-    report["after"] = after;
-    report["via"] = json!(via);
-    report["undo"] = json!(undo);
+    report.set("state", json!("changed"));
+    report.set("after", after);
+    report.set("through", json!(through));
+    report.set("undo", json!(undo));
     Ok(Outcome { report, failed: false })
 }
 
@@ -135,19 +158,11 @@ fn paths() -> Result<Paths, Refusal> {
     Paths::current().ok_or_else(|| Refusal::Failed("cmux: setup trust: no home directory".into()))
 }
 
-/// The level acpmux's record holds for `folder`, None without an entry.
+/// The level acpmux's record holds for `folder`, None without an entry: read as acpmux reads
+/// it (`trust::person_decision`), so a decision recorded under another spelling of the folder
+/// counts, and Undo forgets it.
 fn recorded(paths: &Paths, folder: &str) -> Result<Option<Level>, Refusal> {
-    let text = match std::fs::read_to_string(&paths.record) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(Refusal::Failed(format!("cmux: setup trust: trust record: {error}")));
-        }
-    };
-    let record: Value = serde_json::from_str(&text).map_err(|error| {
-        Refusal::Failed(format!("cmux: setup trust: trust record is not JSON: {error}"))
-    })?;
-    Ok(record.get(folder).and_then(Value::as_str).and_then(Level::parse))
+    trust::person_decision(paths, folder).map_err(failure)
 }
 
 /// `acp.trust.get`'s answer for `folder`.

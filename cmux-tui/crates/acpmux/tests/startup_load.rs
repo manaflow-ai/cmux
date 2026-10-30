@@ -9,6 +9,16 @@
 //! store (defaults 24 sessions of 4,000 output records, ~70 MB) and
 //! `ACPMUX_STARTUP_BUDGET_MS` the budget; the test prints `acpmux-start: {...}`.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent. The bench sizes and the budget are
+// test-runner knobs that hold no credential.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
+    "ACPMUX_STARTUP_BENCH_SESSIONS",
+    "ACPMUX_STARTUP_BENCH_EVENTS",
+    "ACPMUX_STARTUP_BUDGET_MS",
+]);
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus};

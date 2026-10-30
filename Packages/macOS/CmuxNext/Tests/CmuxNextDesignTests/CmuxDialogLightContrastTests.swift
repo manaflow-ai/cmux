@@ -2,6 +2,7 @@ import AppKit
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// cx-ujp: a cmux dialog in a light theme drew low-contrast body lines. Its labels took their
 /// ink once, while the dialog was built outside any window, so a dialog shown in a light

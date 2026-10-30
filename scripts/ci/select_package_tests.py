@@ -27,6 +27,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/git-seed.sh",
     "scripts/ci/release-build-archs.sh",
     "scripts/ci/ci_process_tree.py",
+    "scripts/ci/compile_test_plan.py",
     "scripts/ci/ensure-web-bundles.sh",
     "scripts/ci/hung_test_watchdog.py",
     "scripts/ci/owned_spm_scratch.py",

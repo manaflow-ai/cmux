@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 import Testing
 @testable import CmuxInstallAuthCore
@@ -8,9 +12,11 @@ actor SoftwareSigner: InstallSigner {
     var key = P256.Signing.PrivateKey()
     let der: Bool
     var rotations = 0
+    var signatures = 0
     init(der: Bool = false) { self.der = der }
     func publicKeyX963() async throws -> Data { key.publicKey.x963Representation }
     func sign(_ message: Data) async throws -> Data {
+        signatures += 1
         let signature = try key.signature(for: message)
         return der ? signature.derRepresentation : signature.rawRepresentation
     }
@@ -43,18 +49,33 @@ actor FakeOwner: InstallAuthTransport {
     var minimumVersion: String?
     /// The headers of every request, by path, in order.
     var headersByPath: [String: [[String: String]]] = [:]
+    var requestedTeams: [String] = []
+    var nonceTeams: [String: String] = [:]
+    var deniedTeams: Set<String> = []
+    var tokenTeamOverride: String?
+    var replyTeamOverride: String?
+    var claimOverrides: [String: String] = [:]
 
+    /// The count crosses the actor boundary, not the dictionary: swift-crypto's keys are not Sendable on Linux.
+    var installCount: Int { installs.count }
     func revoke(_ install: String) { revoked.insert(install) }
     func setFailNextChallenge() { failNextChallenge = true }
     func setPrefixOverride(_ value: String) { prefixOverride = value }
     func setEnvironment(_ value: String) { environment = value }
     func setIssuerOverride(_ value: String) { issuerOverride = value }
     func setMinimumVersion(_ value: String) { minimumVersion = value }
+    func denyTeam(_ value: String) { deniedTeams.insert(value) }
+    func setTokenTeamOverride(_ value: String) { tokenTeamOverride = value }
+    func setReplyTeamOverride(_ value: String) { replyTeamOverride = value }
+    func setClaim(_ name: String, _ value: String) { claimOverrides[name] = value }
 
     /// An unsigned JWT-shaped token whose payload names the issuer (the client
     /// only reads `iss`; the owner verifies signatures).
-    private func token(_ n: Int) -> String {
-        let payload = try! JSONSerialization.data(withJSONObject: ["iss": "https://cmux-api/\(issuerOverride ?? environment)", "n": n], options: [.sortedKeys])
+    private func token(_ n: Int, team: String? = nil, install: String = "") -> String {
+        var claims: [String: Any] = ["iss": "https://cmux-api/\(issuerOverride ?? environment)", "n": n]
+        if let team { claims.merge(["team": tokenTeamOverride ?? team, "sub": "user_1", "inst": install, "grant": "grant_1", "aud": "api"]) { _, new in new } }
+        for (name, value) in claimOverrides { claims[name] = value }
+        let payload = try! JSONSerialization.data(withJSONObject: claims, options: [.sortedKeys])
         return "eyJhbGciOiJFUzI1NiJ9.\(payload.base64URLEncoded).c2ln"
     }
 
@@ -110,8 +131,10 @@ actor FakeOwner: InstallAuthTransport {
             let jwk = params["public_jwk"] as! [String: String]
             let x = Data(base64URLEncoded: jwk["x"]!)!, y = Data(base64URLEncoded: jwk["y"]!)!
             let publicKey = try P256.Signing.PublicKey(x963Representation: Data([0x04]) + x + y)
-            if installs.values.contains(where: { $0.rawRepresentation == publicKey.rawRepresentation })
-                && !installs.filter({ $0.value.rawRepresentation == publicKey.rawRepresentation }).keys.allSatisfy(revoked.contains) {
+            // The closures compare bytes: swift-crypto's P256 keys are not Sendable on Linux.
+            let raw = publicKey.rawRepresentation
+            if installs.values.contains(where: { $0.rawRepresentation == raw })
+                && !installs.filter({ $0.value.rawRepresentation == raw }).keys.allSatisfy(revoked.contains) {
                 return try reply(["ok": false, "error": ["code": "validation.invalid", "message": "this public key is already registered"]])
             }
             let id = "inst_\(installs.count + 1)"
@@ -124,7 +147,10 @@ actor FakeOwner: InstallAuthTransport {
             guard installs[install] != nil, !revoked.contains(install) else { return try reply(["code": "auth.forbidden"], 403) }
             let nonce = String(repeating: "0", count: 32) + String(issued.count)
             issued.insert(nonce)
-            return try reply(["nonce": nonce, "message_prefix": prefixOverride ?? "cmux-auth-v1\n\(environment)\n\(install)\n", "expires_at": 0])
+            let team = body["team"] as? String
+            if let team { requestedTeams.append(team); nonceTeams[nonce] = team }
+            let prefix = team.map { "cmux-auth-team-v1\n\(environment)\n\(install)\n\($0)\n" } ?? "cmux-auth-v1\n\(environment)\n\(install)\n"
+            return try reply(["nonce": nonce, "message_prefix": prefixOverride ?? prefix, "expires_at": 0])
         case "/v1/auth/token":
             if let minimumVersion, !Self.versionAtLeast(headers["x-cmux-client-version"], minimumVersion) {
                 return try reply(["code": "client.too_old", "message": "this team requires cmux \(minimumVersion) or newer",
@@ -134,13 +160,18 @@ actor FakeOwner: InstallAuthTransport {
             guard issued.contains(nonce), !redeemed.contains(nonce), let key = installs[install],
                   let raw = Data(base64URLEncoded: body["signature"] as! String) else { return try reply(["code": "auth.forbidden"], 403) }
             redeemed.insert(nonce)
-            let message = Data("cmux-auth-v1\n\(environment)\n\(install)\n\(nonce)".utf8)
+            let team = nonceTeams[nonce]
+            let prefix = team.map { "cmux-auth-team-v1\n\(environment)\n\(install)\n\($0)\n" } ?? "cmux-auth-v1\n\(environment)\n\(install)\n"
+            let message = Data((prefix + nonce).utf8)
             let signature = raw.count == 64 ? try P256.Signing.ECDSASignature(rawRepresentation: raw)
                                             : try P256.Signing.ECDSASignature(derRepresentation: raw)
             guard key.isValidSignature(signature, for: message) else { return try reply(["code": "auth.forbidden"], 403) }
+            if let team, deniedTeams.contains(team) { return try reply(["code": "auth.forbidden"], 403) }
             mints += 1
-            return try reply(["access_token": token(mints), "token_type": "Bearer",
-                              "expires_at": Date().addingTimeInterval(600).timeIntervalSince1970 * 1000])
+            var response: [String: Any] = ["access_token": token(mints, team: team, install: install), "token_type": "Bearer",
+                                          "expires_at": Date().addingTimeInterval(600).timeIntervalSince1970 * 1000]
+            if let team { response.merge(["team": replyTeamOverride ?? team, "user": "user_1", "install": install, "grant": "grant_1"]) { _, new in new } }
+            return try reply(response)
         default:
             return try reply([:], 404)
         }
@@ -195,7 +226,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         let again = makeClient(owner, signer)
         _ = try await again.installToken()
         #expect(await again.currentRecord?.install == "inst_1")
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
     }
 
     @Test func aRevokedInstallRegistersAgainWithANewKey() async throws {
@@ -311,7 +342,7 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         await #expect(throws: InstallAuthError.clientTooOld(minimumVersion: "2.4.0")) { try await old.installToken() }
         // Not a revoked install: the key is kept and nothing registers again.
         #expect(await signer.rotations == 0)
-        #expect(await owner.installs.count == 1)
+        #expect(await owner.installCount == 1)
         // Without a version the owner refuses too; the same install mints once updated.
         let record = await old.currentRecord
         await #expect(throws: InstallAuthError.clientTooOld(minimumVersion: "2.4.0")) {

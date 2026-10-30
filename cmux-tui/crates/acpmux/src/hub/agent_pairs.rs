@@ -7,7 +7,10 @@
 //! `cmux agent message` and every tool built on it, `agents_chat_send` included (the cmux
 //! daemon's delivery pump); and a prompt one sub-session family member sends another
 //! (`subsession_message`, `subsessions.rs`): cmux-subsessions `send_message` and
-//! `start_session`'s first prompt. Both count toward the same pair. Only a sender that is a
+//! `start_session`'s first prompt; and a prompt a session sends another from inside itself
+//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`); and
+//! a lane's report of its turn to its parent (`lane_report`, `lane_reports.rs`).
+//! All count toward the same pair. Only a sender that is a
 //! session of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal,
 //! or any other address passes untouched.
 //!
@@ -55,6 +58,7 @@
 //! `agent.pairCap` / `agent.pairWindow` set the cap.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::{BTreeSet, HashSet, VecDeque};
 
 #[path = "agent_pair_progress.rs"]
@@ -171,6 +175,10 @@ struct PairsState {
     /// Pairs a restart found resumed with messages still to deliver: `resume_queues` delivers
     /// them (`Hub::resume_agent_pair_drains`).
     restored_drains: Vec<PairKey>,
+    /// By chat, the peers its log names in pair records (a pause is written to both chats'
+    /// logs): a restart that reads the logs lazily reads theirs before it resumes or drains a
+    /// pair of that chat (`log_load.rs`). Emptied once every log is read.
+    peers: HashMap<String, HashSet<String>>,
 }
 
 #[derive(Default)]
@@ -216,6 +224,8 @@ struct Held {
     provenance: Value,
     control: Control,
     trust_gate: bool,
+    /// Its class (`prompt_class.rs`), kept through the hold and a restart.
+    class: Option<crate::prompt_class::PromptClass>,
     /// Its place among the pair's held messages, both ways (`AgentPairs::order`).
     order: u64,
     /// Releases that failed before the receiver accepted it.
@@ -225,13 +235,17 @@ struct Held {
 impl Held {
     fn record(&self, from_name: &str) -> Value {
         let text = prompt_text(&self.blocks);
-        json!({
+        let mut record = json!({
             "from": self.from, "fromName": from_name, "to": self.to, "promptId": self.prompt_id,
             "text": short_text(message_body(&text), 200), "provenance": self.provenance,
             "prompt": self.blocks, "client": self.client, "steer": self.steer,
             "steerOnly": self.steer_only, "interrupt": self.interrupt,
             "control": self.control.as_str(), "trustGate": self.trust_gate, "order": self.order,
-        })
+        });
+        if let Some(class) = self.class {
+            record.set("class", json!(class));
+        }
+        record
     }
 
     fn from_record(to: &str, msg: &Value) -> Option<Self> {
@@ -249,6 +263,7 @@ impl Held {
             provenance: msg.get("provenance").filter(|p| p.is_object())?.clone(),
             control: Control::from_recorded(msg.get("control").and_then(Value::as_str)),
             trust_gate: b("trustGate"),
+            class: crate::prompt_class::recorded(msg),
             order: msg.get("order").and_then(Value::as_u64).unwrap_or(0),
             failures: 0,
         })
@@ -392,7 +407,8 @@ impl Hub {
         self.agent_pairs.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The sending session of an agent message (`agent_message`) or of a cmux-subsessions
+    /// The sending session of an agent message (`agent_message`), of a prompt a session sent from
+    /// inside itself (`session_message`, `acpmux send`), or of a cmux-subsessions
     /// `send_message` or `start_session` (`subsession_message`): a session of this daemon, by
     /// its exact id (the cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a
     /// sender that is no session here (the person's `cli`, a terminal, another actor), and for
@@ -400,7 +416,15 @@ impl Hub {
     fn agent_message_sender(&self, provenance: Option<&Value>) -> Option<Arc<Session>> {
         let p = provenance?;
         let kind = p.get("kind").and_then(Value::as_str);
-        if !matches!(kind, Some("agent_message" | super::subsessions::PROVENANCE_KIND)) {
+        if !matches!(
+            kind,
+            Some(
+                "agent_message"
+                    | "session_message"
+                    | super::subsessions::PROVENANCE_KIND
+                    | super::lane_reports::KIND
+            )
+        ) {
             return None;
         }
         if p.get("msgId").and_then(Value::as_str).is_some_and(|id| id.ends_with(".withdrawn")) {
@@ -498,10 +522,14 @@ impl Hub {
             provenance: opts.provenance.clone().unwrap_or(Value::Null),
             control: opts.control,
             trust_gate: opts.trust_gate,
+            class: opts.class,
             order: 0,
             failures: 0,
         };
         let now = std::time::Instant::now();
+        // A resend of a message held already: its answer says so (`resent`), so the sender's
+        // attachments of this copy go (`attach::Saved`).
+        let mut resent = false;
         let hold = {
             let mut state = self.pairs_state();
             // Under the lock, so the order held here is the order a restart restores.
@@ -509,7 +537,7 @@ impl Hub {
             let pair = state.pairs.entry(key.clone()).or_default();
             if let Some(paused) = pair.paused.as_mut() {
                 if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
-                    // A resend of a message held already.
+                    resent = true;
                 } else if paused.held.len() >= MAX_HELD {
                     return Err(RpcError::new(
                         -32000,
@@ -635,6 +663,7 @@ impl Hub {
         Err(RpcError::new(-32000, message).with_data(json!({
             "reason": PAUSED_REASON,
             "held": true,
+            "resent": resent,
             "promptId": prompt_id,
             "sessions": [from, to],
             "trip": trip,
@@ -672,7 +701,10 @@ impl Hub {
                 return;
             };
             tokio::spawn(async move {
+                // Checked again here: a chat that became a review box since stops for no
+                // other agent's message (`inbox.rs`).
                 if to.turn().is_some_and(|t| t.turn_id == turn_id)
+                    && !super::inbox::review_box(&to)
                     && let Err(e) = hub.cancel(&to).await
                 {
                     tracing::warn!(session = %to.id, "interrupt: {}", e.message);
@@ -714,6 +746,15 @@ impl Hub {
         records: Vec<EventRecord>,
         recorded: &HashSet<String>,
     ) {
+        if !self.logs_loaded() {
+            let named = records.iter().filter_map(|r| {
+                r.msg.get("peer").or_else(|| r.msg.get("from")).and_then(Value::as_str)
+            });
+            let mut state = self.pairs_state();
+            let peers = state.peers.entry(session.to_owned()).or_default();
+            peers.extend(named.map(str::to_owned));
+            peers.remove(session);
+        }
         let Owed { held, resumed } = still_held(session, records, recorded);
         if let Some(last) = held.iter().map(|h| h.order).max() {
             self.agent_pairs.order.fetch_max(last, Ordering::SeqCst);
@@ -752,10 +793,44 @@ impl Hub {
         }
     }
 
+    /// After a restart, before the guard checks an agent's message: the sender's log too. A
+    /// pause the restart keeps may be only there (what the pair held for the sender), and the
+    /// receiver's log is read already (`turns.rs` `prompt_with`, `log_load.rs`).
+    pub(super) async fn pair_logs(self: &Arc<Self>, provenance: Option<&Value>) {
+        if self.logs_loaded() {
+            return;
+        }
+        if let Some(sender) = self.agent_message_sender(provenance) {
+            self.session_log(&sender).await;
+        }
+    }
+
+    /// After a restart, before a pair of `session` is resumed: its log and its peers' logs, so
+    /// every pause it is in is restored with what both sides held (immediate once every log is
+    /// read).
+    pub(crate) async fn pair_peer_logs(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log(session).await;
+        if self.logs_loaded() {
+            return;
+        }
+        let peers: Vec<String> =
+            self.pairs_state().peers.get(&session.id).into_iter().flatten().cloned().collect();
+        for peer in peers {
+            if let Ok(s) = self.resolve(&peer) {
+                self.session_log(&s).await;
+            }
+        }
+    }
+
     /// The person prompted `session`: every pair it is in starts over, and a paused one is
     /// resumed.
     pub fn agent_pair_person_prompt(self: &Arc<Self>, session: &Session) {
         self.agent_pair_resume_inner(&session.id, None, "person");
+    }
+
+    /// Every chat log is read: no pair needs a peer's log read first (`log_load.rs`).
+    pub(super) fn forget_pair_peers(&self) {
+        self.pairs_state().peers.clear();
     }
 
     /// `_acpmux/agent_pair_resume {sessionId, peerSessionId?}`: resumes the paused pairs of
@@ -825,6 +900,13 @@ impl Hub {
     /// fails before acceptance stays held and pauses the pair again; one that fails
     /// [`RELEASE_TRIES`] times is dropped, in both logs.
     async fn drain_pair(self: Arc<Self>, key: PairKey) {
+        // After a restart, both receivers' held messages, merged in the order they were held,
+        // before the first is chosen: `log_load.rs` reads each log on its own.
+        for id in [&key.0, &key.1] {
+            if let Ok(s) = self.resolve(id) {
+                self.session_log(&s).await;
+            }
+        }
         loop {
             let next = {
                 let mut state = self.pairs_state();
@@ -848,13 +930,21 @@ impl Hub {
                 // Its receiver is gone: nothing can take it.
                 self.pairs_state().releasing.remove(&h.prompt_id);
                 self.settle_held(&key, &h.prompt_id);
+                crate::attach::held_dropped(&h.to, &h.prompt_id);
                 continue;
             };
             let (tx, mut rx) = mpsc::unbounded_channel::<Result<(), RpcError>>();
             let accepted = tx.clone();
-            let opts = PromptOptions {
+            let took = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let took_it = took.clone();
+            // A held prompt's durable provenance carries the original outbox
+            // delivery id. Releasing it must reuse that id so the receiver's
+            // and sender's message projections remain one delivery after a
+            // pause, restart, and retry.
+            let mut opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
+                    took_it.store(true, Ordering::SeqCst);
                     let _ = accepted.send(Ok(()));
                 })),
                 // A message a restart rebuilt may have run before: the log answers it.
@@ -866,14 +956,23 @@ impl Hub {
                 steer_only: false,
                 interrupt: false,
                 provenance: Some(h.provenance.clone()),
+                class: h.class,
                 ..PromptOptions::default()
             };
+            // Held provenance is durable state, so restore the original delivery id and (for a
+            // peer-origin message) its sender identity before retrying the prompt.
+            super::message_events::restore_message_options(&mut opts, Some(&h.provenance));
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
+            let prompt_id = h.prompt_id.clone();
             tokio::spawn(async move {
                 let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
                 let _ = tx.send(done.map(|_| ()));
+                // Taken and answered: its files stay if it ran (`attach.rs`).
+                if took.load(Ordering::SeqCst) {
+                    crate::attach::held_released(&hub, &target.id, &prompt_id).await;
+                }
             });
             // Both ends gone with no word (the delivery task died): not accepted.
             let outcome = rx
@@ -899,6 +998,7 @@ impl Hub {
                         self.append(&sender, "mux", "agent_pair_dropped", note(&h.to));
                     }
                     self.settle_held(&key, &h.prompt_id);
+                    crate::attach::held_dropped(&h.to, &h.prompt_id);
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "held agent message not released: {}", e.message);

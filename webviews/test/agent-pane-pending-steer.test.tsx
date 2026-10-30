@@ -84,6 +84,34 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     const [sendNow, ...others] = sendNowButtons();
     expect(sendNow).toBeDefined();
     expect(others).toEqual([]);
+    // Send now leads the prompt's action row under the bubble (Leo, 2026-10-24): no clock, no
+    // underline and nothing in the bubble's left gutter.
+    const pending = sendNow!.closest(".cv-user__pending")!;
+    expect(pending.classList.contains("cv-user__pending--beside")).toBe(false);
+    // No clock: Send now is text alone. The row's only glyphs are its own icon buttons, Copy
+    // (Leo, 2026-10-29: "i feel like im frequently missing the copy/whatever buttons on these
+    // steers"; #27313, inside the row since #27256).
+    const sendNowButton = pending.querySelector(".cv-user__send-now")!;
+    expect(sendNowButton.querySelector("svg")).toBeNull();
+    const copy = pending.querySelector(`button[aria-label="${translate("turn.copy")}"]`);
+    expect(copy).not.toBeNull();
+    expect(copy!.querySelector("svg")).not.toBeNull();
+    const glyphs = [...pending.querySelectorAll("svg")];
+    expect(glyphs.every((svg) => svg.closest("button.cv-iconbtn") !== null)).toBe(true);
+    const actions = pending.parentElement!;
+    expect(actions.classList.contains("cv-user__actions")).toBe(true);
+    const bubble = actions.previousElementSibling!;
+    expect(bubble.classList.contains("cv-user__bubble")).toBe(true);
+    expect(bubble.textContent).toContain("Also keep the old flag working");
+    expect(actions.firstElementChild).toBe(pending);
+    const message = bubble.closest(".cv-user")!;
+    // The bubble and its action row share one body, so the waiting controls stay attached to their
+    // bubble (#27168); nothing else sits in the message, its left gutter included.
+    expect([...message.children].map((child) => child.className)).toEqual(["cv-user__body"]);
+    expect([...message.firstElementChild!.children].map((child) => child.className)).toEqual([
+      "ui-glass cv-user__bubble selectable",
+      "cv-user__actions",
+    ]);
     await act(async () => {
       sendNow!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -92,13 +120,16 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     expect(asked.map((request) => request.params)).toEqual([{ sessionId: CHAT, promptId: "p-steer", op: "send_now" }]);
     expect(daemon.requests.some((request) => request.method === "session/cancel")).toBe(false);
 
-    // The agent read it: no Send now any more.
+    // This daemon does not accept Send now, so the control stays until the agent reads it.
+    expect(sendNowButtons()).toHaveLength(1);
+    // A later prompt marks this steer read. Its queue controls disappear without a closing timer.
     await act(async () => {
       daemon.push(record([["mux", "user_message", { promptId: "p-next", text: "Then open a PR" }]], 3));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await render();
-    expect(sendNowButtons()).toEqual([]);
+    expect(sendNowButtons()).toHaveLength(0);
+    expect(message.querySelector(".cv-user__pending")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

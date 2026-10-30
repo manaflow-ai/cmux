@@ -31,8 +31,8 @@ extension DaemonService {
     }
 
     private func close(_ transaction: ClientTransactionID, _ surface: SurfaceID) {
-        let batch = daemon.supports(DaemonCapabilities.shared.batchClose)
-        let reason: CloseReason? = daemon.supports(DaemonCapabilities.shared.closeReason) ? .sessionEnd : nil
+        let batch = daemon.supports(DaemonCapability.batchClose.rawValue)
+        let reason: CloseReason? = daemon.supports(DaemonCapability.closeReason.rawValue) ? .sessionEnd : nil
         let daemon = daemon
         let run: DaemonCommandBody = { connection in
             if batch { _ = try await connection.closeTabs([surface], endTerminals: true, reason: reason) } else { try await connection.closeTab(surface) }

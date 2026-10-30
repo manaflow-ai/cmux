@@ -4,8 +4,8 @@ import Foundation
 import Testing
 
 /// "New Subgroup" plans one `group.create` under the targeted group, in the group's section
-/// (remote-groups-DESIGN.md slice 3). The document allows 3 levels of groups (host > project >
-/// branch): under a third-level group there is no room, and the plan says so instead of sending an
+/// (remote-groups-DESIGN.md slice 3). The document allows ``SidebarDocSubgroupPlan/maxDepth`` (16) levels of
+/// groups: under a group at that level there is no room, and the plan says so instead of sending an
 /// op the daemon refuses.
 struct SidebarDocSubgroupPlanTests {
     private let section = "sec_m_mini"
@@ -32,12 +32,19 @@ struct SidebarDocSubgroupPlanTests {
         #expect(to["parent"] as? String == "g1")
     }
 
-    @Test func thereIsRoomUnderTheSecondLevelButNotTheThird() {
-        let second = SidebarDocSubgroupPlan(parent: GroupID("g2"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 2))
-        #expect(second.ops != nil)
-        let third = SidebarDocSubgroupPlan(parent: GroupID("g3"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 3))
-        #expect(third.ops == nil)
-        #expect(third.refusal == .tooDeep)
+    @Test func thereIsRoomUnderEveryLevelButTheDeepest() {
+        let max = SidebarDocSubgroupPlan.maxDepth
+        let below = SidebarDocSubgroupPlan(parent: GroupID("g\(max - 1)"), id: GroupID("n"), name: "", color: .grey, records: records(chain: max - 1))
+        #expect(below.ops != nil)
+        let deepest = SidebarDocSubgroupPlan(parent: GroupID("g\(max)"), id: GroupID("n"), name: "", color: .grey, records: records(chain: max))
+        #expect(deepest.ops == nil)
+        #expect(deepest.refusal == .tooDeep)
+    }
+
+    /// Lawrence 2026-10-23: "i want to see deeply nested groups". A sixth-level group still takes a subgroup.
+    @Test func aSixthLevelGroupTakesASubgroup() {
+        let sixth = SidebarDocSubgroupPlan(parent: GroupID("g6"), id: GroupID("n"), name: "", color: .grey, records: records(chain: 6))
+        #expect(sixth.ops != nil, "refused: \(String(describing: sixth.refusal))")
     }
 
     @Test func anUnknownParentPlansNothing() {

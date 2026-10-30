@@ -2,10 +2,11 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-13: the workspace hover card showed at once on every row, so
 /// moving the pointer down the sidebar popped a card on each row it passed.
-/// It now waits the hover card delay (250 ms, `HoverCardTiming.showDelay`): a
+/// It now waits the hover card delay (1300 ms, `HoverCardTiming.showDelay`): a
 /// sweep shows none. (The dwell, warm switch, cancel and off checks are the
 /// behavior check scripts/cmux-next/hovercard-delay-live.py, cx-23e1f.)
 ///
@@ -114,9 +115,13 @@ import Testing
         #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
         try await Self.expectClearWithinTheFade(panel)
 
-        // Again, leaving the row itself (not onto the card): the same at once.
+        // Again, leaving the row itself (not onto the card): the same at once. First the reshow
+        // window ends (a return within it shows the card at once, with no dwell timer): its timer
+        // must be asleep before the clock moves past it, and its deadline must land.
+        try await clock.waitForSleeper()
         clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
-        try await Self.settle()
+        try await Self.settle(until: { coordinator.machine.phase == .idle })
+        try #require(coordinator.machine.phase == .idle, "the reshow window did not end: \(coordinator.machine.phase)")
         Self.move(list, to: (row.y + row.maxY) / 2)
         try await clock.waitForSleeper()
         clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))

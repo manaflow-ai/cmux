@@ -12,6 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -57,6 +58,8 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
   let seq = 0;
   let history: Record_[] = [];
   let calls: { method: string; params: Record<string, any> }[] = [];
+  /// Run after each call the daemon hears.
+  const onCall = new Set<() => void>();
   let wanted: string[] | undefined;
 
   const record = (kind: string, msg: Record<string, unknown>): Record_ => ({
@@ -88,6 +91,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
 
   function answer(ws: Socket, method: string, params: Record<string, any>): { result?: unknown; error?: unknown } {
     calls.push({ method, params: { ...params } });
+    for (const listener of onCall) listener();
     switch (method) {
       case "initialize":
         return { result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } } };
@@ -169,6 +173,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       );
     }
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.addInitScript(
       (arm) => localStorage.setItem("cmux.experiments", JSON.stringify({ "session-offer": arm })),
       experiment,
@@ -180,16 +185,31 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     await page.getByText("Add the upload endpoint").first().waitFor({ timeout: 60_000 });
     return page;
   }
+  /// Waits until `done` holds, checking after each call the daemon hears (at most 5 s).
   async function waitUntil(done: () => boolean) {
-    for (let tries = 0; !done() && tries < 100; tries++) await Bun.sleep(50);
-    expect(done()).toBe(true);
+    await new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        onCall.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        onCall.delete(check);
+        reject(new Error(`the daemon never heard what ${String(done)} waits for`));
+      }, 5_000);
+      onCall.add(check);
+      check();
+    });
   }
   const chip = (page: Page) => page.locator(".acpmux-tasks");
 
   describe("an agent's session offer", () => {
     test("with the experiment off, the offer draws nothing", async () => {
       const page = await openChat("off");
-      await page.waitForTimeout(500);
+      // The offer comes in the same attach answer as the message that is drawn now (with the
+      // experiment on it draws with it); a painted frame more for anything that answer earns.
+      await page.evaluate(() => window.cmuxPaintFrame());
       expect(await chip(page).count()).toBe(0);
       expect(await page.locator("body").innerText()).not.toContain(offer.title);
       await page.close();

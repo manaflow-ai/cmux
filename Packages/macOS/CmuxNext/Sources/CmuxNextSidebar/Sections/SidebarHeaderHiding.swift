@@ -9,6 +9,7 @@ extension SidebarSectionsPreferences {
             || previous?.showProjects != showProjects || previous?.groupBy != groupBy
             || previous?.groupsByComputer != groupsByComputer || previous?.minimal != minimal || previous?.density != density
             || previous?.detailedStatusIcons != detailedStatusIcons || previous?.showTimestamps != showTimestamps
+            || previous?.showLocalMachine != showLocalMachine
             || previous?.groupHeaderMemberCount != groupHeaderMemberCount || previous?.groupHeaderUnreadCount != groupHeaderUnreadCount
     }
 }

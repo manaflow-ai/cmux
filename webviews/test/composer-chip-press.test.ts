@@ -4,13 +4,15 @@
 // no effort chip of its own) and the permission chip in the bar, and the folder chip on the location
 // strip, in a chat's composer, a new chat's and the New Tab page's.
 //
-// - The arrow cursor over every chip, as the rest of the pane's controls (macOS), never the hand.
+// - The pointing hand over every chip, as over every clickable thing (desktop.css; Leo 2026-10-21:
+//   "LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE").
 // - A press shows its tone the moment the button goes down: the hover's ease does not delay it,
 //   and the chip does not move: its layout box stays put, and it draws no shrink or dim (Leo
 //   2026-10-19: no mousedown and mouseup click feedback).
 // - A mouse click leaves no focus ring, on the chip or on the menu it opens, even right after
 //   typing (WebKit draws a programmatic focus as keyboard focus once a key was pressed).
-//   Keyboard focus on the same chip still shows its ring.
+//   Keyboard focus on the same chip still shows: the soft hover pill, with no outline (#23745, Leo
+//   2026-10-21: no focus rings in the agent pane).
 // - Every chip takes a press over a box at least 24 px tall, the small folder chip included.
 // - A menu row takes a press anywhere on it, its check gutter and trailing edge included.
 //
@@ -97,13 +99,36 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     return page;
   };
-  /** A real press and release at the centre of `name`'s chip. */
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
+  /** Resolves once the pointer is over the first element `selector` matches, or off it, as the page sees it. */
+  const hovered = (page: Page, selector: string, over = true) =>
+    page.waitForFunction(([selector, over]) => document.querySelector(selector)?.matches(":hover") === over, [
+      selector,
+      over,
+    ] as const);
+  /** A real press and release at the centre of `name`'s chip, once its menu has opened or closed and
+   *  stopped easing. */
   const clickChip = async (page: Page, name: string) => {
-    const box = (await page.locator(chip(name)).first().boundingBox())!;
+    const locator = page.locator(chip(name)).first();
+    const expanded = await locator.getAttribute("aria-expanded");
+    const box = (await locator.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.up();
-    await page.waitForTimeout(250);
+    await page.waitForFunction(
+      ([selector, expanded]) => document.querySelector(selector)?.getAttribute("aria-expanded") !== expanded,
+      [chip(name), expanded] as const,
+    );
+    await eased(page);
   };
   /** The outlines drawn now: the focused element's, the chip's, and any open popup's. */
   const rings = (page: Page, name: string) =>
@@ -122,12 +147,25 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       };
     }, chip(name));
 
+  /** Whether the chip has keyboard focus and paints the soft pill: a tinted fill, or the pane's focus
+   *  wash laid over it as a background image (shared/styles.css). */
+  const pill = (page: Page, name: string) =>
+    page.evaluate((selector) => {
+      const button = document.querySelector(selector)!;
+      const style = getComputedStyle(button);
+      const clear = (color: string) => color === "transparent" || /^rgba\(0, 0, 0, 0\)$|\/ 0\)$/.test(color);
+      const washes = [...style.backgroundImage.matchAll(/(?:rgba?|color)\([^()]*\)/g)].map(([color]) => color);
+      return (
+        button.matches(":focus-visible") && (!clear(style.backgroundColor) || washes.some((color) => !clear(color)))
+      );
+    }, chip(name));
+
   for (const [engine] of engines)
     for (const width of [760, 300])
       for (const stage of STAGES) {
         const where = `${engine}: ${stage.entry} ${stage.variant} at ${width} px`;
 
-        test(`${where}: the arrow cursor over every chip`, async () => {
+        test(`${where}: the pointing hand over every chip`, async () => {
           const page = await open(engine, stage, width);
           const cursors = await page.evaluate(
             (selectors) =>
@@ -137,7 +175,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             stage.chips.map(chip),
           );
           await page.close();
-          expect(cursors).toEqual(Object.fromEntries(stage.chips.map((name) => [chip(name), "default"])));
+          expect(cursors).toEqual(Object.fromEntries(stage.chips.map((name) => [chip(name), "pointer"])));
         });
 
         test(`${where}: a press shows its tone at once, and the chip does not move`, async () => {
@@ -160,16 +198,19 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               });
             const box = (await locator.boundingBox())!;
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await page.waitForTimeout(200);
+            await hovered(page, chip(name));
+            await eased(page);
             const hover = await read();
             await page.mouse.down();
             const pressed = await read();
-            await page.waitForTimeout(200);
+            // Held: the tone the press settles to once nothing eases, which the first read must match.
+            await eased(page);
             const held = await read();
             await page.mouse.up();
             await page.keyboard.press("Escape");
             await page.mouse.move(1, 1);
-            await page.waitForTimeout(200);
+            await hovered(page, chip(name), false);
+            await eased(page);
             // The chip never moves under a press, whatever tone it shows (#21986). A drawn centre can
             // land a subpixel off (a 51.5 px centre rounds either way), so a move is a whole pixel or more.
             const moved = (read: { centre: number[] }) =>
@@ -196,7 +237,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
           await page.close();
         });
 
-        test(`${where}: a mouse click leaves no focus ring, after typing too; the keyboard still shows one`, async () => {
+        test(`${where}: a mouse click leaves no focus ring, after typing too; the keyboard shows the pill, ringless`, async () => {
           for (const name of stage.chips) {
             const page = await open(engine, stage, width);
             // Typing first: WebKit then draws a programmatic focus as keyboard focus.
@@ -208,12 +249,13 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             const closed = await rings(page, name);
             expect({ name, opened }).toEqual({ name, opened: { focused: "", chip: false, popups: [] } });
             expect({ name, closed: closed.chip }).toEqual({ name, closed: false });
-            // Keyboard focus on the chip draws its ring.
+            // Keyboard focus on the chip draws the soft pill and no ring (#23745).
             await page.keyboard.press("Escape");
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
             await page.keyboard.press("Shift");
             await page.locator(chip(name)).first().focus();
-            expect({ name, keyboard: (await rings(page, name)).chip }).toEqual({ name, keyboard: true });
+            const keyboard = { ring: (await rings(page, name)).chip, pill: await pill(page, name) };
+            expect({ name, keyboard }).toEqual({ name, keyboard: { ring: false, pill: true } });
             await page.close();
           }
         });
@@ -309,7 +351,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       const model = page.locator(chip("Model")).first();
       const modelBox = (await model.boundingBox())!;
       await page.mouse.move(modelBox.x + modelBox.width / 2, modelBox.y + modelBox.height / 2);
-      await page.waitForTimeout(100);
+      await hovered(page, chip("Model"));
+      await eased(page);
       const hover = await state("Model");
       expect(hover.background, "hover draws the pill").not.toBe(idle[0]!.background);
 

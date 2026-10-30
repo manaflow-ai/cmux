@@ -1,4 +1,12 @@
 {
+  "cloud.workspaceSetup.setupClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "cloud.workspaceSetup.setupCodex": {
+    "class": "brand",
+    "source": "Codex"
+  },
   "cloud.welcome.title.eyebrow": {
     "class": "brand",
     "source": "cmux cloud"
@@ -29,6 +37,12 @@
     "source": "Tab",
     "identityLocales": {
       "de": "Tab is the standard German UI word for a tab (Apple and browsers use it), spelled as in English."
+    }
+  },
+  "store.feature.category.layout": {
+    "source": "Layout",
+    "identityLocales": {
+      "de": "Layout is the standard German UI term; cmux NEXT's German strings use it for the same window and pane layout features (menu.folder.layout, settings.diff.layout, layout.title)."
     }
   },
   "store.feature.category.chief": {
@@ -2218,6 +2232,119 @@
       "fr": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required."
     }
   },
+  "home.chief.name": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "home.compose.source.agent": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "home.list.section.chiefs": {
+    "source": "Chiefs",
+    "identityLocales": {
+      "de": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "fr": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "ar": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters.",
+      "es": "Chiefs is the plural of the product name Chief (cmux's lead agent), kept in Latin letters."
+    }
+  },
+  "home.title": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
+  "argument.home.view.messages": {
+    "source": "Home",
+    "identityLocales": {
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+    }
+  },
+  "home.list.title": {
+    "source": "Conversations",
+    "identityLocales": {
+      "fr": "Conversations is the French word for conversations, spelled as in English."
+    }
+  },
+  "home.list.untitled": {
+    "source": "Conversation",
+    "identityLocales": {
+      "fr": "Conversation is the French word for a conversation, spelled as in English."
+    }
+  },
+  "home.compose.source.team": {
+    "source": "Team",
+    "identityLocales": {
+      "de": "Team is the standard German word for a team, spelled as in English (as pricing.team.name and cloudMenu.team)."
+    }
+  },
+  "home.compose.source.connection": {
+    "source": "Contact",
+    "identityLocales": {
+      "fr": "Contact is the French word for a contact, spelled as in English."
+    }
+  },
+  "home.chief.new.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "home.engine.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German (as devices.nameField)."
+    }
+  },
+  "home.chief.new.backend": {
+    "source": "Backend",
+    "identityLocales": {
+      "de": "Backend is the established German IT noun (in the Duden), spelled as in English."
+    }
+  },
+  "home.info.title.direct": {
+    "source": "Info",
+    "identityLocales": {
+      "de": "Info is the standard German short word for information, spelled as in English."
+    }
+  },
+  "home.info.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Agent is the standard noun for an AI agent in German, spelled as in English (as home.engine.section.agent).",
+      "fr": "Agent is the standard noun for an AI agent in French, spelled as in English (as home.engine.section.agent)."
+    }
+  },
+  "home.info.role.admin": {
+    "source": "Admin",
+    "identityLocales": {
+      "de": "Admin is the standard German short word for an administrator (in the Duden), spelled as in English."
+    }
+  },
+  "home.list.chief.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the cmux Cloud product area (as sidebar.cloud.button).",
+      "fr": "Cloud is the established French UI noun for the cmux Cloud product area (as sidebar.cloud.button)."
+    }
+  },
+  "home.engine.effort": {
+    "source": "Effort",
+    "identityLocales": {
+      "fr": "Effort is the French word for effort, spelled as in English (as the effort level home.engine.effort.minimal)."
+    }
+  },
+  "home.engine.harness": {
+    "source": "Harness",
+    "identityLocales": {
+      "de": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); German developer UIs keep the English word, as Klassifikator-Harness does.",
+      "fr": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); French developer UIs keep the English word, as Harness du classificateur does.",
+      "es": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Spanish developer UIs keep the English word, as Harness del clasificador does.",
+      "zh-Hans": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分类器 Harness does.",
+      "zh-Hant": "Harness is the borrowed developer noun for an agent harness (the CLI that runs the model, such as Claude Code or Codex); Chinese developer UIs keep the English word, as 分類器 Harness does."
+    }
+  },
   "settings.automation.kiro.notificationLevel.minimal": {
     "source": "Minimal",
     "identityLocales": {
@@ -2854,6 +2981,14 @@
     "identityLocales": {
       "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
+  },
+  "sidebar.remoteMachines.cpu": {
+    "class": "technical",
+    "source": "CPU %1$lld/%2$lld"
+  },
+  "sidebar.remoteMachines.resourcesLabel": {
+    "class": "format",
+    "source": "%1$@: %2$@"
   },
   "sidebar.status.compactLabel": {
     "source": "Status: %@",
@@ -4335,6 +4470,12 @@
       "de": "\"Tabs\" is the standard German plural for browser or app tabs."
     }
   },
+  "settings.tabs.commandDigits.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
+  },
   "accounts.group.anthropic": {
     "class": "brand",
     "source": "Anthropic"
@@ -5426,59 +5567,6 @@
       }
     }
   },
-  "backdrop.caravaggio-medusa.title": {
-    "source": "Medusa",
-    "identityLocales": {
-      "da": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "de": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "es": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "it": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "nb": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "pt-BR": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "tr": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      },
-      "vi": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Medusa"
-        ]
-      }
-    }
-  },
   "backdrop.martin-pandemonium.title": {
     "source": "Pandemonium",
     "identityLocales": {
@@ -5561,76 +5649,6 @@
       }
     }
   },
-  "backdrop.klimt-judith.title": {
-    "source": "Judith I",
-    "identityLocales": {
-      "da": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      },
-      "de": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      },
-      "es": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      },
-      "fr": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      },
-      "nb": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      },
-      "tr": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      },
-      "vi": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Judith I"
-        ]
-      }
-    }
-  },
-  "backdrop.millais-ophelia.title": {
-    "source": "Ophelia",
-    "identityLocales": {
-      "de": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Ophelia"
-        ]
-      },
-      "tr": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Ophelia"
-        ]
-      },
-      "vi": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Ophelia"
-        ]
-      }
-    }
-  },
   "backdrop.gerome-botsaris.title": {
     "source": "Markos Botsaris",
     "identityLocales": {
@@ -5692,95 +5710,6 @@
         "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
         "values": [
           "Markos Botsaris"
-        ]
-      }
-    }
-  },
-  "backdrop.gerome-pollice-verso.title": {
-    "source": "Pollice Verso",
-    "identityLocales": {
-      "bs": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "da": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "de": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "fr": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "it": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "km": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "nb": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "pl": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "pt-BR": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "ru": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "th": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "tr": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "uk": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
-        ]
-      },
-      "vi": {
-        "reason": "The work is known by this title in this language too (a proper name or the usual local title).",
-        "values": [
-          "Pollice Verso"
         ]
       }
     }
@@ -6835,6 +6764,299 @@
       "fr": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
       "nb": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
       "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
+    }
+  },
+  "devices.platform.mac": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.platform.ios": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "macScreen.keys.missionControl": {
+    "source": "Mission Control (⌃↑)",
+    "identityLocales": {
+      "de": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "fr": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ar": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "es": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ko": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required.",
+      "ja": "Mission Control is the macOS feature's name as Apple's macOS shows it in this language; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.home.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
+    }
+  },
+  "macScreen.hub.unknownDevice": {
+    "class": "brand",
+    "source": "Mac"
+  },
+  "devices.history.host": {
+    "source": "Host",
+    "identityLocales": {
+      "de": "Host is the usual German term for the computer that shares its screen."
+    }
+  },
+  "devices.nameField": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.relays.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": "Name has the same spelling in German."
+    }
+  },
+  "devices.section.relays": {
+    "source": "Relays",
+    "identityLocales": {
+      "de": "Relays is the German plural used for network relay servers."
+    }
+  },
+  "devices.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Online has the same spelling in German."
+    }
+  },
+  "devices.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline has the same spelling in German."
+    }
+  },
+  "importSuggestions.request.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "chiefViews.terminal.untitled": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Terminal is the standard German UI word for a terminal (macOS Terminal.app is Terminal), spelled as in English.",
+      "es": "Terminal is the standard Spanish UI word for a terminal (macOS names the app Terminal), spelled as in English.",
+      "fr": "Terminal is the standard French UI word for a terminal (macOS names the app Terminal), spelled as in English."
+    }
+  },
+  "updater.channels.ring.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
+  "updater.channels.ring.canary": {
+    "source": "Canary",
+    "identityLocales": {
+      "ar": "Canary is the invariant cmux build channel name.",
+      "de": "Canary is the invariant cmux build channel name.",
+      "es": "Canary is the invariant cmux build channel name.",
+      "fr": "Canary is the invariant cmux build channel name.",
+      "ja": "Canary is the invariant cmux build channel name.",
+      "ko": "Canary is the invariant cmux build channel name.",
+      "zh-Hans": "Canary is the invariant cmux build channel name.",
+      "zh-Hant": "Canary is the invariant cmux build channel name."
+    }
+  },
+  "updater.channels.ring.dev": {
+    "source": "Dev",
+    "identityLocales": {
+      "ar": "Dev is the invariant cmux build channel name.",
+      "de": "Dev is the invariant cmux build channel name.",
+      "es": "Dev is the invariant cmux build channel name.",
+      "fr": "Dev is the invariant cmux build channel name.",
+      "ja": "Dev is the invariant cmux build channel name.",
+      "ko": "Dev is the invariant cmux build channel name.",
+      "zh-Hans": "Dev is the invariant cmux build channel name.",
+      "zh-Hant": "Dev is the invariant cmux build channel name."
+    }
+  },
+  "updater.channels.commit": {
+    "source": "Commit",
+    "identityLocales": {
+      "de": "Commit is the Git term German developer tools use, spelled as in English.",
+      "es": "Commit is the Git term Spanish developer tools use, spelled as in English.",
+      "fr": "Commit is the Git term French developer tools use, spelled as in English."
+    }
+  },
+  "updater.channels.ring.stable": {
+    "source": "Stable",
+    "identityLocales": {
+      "fr": "Stable is the French word for a stable release channel, spelled as in English."
+    }
+  },
+  "settings.category.updates": {
+    "source": "Updates",
+    "identityLocales": {
+      "de": "Updates is the standard German UI word for software updates, spelled as in English."
+    }
+  },
+  "home.chief.backend.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "home.chief.backend.codex": {
+    "class": "brand",
+    "source": "Codex"
+  },
+  "home.chief.backend.unii": {
+    "class": "brand",
+    "source": "UniiChat"
+  },
+  "home.chief.backend.muse": {
+    "class": "brand",
+    "source": "Muse Code"
+  },
+  "home.engine.reactions.prompt": {
+    "source": "Instructions",
+    "identityLocales": {
+      "fr": "Instructions is the standard French noun for a prompt's instructions, spelled as in English; the translated entry is still required."
+    }
+  },
+  "addDevice.platform.windows": {
+    "class": "brand",
+    "source": "Windows"
+  },
+  "addDevice.platform.phone": {
+    "class": "brand",
+    "source": "iPhone"
+  },
+  "devices.state.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Offline is the standard German UI word for a device that is not connected (macOS and iOS use it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "textbox.action.textEntry": {
+    "source": "Text",
+    "identityLocales": {
+      "de": "Text is the German noun, spelled as in English; the translated entry is still required."
+    }
+  },
+  "argument.chiefImportChief": {
+    "class": "brand",
+    "source": "Cloud Chief"
+  },
+  "argument.chiefImportSource": {
+    "source": "Source",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.notifications.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.notifications.volume": {
+    "source": "Volume (%)",
+    "identityLocales": {
+      "fr": "Volume is the French word for sound volume, spelled as in English; the translated entry is still required."
+    }
+  },
+  "argument.value.notifications.event.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.notifications.sounds.event.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.notifications.sounds.volume": {
+    "source": "Volume",
+    "identityLocales": {
+      "fr": "Volume is the French word for sound volume, spelled as in English; the translated entry is still required."
+    }
+  },
+  "settings.category.server": {
+    "source": "Server",
+    "identityLocales": {
+      "de": "Server is the standard German UI word (macOS uses it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.card.title": {
+    "source": "Server",
+    "identityLocales": {
+      "de": "Server is the standard German UI word (macOS uses it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.version": {
+    "source": "Version %@",
+    "identityLocales": {
+      "de": "Version is the German noun, spelled as in English; the translated entry is still required.",
+      "fr": "Version is the French noun, spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.build": {
+    "source": "Build %@",
+    "identityLocales": {
+      "de": "Build is the established German term for a software build, spelled as in English; the translated entry is still required.",
+      "fr": "Build is the established French term for a software build, spelled as in English; the translated entry is still required."
+    }
+  },
+  "actionLatencyHUD.row": {
+    "source": "%1$@ ms  %2$@  %3$@",
+    "identityLocales": {
+      "de": "ms is the SI symbol for milliseconds, written the same way in German; the other tokens are values. The translated entry is still required.",
+      "fr": "ms is the SI symbol for milliseconds, written the same way in French; the other tokens are values. The translated entry is still required.",
+      "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
+    }
+  },
+  "machines.group.ssh": {
+    "class": "technical",
+    "source": "SSH"
+  },
+  "machines.group.cloud": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
+    }
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4.1 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Flash": {
+    "class": "brand",
+    "source": "DeepSeek V4 Flash"
+  },
+  "settings.choice.modelRouterDeepSeekV4Pro": {
+    "class": "brand",
+    "source": "DeepSeek V4 Pro"
+  },
+  "settings.choice.modelRouterDeepSeekV41Flash1017": {
+    "source": "DeepSeek V4.1 Flash 1017 (Images)",
+    "identityLocales": {
+      "fr": {
+        "reason": "DeepSeek V4.1 Flash 1017 is an invariant model name, and Images is the standard French noun. The translated French entry is still required.",
+        "values": [
+          "DeepSeek V4.1 Flash 1017 (Images)"
+        ]
+      }
     }
   }
 }

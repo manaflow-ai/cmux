@@ -214,9 +214,19 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
         serve_inbound(link_side, [2; 32], peer_addr("inst_b"), &pairings, &session, None).await
     });
     let (impostor_side, _) = impostor.accept().await.unwrap();
+    // The link first checks the entry's code signature (on macOS that alone
+    // can take seconds for a large test binary under load), then waits up to
+    // HANDSHAKE_TIMEOUT for the banner. Wait for its verdict, bounded so a
+    // link that splices instead fails here rather than hanging.
+    let refused = tokio::time::timeout(super::lines::HANDSHAKE_TIMEOUT * 12, task)
+        .await
+        .expect("the link never gave up on a socket that sent no entry banner")
+        .unwrap();
+    assert_eq!(refused, Err(InboundRefused::NotAnEntry));
+    // It closed the socket having written nothing: no stamp, no peer bytes.
     let mut first = String::new();
     let read = tokio::time::timeout(
-        super::lines::HANDSHAKE_TIMEOUT * 2,
+        super::lines::HANDSHAKE_TIMEOUT,
         BufReader::new(impostor_side).read_line(&mut first),
     )
     .await;
@@ -224,7 +234,6 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
         matches!(read, Ok(Ok(0))),
         "the link wrote {first:?} to a socket that never sent the entry banner"
     );
-    assert_eq!(task.await.unwrap(), Err(InboundRefused::NotAnEntry));
 }
 
 /// RED (security): the link entry's gate admits exactly the seven `fs-v1`

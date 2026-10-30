@@ -20,6 +20,8 @@ protocol ChatIntents: AnyObject {
     func react(_ ref: PartRef, _ kind: Reaction.Kind)
     /// Tapbacks are offered (false offline: H17).
     var canReact: Bool { get }
+    /// False for read-only run messages that have no conversation-message identity.
+    func canInteract(with message: ID) -> Bool
     /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,
     /// Reply in the menu, "N Replies" opens the thread view); the reply is a
     /// send with the open thread's root.
@@ -29,8 +31,20 @@ protocol ChatIntents: AnyObject {
     /// A paste in the field or a drop: true when the host's attachment
     /// intake took the pasteboard (files and pictures, Home's type rule).
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool
-    /// While dragging: whether a drop would be taken (types only).
+    /// Whether a paste would be taken (types only).
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// The words a paste the intake took carries beside its attachments (a note's text around
+    /// its pictures; the box's own copy of text and a picture); nil when none.
+    func attachmentPasteText(from pasteboard: NSPasteboard) -> String?
+    /// The file of the draft attachment `id`, named like it; nil when it has none here.
+    func draftAttachmentFile(_ id: ID) -> URL?
+    /// A drop on the field: true when the host's intake took the drag's
+    /// pasteboard (file URLs, file promises, pictures).
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// While dragging over the field: whether a drop would be taken (types only).
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// The field became or stopped being the target of a drag the host takes.
+    func attachmentDropTargeted(_ targeted: Bool)
     /// A click on the status line (the Chief's "working on" line): `rect` is its text in `view`'s
     /// coordinates, where the turn's details open.
     func statusLineClicked(_ rect: CGRect, in view: NSView)
@@ -70,6 +84,7 @@ protocol ChatIntents: AnyObject {
 }
 
 extension ChatIntents {
+    func canInteract(with message: ID) -> Bool { true }
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}
@@ -87,4 +102,10 @@ public protocol ChatWakeScheduler: AnyObject {
 extension ChatIntents {
     /// No local copy (hosts and fakes without attachment bytes).
     func attachmentFile(_ message: ID, _ attachment: ID) async -> URL? { nil }
+    /// Hosts without a drop intake of their own take a drop as a paste.
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { takeAttachments(from: pasteboard) }
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachments(from: pasteboard) }
+    func attachmentDropTargeted(_ targeted: Bool) {}
+    func attachmentPasteText(from pasteboard: NSPasteboard) -> String? { nil }
+    func draftAttachmentFile(_ id: ID) -> URL? { nil }
 }

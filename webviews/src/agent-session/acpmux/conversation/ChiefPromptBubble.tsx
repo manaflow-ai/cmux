@@ -21,7 +21,11 @@ export function ChiefPromptBubble({ text }: { text: string }) {
     <>
       <div className="cv-user__from">{t("transcript.fromChief")}</div>
       <div
-        className={collapsed ? "cv-user__bubble cv-user__bubble--collapsed selectable" : "cv-user__bubble selectable"}
+        className={
+          collapsed
+            ? "ui-glass cv-user__bubble cv-user__bubble--collapsed selectable"
+            : "ui-glass cv-user__bubble selectable"
+        }
       >
         {text}
       </div>

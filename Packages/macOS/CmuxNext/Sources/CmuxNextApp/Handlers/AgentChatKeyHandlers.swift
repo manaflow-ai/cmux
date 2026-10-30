@@ -8,6 +8,7 @@ import WebKit
 /// the way its menu's Archive does.
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        AgentChatCopyHandlers.bind(into: registry, context: context)
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
             guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
             let registry = context.registry
@@ -34,9 +35,12 @@ enum AgentChatKeyHandlers {
             }
             registry.track(work)
         })
-        registry.bind("agentPane.archiveChat", run: { invocation in
-            chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
-        })
+        // A Priority row's chat (`agent-chat:`) archives from the row, while the Priority view is on;
+        // else the focused chat's Archive, whatever the view's setting.
+        SidebarPriorityRowActions(chats: .app, unavailable: SidebarPriorityRowActions.viewOff(context))
+            .bindArchive(into: registry) { invocation in
+                chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
+            }
     }
 
     private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String) -> AgentPaneView? {

@@ -100,6 +100,15 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// Jump to bottom.
     public mutating func jumpToBottom() { state = .following }
 
+    /// A fling moving toward newer rows reached the bottom: it follows from
+    /// here, while UIKit finishes the deceleration and its rubber band past
+    /// the end (the controller leaves a decelerating page alone). The end of
+    /// the deceleration changes nothing more (`settled` needs a gesture).
+    public mutating func flingReachedBottom() {
+        guard isInteracting else { return }
+        state = .following
+    }
+
     /// The mirror was reset and replayed (reattach, resize) or the scrollback
     /// was cleared: the rows being read are gone.
     public mutating func reset() { state = .following }

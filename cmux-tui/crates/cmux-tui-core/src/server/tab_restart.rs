@@ -30,7 +30,10 @@ pub(super) struct Params {
 /// Accepts the restart and starts the worker; the tree shows the tab
 /// restarting, then running under a new incarnation.
 pub(super) fn restart(mux: &Arc<Mux>, params: Params) -> anyhow::Result<Value> {
-    let surface = resolve_tab_refs(mux, std::slice::from_ref(&params.surface))?[0];
+    let surface = resolve_tab_refs(mux, std::slice::from_ref(&params.surface))?
+        .first()
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("tab {:?} did not resolve", params.surface))?;
     let accepted = mux.restart_dead_tab(surface)?;
     Ok(json!({
         "surface": surface,

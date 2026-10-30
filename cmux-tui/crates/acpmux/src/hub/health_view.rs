@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness as the health check sees it.
@@ -14,26 +15,8 @@ impl Hub {
             .iter()
             .filter_map(|(id, p)| {
                 let auth = cfg.profile_meta.get(id).and_then(|m| m.auth.as_ref());
-                Some(Subject {
-                    id: id.clone(),
-                    program: p.argv.first()?.clone(),
-                    family: crate::config::derive_family(id, p),
-                    check: auth.map(|a| a.check.clone()).unwrap_or_default(),
-                    env: p
-                        .env
-                        .iter()
-                        .filter(|(_, v)| !v.contains("${"))
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect(),
-                    login: auth.and_then(|a| a.login.clone()),
-                    unresolved: p
-                        .env
-                        .iter()
-                        .filter(|(_, v)| v.contains("${"))
-                        .map(|(k, _)| k.clone())
-                        .collect(),
-                    probe_error: probe_errors.get(id).cloned(),
-                })
+                let probe_error = probe_errors.get(id).cloned();
+                Subject::of(id, p, auth).map(|s| Subject { probe_error, ..s })
             })
             .collect()
     }
@@ -67,10 +50,17 @@ impl Hub {
             self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
             update |= on;
         }
-        let mut rows = self.health.rows();
+        let rows;
         if flag("refresh") || check_latest {
+            // Before the login environment is read, PATH may miss harnesses
+            // and a sign-in the login shell exports is not seen: a check
+            // waits for startup, as the daemon's own does (`run_health`).
+            self.wait_startup().await;
             rows = self.health.check(self.health_subjects().await, check_latest).await;
-        } else if rows.is_empty() {
+        } else {
+            // Even a persisted health snapshot needs the current profile's login command:
+            // account-home changes are not reflected in the cached row.
+            self.wait_startup().await;
             rows = self.health.first_check(self.health_subjects().await).await;
         }
         if update {
@@ -137,10 +127,10 @@ impl Hub {
                 };
                 let mut out = json!({"id": id, "ok": ok});
                 if let Some(v) = version(&id) {
-                    out["version"] = json!(v);
+                    out.set("version", json!(v));
                 }
                 if let Some(e) = error {
-                    out["error"] = json!(e);
+                    out.set("error", json!(e));
                 }
                 out
             })
@@ -168,7 +158,19 @@ impl Hub {
     /// (call after `begin_startup`), then every `REFRESH_EVERY`.
     /// `ACPMUX_HEALTH_FETCH=0` or `ACPMUX_CATALOG_FETCH=0` keeps newest-version
     /// lookups off (the local checks still run).
+    ///
+    /// A capture fixture (`ACPMUX_HARNESS_FIXTURE`, `harness_fixture.rs`)
+    /// replaces all of it: its rows are the check, and neither the registry
+    /// nor a newest version is fetched, nor a copy saved.
     pub fn start_harness_checks(self: &Arc<Self>) {
+        if let Some(fixture) = crate::harness_fixture::active() {
+            self.health.attach(crate::harness_health::Settings {
+                home: dirs::home_dir().unwrap_or_default(),
+                fixture: Some(fixture.health.clone()),
+                ..Default::default()
+            });
+            return;
+        }
         if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
             let hub = self.clone();
             tokio::spawn(async move {
@@ -197,6 +199,7 @@ impl Hub {
             cache: Some(crate::config::home().join("harness-health.json")),
             auto_update: Some(crate::config::home().join("harness-auto-update.json")),
             home: dirs::home_dir().unwrap_or_default(),
+            fixture: None,
         });
         tokio::spawn(self.clone().run_health());
     }

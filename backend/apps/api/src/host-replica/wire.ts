@@ -1,6 +1,12 @@
 import type { Principal } from "@cmux/ownership"
 import { publishable, ReplicaStore } from "./store.ts"
 
+/** The routing id of ops HostDO delivers from its mailbox (no reader socket waits for them). */
+export const MAILBOX_TO = "mailbox"
+/** The one op the mailbox keeps, and only on the host's Chief stream. */
+export const MAILBOX_OP = "conversation.message.send"
+export const chiefStream = (host: string) => `host:${host}/chief`
+
 /**
  * The `cmux.wire/1` replica sockets of one HostDO (plans/cmux-next/object-sync/DESIGN.md
  * sections 6.3 and 7, phase 3). Two roles, both authenticated by the Worker:
@@ -20,7 +26,7 @@ import { publishable, ReplicaStore } from "./store.ts"
  * - Writes go to the home: an `op` is forwarded to the online host with the reader's principal
  *   and a `to`; the host's answers come back to that reader. With the host offline the op is
  *   refused at once (`reject owner_unreachable`, retryable, then `request-settled ok: false`), never
- *   queued (U5). An op in flight when the publisher goes away (closed or replaced) gets the same
+ *   queued (U5), with one exception: the Chief mailbox below. An op in flight when the publisher goes away (closed or replaced) gets the same
  *   refusal, so no reader waits forever. `snapshot.request` with pending keys goes to the online
  *   host (only the host knows its decided keys); otherwise the replica's snapshot answers it.
  * - Online means the current publisher's socket is open: the stored publisher id names it, and a
@@ -30,6 +36,13 @@ import { publishable, ReplicaStore } from "./store.ts"
  *   answers `replica.purged`; readers then see `owner.status` without `cached_seq`.
  * - A cursor ahead of the replica (the reader read the live host further) gets `owner.status`
  *   with the lower `cached_seq` and nothing else: the reader keeps its state, never goes back.
+ * - The Chief mailbox (a450, cmux-prompts logs/iphone-chief-DESIGN.md): `conversation.message.send`
+ *   on `host:<h>/chief` with the host offline is kept (one entry per idempotency key) and answered
+ *   `op.queued {stream, idempotency_key, position}`. When a publisher connects, every kept op goes
+ *   to it in order with `to: "mailbox"` and the sender's principal; the host's `request-settled`
+ *   for it removes the entry (a retryable refusal keeps it for the next connect) and readers of
+ *   the stream get `mailbox.settled {stream, idempotency_key, ok}`. The host dedupes by key, so a
+ *   resend after a lost answer never makes a second message.
  * - Nothing here is committed by HostDO: the replica stores what the host published, in the
  *   host's `seq`, and forwards; the host is the only writer of these streams.
  */
@@ -106,6 +119,8 @@ export class ReplicaWire {
   private readonly asked = new Set<string>()
   /** Subscribes per reader socket in the current window (in memory: a wake starts a new window). */
   private readonly subscribes = new Map<string, { at: number; n: number }>()
+  /** Mailbox keys the host refused as retryable in this connection: kept for the next one. */
+  private readonly retryLater = new Set<string>()
 
   constructor(
     private readonly store: ReplicaStore,
@@ -141,6 +156,30 @@ export class ReplicaWire {
     this.asked.clear()
     send(ws, { t: "welcome", role: "publisher", host: this.env.host, heads: this.store.heads() })
     this.broadcastPresence()
+    this.retryLater.clear()
+    for (const q of this.store.mailbox(this.env.now())) {
+      const frame = parse(q.frame)
+      if (frame) send(ws, { ...frame, to: MAILBOX_TO, principal: JSON.parse(q.principal) as unknown })
+    }
+  }
+
+  private queueable(stream: string, f: Frame): boolean {
+    return stream === chiefStream(this.env.host) && f.op === MAILBOX_OP
+  }
+
+  /** The host answered an op from the mailbox. */
+  private onMailboxAnswer(frame: Frame): void {
+    const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : undefined
+    const stream = typeof frame.stream === "string" ? frame.stream : chiefStream(this.env.host)
+    if (!key) return
+    const id = `${stream}\n${key}`
+    if (frame.t === "reject" && frame.retryable === true) this.retryLater.add(id)
+    if (frame.t !== "request-settled") return
+    const ok = frame.ok === true
+    if (!ok && this.retryLater.has(id)) return
+    this.retryLater.delete(id)
+    if (!this.store.settleQueued(stream, key)) return
+    for (const ws of this.subscribers(stream)) send(ws, { t: "mailbox.settled", stream, idempotency_key: key, ok })
   }
 
   /** A publisher socket closed; only the current one makes the host offline. */
@@ -188,6 +227,10 @@ export class ReplicaWire {
       return this.broadcastPresence()
     }
     // An answer to a forwarded frame goes to the reader it names, without the routing field.
+    if (f.to === MAILBOX_TO) {
+      const { to: _to, ...frame } = f
+      return this.onMailboxAnswer(frame)
+    }
     if (typeof f.to === "string") {
       const { to, ...frame } = f
       if (frame.t === "request-settled" && typeof frame.idempotency_key === "string") this.store.settleInFlight(to, frame.idempotency_key)
@@ -278,6 +321,16 @@ export class ReplicaWire {
       case "op": {
         const key = typeof f.idempotency_key === "string" ? f.idempotency_key : ""
         if (!isStream(stream) || !key || key.length > MAX_OP_KEY) break
+        if (!this.publisher() && this.queueable(stream, f)) {
+          const { to: _to, principal: _principal, ...op } = f
+          const r = this.store.enqueue(stream, key, JSON.stringify(op), JSON.stringify(a.principal), this.env.now())
+          if (r.kind === "queued") send(ws, { t: "op.queued", stream, idempotency_key: key, position: r.position })
+          else {
+            send(ws, { t: "reject", stream, idempotency_key: key, code: r.kind === "full" ? "mailbox_full" : "validation.too_large", message: r.kind === "full" ? "the Mac's mailbox is full" : "message too large to keep", retryable: r.kind === "full" })
+            send(ws, { t: "request-settled", tx: "", idempotency_key: key, stream, sequence: 0, ok: false })
+          }
+          return a
+        }
         if (!this.publisher()) {
           this.refuse(ws, stream, key, "the host is offline")
           return a

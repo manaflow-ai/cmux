@@ -136,9 +136,13 @@ fn shell_pwd(harness: &RecoveryHarness, surface: u64, tag: &str) -> String {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let text = screen(harness, surface);
+        // A line the shell is still drawing (`dir-$`) has no `-end` yet:
+        // only a value closed by `-end` on its own line, with no `$` left
+        // unexpanded, is the output.
         let value = text.match_indices(&needle).find_map(|(at, _)| {
-            let value = text[at + needle.len()..].split("-end").next()?;
-            (!value.contains("$PWD") && !value.is_empty()).then(|| value.to_string())
+            let line = text[at + needle.len()..].lines().next()?;
+            let (value, _) = line.split_once("-end")?;
+            (!value.contains('$') && !value.is_empty()).then(|| value.to_string())
         });
         if let Some(value) = value {
             return value;

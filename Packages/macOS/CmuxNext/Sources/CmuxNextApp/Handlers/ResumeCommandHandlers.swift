@@ -11,7 +11,7 @@ import CmuxNextDaemon
 /// another machine.
 enum ResumeCommandHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let unavailable = context.needs(DaemonCapabilities.shared.resumeCommand)
+        let unavailable = context.needs(DaemonCapability.resumeCommand.rawValue)
         for id: ActionID in ["resumeCommandSet", "resumeCommandEdit"] {
             registry.bind(id, unavailable: unavailable, invoke: { invocation in
                 guard let (surface, connection) = terminal(invocation, context) else { return }
@@ -32,8 +32,8 @@ enum ResumeCommandHandlers {
         guard let (tab, _) = context.daemonTab(invocation) else { return nil }
         guard tab.kind == .pty else { return context.refuse(RefusalStrings.notATerminal) }
         let daemon = context.services.machines.daemon(forTab: tab)
-        guard daemon.supports(DaemonCapabilities.shared.resumeCommand) else {
-            return context.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.resumeCommand))
+        guard daemon.supports(DaemonCapability.resumeCommand.rawValue) else {
+            return context.refuse(daemon.missingCapabilityMessage(DaemonCapability.resumeCommand.rawValue))
         }
         guard let connection = daemon.connection else { return context.refuse(MiscHandlerStrings.daemonOffline) }
         return (tab.surface, connection)

@@ -18,11 +18,17 @@ public struct DaemonLanePolicy: Sendable {
     /// phone may read and write only this `personal` projection.
     public let projectionSubject: String
 
+    /// The phone's device id: every `set-client-info` carries it as `device_id`, with
+    /// `remote: true`, so a phone is never one of this Mac's own views and never another
+    /// phone in the sizing order (`host-size-policy-v1`).
+    let deviceID: String
+
     /// `PhoneAccessGate.allowsStartingSessions`, read per request.
     let allowsStartingSessions: @Sendable () -> Bool
 
     public init(deviceID: String, allowsStartingSessions: @escaping @Sendable () -> Bool = { true }) {
         projectionSubject = "ios-device:\(deviceID)"
+        self.deviceID = deviceID
         self.allowsStartingSessions = allowsStartingSessions
     }
 
@@ -50,6 +56,9 @@ public struct DaemonLanePolicy: Sendable {
         // Geometry: per-client leases, released when the phone goes away.
         "set-client-sizing", "resize-surface", "release-surface-size", "resize-attached-view",
         "release-attached-view-size", "detach-attached-view",
+        // Shared sizing: the size state, the phone's own activity, and this Mac's sizing
+        // policy (`host-size-policy-v1`; the phone sets the Mac-wide preference only).
+        "get-size-state", "note-size-activity", "get-host-size-policy", "set-host-size-policy",
         // Per-client focus (never moves the Mac's view).
         "client-focus", "report-focus",
         // Topology: the same authority the Mac frontend grants a signed-in phone today.
@@ -198,6 +207,29 @@ public struct DaemonLanePolicy: Sendable {
         if command == "new-conversation-tab" {
             return .refuse(Self.errorLine(id: id, code: "unavailable",
                                           message: "this Mac's cmux does not let a phone start agent chats"))
+        }
+        if command == "set-client-info" {
+            var marked = object
+            marked["remote"] = true
+            marked["device_id"] = deviceID
+            guard let data = try? JSONSerialization.data(withJSONObject: marked, options: [.sortedKeys]) else {
+                return .refuse(Self.errorLine(id: id, code: "bad_request", message: "request is not a JSON object"))
+            }
+            return .rewrite(data)
+        }
+        if command == "resize-attached-view", let identity = object["identity"] {
+            // A phone relays no other device: its sub-views name no user and no device, so
+            // none can take another device's place in the Mac's sizing order.
+            var anonymous = object
+            if var fields = identity as? [String: Any] {
+                fields["user_id"] = nil
+                fields["device_id"] = nil
+                anonymous["identity"] = fields
+            }
+            guard let data = try? JSONSerialization.data(withJSONObject: anonymous, options: [.sortedKeys]) else {
+                return .refuse(Self.errorLine(id: id, code: "bad_request", message: "request is not a JSON object"))
+            }
+            return .rewrite(data)
         }
         return .forward
     }

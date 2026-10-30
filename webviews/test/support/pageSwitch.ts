@@ -16,7 +16,7 @@ import type { DOMWindow } from "jsdom";
 
 /// The CSS classes and attributes that start an entrance animation when an element gets them.
 export const ENTRANCE_SELECTOR =
-  ".cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff.is-fading, [data-kind-switch]";
+  ".cv-enter, .acpmux-row--enter, .acpmux-row--message-enter, .cv-fresh, .cv-code-handoff.is-fading, [data-kind-switch]";
 
 export type SwitchSeen = { fetches: string[]; entrances: string[] };
 
@@ -116,8 +116,10 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
         const gained =
           record.attributeName === "class"
             ? element.matches(ENTRANCE_SELECTOR) &&
-              /(^|\s)(cv-enter|acpmux-row--enter|cv-fresh|is-fading)(\s|$)/.test(element.className) &&
-              !/(^|\s)(cv-enter|acpmux-row--enter|cv-fresh|is-fading)(\s|$)/.test(before)
+              /(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(
+                element.className,
+              ) &&
+              !/(^|\s)(cv-enter|acpmux-row--enter|acpmux-row--message-enter|cv-fresh|is-fading)(\s|$)/.test(before)
             : element.hasAttribute("data-kind-switch") && record.oldValue === null;
         if (gained) entered.push(label(element));
       }
@@ -135,7 +137,7 @@ export function pageSwitch(window: DOMWindow): PageSwitch {
     new Promise<void>((resolve) => {
       const raf = window.requestAnimationFrame?.bind(window) ?? globalThis.requestAnimationFrame;
       if (typeof raf === "function") raf(() => resolve());
-      else setTimeout(resolve, 16);
+      else setTimeout(resolve, 16); // fixed-wait: no requestAnimationFrame here, so one 60 Hz frame's time stands in
     });
 
   const setVisibility = async (next: DocumentVisibilityState) => {

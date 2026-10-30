@@ -24,7 +24,9 @@ public import Foundation
 /// view keeps retrying but says the attach failed, so Retry shows (and a
 /// restored view stops saying `restoring`). One re-attach at a time. Until a view first went
 /// live its status is `restoring` (when it was created as a restore) while it
-/// attaches or retries. A terminal whose
+/// attaches or retries, and its backoff stays short (``restoreBackoffCap``), so it comes
+/// back with no input soon after the daemon answers (#23029). An event that comes while an
+/// attach is in flight is kept: if that attach fails, the next one opens at once. A terminal whose
 /// process ended is `exited` and never re-attaches on a view event; only the
 /// daemon reporting the terminal running again (`processRevived`) re-attaches
 /// it, because a dead report can be transient (R41).
@@ -55,6 +57,15 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// before the view, still retrying, offers Retry: its status says the
     /// attach failed and that a click or key re-attaches now.
     public static var quietReconnects: Int { 8 }
+    /// The backoff step a restored view that has not gone live yet waits at
+    /// most (2 s with the App's backoff): it says "Restoring…", and only its
+    /// own retry or an event (a key, focus, the connection back) wakes it, so
+    /// it must not wait 30 s for an attach that would now work (#23029).
+    public static var restoreBackoffCap: Int { 3 }
+    /// ``quietReconnects`` for that view: about the same 90 s at its shorter backoff. Past it the
+    /// view offers Retry and backs off as any other, so a daemon that never answers is not asked
+    /// every 2 s for good.
+    public static var quietRestoreReconnects: Int { 45 }
 
     public private(set) var phase: Phase = .detached
     public private(set) var queuedInput: [Data] = []
@@ -87,6 +98,9 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     public private(set) var autoReconnects = 0
     /// Why the view last disconnected (the status of a re-attach an event cuts short).
     private var lastDisconnect: DisconnectReason = .attachFailed
+    /// An event that re-attaches (the connection back, a key, focus) came while an attach was
+    /// in flight: if that attach fails, the next one opens at once instead of after the backoff.
+    private var reattachRequested = false
     private let initialSize: CellSize
     private let restoring: Bool
     private var lastAttempt = 0
@@ -164,6 +178,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         }
         phase = .live(link)
         wentLive = true
+        reattachRequested = false
         // The attach itself reported the size it opened with.
         reportedSize = pending.size
         claimed = false
@@ -319,11 +334,18 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .reattaching(let pending) where byEvent && pending.link == nil && pending.waitsBackoff:
             reason = lastDisconnect
             failed = 0
+        case .attaching, .reattaching:
+            // An attach is in flight: the event must not be lost if it fails (`disconnect`).
+            if byEvent { reattachRequested = true }
+            return []
         default:
             return []
         }
         if byEvent { autoReconnects = 0 }
-        let wait = byEvent ? 0 : max(failed, autoReconnects - 1)
+        reattachRequested = false
+        let stillRestoring = restoring && !wentLive
+        var wait = byEvent ? 0 : max(failed, autoReconnects - 1)
+        if stillRestoring, autoReconnects <= Self.quietRestoreReconnects { wait = min(wait, Self.restoreBackoffCap) }
         lastAttempt += 1
         var pending = Pending(attempt: lastAttempt, failures: 1, size: desiredSize ?? initialSize, link: nil,
                               reconnects: byEvent ? 0 : failed)
@@ -333,9 +355,10 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let open: Effect = wait == 0
             ? .open(attempt: pending.attempt, size: pending.size)
             : .openAfterBackoff(attempt: pending.attempt, size: pending.size, failedReconnects: wait)
-        let status: LinkStatus = if !byEvent, autoReconnects > Self.quietReconnects {
+        let quiet = stillRestoring ? Self.quietRestoreReconnects : Self.quietReconnects
+        let status: LinkStatus = if !byEvent, autoReconnects > quiet {
             .disconnected(reason, reconnecting: false)
-        } else if restoring, !wentLive {
+        } else if stillRestoring {
             .restoring
         } else {
             .disconnected(reason, reconnecting: true)
@@ -351,6 +374,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         let failed = pending?.reconnects.map { $0 + 1 } ?? 0
         phase = .disconnected(Disconnected(reason: reason, failedReconnects: failed))
         claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
+        // The connection came back (or a key or focus) while this attach was in flight.
+        if reattachRequested { return reconnect() }
         if visible, reason != .fellBehind {
             autoReconnects += 1
             return reconnect(byEvent: false)

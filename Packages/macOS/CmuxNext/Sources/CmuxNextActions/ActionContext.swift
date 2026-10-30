@@ -59,6 +59,8 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     /// A markdown page (with ``markdownFocused``) edits its file: bare keys
     /// are typing there.
     public static let markdownEditorFocused = ActionContext(rawValue: 1 << 22)
+    /// Debug Settings' Side sessions (/btw) is on; Ask a Side Question… is offered only then.
+    public static let sideSessions = ActionContext(rawValue: 1 << 23)
 
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a
@@ -76,12 +78,21 @@ extension ActionContext {
 
     /// Context facts an invocation's explicit target stands in for: a
     /// `machine:` target is the Cloud workspace a focus-scoped machine
-    /// action would otherwise need focused.
+    /// action would otherwise need focused, and an `agent-chat:` target the
+    /// focused agent chat (Archive Chat on a Priority row).
     public static func implied(by invocation: ActionInvocation) -> ActionContext {
         implied(byTargetKind: invocation.target?.kind)
     }
 
     public nonisolated static func implied(byTargetKind kind: ActionTargetKind?) -> ActionContext {
-        kind == .machine ? .cloudWorkspace : []
+        switch kind {
+        case .machine: .cloudWorkspace
+        case .agentChat: .agentPaneFocused
+        default: []
+        }
     }
+
+    /// The facts a `pane:` or `tab:` target brings itself (`ActionRegistry.targetContext`):
+    /// whether it is an agent chat, and whether it sits on a canvas screen.
+    public nonisolated static let decidedByPaneOrTabTarget: ActionContext = [.agentPaneFocused, .canvasLayout]
 }

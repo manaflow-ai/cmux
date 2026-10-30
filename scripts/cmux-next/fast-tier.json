@@ -1,5 +1,5 @@
 {
-  "_comment": "The cmux NEXT PR fast tier (scripts/cmux-next/fast-tier.py, hq#1915, cx-29ch2). Every feat-cmux-next PR runs every entry without the gui token: cargo entries in cmux-next.yml's Linux fast-tier-cargo job, swift and script entries in the Mac fast-tier job (fast-tier.py --kind). An entry is deterministic (fixed seeds, virtual clock, no sleeps), needs no window server or daemon process, runs within 60 s after the build, and names a stable ID in each failure line. It gates only after `fast-tier.py --only NAME --repeat 20` passes on one head.",
+  "_comment": "The cmux NEXT PR fast tier (scripts/cmux-next/fast-tier.py, hq#1915, cx-29ch2). Every feat-cmux-next PR runs every entry without the gui token: cargo and script entries in cmux-next.yml's fast-tier-cargo job, swift entries in the Mac fast-tier job (fast-tier.py --kind). An entry is deterministic (fixed seeds, virtual clock, no sleeps), needs no window server or daemon process, runs within 60 s after the build, and names a stable ID in each failure line. It gates only after `fast-tier.py --only NAME --repeat 20` passes on one head.",
   "entries": [
     {"name": "matrix core", "kind": "cargo", "path": "cmux-tui", "package": "cmux-tui-core", "filter": "mux::tests::matrix", "owner": "op-next-split", "bead": "cx-gkyi1"},
     {"name": "sidebar layout reducer", "kind": "cargo", "path": "cmux-tui", "package": "cmux-layout-reducer", "owner": "op-next-split", "bead": "cx-29ch2"},
@@ -8,6 +8,7 @@
     {"name": "matrix entries", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "ModelMatrixTests", "owner": "op-next-split", "bead": "cx-gkyi1"},
     {"name": "pane zoom motion", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "PaneZoomMotionTests", "owner": "op-next-newtab", "bead": "cx-v0v8k"},
     {"name": "cef previous log", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "CEFProfileStorageLogTests", "owner": "cx-gallery-feed", "bead": "cx-urd.2"},
-    {"name": "subagent pane focus", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AgentSubagentPanesFocusTests", "owner": "op-next-agent-pane"}
+    {"name": "subagent pane focus", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AgentSubagentPanesFocusTests", "owner": "op-next-agent-pane"},
+    {"name": "perf completeness", "kind": "script", "path": "scripts/cmux-next/tests/test_perf_completeness.py", "owner": "perf"}
   ]
 }

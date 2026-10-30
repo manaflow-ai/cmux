@@ -43,3 +43,51 @@ test("the page's Cloud rows match the shared corpus the daemon's rows follow", a
     expect(shown, c.name).toEqual({ ...expected, kind } as Record<string, unknown>);
   }
 });
+
+test("CloudHome maps conversation presence and localizes participants", async () => {
+  const socket = {
+    async request(cmd: string): Promise<unknown> {
+      if (cmd === "cloud-session-status") return { state: "active", participant: "user_cloudperson0000000" };
+      if (cmd === "cloud-inbox-list") return { entries: [] };
+      if (cmd === "cloud-inbox-subscribe") return {};
+      throw new Error(`not served: ${cmd}`);
+    },
+  } as unknown as DaemonSocket;
+  const cloud = new CloudHome(socket, conversation, () => {});
+  await cloud.inbox(true);
+  expect(
+    cloud.event({
+      event: "cloud-conversation-presence",
+      conversation: "conv_presence",
+      participants: [
+        { participant: "user_cloudperson0000000", viewing: true },
+        { participant: "tailnet:teammate", viewing: false },
+      ],
+    }),
+  ).toEqual({
+    presence: {
+      conversation: "conv_presence",
+      participants: [
+        { participant: "user_local", viewing: true },
+        { participant: "tailnet:teammate", viewing: false },
+      ],
+    },
+  });
+});
+
+test("a cloud conversation socket that is not live clears its viewers", async () => {
+  const socket = {
+    async request(cmd: string): Promise<unknown> {
+      if (cmd === "cloud-session-status") return { state: "active", participant: "user_cloudperson0000000" };
+      if (cmd === "cloud-inbox-list") return { entries: [] };
+      if (cmd === "cloud-inbox-subscribe") return {};
+      throw new Error(`not served: ${cmd}`);
+    },
+  } as unknown as DaemonSocket;
+  const cloud = new CloudHome(socket, conversation, () => {});
+  await cloud.inbox(true);
+  const state = (state: string) =>
+    cloud.event({ event: "cloud-subscription-state", scope: "conversation", conversation: "conv_presence", state });
+  expect(state("connecting")).toEqual({ presence: { conversation: "conv_presence", participants: [] } });
+  expect(state("live")).toBeNull();
+});

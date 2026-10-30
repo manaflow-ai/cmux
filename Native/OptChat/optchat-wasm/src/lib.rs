@@ -27,6 +27,9 @@ extern "C" {
     fn message(this: &JsStore, i: f64) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(method, catch)]
     fn node(this: &JsStore, l: u32, i: f64) -> Result<Option<String>, JsValue>;
+    /// The stored ISO time of message `i` (the `date` tool); optional.
+    #[wasm_bindgen(method, catch, js_name = date)]
+    fn date_of(this: &JsStore, i: f64) -> Result<Option<String>, JsValue>;
 }
 
 #[derive(serde::Deserialize)]
@@ -466,6 +469,32 @@ impl OptChat {
         Ok(out)
     }
 
+    /// A memory tool with no effect outside the memory (chief-kernel
+    /// `call_pure`; section 13, export 2): `zoom` or `date`, its arguments
+    /// as JSON, and `ctx_json` (`{utc_offset_minutes}`). `date` reads the
+    /// store's `date(i)`. Any other tool throws: the host runs it.
+    #[wasm_bindgen(js_name = callPure)]
+    pub fn call_pure(
+        &self,
+        store: &JsStore,
+        name: &str,
+        args_json: &str,
+        ctx_json: &str,
+    ) -> Result<String, JsError> {
+        let host = Host::new(store);
+        let dates = |id: u64| match store.date_of(id as f64) {
+            Ok(d) => d,
+            Err(e) => {
+                host.fail(format!("store.date({id}) failed: {}", describe(&e)));
+                None
+            }
+        };
+        let out = chief_kernel::call_pure(name, args_json, ctx_json, &self.memory, &host, &dates)
+            .map_err(|e| JsError::new(&e))?;
+        host.check()?;
+        Ok(out)
+    }
+
     /// The compactor call for node (l, i) as JSON `{system, context, marks,
     /// step, cut, room}`: `marks` are JS string indices (UTF-16 code units) into the context
     /// where a cached piece ends (section 8); send each piece as its own
@@ -557,39 +586,6 @@ pub fn finish_line(cut: &str, line: &str) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Audit major 2 (fixed by 8c5aecd3f8a2, ids, and c6f2207069d6, zoom's
-    /// checked end): a JS number names a message only when it is a finite,
-    /// non-negative integer within 2^53, and a level is below 64.
-    #[test]
-    fn only_whole_non_negative_numbers_within_2_pow_53_are_ids() {
-        for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, 9_007_199_254_740_992.0] {
-            assert!(check_id(bad).is_err(), "{bad} was taken as an id");
-        }
-        assert_eq!(
-            check_id(9_007_199_254_740_991.0).ok(),
-            Some(9_007_199_254_740_991)
-        );
-        assert!(check_level(64).is_err());
-        assert_eq!(check_level(63).ok(), Some(63));
-    }
-
-    /// Audit major 4: the marks a JS caller gets index its string (UTF-16
-    /// code units), not the UTF-8 bytes the core cuts at: `text.slice(0, m)`
-    /// must end exactly at the line end the core chose.
-    #[test]
-    fn marks_given_to_javascript_are_utf16_indices() {
-        let text = "é😀\nb\n";
-        // The core's byte mark after the first line: 2 + 4 + 1 bytes.
-        assert_eq!(js_offsets(text, &[7, 9]), vec![4, 6]);
-        let ascii = "ab\ncd\n";
-        assert_eq!(js_offsets(ascii, &[3]), vec![3]);
-    }
-}
-
 /// The checkpoint's JSON (the same form as optchat-host's `memory/checkpoint`).
 fn encode_checkpoint(c: &Checkpoint) -> String {
     let parts = |v: &[NodeId]| {
@@ -636,4 +632,73 @@ fn decode_checkpoint(text: &str) -> Option<Checkpoint> {
         merging: v["merging"].as_bool().unwrap_or(false),
         compact_merging: v["compact_merging"].as_bool().unwrap_or(false),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Audit major 2 (fixed by 8c5aecd3f8a2, ids, and c6f2207069d6, zoom's
+    /// checked end): a JS number names a message only when it is a finite,
+    /// non-negative integer within 2^53, and a level is below 64.
+    #[test]
+    fn only_whole_non_negative_numbers_within_2_pow_53_are_ids() {
+        for bad in [f64::NAN, f64::INFINITY, -1.0, 0.5, 9_007_199_254_740_992.0] {
+            assert!(check_id(bad).is_err(), "{bad} was taken as an id");
+        }
+        assert_eq!(
+            check_id(9_007_199_254_740_991.0).ok(),
+            Some(9_007_199_254_740_991)
+        );
+        assert!(check_level(64).is_err());
+        assert_eq!(check_level(63).ok(), Some(63));
+    }
+
+    /// Audit major 4: the marks a JS caller gets index its string (UTF-16
+    /// code units), not the UTF-8 bytes the core cuts at: `text.slice(0, m)`
+    /// must end exactly at the line end the core chose.
+    #[test]
+    fn marks_given_to_javascript_are_utf16_indices() {
+        let text = "é😀\nb\n";
+        // The core's byte mark after the first line: 2 + 4 + 1 bytes.
+        assert_eq!(js_offsets(text, &[7, 9]), vec![4, 6]);
+        let ascii = "ab\ncd\n";
+        assert_eq!(js_offsets(ascii, &[3]), vec![3]);
+    }
+}
+
+/// The system text of a Chief turn, exactly as the Mac host renders it
+/// (chief-kernel `render_system`; cloud-chief-durable-DESIGN.md section 13,
+/// export 1). `profile_json`: `{person?, instructions?, channels?, record?}`;
+/// `engine`: `claude`, `codex`, `pi-durable`, ...; `tools_json`: `{mode?,
+/// chief?, profile_tool?, chiefs_tool?}`. Throws on bad JSON, an unknown
+/// engine, or a cli engine without its launcher path.
+#[wasm_bindgen(js_name = renderSystem)]
+pub fn render_system(
+    profile_json: &str,
+    engine: &str,
+    tools_json: &str,
+) -> Result<String, JsError> {
+    chief_kernel::render_system(profile_json, engine, tools_json).map_err(|e| JsError::new(&e))
+}
+
+/// The Chief's tool specs for `engine` (`pi-durable`, ...) and a grant
+/// (`{tools?: [names]}`), as JSON `[{name, description, json_schema, replay:
+/// "safe" | "once"}]` (chief-kernel `tools::specs`; section 13, export 2).
+#[wasm_bindgen(js_name = toolSpecs)]
+pub fn tool_specs(engine: &str, grant_json: &str) -> Result<String, JsError> {
+    chief_kernel::tools::specs(engine, grant_json)
+        .map(|v| v.to_string())
+        .map_err(|e| JsError::new(&e))
+}
+
+/// The reply and outcome ledgers as a pure fold (chief-kernel
+/// `ledger::ledger_apply`; section 13, export 3): applies one event to the
+/// state at `ctx_json.now_ms` and answers `{state, intents}` as JSON. The
+/// host stores the state and performs each intent (`schedule`, `notice`,
+/// `post`) with its key, in one transaction with its own rows.
+#[wasm_bindgen(js_name = ledgerApply)]
+pub fn ledger_apply(state_json: &str, event_json: &str, ctx_json: &str) -> Result<String, JsError> {
+    chief_kernel::ledger::ledger_apply(state_json, event_json, ctx_json)
+        .map_err(|e| JsError::new(&e))
 }

@@ -16,9 +16,12 @@ struct ResourceRequestEnvelope: Encodable {
     /// The caller's origin claim (`{claim: "page"}` or `{claim: "user", confirmation}`), sent only
     /// to a daemon with `origin-claim-v1`; nil keeps the connection's derived origin.
     var origin: JSONValue?
+    /// A launch credential the app minted (`credential.mint`): the request acts as its holder (an
+    /// ACP session), as `AgentReplyClient` sends a reply in place. Never logged.
+    var credential: String?
 
     enum CodingKeys: String, CodingKey {
-        case type, id, operation, params, origin
+        case type, id, operation, params, origin, credential
         case proto = "protocol"
         case idempotencyKey = "idempotency_key"
     }
@@ -32,6 +35,7 @@ struct ResourceRequestEnvelope: Encodable {
         try c.encode(Self.wireParams(params, operation: operation), forKey: .params)
         try c.encodeIfPresent(idempotencyKey, forKey: .idempotencyKey)
         try c.encodeIfPresent(origin, forKey: .origin)
+        try c.encodeIfPresent(credential, forKey: .credential)
     }
 
     /// The `params` object exactly as it goes on the wire (the defaults filled in): what an

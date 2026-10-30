@@ -70,10 +70,23 @@ pub struct HostState {
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub last_answers: Vec<String>,
+    /// The (conversation, run) of those answers, for reports of a late spawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<(String, String)>,
     /// E22: what a turn stopped for a newer message answered: the next turn
     /// answers it too.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub carry_answers: Vec<String>,
+    /// The Chief conversation's person messages that no posted reply has
+    /// answered yet (brain/reply_ledger.rs, user 2026-10-21: "the Chief never
+    /// forgets to respond"). Kept across restarts; a message leaves only when
+    /// a reply posts, the owner stops its turn, or the failure note posts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub awaiting: Vec<Awaiting>,
+    /// The outcome ledger (brain/outcome_ledger.rs): finished subagents whose
+    /// outcome no Chief post has told the person yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub untold: Vec<Untold>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -114,6 +127,9 @@ pub struct HostState {
     /// cleared when its note is logged.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resumes: Vec<Resume>,
+    /// Completed report projections whose owner append was interrupted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_reports: Vec<PendingReport>,
     /// The view up to and including the last turn's marked block, by size
     /// and hash (`optchat_core::mark_piece`): saved with that turn's
     /// messages, so the first turn after a restart still marks within the
@@ -144,6 +160,41 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// Watches the Chief started with `watch` (brain/watches.rs), oldest
+    /// first. At most `WATCHES_KEPT`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watches: Vec<Watch>,
+    /// The number of the last watch started (`w<N>`); ids never repeat.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub last_watch: u64,
+}
+
+/// One watch the Chief started with `watch`: the host runs `command` off
+/// the turn until a line of its output matches `until` (or, without
+/// `until`, it exits), or `deadline_ms` passes, then a note wakes the Chief.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Watch {
+    /// `w<N>`.
+    pub id: String,
+    /// The shell command (`sh -c`).
+    pub command: String,
+    /// A regex on its output lines; None: fire when the command exits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    /// The Chief's own words, shown in the note.
+    #[serde(default)]
+    pub note: String,
+    /// When the Chief started it (ms since the epoch).
+    pub asked_ms: u64,
+    /// When it fires as timed out (ms since the epoch).
+    pub deadline_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PendingReport {
+    pub conversation: String,
+    pub run: Value,
+    pub steps: Vec<Value>,
 }
 
 /// How many pending wakes `HostState::wakes` keeps.
@@ -249,6 +300,9 @@ pub struct SpawnRecord {
     /// The turn that spawned it (its reply key), for the trace.
     #[serde(default)]
     pub turn: Option<String>,
+    /// The originating conversation; reports must not follow the Chief into another chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
     /// E22: the messages that turn answered; each turn its reports cause
     /// answers them too, and says while a subagent of it still works.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -313,10 +367,31 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// That workspace's public id (`ws_…`), when its place can name it: its
+    /// report's work is shown there (show.rs `block_in`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ws_id: Option<String>,
     /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
     /// local subagents count against the live cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+    /// Its own sandbox key's public id (`vmk_...`, agent_keys.rs) until it is
+    /// revoked; the key itself is never stored here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_key: Option<String>,
+    /// Its own VM (`peer` chief-sub-<id>) was deleted after it finished and
+    /// its work was pushed: a tell can no longer reach it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_deleted: bool,
+    /// When its own VM was last seen with this subagent not live (ms since
+    /// the epoch); the VM is deleted `cloud.deleteAfterPausedDays` after
+    /// it. Saved, so a host restart does not start the wait again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_idle_since: Option<u64>,
+    /// The fleet jobs its last report waits on (`fleet-wait: JOB` lines,
+    /// fleet_wait.rs): its VM stays paused until one ends.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fleet_wait: Vec<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]
@@ -345,6 +420,11 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// Landing follow-ups the host sent it (sub_watch `unlanded`, a676):
+    /// a report that says its work is not landed gets one before the Chief
+    /// hears of it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub land_followups: u32,
     /// The harness it moves to (its account hit a usage limit) once the
     /// brain takes the move; saved, so a restart still moves it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -379,10 +459,15 @@ pub struct SubRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<PendingPermission>,
     /// The user messages the turn that last told it answered (`tell` during
-    /// a turn): its next report answers them, and goes into their thread.
-    /// Empty: the spawn's own (`SpawnRecord::answers`).
+    /// a turn): its report answers them, and goes into their thread. This is
+    /// retained after Home projection consumes the report so reply/send on
+    /// the report line still targets the assignment's thread.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
+    /// The (conversation, run) assigning the current work, captured at spawn or tell.
+    /// Cleared when its report is consumed. None means no known Home projection route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report_run: Option<(String, String)>,
     /// When its session last changed (ms since the epoch): stuck detection.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub active_ms: u64,
@@ -644,6 +729,7 @@ impl HostState {
                 {
                     sub.status = SubStatus::Reported;
                     sub.report = None;
+                    sub.report_run = None;
                     sub.stopped = false;
                     sub.floor = *floor;
                 }
@@ -1132,4 +1218,46 @@ mod security_tests {
         assert!(resume_again.requires_approval);
         assert!(spawn_again.requires_approval);
     }
+}
+
+/// A finished subagent whose outcome the person has not been told yet
+/// (brain/outcome_ledger.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Untold {
+    /// The subagent's id (`a12`).
+    pub id: String,
+    /// When its report was delivered (ms since the epoch).
+    pub since_ms: u64,
+    /// Retry turns started for it so far.
+    #[serde(default)]
+    pub tries: u32,
+    /// When the next check is due (ms since the epoch); None until a turn
+    /// that saw its report has ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+}
+
+/// A person message of the Chief conversation that waits for a reply
+/// (brain/reply_ledger.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Awaiting {
+    /// The message's id in the conversation.
+    pub id: String,
+    pub seq: u64,
+    /// When it arrived (ms since the epoch).
+    pub since_ms: u64,
+    /// The start of its text, for the retry note and the failure note.
+    #[serde(default)]
+    pub preview: String,
+    /// Retry turns started for it so far.
+    #[serde(default)]
+    pub tries: u32,
+    /// When the next check is due (ms since the epoch); None while a turn
+    /// that sees it is queued or running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
+    /// Why the last turn left it unanswered (`NO_REPLY`, a silent end, an
+    /// error, a refused post), for the retry note and the failure note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }

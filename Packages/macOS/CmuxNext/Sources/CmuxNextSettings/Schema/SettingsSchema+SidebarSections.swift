@@ -63,9 +63,12 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.sessionTreeDescriptor(group: sidebar),
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
             SidebarSectionsSetting.minimalDescriptor(group: sidebar),
+            SidebarSectionsSetting.styleDescriptor(group: sidebar),
             SidebarSectionsSetting.densityDescriptor(group: sidebar),
             SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
             SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showColorsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showLocalMachineDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
             SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
@@ -74,6 +77,6 @@ nonisolated enum SidebarSectionSettingsSchema {
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
             ChromePlacementSetting.spacesVisibilityDescriptor(group: sidebar),
-        ] + SidebarNavigationSetting.descriptors(group: sidebar)
+        ] + [CommandDigitsSetting.descriptor(group: sidebar)] + SidebarNavigationSetting.descriptors(group: sidebar)
     }
 }

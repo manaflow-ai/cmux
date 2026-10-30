@@ -43,21 +43,21 @@ import Testing
         for (name, input) in inputs {
             let tokens = ThemeTokens.derive(from: input)
             let surface = tokens.windowBackground.withAlpha(1)
-            let lit = Palette.litGlyph(in: tokens).contrast(with: surface)
+            let lit = tokens.litGlyph.contrast(with: surface)
             let rest = tokens.textSecondary.composited(over: surface).contrast(with: surface)
             #expect(lit >= rest, "\(name): lit \(lit) against rest \(rest)")
             // With no accent hue to tell them apart, lit must be brighter than rest, not the same grey.
             if tokens.accent == tokens.textPrimary { #expect(lit > rest, "\(name): lit \(lit) against rest \(rest)") }
         }
         // The lift keeps the theme's hue: Clay Orange's lit glyph stays orange (coord-deputy 2026-10-21).
-        let clay = Palette.litGlyph(in: ThemeTokens.derive(from: try Self.input("Clay Orange")))
+        let clay = ThemeTokens.derive(from: try Self.input("Clay Orange")).litGlyph
         #expect(clay.red - clay.blue > 0.15, "Clay Orange lit \(clay)")
     }
 
     @Test func bothMoreButtonsRenderToTheContactSheet() throws {
         _ = NSApplication.shared
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         var shots: [(String, CGImage)] = []
         for theme in Self.themes {
             for glass in [false, true] {
@@ -86,7 +86,7 @@ import Testing
         let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         root.wantsLayer = true
         window.contentView = root
-        _ = ThemeStore.shared.apply(try input(theme))
+        _ = ThemeScope.app.store.apply(try input(theme))
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: try input(theme), animated: false)
         scope.root(root)
@@ -133,7 +133,7 @@ import Testing
                     // The reveal fades "⋮" in, and an offscreen fade never ends: show it revealed.
                     bar.moreButton.alphaValue = 1
                     bar.layoutSubtreeIfNeeded()
-                    bar.moreButton.frame = bar.moreFrame(revealed: true)
+                    bar.moreButton.frame = bar.moreFrame()
                     apply(look, to: bar.moreButton)
                 }
             }

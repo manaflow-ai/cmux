@@ -75,8 +75,9 @@ fn kind_schema(row: &Row) -> Value {
     match row.validation {
         Validation::Domain(DomainKind::BackdropSelection) => {
             let Kind::Choice(choices) = &row.kind else { return json!({ "type": "string" }) };
-            // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute path>`.
-            let path = json!({ "type": "string", "pattern": "^(system|file):/" });
+            // `system:<absolute path>` (a macOS wallpaper), `file:<absolute path>`
+            // or `folder:<absolute path>` (not `/` alone).
+            let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             return json!({ "anyOf": [choice(choices), path] });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
@@ -150,6 +151,33 @@ fn kind_schema(row: &Row) -> Value {
         Kind::NumberList(range) => json!({ "type": "array", "items": number(range) }),
         Kind::StringMap => {
             json!({ "type": "object", "additionalProperties": { "type": "string" } })
+        }
+        Kind::SoundRules => {
+            let events: Map<String, Value> = super::accepts::SOUND_RULE_EVENTS
+                .iter()
+                .map(|event| ((*event).to_owned(), json!({ "type": "string" })))
+                .collect();
+            json!({
+                "type": "object",
+                "additionalProperties": {
+                    "anyOf": [
+                        { "type": "string" },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "sound": { "type": "string" },
+                                "volume": { "type": "number", "minimum": 0, "maximum": 1 },
+                                "events": {
+                                    "type": "object",
+                                    "properties": events,
+                                    "additionalProperties": false,
+                                },
+                            },
+                            "additionalProperties": false,
+                        },
+                    ],
+                },
+            })
         }
     }
 }

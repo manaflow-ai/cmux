@@ -20,7 +20,8 @@
 # (gitignored). The next run skips the build when both still match, so a warm
 # tree costs about a second. Release and nightly builds pass --force.
 #
-# Needs the bun that webviews/package.json pins (scripts/check-webviews-bun-version.sh)
+# Needs the bun that webviews/package.json pins, or a newer one of the same major
+# (scripts/check-webviews-bun-version.sh),
 # and node 22.18 or newer. The fleet recipe provides both; locally:
 # curl -fsSL https://bun.sh/install | bash -s bun-v<pin>
 set -eu
@@ -73,10 +74,10 @@ missing_tool() {
 need_bun() {
   want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
-    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)}; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
+    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi
-  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ] && [ -n "$want" ] && [ "$(bun --version)" != "$want" ]; then
-    missing_tool "the cmux-next web bundles need bun $want; $(command -v bun) is bun $(bun --version)"
+  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ] && ! "$ROOT/scripts/check-webviews-bun-version.sh" --quiet; then
+    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; $(command -v bun) is bun $(bun --version); install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi
   "$ROOT/scripts/check-webviews-bun-version.sh"
   # `vp build` (the webviews app) runs on node when node is on PATH and on bun
@@ -116,14 +117,24 @@ fi
 if [ "$MODE" = from ]; then
   # The inspector page stays committed (optchat-chief compiles it in with
   # include_str!, and the brain build runs no bundle step): never removed here.
-  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js"; do
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js" "$INSPECTOR/index.html"; do
     [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
   done
+  # The check an in-tree build runs (build-optchat-inspector-web.sh --check): the page the
+  # prebuilt tree generated for this source key must be the committed one.
+  if ! cmp -s "$FROM_ROOT/$INSPECTOR/index.html" "$ROOT/$INSPECTOR/index.html"; then
+    echo "error: generated file is stale; run scripts/cmux-next/build-optchat-inspector-web.sh and commit: $INSPECTOR/index.html" >&2
+    exit 1
+  fi
   rm -f "$STAMP"
+  # An --out-root tree holds only what the builders wrote. The files a commit keeps in these
+  # directories (their GENERATED.md notes, which the app bundles) stay as the checkout has
+  # them, as an in-tree build leaves them: only untracked and ignored files are cleared, so a
+  # copy that fails part way never loses a tracked file (the fallback build rewrites the rest).
   for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
-    rm -rf "${ROOT:?}/$path"
-    mkdir -p "$(dirname "${ROOT:?}/$path")"
-    cp -R "$FROM_ROOT/$path" "$ROOT/$path"
+    mkdir -p "${ROOT:?}/$path"
+    git -C "$ROOT" clean -fdqx -- "$path"
+    cp -R "$FROM_ROOT/$path/." "$ROOT/$path/"
   done
   cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"

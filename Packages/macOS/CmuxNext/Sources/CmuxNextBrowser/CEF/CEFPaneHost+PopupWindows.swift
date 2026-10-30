@@ -56,7 +56,7 @@ extension CEFPaneHost {
             tab.handle(.address(browser: browser, url: entry.url))
             if !entry.title.isEmpty { tab.handle(.title(browser: browser, title: entry.title)) }
         }
-        tab.reachedFirstRealPage()
+        tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
         opener.emit(.openPopup(tab, BrowserPopupRequest(features: bounds)))
     }

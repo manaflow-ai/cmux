@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
+import { devHighlightWorker } from "./support/devHighlightWorker";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
@@ -35,6 +37,9 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
+      // The dev server serves no built highlight worker, so its code cards stay plain (#25876) and
+      // never highlight: the page runs Pierre's own worker, as the app's does.
+      plugins: [devHighlightWorker()],
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
@@ -47,16 +52,15 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
 
   test("a code card is never shorter than its plain text while it highlights", async () => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    await installPaintedFrames(page);
     await page.addInitScript(() => {
-      // Each frame: the height of every code card, top to bottom.
+      // Each painted frame: the height of every code card, top to bottom.
       const frames: number[][] = [];
       (window as unknown as { codeCardHeights: number[][] }).codeCardHeights = frames;
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const cards = [...document.querySelectorAll(".cv-codeblock")];
         if (cards.length) frames.push(cards.map((card) => Math.round(card.getBoundingClientRect().height)));
-        requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+      });
     });
     await page.goto(stageURL());
     // Highlighted: every card's body has Pierre's painted lines.
@@ -64,7 +68,7 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
       const bodies = [...document.querySelectorAll(".cv-codeblock__body")];
       return bodies.length === 3 && bodies.every((body) => body.shadowRoot?.querySelector("[data-line]"));
     });
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     const frames = await page.evaluate(() => (window as unknown as { codeCardHeights: number[][] }).codeCardHeights);
     await page.close();
     const drawn = frames.filter((heights) => heights.length === 3);

@@ -1,3 +1,4 @@
+use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -72,12 +73,12 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
         .filter(|hook| hook.enabled)
         .map(|hook| hook.manifest)
         .collect::<Vec<_>>();
-    let terminal_ids = snapshot["terminals"]
+    let terminal_ids = JsonFields::field(&snapshot, "terminals")
         .as_array()
         .context("session snapshot terminals is not an array")?
         .iter()
         .map(|terminal| {
-            terminal["id"]
+            JsonFields::field(terminal, "id")
                 .as_str()
                 .context("session snapshot terminal id is not a string")
                 .and_then(|terminal_id| TerminalPublicId::parse(terminal_id).map_err(Into::into))
@@ -100,9 +101,9 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
     let (verify_snapshot, head_after) =
         crate::resource_api::public_session_snapshot_with_journal_head(mux)
             .map_err(|error| anyhow::anyhow!("verify public session snapshot: {error:?}"))?;
-    let cursor_after = verify_snapshot["cursor"].clone();
+    let cursor_after = verify_snapshot.field("cursor").clone();
     anyhow::ensure!(
-        head_before == head_after && snapshot["cursor"] == cursor_after,
+        head_before == head_after && *snapshot.field("cursor") == cursor_after,
         "session changed during checkpoint capture"
     );
     Ok(Some(CapturedCheckpoint {
@@ -201,7 +202,7 @@ fn terminal_replay_blob_with_recovery(
                 ));
             }
         }
-        let (cols, rows, replay) = captured.expect("replay recovery must either capture or return");
+        let (cols, rows, replay) = captured.context("replay recovery returned no capture")?;
         (cols, rows, replay, recovered)
     };
     let epoch_after = surface
@@ -528,8 +529,8 @@ impl RestoreReducer {
 
     fn apply_terminal_output(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.payload["format"].as_str() == Some("cmux.terminal-output.v1")
-                && record.payload["encoding"].as_str() == Some("raw"),
+            record.payload.field("format").as_str() == Some("cmux.terminal-output.v1")
+                && record.payload.field("encoding").as_str() == Some("raw"),
             "terminal output replay metadata is invalid"
         );
         let bytes = record
@@ -548,7 +549,7 @@ impl RestoreReducer {
             "terminal output replay offsets are invalid"
         );
         anyhow::ensure!(
-            record.payload["sha256"].as_str()
+            record.payload.field("sha256").as_str()
                 == Some(encode_hex(Sha256::digest(bytes).as_slice()).as_str()),
             "terminal output replay digest is invalid"
         );
@@ -573,7 +574,7 @@ impl RestoreReducer {
 
     fn apply_terminal_resize(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
-            record.payload["format"].as_str() == Some("cmux.terminal-geometry.v1"),
+            record.payload.field("format").as_str() == Some("cmux.terminal-geometry.v1"),
             "terminal resize replay metadata is invalid"
         );
         anyhow::ensure!(record.terminal_output.is_none(), "terminal resize contains output bytes");
@@ -667,20 +668,19 @@ impl RestoreReducer {
             self.resources.contains_key(collection)
                 && matches!(kind, "upsert" | "delete")
                 && (kind == "delete" || change.get("value").is_some())
-                && (kind == "delete" || change["value"]["id"].as_str() == Some(id))
+                && (kind == "delete" || change.field("value").field("id").as_str() == Some(id))
         })
     }
 
     fn apply_resource_change(&mut self, change: &Value) -> anyhow::Result<()> {
-        let kind = change["kind"].as_str().context("validated replay change omitted kind")?;
-        let resource =
-            change["resource"].as_str().context("validated replay change omitted resource")?;
-        let id = change["id"].as_str().context("validated replay change omitted id")?;
+        let text = |key| change.field(key).as_str();
+        let kind = text("kind").context("validated replay change omitted kind")?;
+        let resource = text("resource").context("validated replay change omitted resource")?;
+        let id = text("id").context("validated replay change omitted id")?;
         if resource == "session" {
-            let snapshot = self.state["session_snapshot"]
-                .as_object_mut()
-                .context("checkpoint session_snapshot is not an object")?;
-            snapshot.insert("session".into(), change["value"].clone());
+            let snapshot = self.state.get_mut("session_snapshot").and_then(Value::as_object_mut);
+            let snapshot = snapshot.context("checkpoint session_snapshot is not an object")?;
+            snapshot.insert("session".into(), change.field("value").clone());
             return Ok(());
         }
         let collection = resource_collection(resource).context("validated replay resource")?;
@@ -688,7 +688,7 @@ impl RestoreReducer {
             self.resources.get_mut(collection).context("validated replay collection is absent")?;
         match kind {
             "upsert" => {
-                values.insert(id.into(), change["value"].clone());
+                values.insert(id.into(), change.field("value").clone());
             }
             "delete" => {
                 values.remove(id);
@@ -806,11 +806,9 @@ fn gzip_deterministic(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
+    for nibble in bytes.iter().flat_map(|byte| [byte >> 4, byte & 0x0f]) {
+        encoded.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
     }
     encoded
 }

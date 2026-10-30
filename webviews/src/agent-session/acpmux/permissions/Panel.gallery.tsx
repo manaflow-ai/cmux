@@ -101,6 +101,14 @@ const refreshErrorState: PermissionClientState = {
   error: "Permission service is temporarily unavailable.",
 };
 
+// A chat on another machine whose acpmux allows only from its own app (Leo 2026-10-21: "this
+// literally doesn't work"): only Deny, which counts, and where to approve.
+const allowRefusedState: PermissionClientState = {
+  ...baseState,
+  groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }],
+  allowRefused: "permission.person_required",
+};
+
 const uncertainState: PermissionClientState = {
   ...baseState,
   groups: [],
@@ -267,6 +275,10 @@ export default componentEntry<Props>({
       note: "Allow records the selected decision while the host owns the eventual state update.",
       props: { state: baseState, ...callbacks },
       play: allowOnce,
+    },
+    "allow-refused": {
+      note: "A chat on another machine that allows only from its own app: no Allow or Always that could not count, only Deny, and where to approve instead.",
+      props: { state: allowRefusedState, ...callbacks },
     },
     collecting: {
       note: "A batching group announces that requests are still being collected.",

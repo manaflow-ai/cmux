@@ -34,16 +34,24 @@ no_install() {
   echo "error: $1 is not on PATH and CMUX_WEB_BUNDLES_NO_INSTALL=1 forbids installing it; install the host's pinned tools (nx-remote install-host)" >&2
   exit 1
 }
+# The cache's builds come from the pinned bun, so a host with another bun gets the pin
+# installed next to the cache. Under NO_INSTALL a newer bun of the same major on PATH
+# (scripts/check-webviews-bun-version.sh) builds instead of failing the lane, under a cache
+# key that names its bun, so a pinned job never installs bundles another bun built.
+key_bun=""
 if [ "$(bun --version 2>/dev/null || true)" != "$bun_pin" ]; then
-  if [ ! -x "$tools/bun-$bun_pin/bin/bun" ] && [ "${CMUX_WEB_BUNDLES_NO_INSTALL:-0}" = 1 ]; then
-    no_install "bun $bun_pin"
-  fi
-  if [ ! -x "$tools/bun-$bun_pin/bin/bun" ]; then
+  if [ -x "$tools/bun-$bun_pin/bin/bun" ]; then
+    export PATH="$tools/bun-$bun_pin/bin:$PATH"
+  elif [ "${CMUX_WEB_BUNDLES_NO_INSTALL:-0}" = 1 ]; then
+    scripts/check-webviews-bun-version.sh --quiet || no_install "bun $bun_pin or newer"
+    key_bun="-bun$(bun --version)"
+    echo "using $(command -v bun) (bun $(bun --version)), newer than the pinned bun $bun_pin"
+  else
     echo "installing bun $bun_pin into $tools/bun-$bun_pin"
     mkdir -p "$tools"
     curl -fsSL https://bun.sh/install | BUN_INSTALL="$tools/bun-$bun_pin" bash -s "bun-v$bun_pin" > /dev/null
+    export PATH="$tools/bun-$bun_pin/bin:$PATH"
   fi
-  export PATH="$tools/bun-$bun_pin/bin:$PATH"
 fi
 if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 18) ? 0 : 1)' 2>/dev/null; then
   node_dir="$tools/node-v$NODE_PIN-darwin-$(uname -m | sed 's/x86_64/x64/')"
@@ -58,7 +66,7 @@ if ! node -e 'const [a, b] = process.versions.node.split(".").map(Number); proce
   export PATH="$node_dir/bin:$PATH"
 fi
 
-key="${CMUX_WEB_BUNDLES_KEY:-$(python3 scripts/cmux-next/web-bundle-key.py . --source)}"
+key="${CMUX_WEB_BUNDLES_KEY:-$(python3 scripts/cmux-next/web-bundle-key.py . --source)}$key_bun"
 entry="$CACHE/web-bundles/$key"
 if [ ! -d "$entry" ]; then
   echo "building the web bundles for source key ${key:0:12}"

@@ -10,6 +10,8 @@ public struct ComposerSubmit: Equatable, Sendable {
     public enum Step: Equatable, Sendable {
         /// The whole draft, one paste (several lines stay one paste).
         case paste(String)
+        /// The draft as typed keys (a one-line draft for a full-screen app).
+        case type(String)
         /// Return, as a separate write once the paste is out.
         case enter
     }
@@ -17,12 +19,31 @@ public struct ComposerSubmit: Equatable, Sendable {
     /// Time between the paste and its Return: the paste leaves in its own
     /// write and a program reading in bursts sees Return after it, not in it.
     public static let enterDelay: Duration = .milliseconds(60)
+    /// Time between typed text and its Return: past the window in which an
+    /// agent's paste-burst detection (Codex: about 120 ms after a burst of
+    /// unbracketed characters) takes Return for a newline (Codex QA F1),
+    /// should one run on the alternate screen.
+    public static let typedEnterDelay: Duration = .milliseconds(250)
+
+    /// The wait before Return: after a paste, after typed text, or none.
+    public var enterWait: Duration? {
+        switch steps.first {
+        case .paste: Self.enterDelay
+        case .type: Self.typedEnterDelay
+        case .enter, nil: nil
+        }
+    }
 
     public let steps: [Step]
 
-    public init(text: String, pressReturn: Bool) {
+    /// `fullScreenApp`: the program is on the alternate screen (vim, less,
+    /// htop). A one-line draft is typed there: vim takes a bracketed paste
+    /// as text even in normal mode, so `:q` was inserted, not run.
+    public init(text: String, pressReturn: Bool, fullScreenApp: Bool = false) {
         var steps: [Step] = []
-        if !text.isEmpty { steps.append(.paste(text)) }
+        if !text.isEmpty {
+            steps.append(fullScreenApp && !text.contains(where: \.isNewline) ? .type(text) : .paste(text))
+        }
         if pressReturn { steps.append(.enter) }
         self.steps = steps
     }
@@ -44,8 +65,6 @@ public struct ComposerSubmit: Equatable, Sendable {
         return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// Whether Return waits for `enterDelay` (it follows a paste).
-    public var delaysEnter: Bool {
-        steps.first.map { if case .paste = $0 { true } else { false } } ?? false
-    }
+    /// Whether Return waits (it follows a paste or typed text: `enterWait`).
+    public var delaysEnter: Bool { enterWait != nil }
 }

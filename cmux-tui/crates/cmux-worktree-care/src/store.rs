@@ -70,6 +70,11 @@ impl Store {
         self.dir.join(format!("{id}.bundle"))
     }
 
+    /// The bounded finished-answer memo shared by every daemon on this host.
+    pub fn finished_path(&self) -> PathBuf {
+        self.dir.join("finished-answers.json")
+    }
+
     pub fn save(&self, manifest: &Manifest) -> Result<(), String> {
         let path = self.manifest_path(&manifest.id);
         let temporary = self.dir.join(format!(".{}.json.tmp", manifest.id));
@@ -91,6 +96,10 @@ impl Store {
             .flatten()
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            // The finished-answer memo shares this directory but is not a
+            // manifest. In particular, do not read it here: FinishedMemo
+            // owns its bounded, validated loader.
+            .filter(|path| path.file_name().is_none_or(|name| name != "finished-answers.json"))
             .filter_map(|path| std::fs::read(path).ok())
             .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
             .collect();
@@ -105,8 +114,41 @@ impl Store {
         self.list()
             .into_iter()
             .filter(|m| m.restored_ms.is_none())
-            .find(|m| m.id == key || m.branch.as_deref() == Some(key) || m.path == path)
+            .find(|m| m.id == key || m.branch.as_deref() == Some(key) || same_folder(&m.path, path))
     }
+}
+
+/// `path` with its nearest existing ancestor resolved through links and the
+/// rest kept as written. A reclaimed worktree's folder no longer exists, so
+/// canonicalizing it fails; its parent still does. `~/.cmux/worktrees` is a
+/// link to `~/.cmux/worktrees.noindex` on macOS, and git records a worktree
+/// added through it by the real path, while a session keeps the path it was
+/// given: both resolve to the same folder here.
+pub fn resolved(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = path;
+    loop {
+        if let Ok(real) = std::fs::canonicalize(at) {
+            return rest.iter().rev().fold(real, |acc, part| acc.join(part));
+        }
+        match (at.parent(), at.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_os_string());
+                at = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// Whether two paths name the same folder, whether or not it exists now.
+pub fn same_folder(a: &Path, b: &Path) -> bool {
+    a == b || resolved(a) == resolved(b)
+}
+
+/// Whether `path` is `folder` or inside it, whether or not either exists now.
+pub fn inside_folder(path: &Path, folder: &Path) -> bool {
+    path.starts_with(folder) || resolved(path).starts_with(resolved(folder))
 }
 
 /// A new archive id: the time and the folder's name, readable in a listing
@@ -173,5 +215,33 @@ pub(crate) mod care_tests {
         assert_eq!(store.load("1-a").unwrap(), manifest);
         store.save(&Manifest { restored_ms: Some(2), ..manifest }).unwrap();
         assert!(store.find("1-a").is_none());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_gone_folder_matches_through_a_linked_parent() {
+        let dir = std::env::temp_dir().join(format!("cmux-care-resolved-{}", std::process::id()));
+        let real = dir.join("worktrees.noindex");
+        std::fs::create_dir_all(real.join("app")).unwrap();
+        let link = dir.join("worktrees");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink("worktrees.noindex", &link).unwrap();
+        // git recorded the real path; the session kept the linked one; the folder is gone
+        let recorded = real.join("app/fix-retry");
+        let cwd = link.join("app/fix-retry");
+        assert!(same_folder(&recorded, &cwd));
+        assert!(inside_folder(&cwd.join("sub"), &recorded));
+        assert!(!same_folder(&recorded, &link.join("app/other")));
+        // A live session registered with the linked cwd still holds the worktree git lists by
+        // its real path, so a cleanup pass keeps it.
+        std::fs::create_dir_all(&recorded).unwrap();
+        let session = [crate::procs::Process { pid: u32::MAX, cwd: cwd.join("src") }];
+        assert!(crate::procs::inside(&session, &recorded).is_some());
+        assert!(crate::procs::inside(&session, &real.join("app/other")).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

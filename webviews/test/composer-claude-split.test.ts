@@ -99,6 +99,26 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     },
   ];
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
+  /** Resolves once the pointer is over the `index`th element `selector` matches, as the page sees it,
+   *  and its highlight has eased in. */
+  const pointedAt = async (page: Page, selector: string, index: number) => {
+    await page.waitForFunction(
+      ([selector, index]) => document.querySelectorAll(selector)[index]?.matches(":hover") === true,
+      [selector, index] as const,
+    );
+    await eased(page);
+  };
+
   const open = async (engine: string, stage: Stage, width = 760) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
     await page.goto(stageURL(stage.entry, stage.variant, width));
@@ -108,7 +128,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.mouse.move(1, 1);
-    await page.waitForTimeout(200);
+    await eased(page);
     return page;
   };
 
@@ -142,6 +162,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
             mode: !!card.querySelector(".acpmux-access"),
           },
           mode: text(root.querySelector(".acpmux-composer-foot .acpmux-mode-text")),
+          // The mode button leads with its symbol, then its name (Leo 2026-10-21: Codex's "(!) Full access").
+          modeSymbol: rect(root.querySelector(".acpmux-composer-foot .acpmux-access-trigger > svg:first-child")),
           model: text(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button > span")),
           effort: text(
             root.querySelector(
@@ -183,14 +205,13 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         if (stage.sendAtRest) expect(at.send, "Send is in the box").not.toBeNull();
         else expect(at.send, "no Send with an empty draft").toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
-        // The mode on the left, on the prompt's text edge (16 px in from the box, Claude Code's). A
-        // New Tab page before its chat starts may have no mode yet; the model button stays right.
+        // The harness is selected from the model picker rail. The quiet row starts with Access,
+        // then the model button, and keeps the context ring at the trailing edge.
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
         if (at.mode) {
-          expect(Math.abs(at.mode.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(
-            3,
-          );
-          expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode.right + 40);
+          expect(at.modeSymbol, "the mode draws its symbol").not.toBeNull();
+          expect(at.mode.left, "the mode's name follows its symbol").toBeGreaterThan(at.modeSymbol!.right);
+          expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode.right);
         }
         expect(at.model!.left, "the model sits in the row's right half").toBeGreaterThan(
           at.box.left + at.box.width / 2,
@@ -302,7 +323,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       expect(count, "the + menu lists its actions").toBeGreaterThan(1);
       const last = (await rows.nth(count - 1).boundingBox())!;
       await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2);
-      await page.waitForTimeout(200);
+      await pointedAt(page, ".acpmux-menu .acpmux-menu-item", count - 1);
       const plusRows = await highlighted(".acpmux-menu .acpmux-menu-item");
       expect(plusRows.filter(Boolean).length, "one + row is lit").toBe(1);
       expect(plusRows[count - 1], "the row under the pointer").toBe(true);
@@ -319,7 +340,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
       if (listed && (await files.count()) > 1) {
         const second = (await files.nth(1).boundingBox())!;
         await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2);
-        await page.waitForTimeout(200);
+        await pointedAt(page, ".acpmux-mention-row", 1);
         const fileRows = await highlighted(".acpmux-mention-row");
         expect(fileRows.filter(Boolean).length, "one file row is lit").toBe(1);
         expect(fileRows[1], "the file under the pointer").toBe(true);

@@ -29,10 +29,12 @@ public extension NSWindow {
         return CGPoint(x: x, y: y)
     }
 
-    /// Fades the popup's card in and grows it about `pivot`. A fresh open
-    /// (the owner left the window at alpha 0) starts from nothing; a reopen
-    /// during the close continues from what is on screen.
-    func openPopup(pivot: CGPoint) {
+    /// Opens the popup at `pivot`. Popups use their shared entrance motion by
+    /// default; menu callers opt out explicitly so they appear in one frame. A
+    /// fresh animated open (the owner left the window at alpha 0) starts from
+    /// nothing; a reopen during the close continues from what is on screen.
+    func openPopup(pivot: CGPoint, entrance: Bool = true) {
+        guard entrance else { return showPopupAtOnce() }
         guard let content = contentView else {
             alphaValue = 1
             return
@@ -44,13 +46,7 @@ public extension NSWindow {
         }
         let reopening = layer.animation(forKey: "opacity") != nil || layer.animation(forKey: "sublayerTransform") != nil
         let fresh = !reopening && alphaValue < 1
-        guard Motion.canAnimate(in: content) else {
-            layer.removeAnimation(forKey: "opacity")
-            layer.removeAnimation(forKey: "sublayerTransform")
-            setPopupLayer(layer, opacity: 1, transform: CATransform3DIdentity)
-            alphaValue = 1
-            return
-        }
+        guard Motion.canAnimate(in: content) else { return showPopupAtOnce() }
         Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn,
                    from: fresh ? NSNumber(value: Float(0)) : nil)
         if Motion.overlays.animatesMovement {
@@ -62,7 +58,22 @@ public extension NSWindow {
             setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
         }
         // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
+        // perf-gate-ok: one commit per popup open (no flash of the full card); a theme change never opens one.
         CATransaction.flush()
+        alphaValue = 1
+    }
+
+    /// Shows the popup's card at its size and full opacity in this frame, ending any open or close
+    /// on screen: the open with no entrance (a page that asks for none, the New Tab; or no motion).
+    func showPopupAtOnce() {
+        if let content = contentView {
+            content.wantsLayer = true
+            if let layer = content.layer {
+                layer.removeAnimation(forKey: "opacity")
+                layer.removeAnimation(forKey: "sublayerTransform")
+                setPopupLayer(layer, opacity: 1, transform: CATransform3DIdentity)
+            }
+        }
         alphaValue = 1
     }
 
@@ -135,7 +146,9 @@ public final class PopupFade {
             parent.addChildWindow(window, ordered: .above)
         }
         window.orderFront(nil)
-        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor)) }
+        // The icon picker is a menu-like control: the instant-menu rule applies
+        // even though PopupFade also services animated card panels.
+        if opening { window.openPopup(pivot: window.popupPivot(toward: anchor), entrance: false) }
     }
 
     /// Fades `window` out toward `anchor`, then takes it off its window.

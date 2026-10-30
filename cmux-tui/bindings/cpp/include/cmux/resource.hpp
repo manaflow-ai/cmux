@@ -728,12 +728,23 @@ struct LayoutColumnDock {
     std::string mode;
 };
 
+/// One row of a column (rows-v1): its stable id and its height in
+/// permille of the column's viewport height (100 to 1000). Only row 1 may
+/// omit `row_id`, in a document sent to `apply_layout`.
+struct LayoutRow {
+    std::optional<SplitId> row_id;
+    std::uint16_t height = 1000;
+};
+
 struct LayoutColumn {
     SplitId column_id;
     double width = 1.0;
     std::shared_ptr<const LayoutNode> root;
     /// The column's dock flag (dock-columns-v1); empty while it scrolls.
     std::optional<LayoutColumnDock> dock;
+    /// The column's rows top to bottom (rows-v1); empty for a column with
+    /// one row. Row 2..n's `row_id` is its compat chain split in `root`.
+    std::vector<LayoutRow> rows;
 };
 
 struct LayoutViewport {

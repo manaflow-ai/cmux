@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation
@@ -7,7 +8,7 @@ extension ChatColumnPlacement {
     /// What a person's new tab from `controller`'s pane becomes.
     @MainActor static func resolve(from controller: PaneController, services: AppServices) -> ChatColumnPlacement {
         guard let content = controller.workspace,
-              content.daemon.supports(DaemonCapabilities.shared.dockColumnRole),
+              content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
               let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
         let columns = columns(of: screen, containing: controller.layoutPaneID)
         // A zoomed screen maps to its zoomed pane alone (LayoutMapping).
@@ -47,17 +48,21 @@ extension ChatColumnPlacement {
             PaneHandlers.focus(target, in: content)
             return strip
         case .dockChat:
-            guard let respawn, controller.daemon.supports(DaemonCapabilities.shared.tabColumnRespawn),
+            guard let respawn, controller.daemon.supports(DaemonCapability.tabColumnRespawn.rawValue),
                   let chat = controller.pane.tabs.first else { return controller }
-            // The new tab left in the pane takes focus, not the docked chat.
+            // The new tab left in the pane takes focus, not the docked chat. The chat stays where it
+            // shows; only the pane with the new tab comes in, from the right (as AgentBesidePlacement).
             let pane = controller.layoutPaneID
-            TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
-                                     respawn: respawn, services: services) { [weak content, weak controller] moved in
-                if moved, let content { PaneHandlers.focus(pane, in: content) }
-                // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
-                if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
-                    services.paneTabBars.set(nil, for: controller.paneKey)
-                    controller.apply(controller.snapshot())
+            content.layoutModel.handOffContent(of: pane) { done in
+                TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
+                                         respawn: respawn, services: services) { [weak content, weak controller] moved in
+                    done(moved)
+                    if moved, let content { PaneHandlers.focus(pane, in: content) }
+                    // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
+                    if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
+                        services.paneTabBars.set(nil, for: controller.paneKey)
+                        controller.apply(controller.snapshot())
+                    }
                 }
             }
             return nil
@@ -84,7 +89,8 @@ extension ChatColumnPlacement {
                 return nil
             })
         case .browser(let url, let engine, let profileID)? where !isNewTabAddress(url, services: services):
-            // The daemon makes a browser tab aimed at the lone dock in a new column right of it.
+            // A browser tab aimed at the lone dock opens in a new column right of it (the daemon's
+            // reroute, or PaneBrowserTabOpener's move while the dock takes tabs).
             controller.newBrowserTab(url: URL(string: url), engine: engine.rawValue, profile: profileID)
         case .browser?, nil:
             NewTabPage.split(controller, edge: .right)

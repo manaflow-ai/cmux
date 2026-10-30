@@ -1,5 +1,4 @@
 import AppKit
-public import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextDaemonService
 import CmuxNextDesign
@@ -54,25 +53,6 @@ enum DaemonRestartPrompt {
         if recovery.isRestarting { return DaemonRecoveryStrings.restarting }
         return recovery.restartFailure == nil ? nil : DaemonRecoveryStrings.failed
     }
-
-    /// The App Store's disconnected banner controls (AppStoreModel.recovery).
-    static func appsRecovery(_ recovery: DaemonRecovery) -> AppsRecovery {
-        guard recovery.canRetry else { return AppsRecovery(actions: [], status: nil) }
-        var actions = [AppsRecoveryAction(id: "retryNow", title: DaemonRecoveryStrings.retryNow, isEnabled: !recovery.isRestarting) {
-            recovery.retryNow()
-        }]
-        if recovery.offersRestart || recovery.isRestarting {
-            actions.append(AppsRecoveryAction(id: "restart", title: DaemonRecoveryStrings.restart, isEnabled: !recovery.isRestarting) {
-                confirm(recovery, in: NSApp.keyWindow)
-            })
-        }
-        return AppsRecovery(actions: actions, status: status(recovery))
-    }
-}
-
-extension DaemonRecovery {
-    /// The App Store's disconnected banner controls (AppStoreModel.recovery).
-    public var appsRecovery: AppsRecovery { DaemonRestartPrompt.appsRecovery(self) }
 }
 
 /// Retry Now and Restart cmux-tui under the launch window's failure

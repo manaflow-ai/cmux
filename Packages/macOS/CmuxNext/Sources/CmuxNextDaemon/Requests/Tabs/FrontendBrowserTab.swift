@@ -18,7 +18,7 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
         }
     }
     public static let command = "new-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserTabs
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
     public var url: String
     public var engine: BrowserEngine
     public var pane: PaneID?
@@ -67,7 +67,7 @@ public struct UpdateFrontendBrowserTabRequest: DaemonRequest {
         }
     }
     public static let command = "update-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserTabs
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabs.rawValue
     public var surface: SurfaceID
     public var url: String?
     public var title: String?
@@ -104,7 +104,7 @@ public struct SetFrontendBrowserTabProfileRequest: DaemonRequest {
         }
     }
     public static let command = "update-frontend-browser-tab"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.frontendBrowserTabProfile
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserTabProfile.rawValue
     public var surface: SurfaceID
     /// `default` or a lowercase UUID.
     public var profileID: String

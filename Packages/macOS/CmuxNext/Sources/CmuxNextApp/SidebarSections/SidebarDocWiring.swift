@@ -3,6 +3,7 @@ import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 
@@ -31,9 +32,14 @@ enum SidebarDocWiring {
 
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
         let local = services.machines.local, machines = services.machines
-        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
+        let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
+        // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
+        // `afterCurrent` keeps its row at the window's slot (PendingWorkspaceRows), `bottom` lists it last.
+        docSections.placesNewRowsFirst = { [weak services] in
+            (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
+        }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
@@ -44,6 +50,10 @@ enum SidebarDocWiring {
         }
         store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
+        if let data = local.launchSnapshotSidebarDoc {
+            local.launchSnapshotSidebarDoc = nil // read once: the daemon owns the document from here on
+            docMachines(machines).showLaunchSnapshot(data, in: store, connected: { local.connection != nil }, serves: serves) { layout.docLayout = $0 }
+        }
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }
         SidebarDocMachines.followFavicons(store, revision: { [weak services] in services?.favicons.revision },

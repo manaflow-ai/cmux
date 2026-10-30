@@ -103,6 +103,7 @@ const TREE: Record<string, Array<Omit<PickerEntry, "path">>> = {
 };
 
 async function list(path: string | null, options: { mode: PickerMode; hidden: boolean }): Promise<PickerListing> {
+  // fixed-wait: the stand-in host answers a listing after a round trip, as the app's does
   await new Promise((resolve) => setTimeout(resolve, 30));
   const dir = path == null || path === "~" ? HOME : path;
   const entries = TREE[dir];

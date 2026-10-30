@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -146,24 +147,58 @@ await requireBrowserLane("editor-page.test.ts", async () => {
     );
   }
 
+  /** Cmd-S, once the save it starts has ended: written, refused, or nothing to write. */
   async function save(page: Page) {
+    // Each save the store ends is counted, after it set the status the host's answer gave.
+    const before = await page.evaluate(() => {
+      const store = window.__cmuxEditor!.store as NonNullable<Window["__cmuxEditor"]>["store"] & { saves?: number };
+      if (store.saves === undefined) {
+        store.saves = 0;
+        const save = store.save.bind(store);
+        store.save = async (...args) => {
+          try {
+            return await save(...args);
+          } finally {
+            store.saves! += 1;
+          }
+        };
+      }
+      return store.saves;
+    });
     await page.keyboard.press("Meta+s");
-    await page.waitForFunction(() => document.documentElement.dataset.cmuxEditorStatus !== "saving");
-    // The status updates after the host answered; give the page a frame to settle.
-    await page.waitForTimeout(100);
+    await page.waitForFunction(
+      (before) => ((window.__cmuxEditor!.store as { saves?: number }).saves ?? 0) > before,
+      before,
+    );
   }
 
   /** The dev host's preferences file once `check` holds for it (the write is asynchronous). */
   async function preferencesWhen(check: (preferences: Record<string, unknown>) => boolean) {
     const target = path.join(stateDir, "editor-preferences.json");
-    for (let tries = 0; tries < 50; tries += 1) {
+    const read = () => {
       try {
         const preferences = JSON.parse(fs.readFileSync(target, "utf8"));
-        if (check(preferences)) return preferences;
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    throw new Error("preferences never matched");
+        return check(preferences) ? (preferences as Record<string, unknown>) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    // Read again each time the state folder changes.
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const watcher = fs.watch(stateDir, () => attempt());
+      const timer = setTimeout(() => {
+        watcher.close();
+        reject(new Error("preferences never matched within 5 s"));
+      }, 5_000);
+      const attempt = () => {
+        const preferences = read();
+        if (!preferences) return;
+        watcher.close();
+        clearTimeout(timer);
+        resolve(preferences);
+      };
+      attempt();
+    });
   }
 
   const editorText = (page: Page) =>
@@ -184,6 +219,7 @@ await requireBrowserLane("editor-page.test.ts", async () => {
       const fresh = async (colorScheme: "light" | "dark" = "light") => {
         await page?.close();
         page = await browser.newPage({ viewport: { width: 1000, height: 640 }, colorScheme });
+        await installPaintedFrames(page);
         return page;
       };
 
@@ -285,24 +321,30 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         expect(await asked()).toEqual(["commandPalette"]);
         expect(await monacoPalette()).toBe(false);
         expect(await editorText(page)).toBe("const a = 1;\n");
-        // The context menu's Command Palette item (its last row) runs the same command. Chosen from
-        // the keyboard: Monaco's menu did not take a synthetic mouse-up on its row here.
+        // The context menu's Command Palette row runs the same command. The right-click menu is the
+        // app's native menu (nativeEditorMenu.ts): the dev host notes its rows and picks the row
+        // the test names, as the person would in the app's NSMenu.
+        await page.evaluate(
+          (id) =>
+            ((window as unknown as { __cmuxEditorDev: { menuPick: string | null } }).__cmuxEditorDev.menuPick = id),
+          "editor.action.quickCommand",
+        );
         await page.click(".monaco-editor .view-lines", { button: "right" });
-        await page
-          .locator('.monaco-menu [role="menuitem"]', { hasText: "Command Palette" })
-          .first()
-          .waitFor({ timeout: 10_000 });
-        await page.keyboard.press("ArrowUp");
-        expect(
-          await page.evaluate(() => document.activeElement?.shadowRoot?.activeElement?.textContent ?? ""),
-        ).toContain("Command Palette");
-        await page.keyboard.press("Enter");
         await page.waitForFunction(
           () =>
             (window as unknown as { __cmuxEditorDev: { appActions: unknown[] } }).__cmuxEditorDev.appActions.length > 1,
           null,
           { timeout: 10_000 },
         );
+        const rows = await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { menus: { items: { id: string; label: string }[] }[] } }
+          ).__cmuxEditorDev.menus
+            .at(-1)!
+            .items.map((row) => row.label),
+        );
+        expect(rows).toContain("Command Palette");
+        expect(await page.locator(".monaco-menu").count()).toBe(0);
         expect(await asked()).toEqual(["commandPalette", "commandPalette"]);
         expect(await monacoPalette()).toBe(false);
       });
@@ -432,7 +474,13 @@ await requireBrowserLane("editor-page.test.ts", async () => {
             });
             const target = file(fileName, "const a = 1;\n");
             await openEditor(page, target, { highlighted: fileName.endsWith(".ts") });
-            await page.waitForTimeout(200);
+            // Shiki's themes are defined and set once its highlighter loads, plain text too; the
+            // observer has seen that switch once a frame after it has painted.
+            await page.evaluate(async () => {
+              const view = window.__cmuxEditor!.view() as unknown as { syntax: { getHighlighter(): Promise<unknown> } };
+              await view.syntax.getHighlighter();
+              await window.cmuxPaintFrame();
+            });
             const frames = await page.evaluate(
               () => (window as unknown as { __themeFrames: { classes: string; background: string }[] }).__themeFrames,
             );
@@ -472,6 +520,36 @@ await requireBrowserLane("editor-page.test.ts", async () => {
             )
           );
         });
+      });
+
+      test("resizing the editor does not show the scroller; scrolling it does", async () => {
+        await fresh();
+        // Counts every time an editor is marked scrolling (the mark clears 800 ms later, so a check
+        // of the attribute alone could miss it).
+        await page.addInitScript(() => {
+          const scope = window as unknown as { scrollMarks: number };
+          scope.scrollMarks = 0;
+          new MutationObserver((records) => {
+            for (const record of records)
+              if ((record.target as Element).hasAttribute("data-cmux-scrolling")) scope.scrollMarks++;
+          }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-cmux-scrolling"] });
+        });
+        const lines = Array.from({ length: 200 }, (_, index) => `const line${index} = ${index};`).join("\n");
+        await openEditor(page, file("long.ts", `${lines}\n`), { highlighted: true });
+        const marks = () => page.evaluate(() => (window as unknown as { scrollMarks: number }).scrollMarks);
+        const before = await marks();
+        // A pane or window resize changes the scroll size, not the scroll position.
+        await page.setViewportSize({ width: 700, height: 420 });
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.getLayoutInfo().width < 720);
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        expect(await marks()).toBe(before);
+        await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.setScrollTop(400));
+        await page.waitForFunction(
+          (count) => (window as unknown as { scrollMarks: number }).scrollMarks > count,
+          before,
+        );
       });
 
       test("a large file opens with highlighting and the minimap off, and takes typing", async () => {
@@ -553,7 +631,8 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
         expect(await focusContent(page)).toBe(true);
-        await page.waitForTimeout(100);
+        // A request kept for later tries again on the next frame.
+        await page.evaluate(() => window.cmuxPaintFrame());
         expect(await page.evaluate(() => document.activeElement?.closest(".find-pill") != null)).toBe(true);
         // Nothing has focus: the window's focus (WebKit's first responder) lands in Monaco.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

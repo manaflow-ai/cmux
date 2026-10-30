@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextCompat
 
 /// "cmux restarted after a problem": a small glass panel (opaque under
 /// Reduce Transparency, `Glass.makeOverlayPanel`) at the bottom of a
@@ -15,7 +16,7 @@ final class RestartNoticePanel {
     /// sized from it.
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private let onShowLog: (() -> Void)?
     private let onReport: (() -> Void)?
 
@@ -86,12 +87,12 @@ final class RestartNoticePanel {
         place()
         let center = NotificationCenter.default
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
-            observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.place() } // main-proof: observer on queue: .main
+            observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
+                self?.place()
             })
         }
-        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss() } // main-proof: observer on queue: .main
+        observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
+            self?.dismiss()
         })
     }
 
@@ -113,7 +114,6 @@ final class RestartNoticePanel {
     @objc private func report() { onReport?() }
 
     @objc func dismiss() {
-        for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)

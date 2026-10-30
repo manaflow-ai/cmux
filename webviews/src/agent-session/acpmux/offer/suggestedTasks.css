@@ -12,6 +12,7 @@
   color: var(--agent-text);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-tasks[data-quiet] {
   padding: 0;
@@ -76,12 +77,14 @@
   font-size: var(--text-detail);
   line-height: 16px;
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-error {
   margin-top: 2px;
   color: var(--agent-danger);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-actions {
   display: flex;
@@ -109,7 +112,6 @@
   background: none;
   color: var(--agent-text);
   font: inherit;
-  cursor: default;
 }
 .acpmux-task-action {
   flex: none;
@@ -211,6 +213,7 @@
   text-overflow: ellipsis;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-task-dot {
   flex: none;
@@ -223,7 +226,7 @@
   background: var(--agent-accent);
 }
 .acpmux-task-started[data-state="waiting"] .acpmux-task-dot {
-  background: var(--acpmux-warning);
+  background: var(--acpmux-needs-you-mark);
 }
 .acpmux-task-started[data-state="failed"] .acpmux-task-dot {
   background: var(--agent-danger);
@@ -238,10 +241,22 @@
   color: var(--acpmux-composer-dim);
 }
 
-/* "Received message from <title> ›": one muted 26px line in the thread. */
+/* "Received message from <title> ›": one muted 26px line in the thread, at the left with the
+   agent's text as another agent's message line is (`.cv-received__line`). Its row is a user row,
+   which puts a bubble at the right: the line takes the row's width. */
 .acpmux-task-received {
   display: flex;
+  flex: 1;
   min-width: 0;
+}
+.acpmux-task-received-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  margin-right: 4px;
+  color: var(--acpmux-composer-dim);
 }
 .acpmux-task-received-line {
   display: inline-flex;
@@ -256,19 +271,25 @@
   color: var(--acpmux-composer-dim);
   font-size: var(--text-control);
   white-space: pre;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-task-received-line:hover {
   background: var(--acpmux-composer-hover);
   color: var(--agent-text);
 }
+/* The title as the sender's chip: the theme's text at a low strength over glass. */
 .acpmux-task-received-title {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-sizing: border-box;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  line-height: 20px;
   color: var(--agent-text);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--agent-text) 35%, transparent);
-  text-underline-offset: 2px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-task-action,

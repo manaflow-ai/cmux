@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 
@@ -61,6 +62,7 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
+        // Both bars thin, on no track, and no header corner (SystemScrollers.follow).
         SystemScrollers.follow(scroll)
     }
 
@@ -117,8 +119,7 @@ final class FileListView: NSObject, FileContentView, NSTableViewDataSource, NSTa
     }
 
     @objc private func doubleClicked() {
-        let row = table.clickedRow
-        guard row >= 0, row < entries.count else { return }
+        guard let row = table.clickedRowIfValid, row < entries.count else { return }
         actions.activate(entries[row])
     }
 

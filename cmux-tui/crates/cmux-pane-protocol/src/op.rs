@@ -38,7 +38,10 @@ impl Risk {
     /// mutation must declare its risk; using this for one fails the build.
     /// Only `pane_op!` calls it, for the associated const `Op::RISK`, so the
     /// panic is const evaluation (a compile error), never a runtime panic.
-    #[allow(clippy::panic)]
+    #[allow(
+        clippy::panic,
+        reason = "const-evaluated by pane_op! (Op::RISK): a compile error, never a runtime panic"
+    )]
     pub const fn default_for(kind: OpKind) -> Self {
         match kind {
             OpKind::Read => Self::Read,

@@ -17,9 +17,10 @@ extension InputInvariants {
         var unsettled: [String] = []
         for window in observation.windows {
             out += model(window.model, window: window.id)
-            if isSettled(window) {
+            // Under a top page the parked workspace presents nothing; its content checks wait for the page to hide.
+            if window.topPage != true, isSettled(window) {
                 out += content(window)
-            } else {
+            } else if window.topPage != true {
                 unsettled.append(window.id)
             }
         }
@@ -56,7 +57,7 @@ extension InputInvariants {
         }
         let resolved = model.resolved
         // A Chromium browser tab or a cmux page in Chromium: its page window has the keys.
-        let childPage: String? = if let tab = resolved.tab, ["browserPage", "page"].contains(resolved.kind),
+        let childPage: String? = if let tab = resolved.tab, ["browserPage", "page", "agentPage"].contains(resolved.kind),
                                     window.childWindowTabs.contains(tab) { tab } else { nil }
         if let expected = expectedResponder(resolved, childPage: childPage), expected != window.responder {
             fail(.responderMatches, "appkit \(describe(window.responder)) (\(window.responderClass ?? "nil")) != model \(resolved.kind)")
@@ -85,7 +86,8 @@ extension InputInvariants {
         case .browserPage(let pane, _), .page(let pane, _): childPage == nil ? .content(pane: pane) : .windowOrNone
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
-        case .agentPage(let pane, _), .conversation(let pane, _): .content(pane: pane)
+        case .agentPage(let pane, _): childPage == nil ? .content(pane: pane) : .windowOrNone
+        case .conversation(let pane, _): .content(pane: pane)
         // A docked DevTools has the keys in its own child window, like a page.
         case .devTools: .windowOrNone
         case .sidebar: .sidebar
@@ -112,7 +114,7 @@ extension InputInvariants {
             let underlying = window.model.underlying
             // The page's window, or its docked DevTools window.
             let isChildPage: Bool = switch underlying {
-            case .browserPage(_, let tab), .devTools(_, let tab), .page(_, let tab): window.childWindowTabs.contains(tab)
+            case .browserPage(_, let tab), .devTools(_, let tab), .page(_, let tab), .agentPage(_, let tab): window.childWindowTabs.contains(tab)
             default: false
             }
             if !isChildPage, window.model.overlays.isEmpty {

@@ -10,6 +10,7 @@ final class FakeSimulatorHID: SimulatorHIDSending {
         case touches([PhoneTouch])
         case keys([PhoneKeyStroke])
         case button(page: UInt32, usage: UInt32)
+        case softwareKeyboard
     }
 
     private let state = Mutex<[Sent]>([])
@@ -23,6 +24,7 @@ final class FakeSimulatorHID: SimulatorHIDSending {
     func press(page: UInt32, usage: UInt32, on udid: String) async throws {
         state.withLock { $0.append(.button(page: page, usage: usage)) }
     }
+    func toggleSoftwareKeyboard(on udid: String) async throws { state.withLock { $0.append(.softwareKeyboard) } }
 }
 
 @Suite struct SimulatorLiveInputTests {

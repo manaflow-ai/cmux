@@ -1,7 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample prompts, versions, models and paths), not shipped UI.
 // Where a Claude Code chat's session started (SessionStartNote.tsx): what it runs on in one short
-// line, then how it compacts in one line; a click opens either. sr2's harness manages compaction;
-// the person's own Claude Code setup compacts the way Claude Code does.
+// line; a click opens the whole of it. No explainer line under it.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
@@ -31,7 +30,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SessionStartNote.tsx"],
   variants: {
     managed: {
-      note: 'A chat on sr2: "Claude Code · Opus 5.5 · sr2", then "cmux manages compaction · Learn more", each one quiet line.',
+      note: 'A chat on sr2: "Claude Code · Opus 5.5 · sr2", one quiet line and nothing under it.',
       snapshot: managed(),
     },
     details: {
@@ -42,16 +41,8 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-session-start__detail"));
       },
     },
-    explained: {
-      note: "Learn more opens how cmux manages the chat's compaction; the dismiss X stays on the line.",
-      snapshot: managed(),
-      play: async (ctx) => {
-        await ctx.click({ selector: ".cv-session-start__more" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-session-start__detail"));
-      },
-    },
     stock: {
-      note: 'A chat on the person\'s own Claude Code setup: "Claude Code · Opus 5.5", then "Claude Code compacts on its own · Learn more".',
+      note: 'A chat on the person\'s own Claude Code setup: "Claude Code · Opus 5.5", no route on the line.',
       snapshot: chat([
         user("Summarize the open PRs", 4),
         row("sessionStart", 4, start("claude")),

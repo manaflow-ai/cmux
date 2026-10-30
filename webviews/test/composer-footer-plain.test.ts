@@ -4,8 +4,9 @@
 // the rest of the difference away:
 //   - the model's name is muted like its effort and the permission mode (the model button names
 //     both, "Opus 5.5  Medium": Leo 2026-10-20, one button, no effort chip of its own);
-//   - the model's brand mark and the mode's lock are hidden (each comes back when the row's fit
-//     steps take the model's name or the mode's label away, so no chip is a bare chevron).
+//   - the model's brand mark is hidden (it comes back when the row's fit steps take the model's
+//     name away, so no chip is a bare chevron); the mode keeps its symbol beside its label, as
+//     Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label").
 //     The mode's chevron stays; the model button, as Claude Code's, draws none.
 // No chip draws a fill, ring or border at rest; hover, keyboard focus and an open menu draw the
 // row's wash. Labels and keyboard behavior are the same; widths may shrink with the icons hidden,
@@ -47,6 +48,8 @@ type Row = {
   accessLabel: boolean;
   look: string;
   content: { left: number; right: number };
+  modeAlignment: { actual: number; expected: number };
+  viewportWidth: number;
   chips: Chip[];
   boxes: Chip[];
 };
@@ -54,8 +57,7 @@ type Row = {
 await requireBrowserLane("composer-footer-plain.test.ts", async () => {
   /** Runs in the page: the footer's chips and every control's box. */
   function measure(): Row {
-    // The plain look moves the chips to the quiet row under the box (ComposerFoot.tsx); the other
-    // look keeps them in the box's row.
+    // The chips stay in the quiet row under the box in either look (ComposerFoot.tsx).
     const bar =
       document.querySelector<HTMLElement>(".acpmux-composer-foot") ??
       document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
@@ -100,6 +102,9 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     };
     const style = getComputedStyle(bar);
     const barRect = bar.getBoundingClientRect();
+    const boxRect = bar.closest(".acpmux-composer")?.querySelector(".acpmux-composer-box")?.getBoundingClientRect();
+    const access = bar.querySelector<HTMLElement>(".acpmux-access");
+    const modeStart = parseFloat(access ? getComputedStyle(access).marginInlineStart : "0") || 0;
     const chips = [
       ...read("model", ".acpmux-model .acpmux-picker-button", false),
       ...read("mode", ".acpmux-access-trigger"),
@@ -115,11 +120,18 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       accessLabel: [...bar.querySelectorAll('.acpmux-access-trigger [data-fit-part="access"]')].some(shown),
       look: bar.dataset.footerLook ?? "",
       content: {
-        left: barRect.left + parseFloat(style.paddingLeft),
-        right: barRect.right - parseFloat(style.paddingRight),
+        // The existing -5 px mode margin aligns its icon with + and may cross the footer box,
+        // but it must still remain inside the composer card.
+        left: Math.min(barRect.left + parseFloat(style.paddingLeft), boxRect?.left ?? barRect.left),
+        right: Math.max(barRect.right - parseFloat(style.paddingRight), boxRect?.right ?? barRect.right),
       },
       chips,
       boxes,
+      modeAlignment: {
+        actual: chips.find((each) => each.name === "mode")?.left ?? 0,
+        expected: barRect.left + parseFloat(style.paddingLeft) + modeStart,
+      },
+      viewportWidth: window.innerWidth,
     };
   }
 
@@ -182,7 +194,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
 
   const CLEAR = "rgba(0, 0, 0, 0)";
   const chip = (row: Row, name: string) => row.chips.find((each) => each.name === name);
-  /** No control overlaps the next, and all sit inside the bar's content box. */
+  /** No control overlaps, crosses the composer card or clips at the viewport edge. */
   const overlaps = (row: Row) => {
     const problems: string[] = [];
     row.boxes.forEach((box, index) => {
@@ -190,19 +202,40 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
       if (next && box.right > next.left + 0.5)
         problems.push(`${box.name} overlaps ${next.name} by ${(box.right - next.left).toFixed(1)} px`);
       if (box.left < row.content.left - 0.5 || box.right > row.content.right + 0.5)
-        problems.push(`${box.name} leaves the bar's content box`);
+        problems.push(`${box.name} leaves the composer card`);
+      if (box.left < -0.5 || box.right > row.viewportWidth + 0.5)
+        problems.push(`${box.name} clips at the viewport edge`);
     });
+    if (row.modeAlignment.actual && Math.abs(row.modeAlignment.actual - row.modeAlignment.expected) > 1)
+      problems.push("mode no longer follows its intentional footer alignment margin");
     return problems;
   };
 
-  // The fit follows the row the look draws: turned off after the composer shows (the Debug toggle
-  // flipped live), the box's own row still steps down as the pane narrows (composerRowFit.ts).
-  test("off after mount, the box's row still fits as the pane narrows", async () => {
+  // The fit follows the footer in either look, including when the plain styling is off.
+  test("live footer setting change refits a near-capacity row", async () => {
+    const page = await open(300, "light");
+    await plain(page, false);
+    await settle(page);
+    const before = await page.evaluate(measure);
+    await plain(page, true);
+    await settle(page);
+    const after = await page.evaluate(measure);
+    const problems = overlaps(after);
+    await page.close();
+    expect(before.look).toBe("");
+    expect(after.look).toBe("plain");
+    expect(problems).toEqual([]);
+    expect(
+      after.boxes.every((box) => box.left >= after.content.left - 0.5 && box.right <= after.content.right + 0.5),
+    ).toBe(true);
+  });
+
+  test("off after mount, the footer still fits as the pane narrows", async () => {
     const page = await open(760, "light");
     await plain(page, false);
     const fit = () =>
       page.evaluate(() => {
-        const bar = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-composer-bar")!;
+        const bar = document.querySelector<HTMLElement>(".acpmux-composer-foot")!;
         return [...bar.attributes]
           .filter(({ name }) => name.startsWith("data-fit-"))
           .map(({ name, value }) => `${name}=${value}`)
@@ -287,15 +320,17 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
           if (was && Math.abs(was.height - each.height) > 0.5) problems.push(`${each.name}'s height changed`);
           if (each.name !== "model" && !each.chevron) problems.push(`${each.name} lost its chevron`);
         }
-        // Muted like its effort: the name draws in the effort detail's own quiet ink.
+        // Muted: the name draws in the button's own quiet ink, and its effort one step back of it
+        // (#24151, Leo 2026-10-21: "Opus 5.5 Medium", the effort in secondary ink).
         const model = chip(row, "model");
-        const muted = model?.detailColor;
+        const muted = model?.color;
         if (model?.nameColor !== muted) problems.push(`the model name ${model?.nameColor} is not muted (${muted})`);
+        if (model?.detailColor !== undefined && model.detailColor === model.nameColor)
+          problems.push(`the effort ${model.detailColor} is not one step back of the model name`);
         if (row.modelLabel && model?.leadingIcon) problems.push("the model's brand mark still draws beside its name");
         if (!row.modelLabel && !model?.leadingIcon) problems.push("the stepped-down model chip has no mark");
         const mode = chip(row, "mode");
-        if (row.accessLabel && mode?.leadingIcon) problems.push("the mode's lock still draws beside its label");
-        if (!row.accessLabel && !mode?.leadingIcon) problems.push("the stepped-down mode chip has no lock");
+        if (!mode?.leadingIcon) problems.push("the mode chip lost its symbol");
         problems.push(...overlaps(row));
         if (back.look !== "" || JSON.stringify(back.chips) !== JSON.stringify(before.chips))
           problems.push("turning the look off does not draw the chips as before");

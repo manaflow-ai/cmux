@@ -74,6 +74,17 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
 
   /// The answers each page sent, as `_acpmux/permission_respond` params.
   const responses: Record<string, unknown>[] = [];
+  /// Called each time the pane answers an ask.
+  let onResponse: (() => void) | undefined;
+  /// Resolves once acpmux has heard an answer.
+  const answered = () =>
+    new Promise<void>((resolve) => {
+      if (responses.length > 0) return resolve();
+      onResponse = () => {
+        onResponse = undefined;
+        resolve();
+      };
+    });
   function answer(method: string, params: Record<string, any> = {}): unknown {
     const id = params.sessionId === REOPENED ? REOPENED : LIVE;
     switch (method) {
@@ -92,6 +103,7 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
         return { events: [], hasMore: false, lastSeq: steps.length };
       case "_acpmux/permission_respond":
         responses.push(params);
+        onResponse?.();
         return {};
       default:
         return null;
@@ -122,20 +134,12 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
     return page;
   };
   const card = (page: Page) => page.locator(".acpmux-permission-ask");
-  /// Waits until `read` returns a value `ok` accepts, and returns it (fails after 10 s).
-  const until = async <T>(read: () => T | Promise<T>, ok: (value: T) => boolean): Promise<T> => {
-    const deadline = Date.now() + 10_000;
-    for (;;) {
-      const value = await read();
-      if (ok(value) || Date.now() > deadline) return value;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
+  /// The card's text once it shows `text` (fails after 10 s).
+  const cardShowing = async (page: Page, text: string) => {
+    const shown = card(page).filter({ hasText: text }).first();
+    await shown.waitFor({ timeout: 10_000 });
+    return shown.textContent();
   };
-  const cardText = (page: Page) =>
-    card(page)
-      .first()
-      .textContent({ timeout: 1000 })
-      .catch(() => "");
 
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -185,43 +189,27 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
   test("the oldest ask shows first, says one more waits, and the next shows once it is answered", async () => {
     const page = await open(LIVE);
     await card(page).waitFor();
-    expect(await card(page).textContent()).toContain("Run npm test");
+    expect(await card(page).textContent()).toContain("npm test");
     expect(await card(page).textContent()).toContain("1 more waiting");
     responses.length = 0;
-    await card(page).getByRole("button", { name: "Yes" }).click();
-    const sent = await until(
-      () => responses.map((params) => params.permissionId),
-      (ids) => ids.length > 0,
-    );
-    expect(sent).toEqual(["p1"]);
+    await card(page).getByRole("button", { name: "Allow once" }).click();
+    await answered();
+    expect(responses.map((params) => params.permissionId)).toEqual(["p1"]);
     push(LIVE, ["mux", "permission_decision", { permissionId: "p1", optionId: "allow" }]);
-    const next = await until(
-      () => cardText(page),
-      (text) => (text ?? "").includes("Run git push"),
-    );
-    expect(next).toContain("Run git push");
+    const next = await cardShowing(page, "git push");
     expect(next).not.toContain("more waiting");
     push(LIVE, ["mux", "permission_decision", { permissionId: "p2", optionId: "allow" }]);
-    expect(
-      await until(
-        () => card(page).count(),
-        (n) => n === 0,
-      ),
-    ).toBe(0);
+    await card(page).first().waitFor({ state: "detached", timeout: 10_000 });
     await page.close();
   });
 
   test("a reopened chat lists every ask acpmux still holds", async () => {
     const page = await open(REOPENED);
     await card(page).waitFor();
-    expect(await card(page).textContent()).toContain("Run npm test");
+    expect(await card(page).textContent()).toContain("npm test");
     expect(await card(page).textContent()).toContain("1 more waiting");
     push(REOPENED, ["mux", "permission_decision", { permissionId: "p1", optionId: "allow" }]);
-    const next = await until(
-      () => cardText(page),
-      (text) => (text ?? "").includes("Run git push"),
-    );
-    expect(next).toContain("Run git push");
+    expect(await cardShowing(page, "git push")).toContain("git push");
     await page.close();
   });
 });

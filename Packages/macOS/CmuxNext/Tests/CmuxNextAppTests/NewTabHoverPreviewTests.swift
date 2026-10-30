@@ -10,7 +10,8 @@ import Testing
 /// Leo 2026-10-13: hovering a browser tab on the New Tab page showed a card with
 /// `chrome://newtab/` under the title and an all-black thumbnail (the New Tab page is a flat page
 /// in the theme background). A New Tab or blank page has no thumbnail and no address line; a
-/// flat capture (a page that had not painted) is no thumbnail either.
+/// flat capture (a page that had not painted, a terminal with only its prompt) is no thumbnail
+/// either.
 @MainActor @Suite(.serialized) struct NewTabHoverPreviewTests {
     @Test func aNewTabPageShowsNoAddressLine() {
         for url in ["chrome://newtab/", "about:blank"] {
@@ -26,7 +27,7 @@ import Testing
     @Test func aBlankOrNewTabPageHasNoThumbnail() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
         let key = "page"
         services.cache.install(page, for: key)
@@ -49,9 +50,12 @@ import Testing
         try await Self.until { BrowserNewTabPage.isNewTabPage(page.state.url) }
         #expect(await previews.previewImage(for: TabID(key), maxPixelSize: size) == nil, "the New Tab page had a preview")
 
-        // A terminal's picture is never a page capture: a mostly empty dark screen still shows.
+        // A terminal (#22653): a dark screen with lines of output shows, a flat capture (a shell
+        // showing only its prompt over a see-through background) is none, as a flat page is.
+        services.cache.previews.insert(try Self.terminalOutput(), for: "terminal")
+        #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) != nil, "a terminal's output was not its preview")
         services.cache.previews.insert(try Self.flat(), for: "terminal")
-        #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) != nil, "a terminal's dark preview was dropped")
+        #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) == nil, "a flat terminal capture was the preview")
     }
 
     /// macOS 27 CI (#20342): a New Tab load that replaces a page still loading showed the page
@@ -64,7 +68,7 @@ import Testing
         let old = try #require(URL(string: "data:text/html,<h1>cmux</h1>"))
         let blank = try #require(URL(string: BrowserNewTabPage.blankURL))
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { page.close() }
         let key = "page"
         services.cache.install(page, for: key)
@@ -99,6 +103,19 @@ import Testing
     /// The New Tab page in a dark theme: one flat near-black color.
     static func flat() throws -> CGImage {
         try image { $0.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.06, alpha: 1)); $0.fill(CGRect(x: 0, y: 0, width: 640, height: 400)) }
+    }
+
+    /// A terminal with output in a dark theme: a near-black screen with a few lines of light text
+    /// at the top, the rest empty.
+    static func terminalOutput() throws -> CGImage {
+        try image { context in
+            context.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.06, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 640, height: 400))
+            context.setFillColor(CGColor(gray: 0.8, alpha: 1))
+            for (line, width) in [520, 300, 460, 240, 560, 380].enumerated() {
+                context.fill(CGRect(x: 16, y: 400 - 26 - line * 24, width: width, height: 10))
+            }
+        }
     }
 
     /// A page with content: dark and light bands.

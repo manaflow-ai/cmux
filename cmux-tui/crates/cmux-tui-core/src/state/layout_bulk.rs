@@ -27,6 +27,7 @@ use crate::mux::*;
 use crate::state::prelude::*;
 use crate::state::store::StateCommit;
 use crate::workspace_registry::PresentationSnapshot;
+use cmux_json::JsonSet as _;
 
 /// The daemon serves `layout.bulk`.
 pub(crate) const CAPABILITY: &str = "layout-bulk-v1";
@@ -105,12 +106,15 @@ impl BulkRequest {
 /// An object a selector can choose: its public id, its container (the
 /// anchored selectors stay in it), its tabs, whether it is pinned, and
 /// whether it may close (the home workspace anchors but never closes).
+/// `dock_pinned`: it holds the pinned tab of a pinned column (Home's dock,
+/// `pinned-dock-v1`); a preset skips it, an explicit choice is refused.
 struct Item {
     id: String,
     container: u64,
     tabs: Vec<SurfaceId>,
     pinned: bool,
     closable: bool,
+    dock_pinned: bool,
 }
 
 fn pane_tabs(state: &State, pane: PaneId) -> Vec<SurfaceId> {
@@ -126,6 +130,8 @@ fn screen_tabs(state: &State, screen: &crate::model::Screen) -> Vec<SurfaceId> {
 /// Every object at `level`, container by container, each in its order.
 fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -> Vec<Item> {
     let mut items = Vec::new();
+    let dock = pinned_dock_tabs(state);
+    let dock_pinned = |tabs: &[SurfaceId]| tabs.iter().any(|tab| dock.contains(tab));
     for workspace in &state.workspaces {
         let home = presentation.home_workspace.as_deref() == Some(workspace.key.as_str());
         if level == BulkLevel::Workspace {
@@ -142,15 +148,19 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                     .get(&workspace.key)
                     .is_some_and(|record| record.pinned),
                 closable: !home,
+                // A whole workspace closes with its dock: no removal.
+                dock_pinned: false,
             });
             continue;
         }
         for screen in &workspace.screens {
             if level == BulkLevel::Screen {
+                let tabs = screen_tabs(state, screen);
                 items.push(Item {
                     id: screen.public_id.to_string(),
                     container: workspace.id,
-                    tabs: screen_tabs(state, screen),
+                    dock_pinned: dock_pinned(&tabs),
+                    tabs,
                     pinned: presentation.screens.is_pinned(screen.public_id.as_str()),
                     closable: true,
                 });
@@ -161,10 +171,12 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
             for pane in panes {
                 let Some(public) = state.resource_indexes.pane_ids.get(&pane) else { continue };
                 if level == BulkLevel::Pane {
+                    let tabs = pane_tabs(state, pane);
                     items.push(Item {
                         id: public.to_string(),
                         container: screen.id,
-                        tabs: pane_tabs(state, pane),
+                        dock_pinned: dock_pinned(&tabs),
+                        tabs,
                         pinned: false,
                         closable: true,
                     });
@@ -178,6 +190,7 @@ fn items(state: &State, presentation: &PresentationSnapshot, level: BulkLevel) -
                         tabs: vec![tab],
                         pinned: presentation.pinned_tabs.contains(id.as_str()),
                         closable: true,
+                        dock_pinned: dock.contains(&tab),
                     });
                 }
             }
@@ -248,6 +261,8 @@ fn choose(request: &BulkRequest, anchor: &str, items: Vec<Item>) -> anyhow::Resu
         .filter(|(_, item)| item.container == container)
         .filter(|(index, item)| match request.selector {
             BulkSelector::This => *index == position,
+            // A preset never takes Home's pinned column (`pinned-dock-v1`).
+            _ if item.dock_pinned => false,
             BulkSelector::Others => *index != position && !(skip_pinned && item.pinned),
             BulkSelector::ToRight => *index > position && !(skip_pinned && item.pinned),
             BulkSelector::ToLeft => *index < position && !(skip_pinned && item.pinned),
@@ -329,13 +344,19 @@ impl Mux {
         });
         if surfaces.is_empty() {
             let mut result = result;
-            result["closed_ids"] = json!([]);
+            result.set("closed_ids", json!([]));
             return Ok(StateCommit { revision, result, replayed: false, personal_revision: None });
         }
         let outcome = self.close_tabs_for_bulk(
             surfaces,
             request.end_terminals,
             OPERATION,
+            match request.level {
+                BulkLevel::Tab => crate::resource::ResourceOperation::TabClose,
+                BulkLevel::Pane => crate::resource::ResourceOperation::PaneClose,
+                BulkLevel::Screen => crate::resource::ResourceOperation::ScreenClose,
+                BulkLevel::Workspace => crate::resource::ResourceOperation::WorkspaceClose,
+            },
             &fingerprint,
             mutation,
             request.level == BulkLevel::Workspace,

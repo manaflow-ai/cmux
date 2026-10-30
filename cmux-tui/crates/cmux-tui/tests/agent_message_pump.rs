@@ -465,6 +465,41 @@ mod agent_message_pump {
         assert_eq!(daemon.prompts().len(), 1, "{:?}", daemon.prompts());
     }
 
+    /// A hand-over acpmux is slow to take (it still reads its chat logs, so
+    /// its `session/prompt` waits for them) holds up no other session's
+    /// message, and still goes out once when acpmux takes it.
+    #[test]
+    fn a_slow_hand_over_holds_up_no_other_delivery_while_acpmux_reads_its_chat_logs() {
+        let daemon = Daemon::start_owner_with_acpmux("pump-slow-logs");
+        let (_, alpha) = daemon.workspace("alpha");
+        daemon.place_session("slow", &alpha);
+        daemon.place_session("b", &alpha);
+        daemon.reading_chat_logs();
+        // `slow`'s prompt waits, unanswered, until the test opens its gate.
+        daemon.gate("slow");
+        let slow = id(&daemon.sent(None, to("acp:slow", "first, slow")));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while prompts_of(&daemon, &slow) == 0 {
+            assert!(Instant::now() < deadline, "the slow hand-over never reached acpmux");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let other = id(&daemon.sent(None, to("acp:b", "second, to another session")));
+        daemon.wait_for(&other, "the other delivery", |m| state(m, "acp:b") == "delivered");
+        // The slow hand-over is still out: the pump neither gave up on it nor
+        // made the other delivery wait for it.
+        let waiting = daemon.wait_for(&slow, "the slow message", |_| true);
+        assert_eq!(state(&waiting, "acp:slow"), "queued", "{waiting}");
+        assert_eq!(
+            delivery(&waiting, "acp:slow")["attempts"],
+            "0",
+            "the other delivery waited for the slow hand-over to time out: {waiting}"
+        );
+        daemon.open_gate("slow");
+        daemon.wait_for(&slow, "the slow delivery", |m| state(m, "acp:slow") == "delivered");
+        assert_eq!(prompts_of(&daemon, &slow), 1, "handed over twice: {:?}", daemon.prompts());
+        assert_eq!(prompts_of(&daemon, &other), 1, "handed over twice: {:?}", daemon.prompts());
+    }
+
     #[test]
     fn a_long_acpmux_refusal_fits_the_unsend_result() {
         let (daemon, a) = two_agents("unsend-long-reason");

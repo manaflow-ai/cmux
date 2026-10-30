@@ -18,6 +18,13 @@ enum ActionRouting {
             let routed = daemon(for: invocation, daemons: services.machines.daemons) { windowID in
                 windows.first { $0.state.id == windowID }.flatMap { services.machines.daemon(machine: $0.state.machineID) }
             }
+            // A native context menu carries an explicit machine owner. If that
+            // machine disappeared while the menu was open, refuse the action;
+            // falling back to the active daemon could mutate a same-ID tab here.
+            if invocation.targetMachineID != nil, routed == nil {
+                services.registry.refuseNotFound("The target machine is no longer connected.")
+                return
+            }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
             body()
@@ -30,6 +37,7 @@ enum ActionRouting {
     /// object's". `windowMachine` maps a window id to its machine's daemon.
     static func daemon(for invocation: ActionInvocation, daemons: [DaemonService],
                        windowMachine: (String) -> DaemonService?) -> DaemonService? {
+        if let machine = invocation.targetMachineID { return daemons.first { $0.machineID == machine } }
         let arguments = ["workspace", "tab", "pane", "group"].compactMap { invocation[$0]?.targetValue }
         guard let target = invocation.target ?? arguments.first else { return nil }
         switch target.kind {
@@ -51,9 +59,9 @@ enum ActionRouting {
             return daemons.first { $0.store.workspaces.flatMap(\.screens).contains { $0.id == target.id } }
         case .screenGroup:
             return GroupOwnership.daemon(holdingScreenGroup: ScreenGroupID(rawValue: target.id), in: daemons)
-        case .column, .browserProfile, .bookmark, .sidebarItem, .sidebarSection:
-            // Browser profiles, bookmarks and the sidebar layout are personal
-            // state, not a machine daemon's.
+        case .column, .browserProfile, .bookmark, .sidebarItem, .sidebarSection, .agentChat:
+            // Browser profiles, bookmarks, the sidebar layout and the Priority
+            // view's marks on a chat are personal state, not a machine daemon's.
             return nil
         case .profile:
             return daemons.first { $0.store.profile(ProfileID(rawValue: target.id)) != nil }

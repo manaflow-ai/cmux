@@ -192,6 +192,8 @@ target/release/cmux-mobile-host
 | `CMUX_MOBILE_STACK_API` | Default `https://api.stack-auth.com`. |
 | `CMUX_MOBILE_DEVICE_ID` | Mac device id; default a UUID persisted in `$CMUX_MOBILE_STATE_DIR/device-id` (`~/Library/Application Support/cmux-mobile-host`). `cmux-mobile-host --print-device-id` prints it. |
 | `CMUX_MOBILE_DEVICE_NAME` | Default the host name. |
+| `CMUX_MOBILE_MACHINE_ID` | The machine id to register (32 lowercase hex digits; tests and the multimac rig). Default derived from the host UUID (PROTOCOL.md "Devices", machine id); the raw UUID is never sent. |
+| `CMUX_MOBILE_APP_SUPPORT_DIR` | Where to look for other builds' `device-id` files (`siblingDeviceIds`). Default `~/Library/Application Support`. |
 | `CMUX_MOBILE_OWNER_USER_ID` | Admitted Stack user; default the access token's `sub`. |
 | `CMUX_MOBILE_TUI_SOCKET_DIR`, `CMUX_MOBILE_TUI_SESSION` | cmux-tui sockets, default `$TMPDIR/cmux-tui-<uid>` and `main`. |
 | `CMUX_MOBILE_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |
@@ -199,7 +201,6 @@ target/release/cmux-mobile-host
 | `CMUX_MOBILE_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `CMUX_MOBILE_AGENT_TAB_HOST` | The `agent_session.host` this Mac's app records on its own agent tabs (`install:<id>`). hostd sets it on a phone's `new-conversation-tab`. Unset refuses agent tabs from a phone. |
 | `CMUX_MOBILE_UPLOADS_DIR` | Where `upload` writes a file that has no `cwd`, one folder per link session. Default `$CMUX_MOBILE_STATE_DIR/uploads`. |
-| `CMUX_MOBILE_UPLOAD_MAX_BYTES` | The largest file one `upload` accepts. Default 100 MiB. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CMUX_MOBILE_ACPMUX_URL` / `CMUX_MOBILE_ACPMUX_TOKEN` override. |
 | `CMUX_MOBILE_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
 | `CMUX_MOBILE_PUSH=0` | Do not report agent events for push notifications. By default hostd watches acpmux (`_acpmux/watch`) and reports each new question, permission request and finished turn to `POST /v1/devices/:deviceId/notify` with labels only (kind, agent name, folder name, ids; never prompts, output, tool arguments or paths). See `src/notify.rs`. |
@@ -259,8 +260,8 @@ Services (default deny, `unknown_service` otherwise):
   (refused unless the listener is on loopback). One data frame per message.
   acpmux treats this as a remote-origin (`Web`) connection.
 - `file` `{path}`: an absolute path, canonicalized (symlinks resolved) and
-  required to stay inside a `CMUX_MOBILE_FILE_ROOTS` root; streams the regular file,
-  then closes with `eof`.
+  required to stay inside a `CMUX_MOBILE_FILE_ROOTS` root; streams the regular file
+  of any size in bounded chunks, then closes with `eof`.
 - `upload` `{name, size, cwd?}`: writes the next `size` bytes to a new file
   and answers `{"path","size"}`. The file goes into
   `<cwd>/.cmux/attachments/phone-<session>/` when `cwd` is a folder of one of

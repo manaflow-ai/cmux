@@ -18,6 +18,7 @@ iroh-transport = ["dep:iroh"]
 wireguard-transport = ["dep:cmux-wg"]
 
 [dependencies]
+cmux-json.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true

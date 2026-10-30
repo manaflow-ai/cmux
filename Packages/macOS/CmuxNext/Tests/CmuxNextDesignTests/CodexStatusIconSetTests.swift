@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The Codex-like status icon set (Leo's team, 2026-10-14: "they like Codex's sidebar"): work spins
 /// in a neutral grey on the shared spinner, a still ring when nothing may move; done is Codex's blue

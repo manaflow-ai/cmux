@@ -7,6 +7,7 @@
 //! The transcript is the record: no file is read, so an edit's before and after text are its
 //! hunks' lines (context and removed, context and added), with each file's +/- counts.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// One past tool call.
@@ -32,6 +33,9 @@ pub struct PastTool {
 pub struct ToolResult {
     pub id: String,
     pub done: Value,
+    /// Claude Code's structured result beside it (the transcript line's `toolUseResult`): for a
+    /// Write, whether it created its file and the file's text before it (`settle_write`).
+    pub structured: Option<Value>,
 }
 
 impl PastTool {
@@ -39,7 +43,17 @@ impl PastTool {
     pub fn settle(&mut self, result: &ToolResult, at: Option<u64>) {
         let failed = result.done["status"] == "failed";
         if let (Some(proposed), false) = (self.proposed.take(), failed) {
-            self.done["content"] = proposed;
+            // A Write's diff is a fragment until its result says it created the file or holds
+            // the text it replaced; otherwise Undo would read the file as one the turn created.
+            let text = result.done.pointer("/content/0/content/text").and_then(Value::as_str);
+            self.done.set(
+                "content",
+                crate::claude_stdio::settle_write(
+                    proposed,
+                    text.unwrap_or_default(),
+                    result.structured.as_ref(),
+                ),
+            );
         }
         if let (Some(done), Some(update)) = (self.done.as_object_mut(), result.done.as_object()) {
             for (key, value) in update {
@@ -148,7 +162,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
     if kind != "execute"
         && let Some(path) = path
     {
-        call["locations"] = json!([{"path": path}]);
+        call.set("locations", json!([{"path": path}]));
     }
     let output = ["aggregated_output", "formatted_output", "stdout"]
         .iter()
@@ -162,7 +176,7 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
         "rawOutput": {"exit_code": exit_code, "duration_ms": took},
     });
     if !output.is_empty() {
-        done["content"] = json!([text_content(output)]);
+        done.set("content", json!([text_content(output)]));
     }
     Some(PastTool {
         id: id.to_owned(),
@@ -339,11 +353,11 @@ fn codex_file_change(
         };
         let mut entry = json!({"path": target, "type": change.kind});
         if !failed {
-            entry["additions"] = json!(additions);
-            entry["deletions"] = json!(deletions);
+            entry.set("additions", json!(additions));
+            entry.set("deletions", json!(deletions));
         }
         if change.move_path.is_some() {
-            entry["from"] = json!(change.path);
+            entry.set("from", json!(change.path));
         }
         summary.push(entry);
     }
@@ -471,9 +485,9 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             let mut done = json!({"status": state});
             if state == "failed" {
                 // The begin event's diffs never applied: the error, or nothing, replaces them.
-                done["content"] = error.map(text_content).into_iter().collect();
+                done.set("content", error.map(text_content).into_iter().collect());
             }
-            Some((Err(ToolResult { id: id.to_owned(), done }), false))
+            Some((Err(ToolResult { id: id.to_owned(), done, structured: None }), false))
         }
         "mcp_tool_call_end" => {
             let id = s(payload, "call_id")?;
@@ -488,7 +502,7 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
                 "status": if ok.is_some() { "completed" } else { "failed" },
             });
             if let Some(ok) = ok {
-                item["result"] = ok.clone();
+                item.set("result", ok.clone());
             }
             Some((Ok(codex_mcp(id, &item, at)), false))
         }
@@ -531,8 +545,9 @@ fn oversize(content: &Value) -> bool {
     })
 }
 
-/// Claude Code's `tool_result` blocks in a user message.
-pub fn claude_tool_results(content: &Value) -> Vec<ToolResult> {
+/// Claude Code's `tool_result` blocks in a user message; `structured` is the line's
+/// `toolUseResult`, which `settle_write` checks against each Write's own path.
+pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<ToolResult> {
     content
         .as_array()
         .into_iter()
@@ -546,6 +561,7 @@ pub fn claude_tool_results(content: &Value) -> Vec<ToolResult> {
                     "status": if failed { "failed" } else { "completed" },
                     "content": result_text(block.get("content")),
                 }),
+                structured: structured.cloned(),
             })
         })
         .collect()
@@ -562,7 +578,7 @@ mod tests {
 
     fn result(id: &str, is_error: bool) -> ToolResult {
         let block = json!([{"type": "tool_result", "tool_use_id": id, "content": "ok", "is_error": is_error}]);
-        claude_tool_results(&block).remove(0)
+        claude_tool_results(&block, None).remove(0)
     }
 
     /// A Claude Code edit shows its diff only once a result that did not fail confirms it: one
@@ -582,5 +598,47 @@ mod tests {
         assert_eq!(applied.done["status"], "completed");
         assert_eq!(applied.done["content"][0]["type"], "diff", "{}", applied.done);
         assert_eq!(applied.done["content"][0]["newText"], "b");
+    }
+
+    fn write(id: &str) -> Value {
+        json!([{"type": "tool_use", "id": id, "name": "Write",
+                "input": {"file_path": "/p/notes.md", "content": "new\n"}}])
+    }
+
+    /// An adopted Write as the transcript line records it: the tool_result and, beside the
+    /// message, `toolUseResult`.
+    fn write_settled(id: &str, text: &str, structured: Option<Value>) -> Value {
+        let [mut tool] = claude_tool_uses(&write(id), Some(1)).try_into().unwrap();
+        let block = json!([{"type": "tool_result", "tool_use_id": id, "content": text}]);
+        let [result] = claude_tool_results(&block, structured.as_ref()).try_into().unwrap();
+        tool.settle(&result, Some(2));
+        assert_eq!(tool.done["status"], "completed");
+        tool.done["content"][0].clone()
+    }
+
+    /// An adopted Claude Write reads as a new file (which Undo may trash) only when its result
+    /// says it created the file; over a file that was there it carries the old text, or stays a
+    /// fragment, so Undo never trashes an overwritten file.
+    #[test]
+    fn an_adopted_claude_write_is_new_only_when_its_result_says_it_created_the_file() {
+        let fragment = |diff: &Value| diff.pointer("/_meta/acpmux/fragment") == Some(&json!(true));
+
+        let created = json!({"type": "create", "filePath": "/p/notes.md", "originalFile": null});
+        let diff = write_settled("w1", "File created successfully at: /p/notes.md", Some(created));
+        assert_eq!(diff["oldText"], Value::Null);
+        assert!(!fragment(&diff), "{diff}");
+
+        let updated = json!({"type": "update", "filePath": "/p/notes.md", "originalFile": "old\n"});
+        let diff = write_settled("w2", "The file /p/notes.md has been updated.", Some(updated));
+        assert_eq!(diff["oldText"], "old\n");
+        assert!(!fragment(&diff), "{diff}");
+
+        let diff = write_settled("w3", "The file /p/notes.md has been updated.", None);
+        assert_eq!(diff["oldText"], Value::Null);
+        assert!(fragment(&diff), "{diff}");
+
+        // Cut off before its result: no diff at all, as for any edit.
+        let [cut_off] = claude_tool_uses(&write("w4"), Some(1)).try_into().unwrap();
+        assert_eq!(cut_off.done, json!({"status": "failed"}));
     }
 }

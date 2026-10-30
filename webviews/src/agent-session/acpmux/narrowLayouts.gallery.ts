@@ -40,7 +40,7 @@ const controls = {
     currentModeId: "bypassPermissions",
     availableModes: [
       { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
-      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
     ],
   },
 };
@@ -258,7 +258,7 @@ export default agentPaneEntry({
   ],
   variants: {
     controls: {
-      note: "A finished chat with every composer control: model, effort, access, the speed bolt, mic and Send.",
+      note: "A finished chat with every composer control: model, effort, access, Fast mode in the picker, mic and Send.",
       snapshot: withControls(chat(finished)),
       play: check,
     },
@@ -281,6 +281,11 @@ export default agentPaneEntry({
       note: "Play: open the model button's menu (icon-only below 330px); it stays inside the pane, unclipped, and inside a chat column narrower than the pane (200 px), its width giving way.",
       checks: {
         popupLayer: { value: true, reason: "A chip's menu renders inside the chip row; a clipping row hides it." },
+        layoutShiftMax: {
+          value: 0.001,
+          reason:
+            "Reopening the portaled picker after narrowing the chat has a 0.0004 base shift from composer controls.",
+        },
       },
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
@@ -290,7 +295,16 @@ export default agentPaneEntry({
         // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
         // keeps to the column, never past its edge.
         await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        // Closed means gone, or still mounted but marked closed or hidden; an open popup has
+        // neither, so this never passes while the menu is still up.
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          return (
+            !menu ||
+            menu.hasAttribute("data-closed") ||
+            ctx.document.defaultView?.getComputedStyle(menu).visibility === "hidden"
+          );
+        });
         const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
         if (!column) throw new Error("no chat column");
         column.style.flex = "0 0 200px";
@@ -352,7 +366,7 @@ export default agentPaneEntry({
     "new-tab": {
       note: "The New Tab page with its composer and recent chats.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
@@ -367,7 +381,7 @@ export default agentPaneEntry({
     "new-tab-wide-type": {
       note: "The New Tab page with its letters spaced half a pixel wider, as Linux's fonts set them.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
@@ -382,12 +396,10 @@ export default agentPaneEntry({
         await check(ctx);
       },
     },
-    // The split puts the chips under the box, so the rows above no longer squeeze chips beside the
-    // mic. These two keep that single-row case measured: New Tab's Default template (the second dot,
-    // the existing composer with its chips in the box, with Linux's wider type as above), and the
-    // chat composer with the plain footer turned off.
+    // Both templates keep the model and mode in the shared footer; this variant checks the
+    // Default template with Linux's wider type, and the next checks a chat with plain styling off.
     "new-tab-default": {
-      note: "New Tab's Default template: the chips, the mic and Send in the box's one row, letters spaced as Linux's fonts set them.",
+      note: "New Tab's Default template: model and mode in the shared footer, mic and Send in the box, with Linux's wider letter spacing.",
       ready: {
         newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "default" },
         newSession: true,
@@ -396,8 +408,11 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", ...controls },
       }),
       play: async (ctx) => {
-        if (!ctx.document.querySelector(".nt-box .nt-pickers .acpmux-model"))
-          throw new Error("the Default template's chips are not in its box");
+        if (
+          !ctx.document.querySelector(".nt-foot .acpmux-model") ||
+          ctx.document.querySelector(".nt-box .nt-pickers .acpmux-model")
+        )
+          throw new Error("the Default template's model is not in the shared footer");
         const style = ctx.document.createElement("style");
         style.textContent = ".nt-screen, .nt-screen * { letter-spacing: 0.5px; }";
         ctx.document.head.append(style);
@@ -407,18 +422,20 @@ export default agentPaneEntry({
       },
     },
     "controls-single-row": {
-      note: "The chat composer with the plain footer off: every chip, the bolt, the mic and Send in one row.",
+      note: "The chat composer with plain footer styling off: the model and mode keep the shared footer, while mic and Send stay in the box.",
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
-        // Each variant loads its own page, so the setting stays off for the stage's own checks too.
+        // The legacy variant id stays stable, but both looks now anchor model and mode in the footer.
         setComposerSettings({ plainFooter: false });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-composer-foot") === null &&
-            ctx.document.querySelector(".acpmux-composer-bar .acpmux-model") !== null,
-        );
-        // The swap is a layout change of its own (the quiet row goes, the box's row takes the chips,
-        // the transcript's inset follows): let it settle before the step that measures shifts.
+        await ctx.waitFor(() => {
+          const footer = ctx.document.querySelector(".acpmux-composer-foot");
+          return (
+            footer?.getAttribute("data-footer-look") === null &&
+            footer.querySelector(".acpmux-model") !== null &&
+            ctx.document.querySelector(".acpmux-composer-box .acpmux-model") === null
+          );
+        });
+        // Toggling the plain style is a layout change: settle before measuring the control rows.
         const view = ctx.document.defaultView!;
         await new Promise((done) => view.setTimeout(done, 600));
         await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));

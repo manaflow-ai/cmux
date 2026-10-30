@@ -82,22 +82,21 @@ impl RelayFrame {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RelayFrameError> {
-        if bytes.len() < RELAY_FRAME_HEADER_LEN {
+        let Some((header, payload)) = bytes.split_first_chunk::<RELAY_FRAME_HEADER_LEN>() else {
             return Err(RelayFrameError::Short);
+        };
+        let [version, kind_byte, peer_bytes @ ..] = header;
+        if *version != RELAY_FRAME_VERSION {
+            return Err(RelayFrameError::Version(*version));
         }
-        if bytes[0] != RELAY_FRAME_VERSION {
-            return Err(RelayFrameError::Version(bytes[0]));
-        }
-        let kind = FrameKind::from_byte(bytes[1]).ok_or(RelayFrameError::Kind(bytes[1]))?;
-        let payload = &bytes[RELAY_FRAME_HEADER_LEN..];
+        let kind = FrameKind::from_byte(*kind_byte).ok_or(RelayFrameError::Kind(*kind_byte))?;
         if payload.len() > RELAY_FRAME_MAX_PAYLOAD {
             return Err(RelayFrameError::TooLarge(payload.len()));
         }
         if kind == FrameKind::Datagrams {
             split_batch(payload)?;
         }
-        let mut peer = [0u8; 16];
-        peer.copy_from_slice(&bytes[2..RELAY_FRAME_HEADER_LEN]);
+        let peer: [u8; 16] = *peer_bytes;
         Ok(Self { kind, peer: PeerId(peer), payload: payload.to_vec() })
     }
 
@@ -133,15 +132,18 @@ fn split_batch(payload: &[u8]) -> Result<Vec<&[u8]>, RelayFrameError> {
     let mut records = Vec::new();
     let mut rest = payload;
     while !rest.is_empty() {
-        if rest.len() < 2 {
+        let Some((len_bytes, tail)) = rest.split_first_chunk::<2>() else {
+            return Err(RelayFrameError::BadBatch);
+        };
+        let len = usize::from(u16::from_be_bytes(*len_bytes));
+        if len == 0 {
             return Err(RelayFrameError::BadBatch);
         }
-        let len = usize::from(u16::from_be_bytes([rest[0], rest[1]]));
-        if len == 0 || rest.len() < 2 + len {
+        let Some((record, next)) = tail.split_at_checked(len) else {
             return Err(RelayFrameError::BadBatch);
-        }
-        records.push(&rest[2..2 + len]);
-        rest = &rest[2 + len..];
+        };
+        records.push(record);
+        rest = next;
     }
     if records.is_empty() {
         return Err(RelayFrameError::BadBatch);

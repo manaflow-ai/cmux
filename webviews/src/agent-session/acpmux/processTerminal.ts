@@ -16,3 +16,21 @@ export async function openProcessTerminal(toolCallId: string): Promise<boolean> 
     return false;
   }
 }
+
+/// Whether a background task's terminal can open for a chat with this summary: one on this Mac.
+/// A peer's (SSH) or Cloud chat's processes run on that machine, which the host cannot read
+/// (AgentPaneProcessViewer `open` refuses a remote chat).
+export const opensProcessTerminal = (summary?: { peer?: string; host?: string; hostKind?: string }) =>
+  !summary?.peer && !(summary?.host && summary.hostKind !== "local");
+
+/// What a background command's row or tray line opens: its terminal in a chat on this Mac, else the
+/// Bash call that started it in the transcript (`showCall`, false when no loaded row holds it).
+/// Resolves which one opened, `none` when neither could.
+export async function openCommand(
+  toolCallId: string | undefined,
+  { local, showCall }: { local: boolean; showCall?: (toolCallId: string) => boolean },
+): Promise<"terminal" | "call" | "none"> {
+  if (!toolCallId) return "none";
+  if (local && (await openProcessTerminal(toolCallId))) return "terminal";
+  return showCall?.(toolCallId) ? "call" : "none";
+}

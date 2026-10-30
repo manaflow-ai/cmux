@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
 import CmuxNextDesign
 public import Foundation
@@ -25,6 +25,7 @@ extension PageWebView {
           html: getComputedStyle(document.documentElement).backgroundColor,
           body: document.body ? getComputedStyle(document.body).backgroundColor : null,
           painted_ms: document.documentElement.dataset.cmuxPainted ? Number(document.documentElement.dataset.cmuxPainted) : null,
+          device_pixel_ratio: window.devicePixelRatio,
           active: document.activeElement && document.activeElement !== document.body
             ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
             : null,
@@ -121,6 +122,157 @@ extension PageWebView {
         """
         let clicked = await callPageFunction(script, arguments: ["selector": selector, "metaKey": metaKey, "contextMenu": contextMenu])
         return clicked as? Bool == true
+    }
+
+    /// Moves the mouse onto the center of the first element matching `selector` (scrolled into
+    /// view), so the page gets hover with no AppKit pointer: a capture slot's window never
+    /// activates, and macOS sends an inactive window no mouse moves. Chromium gets a trusted
+    /// DevTools `mouseMoved` (real `:hover`, `mouseenter`); WebKit gets page-script `mouseover`,
+    /// `mouseenter` and `mousemove` (React's `onMouseEnter` listens to `mouseover`, so it runs, but
+    /// `:hover` styles do not apply). Scrolling the element into view also scrolls its scrollers.
+    /// `{hovered, native, x, y, width, height}` in CSS pixels; `{hovered: false}` when nothing matches or another
+    /// element (an overlay, a clipping scroller) is at the element's center.
+    public func debugHover(_ selector: String) async -> JSONValue {
+        let script = """
+        const el = document.querySelector(selector); if (!el) { return null; }
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        const hit = el.contains(document.elementFromPoint(x, y));
+        if (hit && !native) {
+          for (const type of ['mouseover', 'mouseenter', 'mousemove']) {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter', clientX: x, clientY: y, view: window }));
+          }
+        }
+        return JSON.stringify({ x, y, w: r.width, h: r.height, hit });
+        """
+        let page = chromiumSession?.page
+        let native = page != nil
+        guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
+              case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
+              case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
+        guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
+        if let page {
+            // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
+            // Chromium scales it by the browser zoom, the embedding frame's CSS zoom and the pinch
+            // scale itself (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
+            // UI scales 0.85 to 1.5.
+            guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
+            ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
+            // Only a hover the page now reports counts, so a move that missed never reads as one.
+            let check = "const el = document.querySelector(selector); return !!el && el.matches(':hover');"
+            guard await callPageFunction(check, arguments: ["selector": selector]) as? Bool == true else {
+                return ["hovered": false, "error": "the element is not hovered after the move"]
+            }
+        }
+        var hovered: [String: JSONValue] = ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
+        // The element's size, for a caller checking the point against it; it never decides the hover.
+        if case .number(let width)? = point["w"], case .number(let height)? = point["h"] {
+            hovered["width"] = .number(width)
+            hovered["height"] = .number(height)
+        }
+        return .object(hovered)
+    }
+
+    /// Scrolls the first drawn element matching `selector` (a layout box, and neither it nor an
+    /// ancestor hidden or fully transparent: a match under `display: none` is skipped) into view at
+    /// `block` (`start`, `center`, `end` or `nearest`), at once (`behavior: instant`), scrolling every scroller that holds it, so a capture can show
+    /// content below the fold (Settings > Accounts' lower cards) with no wheel or key event, which a
+    /// capture slot's never-active window does not get. `{scrolled: true, top, height, viewport}` in
+    /// CSS pixels when the element's box is in the viewport after the scroll (`top` is its top in the
+    /// viewport); else `{scrolled: false, reason}`: `no match`, `not rendered` (every match has no
+    /// box), or `not in view` (a clipping scroller or overlay kept it out).
+    public func debugScroll(_ selector: String, block: String = "start") async -> JSONValue {
+        let script = """
+        const all = [...document.querySelectorAll(selector)];
+        if (!all.length) { return JSON.stringify({ reason: 'no match' }); }
+        // Drawn: a layout box, and neither it nor an ancestor hidden or fully transparent.
+        const drawn = (e) => {
+          if (!e.getClientRects().length) { return false; }
+          for (let a = e; a && a.nodeType === 1; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (cs.visibility === 'hidden' || Number(cs.opacity) === 0) { return false; }
+          }
+          return true;
+        };
+        const el = all.find(drawn);
+        if (!el) { return JSON.stringify({ reason: 'not rendered' }); }
+        el.scrollIntoView({ block, inline: 'nearest', behavior: 'instant' });
+        const r = el.getBoundingClientRect();
+        // The part of its box that shows: inside the viewport and every clipping ancestor (a nested
+        // scroller). Its middle must hit the element, so a sheet over all of it fails; a sticky
+        // header over its top edge does not. (An overlay with pointer-events: none is not seen.)
+        let top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+        let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+        for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+          const cs = getComputedStyle(a);
+          const clipsX = cs.overflowX !== 'visible', clipsY = cs.overflowY !== 'visible';
+          if (!clipsX && !clipsY) { continue; }
+          const c = a.getBoundingClientRect();
+          if (clipsY) { top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
+          if (clipsX) { left = Math.max(left, c.left); right = Math.min(right, c.right); }
+        }
+        const shown = bottom > top && right > left
+          && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
+        if (!shown) { return JSON.stringify({ reason: 'not in view' }); }
+        return JSON.stringify({ top: r.top, height: r.height, viewport: window.innerHeight });
+        """
+        guard let text = await callPageFunction(script, arguments: ["selector": selector, "block": block]) as? String,
+              case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
+            return ["scrolled": false, "reason": "page not loaded"]
+        }
+        guard members["reason"] == nil else {
+            members["scrolled"] = false
+            return .object(members)
+        }
+        members["scrolled"] = true
+        return .object(members)
+    }
+
+    /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
+    /// CSS pixels are view points divided by it.
+    public var debugPageZoom: Double { pageZoom }
+
+    /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
+    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
+    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
+    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
+    public func debugPress(x: Double, y: Double) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        for type in ["mousePressed", "mouseReleased"] {
+            guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
+                "clickCount": 1, "modifiers": 0,
+            ])) != nil else { return false }
+        }
+        return true
+    }
+
+    /// A trusted DevTools left-button drag on a Chromium page, in CSS pixels: press at `from`,
+    /// `steps` moves to `to`, release, each sent once Chromium answered the one before. The
+    /// page's pointer handlers (capture, a reorder's drop) see a person's drag, and the release
+    /// counts as the person's input as a real one does; a capture slot's window never activates,
+    /// so no AppKit event reaches it. False on a WebKit page or when DevTools refuses an event.
+    public func debugDrag(from: CGPoint, to: CGPoint, steps: Int = 16) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        func send(_ type: String, _ point: CGPoint, buttons: Int) async -> Bool {
+            (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": type, "x": point.x, "y": point.y, "button": "left", "buttons": buttons, "clickCount": 1, "modifiers": 0,
+            ])) != nil
+        }
+        guard await send("mousePressed", from, buttons: 1) else { return false }
+        let count = max(1, steps)
+        for step in 1...count {
+            let t = Double(step) / Double(count)
+            let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            guard await send("mouseMoved", point, buttons: 1) else { return false }
+        }
+        // The host counts a real release on a Chromium page as the person's input
+        // (`CEFLinkClickTracker`); DevTools input never passes AppKit, so the release is noted here,
+        // and only the release: a drag's save then rests on the release alone.
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        return await send("mouseReleased", to, buttons: 0)
     }
 
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and

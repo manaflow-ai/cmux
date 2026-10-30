@@ -25,10 +25,14 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case processExited(BrowserProcessExit)
     /// The content process stopped (true) or resumed (false) handling input.
     case unresponsiveChanged(Bool)
-    /// The page's media report (`BrowserMediaState+Scripts`); nil when it stopped.
-    case mediaChanged(BrowserMediaState?)
+    /// One frame's media report (`BrowserMediaState+Scripts`); nil when that frame plays nothing.
+    /// `frame` is the id the frame's observer picked for its document: a report replaces only
+    /// its own frame's (`BrowserMediaFrames`).
+    case mediaChanged(BrowserMediaState?, frame: String = "")
     /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
     case audioMutedChanged(Bool)
+    /// The shown page's scrolling settled at `y` CSS pixels (``BrowserScrollReportScript``).
+    case pageScrolled(Double)
 }
 
 /// Pure reducer from engine events to `BrowserTabState`.
@@ -58,6 +62,8 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     /// The active navigation's own address (its start, then its redirects).
     /// The address moving off it before the load commits is a newer load's.
     private var startedURL: URL?
+    /// Each frame's latest media report; `state.media` is the one the tab shows.
+    private var mediaFrames = BrowserMediaFrames()
 
     public init(state: BrowserTabState = BrowserTabState()) {
         self.state = state
@@ -101,6 +107,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             errorBeforeStart = nil
             // A new document plays nothing until its script reports.
             state.media = nil
+            mediaFrames = BrowserMediaFrames()
             state.phase = .committed
             state.security = Self.security(for: state.url)
             committedURL = state.url
@@ -181,6 +188,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.processExit = exit
             state.isUnresponsive = false
             state.media = nil
+            mediaFrames = BrowserMediaFrames()
             state.progress = 0
             state.activeNavigation = nil
             if state.phase != .finished { state.phase = state.url == nil ? .idle : .finished }
@@ -189,11 +197,15 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             guard state.processExit == nil else { return }
             state.isUnresponsive = unresponsive
 
-        case .mediaChanged(let media):
-            state.media = BrowserMediaState.settled(state.media, media)
+        case .mediaChanged(let media, let frame):
+            state.media = BrowserMediaState.settled(state.media, mediaFrames.apply(media, from: frame))
 
         case .audioMutedChanged(let muted):
             state.isAudioMuted = muted
+
+        case .pageScrolled(let y):
+            guard let url = state.url else { return }
+            state.scrollReport = BrowserScrollReport(url: url, y: y)
         }
     }
 

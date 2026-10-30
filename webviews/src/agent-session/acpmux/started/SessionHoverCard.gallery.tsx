@@ -61,7 +61,7 @@ function GallerySessionHover({ mode }: Props) {
             <div className="acpmux-user-bubble">Run the merge-freeze switch as a background chat.</div>
           </div>
           <div
-            className="ui-tooltip ui-card acpmux-session-hover-card"
+            className="ui-tooltip ui-card ui-glass acpmux-session-hover-card"
             style={{ position: "static", width: "fit-content" }}
           >
             <SessionHoverContent info={hoverInfo(chipEntry)} onOpen={() => undefined} />
@@ -98,7 +98,7 @@ function GallerySessionHover({ mode }: Props) {
         {cards.map((info) => (
           <div
             key={info.sessionId}
-            className="ui-tooltip ui-card acpmux-session-hover-card"
+            className="ui-tooltip ui-card ui-glass acpmux-session-hover-card"
             style={{ position: "static" }}
           >
             <SessionHoverContent info={info} onOpen={() => undefined} />
@@ -135,7 +135,7 @@ export default componentEntry<Props>({
       props: { mode: "states" },
     },
     reply: {
-      note: "The card over the transcript beside a user bubble: the popup surface, a hairline and the hover card elevation, then the title, the status row and the folder and branch.",
+      note: "The card over the transcript beside a user bubble: the glass hover card (the popup surface under plain glass), its rim and the hover card elevation, then the title, the status row and the folder and branch.",
       props: { mode: "reply" },
       height: 180,
     },

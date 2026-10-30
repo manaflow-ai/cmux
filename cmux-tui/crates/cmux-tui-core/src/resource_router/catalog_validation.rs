@@ -544,8 +544,14 @@ pub(super) fn validate_operation_constraints(
             "an empty workspace has no terminal to launch",
         ));
     }
-    if matches!(operation, ResourceOperation::WorkspaceCreate | ResourceOperation::PaneSplit)
-        && fields.contains_key("argv")
+    if matches!(
+        operation,
+        ResourceOperation::WorkspaceCreate
+            | ResourceOperation::PaneSplit
+            | ResourceOperation::PaneCreate
+            | ResourceOperation::ScreenCreate
+            | ResourceOperation::TabCreateTerminal
+    ) && fields.contains_key("argv")
         && fields.contains_key("shell")
     {
         return Err(invalid_value(
@@ -559,6 +565,9 @@ pub(super) fn validate_operation_constraints(
             | ResourceOperation::PaneSplit
             | ResourceOperation::WorkspaceRun
             | ResourceOperation::WorkspaceCreate
+            | ResourceOperation::PaneCreate
+            | ResourceOperation::ScreenCreate
+            | ResourceOperation::TabCreateTerminal
     ) && let Some(argv) = fields.get("argv").and_then(Value::as_array)
         && argv.first().and_then(Value::as_str).is_none_or(str::is_empty)
     {

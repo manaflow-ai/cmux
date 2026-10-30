@@ -74,30 +74,34 @@ const { isChart } = await import("../src/agent-session/acpmux/conversation/Diagr
 const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
 await loadHighlightedCode();
 
-const settle = async (ms = 60) => {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, ms));
-  });
-};
-
-/// Settles until `ready` holds, at most `tries` times: a loaded runner gets more settles, not a
-/// longer fixed wait.
-async function settleUntil(ready: () => boolean, tries = 50) {
-  for (let attempt = 0; attempt < tries && !ready(); attempt++) await settle();
+/// Yields to React and the renderers until `ready` holds: a loaded runner gets more yields, not a
+/// longer fixed wait. Fails after 5 s with what it waited for.
+async function settleUntil(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 5_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
 }
+
+const diagramSvg = () => host.querySelector(".cv-diagram[data-language='mermaid'] svg");
 
 async function show(source: string, streaming = false) {
   root ??= createRoot(host);
-  act(() => root!.render(<Markdown streaming={streaming}>{source}</Markdown>));
-  await settle();
+  await act(async () => root!.render(<Markdown streaming={streaming}>{source}</Markdown>));
 }
 
 /// The lines a code card in `element` shows. The highlighted card (HighlightedCode.tsx) draws them in
-/// its `<diffs-container>`'s shadow root, which `textContent` leaves out, once Pierre has highlighted.
-const codeLines = (element: Element | null | undefined) =>
-  [...(element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]") ?? [])].map(
+/// its `<diffs-container>`'s shadow root, which `textContent` leaves out. Without a worker,
+/// HighlightedCode keeps the plain card; both paths must preserve the refused source.
+const codeLines = (element: Element | null | undefined) => {
+  const lines = element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]");
+  return [...(lines?.length ? lines : (element?.querySelectorAll(".cv-code-plain__line") ?? []))].map(
     (line) => line.textContent ?? "",
   );
+};
 
 const FLOW = "flowchart LR\n  Start --> Check{Valid?}\n  Check -->|Yes| Done";
 
@@ -109,6 +113,7 @@ test("a finished mermaid fence is a diagram", () => {
 
 test("a mermaid fence draws as SVG through Ondine, not a code block", async () => {
   await show("Here is the flow:\n\n```mermaid\n" + FLOW + "\n```\n\nDone.");
+  await settleUntil(() => diagramSvg() !== null, "the diagram");
   const diagram = host.querySelector<HTMLElement>(".cv-diagram[data-language='mermaid']");
   expect(diagram).not.toBeNull();
   const svg = diagram!.querySelector("svg");
@@ -128,11 +133,10 @@ test("a source both renderers refuse shows the source and why", async () => {
   mermaidCalls.length = 0;
   await show("```mermaid\nflowchart TD\n  A --> \n```");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']");
-  // The source card's lines appear when Pierre's highlighter has loaded, which takes longer on a
-  // loaded runner.
-  await settleUntil(() => codeLines(diagram).length > 0);
+  // Wait for the refused source in either the highlighted or workerless code card.
+  await settleUntil(() => codeLines(diagram).length > 0, "the source card's lines");
   expect(diagram?.querySelector(".cv-diagram__error")?.textContent ?? "").toContain("Parse error");
-  expect(codeLines(diagram).join("\n")).toContain("flowchart TD");
+  expect(codeLines(diagram).join("\n")).toBe("flowchart TD\n  A --> ");
   expect(mermaidCalls.length).toBe(1);
 });
 
@@ -140,6 +144,7 @@ test("markup in labels stays inert", async () => {
   await show(
     '```mermaid\nflowchart TD\n  A["<img src=x onerror=alert(1)>"] --> B["<script>alert(2)</script>"]\n  click A "javascript:alert(3)"\n```',
   );
+  await settleUntil(() => diagramSvg() !== null, "the diagram");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']")!;
   expect(diagram.querySelector("svg")).not.toBeNull();
   expect(diagram.querySelector("script, img, foreignObject, iframe")).toBeNull();

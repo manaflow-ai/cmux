@@ -13,7 +13,7 @@ extension SidebarRegionView {
             for item in section.items {
                 let info = content.infos[item.id] ?? .fallback(for: item)
                 if info.avatar == nil, item.showsLabel {
-                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, activity: info.activity != .idle)
+                    widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge, dot: info.unreadDot, activity: info.activity != .idle)
                 }
             }
         }

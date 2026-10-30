@@ -77,7 +77,7 @@ nonisolated extension BrowserActionCatalog {
                      ["devtools", "rendering", "layers", "borders", "compositing"]),
             devTools("toggleFPSMeter", t("action.devtools.toggleFPSMeter", "Rendering: Show Frame Rendering Stats"), "speedometer",
                      ["devtools", "rendering", "fps", "frames", "meter"]),
-            devTools("togglePerformanceRecording", t("action.devtools.togglePerformanceRecording", "Developer Tools: Start or Stop Performance Recording"), "record.circle",
+            devTools("togglePerformanceRecording", t("action.devtools.togglePerformanceRecording", "Developer Tools: Start/Stop Performance Recording"), "record.circle",
                      ["devtools", "performance", "record", "profile", "timeline"]),
             devTools("takeHeapSnapshot", t("action.devtools.takeHeapSnapshot", "Developer Tools: Take Heap Snapshot"), "camera.metering.matrix",
                      ["devtools", "memory", "heap", "snapshot"]),

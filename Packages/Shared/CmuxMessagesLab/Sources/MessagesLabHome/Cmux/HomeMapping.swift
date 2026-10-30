@@ -44,9 +44,19 @@ enum HomeMapping {
             if let mid = item.messageID, wanted.contains(mid), !item.isRetracted { byID.updateValue(item, forKey: mid) }
         }
         let found = byID
+        // A root with many replies is asked once per reply, per diff: map its parts once.
+        let mapped = RootCache()
         return { root in
-            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            if let hit = mapped.entries[root] { return hit }
+            let entry = found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            mapped.entries.updateValue(entry, forKey: root) // a miss (nil) is cached too
+            return entry
         }
+    }
+
+    /// The roots one `roots(in:)` answer already mapped (nil: not among the items).
+    private final class RootCache {
+        var entries: [MessageID: (id: ID, owners: [Int])?] = [:]
     }
 
     /// A thread reply's root as MessagesLab's `replyTo` (HomeStore `threadRoot`; the part from
@@ -81,6 +91,13 @@ enum HomeMapping {
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
+        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+            // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
+            // its seq still moves the read cursor, drawn as no row and counted as no reply.
+            message.deletedAt = Instant.format(item.createdAt)
+            message.replyTo = nil
+            message.parent = nil
+        }
         return message
     }
 
@@ -136,6 +153,8 @@ enum HomeMapping {
     /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
+        // A work part shows its preview; its session id is no text (`WorkRef.shownText`).
+        if case .work(let work) = p, work.shownText == nil { return [] }
         // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
         func text(_ piece: String) -> [Part] {
             if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
@@ -355,10 +374,13 @@ enum HomeMapping {
         }
     }
 
-    static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
+    /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
+    static func participants(_ summary: ConversationSummary?, me: ParticipantID,
+                             avatars: [String: Participant.Avatar] = [:]) -> [Participant] {
         var out = (summary?.participants ?? []).map {
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
-            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
+                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out

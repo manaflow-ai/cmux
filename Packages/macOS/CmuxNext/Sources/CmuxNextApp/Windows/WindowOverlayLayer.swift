@@ -44,10 +44,14 @@ final class WindowOverlayLayer {
     private(set) var placement: Placement = .inWindow
     /// Interactive overlay rects in window coordinates.
     private(set) var interactiveRects: [CGRect] = []
-    /// Divider hit areas in window coordinates, the sidebar's resize band last.
+    /// The layout's divider hit areas in window coordinates (`debug.layers`
+    /// `divider_areas_in_window`: pane dividers only, which the perf gate and
+    /// live drag scripts grab).
     private(set) var dividerAreas: [LayoutMouseArea] = []
     /// The sidebar's resize band (`setSidebarResizeBand`).
-    private var sidebarResizeArea: LayoutMouseArea?
+    private(set) var sidebarResizeArea: LayoutMouseArea?
+    /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
+    private(set) var catcherAreas: [LayoutMouseArea] = []
     static let sidebarResizeAreaID = "sidebar.resize"
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
@@ -56,6 +60,8 @@ final class WindowOverlayLayer {
     private var isTornDown = false
     /// A window geometry change whose layout pass has not run yet.
     private var pageUpdateAfterLayout = false
+    /// The deferred page update must reach every page (`requestPageUpdate(force:)`).
+    private var forcedPageUpdateAfterLayout = false
     /// Depth of the window's layout pass (`ShellWindow.layoutIfNeeded`).
     private(set) var layoutDepth = 0
     /// Interactive rects changed during the layout pass: applied after it.
@@ -184,13 +190,14 @@ final class WindowOverlayLayer {
             updateInteractiveRects()
             evaluate()
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         for plane in planes { recordRingLag(plane) }
         #endif
         guard pageUpdateAfterLayout else { return }
-        pageUpdateAfterLayout = false
+        let force = forcedPageUpdateAfterLayout
+        (pageUpdateAfterLayout, forcedPageUpdateAfterLayout) = (false, false)
         for plane in planes { plane.syncFrame() }
-        requestPageUpdate()
+        requestPageUpdate(force: force)
     }
 
     /// Planes in the overlay panel take their frame from the home's rect in
@@ -256,9 +263,14 @@ final class WindowOverlayLayer {
                 return area
             }
         }
+        dividerAreas = areas
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        if areas != dividerAreas {
-            dividerAreas = areas
+        // A spring moves the dividers on every display frame until it lands: the catcher panels
+        // (one window move each, a new panel for a new divider) follow once, at the landing,
+        // which the root reports even when no rect changes then (`isInLayoutMotion`).
+        let springing = planes.contains { ($0.home as? LayoutRootView)?.isInLayoutMotion == true }
+        if areas != catcherAreas, !springing {
+            catcherAreas = areas
             syncCatchers()
         }
         guard rects != interactiveRects else { return }
@@ -318,7 +330,7 @@ final class WindowOverlayLayer {
         WindowOverlayHost.existingHost(for: window)?.reassertOrder()
     }
 
-    private func parentGeometryDidChange() {
+    private func parentGeometryDidChange() { // perf-hot: 1ms cef-geometry (every window move or resize; posts to every changed page)
         guard layoutDepth == 0 else {
             geometryAfterLayout = true
             return
@@ -342,11 +354,12 @@ final class WindowOverlayLayer {
         guard Self.isContent(child), child.isVisible, let controller = window.windowController as? WindowController else { return }
         let hosts = ChildPageGeometry.sample(controller).hosts
         guard !hosts.contains(where: { ChildPageGeometry.distance($0.screenRect, child.frame) <= ChildPageGeometry.tolerance }) else { return }
-        requestPageUpdate()
+        // The hosts did not move, so only a forced update re-places the page.
+        requestPageUpdate(force: true)
     }
 
     /// Click-catching panels over divider hit areas while pages show.
-    private func syncCatchers() {
+    private func syncCatchers() { // perf-hot: 1ms cef-geometry (one window move per divider catcher panel)
         if catchers.onHover == nil {
             catchers.onHover = { [weak self] id, hovered in
                 if id == Self.sidebarResizeAreaID {
@@ -358,7 +371,7 @@ final class WindowOverlayLayer {
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(dividerAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
@@ -369,20 +382,24 @@ final class WindowOverlayLayer {
         (window.contentView as? WindowRootView)?.sidebar.refreshResizeHover { [weak catchers] in catchers?.windowNumbers ?? [] }
     }
 
-    /// Every Chromium page of this window re-applies geometry, clip and
-    /// occlusion (`CEFHostView` posts the fork's geometry notification).
-    private func requestPageUpdate() {
+    /// Every Chromium page of this window whose geometry, clip or occlusion
+    /// changed since the fork last read it re-applies them (`CEFHostView`
+    /// posts the fork's geometry notification; the others have nothing new).
+    /// `force`: every page re-applies, changed or not (a page window moved by another app).
+    private func requestPageUpdate(force: Bool = false) {
         // Pages move their child windows on this: after the layout pass.
         guard layoutDepth == 0 else {
             pageUpdateAfterLayout = true
+            forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
+                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
     }
 
     // MARK: Diagnostics
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Layout passes of the root (window resize, sidebar, divider, column
     /// scroll) that ended with a focus ring off its pane, and the last such
     /// mismatch (`debug.layers`). The ring must move in the pass that places

@@ -4,7 +4,7 @@ import Foundation
 public struct MoveTabToSplitRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-split"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
+    public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
     public var surface: SurfaceID
     public var pane: PaneID
     public var edge: PaneEdge
@@ -26,7 +26,7 @@ public struct MoveTabToSplitRequest: DaemonRequest {
 public struct MoveTabToSplitKeepingFocusRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-split"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabSplitKeepFocus
+    public static let requiredCapability: String? = DaemonCapability.tabSplitKeepFocus.rawValue
     public var surface: SurfaceID
     public var pane: PaneID
     public var edge: PaneEdge
@@ -52,7 +52,7 @@ public enum ColumnDropTarget: Sendable, Hashable {
 public struct MoveTabToColumnRequest: DaemonRequest {
     public typealias Response = TabMoveResult
     public static let command = "move-tab-to-column"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.tabDrag
+    public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
     public var surface: SurfaceID
     public var target: ColumnDropTarget
     /// Insert after this column; nil = after the last one.
@@ -77,7 +77,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction }
-    enum PinKeys: String, CodingKey { case edge, mode, role }
+    enum PinKeys: String, CodingKey { case edge, mode, role, pinned }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(surface, forKey: .surface)
@@ -92,6 +92,8 @@ public struct MoveTabToColumnRequest: DaemonRequest {
             try pin.encode(dock.edge.rawValue, forKey: .edge)
             try pin.encode(dock.mode.rawValue, forKey: .mode)
             try pin.encodeIfPresent(dock.role?.rawValue, forKey: .role)
+            // `pinned-dock-alone-v1`: only a pinned dock may take a screen's only tab (Home's dock).
+            if dock.isPinned { try pin.encode(true, forKey: .pinned) }
         }
         if keepFocus { try c.encode(true, forKey: .keepFocus) }
         try c.encodeIfPresent(transaction, forKey: .transaction)

@@ -162,7 +162,7 @@ process's command line and its kill never leave the machine.
 | `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
-| `_acpmux/process/kill` (request, built) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
+| `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
 | `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 
@@ -184,6 +184,7 @@ process's command line and its kill never leave the machine.
 | Chat closed, no client attached | Keeps running: a running process blocks the idle reap. |
 | Over the session's memory budget (cx-v9s8g) | Enforced by the kernel, not by acpmux measuring: on Linux the session's cgroup scope (`MemoryMax`); `killed`, reason `budget_memory`. |
 | Over the CPU budget (cx-v9s8g) | Lower priority, not killed: the cgroup's `CPUWeight` on Linux, `setpriority(PRIO_PGRP)` on macOS. |
+| Start (macOS) | The harness starts at background CPU class (`PRIO_DARWIN_BG`, `cpu_class.rs`), so every process it runs inherits it and cmux's GUI and renderers go first. `normal` opts out: a profile's env `ACPMUX_SESSION_CPU_CLASS`, the daemon's env, or config `session.cpuClass`. |
 | Harness time limit (Claude's `timeout`; acpmux lifts the ceiling to about 24.8 days) | `killed`, reason `harness_time_limit`. |
 | Daemon restart | Keeps running (the agent host owns the harness); the list is rebuilt from the `process_update` records. A process still `running` there stays so until its harness reports its end. |
 | Harness or host exit, app update relaunch | `lost` (built), with the last output kept and Run again offered. A real reattach needs Claude Code's background sessions (`claude agents`, 2.1.196); evaluated separately. |

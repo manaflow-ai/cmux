@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 mod layout_column;
 #[path = "model_tab.rs"]
 mod tab;
-pub use layout_column::{LayoutColumn, LayoutColumnDock};
+pub use layout_column::{LayoutColumn, LayoutColumnDock, LayoutRow};
 pub use tab::{TabContentId, TabContentKind, TabSnapshot};
 
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
@@ -249,6 +249,11 @@ impl LayoutNode {
                         ));
                     }
                     column.root.validate()?;
+                    if column.rows.iter().flatten().any(|row| !(100..=1000).contains(&row.height)) {
+                        return Err(crate::Error::InvalidArgument(
+                            "layout row height must be from 100 to 1000".to_string(),
+                        ));
+                    }
                 }
                 Ok(())
             }

@@ -15,7 +15,7 @@ extension SidebarViewComponents {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            SystemScrollers.follow(scroll)
+            SystemScrollers.followThin(scroll)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
@@ -38,10 +38,14 @@ extension SidebarViewComponents {
         list.configureBlockRegion = { [weak self] region in
             guard let self else { return }
             self.wireItems(region)
-            region.contextMenuProvider = self.list.contextMenuProvider
+            // Read the list's provider at right-click time: a block region made before the app set it
+            // (the first layout after launch) kept nil, and a pinned workspace's tile opened no menu.
+            region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
+        // A Shift range runs from the tiles pinned above the list into its rows (#27701).
+        list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
         // The footer row's items (the profile control) do not drag; its space
         // dots reorder by their own drag, dropped on the footer band
         // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
@@ -58,9 +62,13 @@ extension SidebarViewComponents {
 
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
+        region.onCloseWorkspace = { [weak self] workspace in self?.model.send(.close([workspace])) }
         region.onActivateWithModifiers = { [weak self, weak region] id, flags in
             // The profile control opens its menu over itself.
             if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
+            // A pinned workspace's tile selects as its row does: Shift the drawn range, Cmd toggles (#27701).
+            if let workspace = region?.itemView(id)?.info.workspace,
+               self?.list.modifierSelect(workspace, flags: flags.intersection(.deviceIndependentFlagsMask)) == true { return }
             self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
         }
         region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -86,7 +94,11 @@ extension SidebarViewComponents {
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
-        let metrics = SidebarRegionMetrics.standard
+        // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
+        let footerBase = SidebarRegionMetrics.standard
+        // The bands' rows end where the list's do, `rowEdgeGap` from the sidebar's edge (Leo 2026-10-27); the footer keeps its own.
+        var metrics = SidebarRegionMetrics.standard(minimal: design.sidebarSections.minimal)
+        metrics.trailingTrim = SidebarStyle.rowTrailingTrim
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
@@ -97,14 +109,25 @@ extension SidebarViewComponents {
         }
         if model.docDrag != nil {
             // The sidebar document (one renderer): its sections draw in the list, in document order; the band
-            // above keeps only the client's own item (What's New).
-            let docSections = above.presenting(hidingItems: hidden, apps: apps).map(titled)
+            // above keeps only the client's items with nothing to follow. One anchored after an item the
+            // document shows (Channels after Home) draws right after it in its block.
+            let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
+            // A block's rows end where the list's other rows do, `rowEdgeGap` from the edge (`rowTrailingTrim`): a
+            // row's pill is inset `horizontalInset` in its frame, as the region metrics' inset is.
+            var listMetrics = metrics
+            listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
-                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
+                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look,
+                                           metrics: listMetrics,
                                            drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
-            aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
+            let loose = model.placingTransientItems(in: []).map { section in
+                var section = section
+                section.items.removeAll { shownIDs.contains($0.id) }
+                return section
+            }
+            aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
@@ -123,18 +146,20 @@ extension SidebarViewComponents {
         belowRegion.update(content([]), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.
-        var footerMetrics = metrics
-        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: metrics.rowHeight)
+        var footerMetrics = footerBase
+        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: footerBase.rowHeight)
         footerRegion.update(content(footer, metrics: footerMetrics), width: width)
         releaseAppSections(shown: shownAbove + footer)
     }
 
     /// Draws the one selection on the top item it names, in every band and list block: the old and new
     /// item repaint, nothing lays out (a workspace switch to a workspace with a tile, I6).
+    /// The multi-selection draws on the pinned workspaces' tiles the same way (#27701).
     func showActiveTopItem() {
         let active: LayoutItemID? = if case let .topItem(id)? = model.selectedItem { id } else { nil }
-        for region in [aboveRegion, belowRegion, footerRegion] { region.activeItem = active }
+        for region in [aboveRegion, belowRegion, footerRegion] { (region.activeItem, region.selectedWorkspaces) = (active, model.selection) }
         list.activeTopItem = active
+        list.selectedWorkspaces = model.selection
     }
 
     /// App sections no band shows any more release their content; one that

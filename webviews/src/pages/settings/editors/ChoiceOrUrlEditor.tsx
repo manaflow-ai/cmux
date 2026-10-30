@@ -55,7 +55,14 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
         <option value={address}>{t("settingsPage.selfHostedServer")}</option>
       </Select>
       {showAddress && (
-        <span className="text-editor">
+        // A form, so Return in the address field commits it (implicit submission), as a blur does.
+        <form
+          className="text-editor"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commit();
+          }}
+        >
           <input
             className="field text"
             type="text"
@@ -67,16 +74,13 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
             aria-invalid={problem !== null}
             onChange={(event) => setDraft(event.currentTarget.value)}
             onBlur={commit}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") commit();
-            }}
           />
           {problem && (
             <span className="field-error" role="alert">
               {problem}
             </span>
           )}
-        </span>
+        </form>
       )}
     </span>
   );

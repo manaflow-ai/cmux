@@ -7,7 +7,7 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-import CmuxNextCompat
+import CmuxNextWakeups
 import typealias CmuxNextDaemon.SurfaceID
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
@@ -31,6 +31,8 @@ final class FilePageService: InternalPageProvider {
         var host: FilePageTabHost?
         /// A recovered crash draft for the page to load as an unsaved edit.
         var recoveredText: String?
+        /// Where the editor's first config puts the cursor (a Find result), until the page asks.
+        var reveal: FilePosition?
         /// Ends this tab's flush registration on its quit document.
         var stopFlush: (() -> Void)?
         /// The Markdown omnibar above the page (markdown tabs only).
@@ -46,7 +48,7 @@ final class FilePageService: InternalPageProvider {
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
-    private let comments: (any MarkdownTableWidthStoring)?
+    private let comments: (any MarkdownCommentStoring)?
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
@@ -55,7 +57,7 @@ final class FilePageService: InternalPageProvider {
     /// Tabs whose pages are saving their last edits after the tab closed.
     private(set) var flushing: [Task<Void, Never>] = []
     /// The local live links of the Markdown Share menu, started on the first link.
-    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
+    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -63,18 +65,19 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared,
+         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
             : nil
         self.comments = kind == .markdown
-            ? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
-                                           name: MarkdownTableWidthRepository.commentsAttributeName,
-                                           maxBytes: MarkdownTableWidthRepository.commentsValueLimit)
+            ? MarkdownCommentRepository(storage: MarkdownTableWidthRepository(
+                fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
+                name: MarkdownTableWidthRepository.commentsAttributeName,
+                maxBytes: MarkdownTableWidthRepository.commentsValueLimit))
             : nil
-        self.documents = documents
+        self.documents = documents ?? services.fileQuitDocuments
         self.kind = kind
         self.clock = clock
         self.images = images
@@ -99,11 +102,9 @@ final class FilePageService: InternalPageProvider {
         tabs[key] = Tab(file: URL(fileURLWithPath: route), userChose: isRecent(route))
     }
 
-    var openKeys: [String] { tabs.keys.sorted() }
-
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Each tab's key, file and page, for `debug.filepages`.
     var debugTabs: [(key: String, file: URL?, page: PageWebView?)] {
         tabs.keys.sorted().map { ($0, file($0), tabs[$0]?.page) }
@@ -129,15 +130,21 @@ final class FilePageService: InternalPageProvider {
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
-    /// the file (a chat transcript); every other markdown file opens writable.
+    /// the file (a chat transcript); every other markdown file opens writable. `position` (the code
+    /// editor only, a Find result): the cursor goes there, in a new tab after its load
+    /// (``revealAt(_:in:)``).
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
-              recoveredText: String? = nil, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
+              recoveredText: String? = nil, at position: FilePosition? = nil,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, placed: placed, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
+        let reveal = kind == .editor ? position : nil
+        let tab = Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText, reveal: reveal)
+        let key = show(in: pane, focus: focus, placed: placed, tab) { key in
             self.file(key) == real
         }
+        if let reveal { revealAt(reveal, in: key) }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
         if userChose {
             tabs[key]?.userChose = true
@@ -149,6 +156,22 @@ final class FilePageService: InternalPageProvider {
             tabs[key]?.page?.reload()
         }
         return key
+    }
+
+    /// Puts tab `key`'s cursor at `position`: a tab whose page is up gets the `reveal` page command;
+    /// a tab whose page is not made yet (or takes no commands yet) carries it into its first config.
+    private func revealAt(_ position: FilePosition, in key: String) {
+        guard tabs[key] != nil else { return }
+        if let page = tabs[key]?.page, let provider = tabs[key]?.provider {
+            if page.send(command: EditorPageCommand.reveal, arguments: ["text": .string(position.pageText)]) {
+                tabs[key]?.reveal = nil
+                provider.reveal = nil
+            } else {
+                provider.reveal = position
+            }
+        } else {
+            tabs[key]?.reveal = position
+        }
     }
 
     /// Tab `key` as a holder of its quit document (the markdown and editor pages share documents).
@@ -331,6 +354,8 @@ final class FilePageService: InternalPageProvider {
                                         libraries: libraries, images: images, tableWidths: tableWidths,
                                         comments: comments)
         provider.recoveredText = tab.recoveredText
+        provider.reveal = tab.reveal
+        tab.reveal = nil
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,

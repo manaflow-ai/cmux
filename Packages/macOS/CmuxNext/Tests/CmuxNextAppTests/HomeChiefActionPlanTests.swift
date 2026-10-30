@@ -1,6 +1,7 @@
 import CmuxHomeCore
 @testable import CmuxNextApp
 import Testing
+import CmuxNextHomeEngine
 
 /// Audit rows 33-34 (unimpl-audit-actions.md): `home.toggleChiefSettings` and `home.stopChief` only
 /// posted a notification to a Home in front, so from the palette or `cmux action run` with no Home

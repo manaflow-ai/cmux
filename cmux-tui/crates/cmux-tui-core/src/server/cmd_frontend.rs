@@ -10,6 +10,7 @@ use super::MAX_CREATION_SELECTOR_FALLBACKS;
 use super::origin_gate;
 use super::paired_surface_size;
 use crate::WorkspaceMutation;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceOperation;
 
 use crate::AgentRecord;
@@ -76,7 +77,7 @@ pub(super) fn put_frontend_projection(
         &projection,
     )?;
     let mut value = serde_json::to_value(commit.projection)?;
-    value["replayed"] = json!(commit.replayed);
+    value.insert("replayed", json!(commit.replayed));
     Ok(value)
 }
 
@@ -178,8 +179,14 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
         "notifications": rows
             .iter()
             .map(|(row, acknowledged)| {
+                let post = mux.notification_post(&row.id);
+                let poster = post.as_ref().and_then(|post| post.poster.as_ref());
                 json!({
                     "id": row.id,
+                    "notification": post.as_ref().map(|post| post.notification),
+                    "reply": row.reply,
+                    "poster_pid": poster.map(|poster| poster.pid),
+                    "poster_executable": poster.map(|poster| poster.executable.as_str()),
                     "title": row.title,
                     "subtitle": row.subtitle,
                     "body": row.body,
@@ -189,6 +196,12 @@ pub(super) fn list_notifications(mux: &Arc<Mux>, limit: Option<usize>) -> anyhow
                     "created_at_ms": row.created_at_ms,
                     "source": row.source.as_str(),
                     "acknowledged": acknowledged,
+                    // The question the row's agent still waits on (memory only).
+                    "question": row
+                        .terminal_id
+                        .as_ref()
+                        .and_then(|terminal| mux.pending_agent_question(terminal, row.id.as_str()))
+                        .as_deref(),
                 })
             })
             .collect::<Vec<_>>(),

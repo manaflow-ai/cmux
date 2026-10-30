@@ -14,6 +14,9 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         case failed
         /// The agent process or its machine is gone.
         case lost
+        /// Red CI: a pull request of the chat's (its folder's branch's, or one it opened) has
+        /// failing checks.
+        case ciFailing
         /// A turn runs, since the date when known.
         case working(since: Date?)
         case idle
@@ -46,13 +49,17 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         self.pinned = pinned
     }
 
-    /// Needs the person: waiting on them, finished unseen, failed or lost.
+    /// Needs the person: waiting on them, finished unseen, failed, lost or Red CI.
     public var needsAttention: Bool {
         switch state {
-        case .needsYou, .done, .failed, .lost: true
+        case .needsYou, .done, .failed, .lost, .ciFailing: true
         case .working, .idle: false
         }
     }
+
+    /// Mark as Read applies: a result or a failure. A question is answered, not read, and red
+    /// checks stay until they pass, so a Red CI row has nothing to mark read.
+    public var canMarkRead: Bool { needsAttention && state != .needsYou && state != .ciFailing }
 }
 
 /// What the sidebar's Priority view shows while it is installed (`sidebar.priorityView.enabled`):

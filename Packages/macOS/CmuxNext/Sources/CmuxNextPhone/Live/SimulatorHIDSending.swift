@@ -12,4 +12,12 @@ public protocol SimulatorHIDSending: Sendable {
     func send(keys: [PhoneKeyStroke], to udid: String) async throws
     /// Presses and releases one consumer-page or other HID button.
     func press(page: UInt32, usage: UInt32, on udid: String) async throws
+    /// Shows or hides the simulator's software keyboard (Simulator's I/O > Keyboard > Toggle Software Keyboard).
+    func toggleSoftwareKeyboard(on udid: String) async throws
+}
+
+extension SimulatorHIDSending {
+    public func toggleSoftwareKeyboard(on udid: String) async throws {
+        throw PhoneError.unsupported(mode: .simulator, what: "the software keyboard")
+    }
 }

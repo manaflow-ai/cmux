@@ -61,7 +61,8 @@ public struct PopupAnchor: Sendable, Equatable {
     /// the window's edge), else the screen.
     /// - Parameters:
     ///   - size: The card's size.
-    ///   - visible: The screen's visible frame; nil places the card without clamping.
+    ///   - visible: The screen's visible frame; nil (no screen, as on a machine with no display)
+    ///     keeps the card to `window` alone, and with no window either places it without clamping.
     ///   - window: The frame of the window the card opens over, in the same coordinates.
     /// - Returns: The card's frame.
     public func cardFrame(size: CGSize, visible: CGRect?, window: CGRect? = nil) -> CGRect {
@@ -81,9 +82,11 @@ public struct PopupAnchor: Sendable, Equatable {
     }
 
     /// Where a card of `size` keeps to: on each axis the window's part of the screen when the
-    /// card fits in it with its margins, else the screen; nil with no screen.
+    /// card fits in it with its margins, else the screen (with no screen, no bound on that
+    /// axis); nil with neither a screen nor a window.
     private func area(for size: CGSize, visible: CGRect?, window: CGRect?) -> CGRect? {
-        guard let visible else { return nil }
+        guard visible != nil || window != nil else { return nil }
+        let visible = visible ?? .infinite
         guard let window else { return visible }
         let inside = window.intersection(visible)
         guard !inside.isNull else { return visible }

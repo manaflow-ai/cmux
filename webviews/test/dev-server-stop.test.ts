@@ -56,6 +56,7 @@ await requireBrowserLane("dev-server-stop.test.ts", async () => {
 
     stopDevServer(server);
     const deadline = Date.now() + 10_000;
+    // fixed-wait: nothing reports a grandchild's exit (Vite runs in vp's child), so this polls the process table.
     while (started.some(alive) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(started.filter(alive)).toEqual([]);
   });

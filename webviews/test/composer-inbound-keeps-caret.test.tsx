@@ -103,7 +103,7 @@ async function render(snapshot: AcpmuxSnapshot, handle?: React.Ref<ComposerHandl
     ),
   );
   // The field's own effects and the editor's async setup settle.
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
 function chat(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {

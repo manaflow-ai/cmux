@@ -121,6 +121,12 @@ fn check_sections(doc: &Doc) -> Result<(), Refusal> {
         if section.host_group && section.kind.machine().is_none() {
             return Err(Refusal::InvalidValue);
         }
+        if section.host_group_opt_out && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        if section.host_group && section.host_group_opt_out {
+            return Err(Refusal::InvalidValue);
+        }
         if let Some(title) = &section.title {
             validate_title(title)?;
         }
@@ -299,6 +305,10 @@ pub fn repair(doc: &mut Doc) -> bool {
             section.gap = None;
         }
         if section.kind.machine().is_none() {
+            section.host_group = false;
+            section.host_group_opt_out = false;
+        } else if section.host_group && section.host_group_opt_out {
+            // An explicit Remove wins over a contradictory grouped flag.
             section.host_group = false;
         }
     }

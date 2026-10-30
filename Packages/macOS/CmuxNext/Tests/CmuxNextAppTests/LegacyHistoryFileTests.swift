@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextHistory
 
 @Suite struct LegacyHistoryFileTests {
     @Test func aProfileSymlinkCannotRedirectHistoryCleanup() throws {
@@ -20,6 +21,23 @@ import Testing
 
         let redirected = profiles.appending(path: "default/History.sqlite")
         #expect(LegacyHistoryFile(url: redirected, supportDirectory: support) == nil)
+        #expect(FileManager.default.fileExists(atPath: history.path))
+    }
+
+    @Test func anEncodedDotDotCannotLeaveTheSupportDirectory() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appending(path: "support", directoryHint: .isDirectory)
+        let outside = root.appending(path: "escape", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let history = outside.appending(path: "History.sqlite")
+        try Data("outside".utf8).write(to: history)
+
+        for dots in ["%2E%2E", ".%2e"] {
+            let crafted = try #require(URL(string: support.absoluteString + "\(dots)/escape/History.sqlite"))
+            #expect(LegacyHistoryFile(url: crafted, supportDirectory: support) == nil, "\(dots)")
+        }
         #expect(FileManager.default.fileExists(atPath: history.path))
     }
 
@@ -117,8 +135,13 @@ import Testing
         for file in [history, wal, shm] { #expect(!FileManager.default.fileExists(atPath: file.path)) }
     }
 
+    /// A root with no symbolic link anywhere above it, as cleanup requires. The temporary
+    /// folder is /var/folders/… and /var links to /private/var; `resolvingSymlinksInPath()`
+    /// drops a leading /private again, so the real path comes from realpath(3).
     private func temporaryRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
+        let temporary = try #require(realpath(FileManager.default.temporaryDirectory.path, nil))
+        defer { free(temporary) }
+        let root = URL(fileURLWithPath: String(cString: temporary), isDirectory: true).appending(
             path: "cmux-legacy-history-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )

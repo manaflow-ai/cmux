@@ -45,6 +45,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
+        if let updates = row(spec.updates) { menu.addItem(updates) }
         spec.account.compactMap(row).forEach(menu.addItem)
         let creation = spec.creation.compactMap(row)
         if !creation.isEmpty {
@@ -123,6 +124,10 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     }
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: label)
+        // A template at the menu font's size, as every right-click row's symbol (`ActionRegistry.menuIcon`).
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: label)?.withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
     }
 }

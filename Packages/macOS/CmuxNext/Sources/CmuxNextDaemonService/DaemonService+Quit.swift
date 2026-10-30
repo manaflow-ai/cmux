@@ -19,9 +19,9 @@ extension DaemonService {
     ///   place (`relaunchKeptLayoutIfNeeded`). Other daemons remove the tabs.
     public func endSessionsAndStop(_ choice: QuitSessionsChoice) async -> [EndSessionsFailure] {
         guard isLocal, choice.ends, let connection = endingConnection ?? connection else { return [] }
-        guard supports(DaemonCapabilities.shared.terminalReap) || endingConnection != nil else {
-            logger.error("end sessions: the daemon lacks \(DaemonCapabilities.shared.terminalReap, privacy: .public)")
-            return [EndSessionsFailure(step: .unsupported, message: DaemonCapabilities.shared.terminalReap)]
+        guard supports(DaemonCapability.terminalReap.rawValue) || endingConnection != nil else {
+            logger.error("end sessions: the daemon lacks \(DaemonCapability.terminalReap.rawValue, privacy: .public)")
+            return [EndSessionsFailure(step: .unsupported, message: DaemonCapability.terminalReap.rawValue)]
         }
         endingConnection = connection
         shutdownConnection()
@@ -44,8 +44,8 @@ extension DaemonService {
     /// closed connection cancels it.
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
         guard keptLayoutRelaunch == nil else { return }
-        guard isLocal, supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
-              supports(DaemonCapabilities.shared.tabRestartKeptLayout) else {
+        guard isLocal, supports(DaemonCapability.endTerminalsKeepLayout.rawValue),
+              supports(DaemonCapability.tabRestartKeptLayout.rawValue) else {
             // This daemon's kept tabs stay dead: they draw as dead.
             if keptTabRestarts != .none { keptTabRestarts = .none }
             return
@@ -80,7 +80,7 @@ extension DaemonService {
         // The daemon took the restart, then the new shell's launch failed: the tab is dead again.
         if tab.dead, tab.end?.reason == .restartFailed { return false }
         // A parked tab starts when its workspace is shown (`wakeParkedTabs`).
-        if relaunch.onShow { return supports(DaemonCapabilities.shared.tabRestartKeptLayout) }
+        if relaunch.onShow { return supports(DaemonCapability.tabRestartKeptLayout.rawValue) }
         switch keptTabRestarts {
         case .none: return false
         case .expected: return true

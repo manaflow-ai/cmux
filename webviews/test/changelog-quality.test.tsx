@@ -96,10 +96,10 @@ test("every change with a picture shows it in the Ledger, not only the lead one"
   ];
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
-  await act(async () => {
-    mountChangelogPage(host, new MockChangelogProvider(notes as never) as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  await act(async () => void mountChangelogPage(host, new MockChangelogProvider(notes as never) as never));
+  // The notes load from the provider, then the release draws.
+  for (let tries = 0; tries < 200 && !host.querySelector(".cll .cll-release"); tries += 1)
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
   const release = host.querySelector(".cll .cll-release");
   expect(release?.querySelector(".cll-title")?.textContent).toBe("Computer Use and every chat in one place");
   // The lead picture (hero) and the second change's own picture.

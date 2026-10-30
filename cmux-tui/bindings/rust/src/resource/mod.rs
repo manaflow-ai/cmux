@@ -46,7 +46,7 @@ pub use model::{
     ClientTransport, ConfirmationRequiredDetails, ConnectedClientSnapshot, Created, CreatedPath,
     CreationRecovery, CreationResolution, CreationState, Cursor, Document,
     FrontendProjectionSnapshot, LayoutColumn, LayoutColumnDock, LayoutDirection, LayoutDocument,
-    LayoutLeaf, LayoutNode, LayoutSplit, LayoutStack, LayoutViewport, MachineOrigin,
+    LayoutLeaf, LayoutNode, LayoutRow, LayoutSplit, LayoutStack, LayoutViewport, MachineOrigin,
     MachinePlatform, MachineSnapshot, MachineStatus, MutationReceipt, MutationResult,
     NotificationSnapshot, PairingCode, PairingRequestSnapshot, PairingResolutionResult,
     PairingStatus, PaneNeighborResult, PaneSnapshot, PingResult, ProcessInfoResult,

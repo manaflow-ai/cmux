@@ -5,6 +5,12 @@ files rebuilt by CI, so a landed UI PR no longer stops every other open PR."""
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +18,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/generated_catch_up.py"
+# The trusted key-wise drivers .gitattributes names (scripts/install-git-hooks.sh registers them per clone).
+KEYWISE_DRIVERS = {
+    "xcstrings-v2": "scripts/merge-xcstrings.py",
+    "pbxproj-v1": "scripts/merge-pbxproj.py",
+    "cmux-baseline-v1": "scripts/merge-baseline.py",
+    "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
+}
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 
 
@@ -25,7 +38,8 @@ def load():
 
 def pr(number, **overrides):
     value = {"number": number, "headRefName": f"lane-{number}", "headRefOid": f"{number:040d}",
-             "isDraft": False, "isCrossRepository": False, "mergeable": "CONFLICTING"}
+             "isDraft": False, "isCrossRepository": False, "mergeable": "CONFLICTING",
+             "author": {"login": "teamleaderleo"}, "labels": []}
     value.update(overrides)
     return value
 
@@ -79,6 +93,33 @@ class Selection(unittest.TestCase):
     def test_main_is_never_a_head(self):
         self.assertEqual(self.catch_up.select([pr(1, headRefName="main")], limit=10), [])
 
+    def test_only_leos_agent_prs_or_an_opted_in_pr_are_pushed_to(self):
+        # The rulebook: never push to a teammate's PR without Leo's OK (2026-10-21). Leo's agents act as
+        # teamleaderleo; anyone else opts in with the generated-catch-up label.
+        prs = [pr(1), pr(2, author={"login": "lawrencecchen"}), pr(3, author={"login": "austinywang"},
+               labels=[{"name": "generated-catch-up"}]), pr(4, author=None), pr(5, author={"login": "TeamLeaderLeo"})]
+        self.assertEqual([item["number"] for item in self.catch_up.select(prs, limit=10)], [1, 3, 5])
+
+    def test_the_listing_reads_author_and_labels(self):
+        calls = []
+
+        class Done:
+            stdout = "[]"
+
+        def run(args, **kwargs):
+            calls.append(args)
+            return Done()
+
+        original = self.catch_up.subprocess.run
+        self.catch_up.subprocess.run = run
+        try:
+            self.catch_up._list("manaflow-ai/cmux", "feat-cmux-next")
+        finally:
+            self.catch_up.subprocess.run = original
+        fields = calls[0][calls[0].index("--json") + 1].split(",")
+        self.assertIn("author", fields)
+        self.assertIn("labels", fields)
+
 
 class Workflow(unittest.TestCase):
     def setUp(self):
@@ -116,7 +157,7 @@ class Workflow(unittest.TestCase):
         job = self.doc["jobs"]["catch-up"]
         # A Blacksmith VM runs one job and is destroyed; no variable can move
         # the write token to a reused mini.
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}")
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}")
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])
@@ -127,6 +168,96 @@ class Workflow(unittest.TestCase):
     def test_classifies_with_the_base_branch_copy(self):
         self.assertIn("trusted/scripts/cmux-next/generated_catch_up.py", self.text)
         self.assertIn("trusted/.gitattributes", self.text)
+
+
+class KeyWiseDrivers(unittest.TestCase):
+    """GitHub ignores merge drivers, so a string catalog or a ratchet baseline that two PRs both add
+    entries to conflicts for every other open PR (2026-10-20/21: acpmux/Localizable.xcstrings 101
+    conflicting merges, 1 with the driver). The catch-up merges with the base's trusted key-wise
+    drivers, so a conflict they resolve is no conflict, and only a real one is left to the author."""
+
+    def setUp(self):
+        self.doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.steps = self.doc["jobs"]["catch-up"]["steps"]
+
+    def step(self, name: str) -> dict:
+        return next(step for step in self.steps if step.get("name") == name)
+
+    def test_every_keywise_driver_in_gitattributes_is_registered_from_the_base(self):
+        named = set(re.findall(r"merge=([\w.-]+)", (ROOT / ".gitattributes").read_text(encoding="utf-8")))
+        self.assertEqual(named - {"cmux-generated-v1"}, set(KEYWISE_DRIVERS))
+        trusted = self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split()
+        script = self.step("Merge feat-cmux-next")["run"]
+        for driver, path in KEYWISE_DRIVERS.items():
+            with self.subTest(driver=driver):
+                self.assertIn(path, trusted)
+                self.assertIn(f"merge.{driver}.driver", script)
+                # Never the pull request's own copy: it runs with the merge's files.
+                self.assertIn(f"$trusted/{path}", script)
+        self.assertIn('trusted="$(cd ../trusted && pwd)"', script)
+
+    def test_every_helper_the_drivers_load_from_beside_them_is_checked_out_too(self):
+        # merge-pbxproj.py loads scripts/ci/merge_main_resolver.py and scripts/normalize-pbxproj.py from its own
+        # tree; without them it exits 1 and turns a clean pbxproj text merge into a conflict (review of #23868).
+        # scripts/install-git-hooks.sh installs the same set beside the drivers in every clone.
+        hooks = (ROOT / "scripts/install-git-hooks.sh").read_text(encoding="utf-8")
+        installed = set(re.findall(r'^install -m \d+ (scripts/\S+) "\$MERGE_DRIVER_DIR/', hooks, re.M))
+        self.assertTrue(set(KEYWISE_DRIVERS.values()) <= installed, installed)
+        trusted = set(self.step("Check out the base's catch-up script")["with"]["sparse-checkout"].split())
+        self.assertEqual(installed - trusted, set())
+
+    def test_driver_commands_quote_the_trusted_path(self):
+        script = self.step("Merge feat-cmux-next")["run"]
+        for driver in KEYWISE_DRIVERS:
+            with self.subTest(driver=driver):
+                self.assertRegex(script, rf'git config merge\.{re.escape(driver)}\.driver "\$\w+"')
+
+    def git(self, cwd: Path, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def catalog(self, *keys: str) -> str:
+        strings = {key: {"localizations": {"en": {"stringUnit": {"state": "translated", "value": key}}}}
+                   for key in keys}
+        return json.dumps({"sourceLanguage": "en", "strings": strings, "version": "1.0"}, indent=2) + "\n"
+
+    def test_a_catalog_both_sides_added_keys_to_merges_without_a_conflict(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        trusted = tmp / "trusted"
+        for path in [*KEYWISE_DRIVERS.values(), "scripts/cmux-next/generated_catch_up.py", ".gitattributes"]:
+            (trusted / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / path, trusted / path)
+        repo = tmp / "pr"
+        repo.mkdir()
+        self.git(repo, "init", "-q", "-b", "feat-cmux-next")
+        (repo / ".gitattributes").write_text("*.xcstrings merge=xcstrings-v2\n")
+        (repo / "Localizable.xcstrings").write_text(self.catalog("a", "m", "z"))
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-qm", "base")
+        self.git(repo, "checkout", "-qb", "lane")
+        (repo / "Localizable.xcstrings").write_text(self.catalog("a", "lane", "m", "z"))
+        self.git(repo, "commit", "-qam", "lane adds a key")
+        self.git(repo, "checkout", "-q", "feat-cmux-next")
+        (repo / "Localizable.xcstrings").write_text(self.catalog("a", "base", "m", "z"))
+        self.git(repo, "commit", "-qam", "base adds a key")
+        base = self.git(repo, "rev-parse", "HEAD")
+        self.git(repo, "checkout", "-q", "lane")
+        self.git(repo, "remote", "add", "origin", str(repo))
+        output = tmp / "output"
+        output.touch()
+        env = {"PATH": os.environ["PATH"], "HOME": str(tmp), "BASE_SHA": base, "BRANCH": "lane", "PR_NUMBER": "7",
+               "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(tmp / "summary"), "RUNNER_TEMP": str(tmp),
+               "GIT_CONFIG_GLOBAL": str(tmp / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1"}
+        (tmp / "gitconfig").write_text("[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n")
+        result = subprocess.run(["bash", "-e", "-c", self.step("Merge feat-cmux-next")["run"]], cwd=repo, env=env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("skip=false", output.read_text())
+        self.assertEqual(self.git(repo, "diff", "--name-only", "--diff-filter=U"), "")
+        merged = json.loads((repo / "Localizable.xcstrings").read_text())
+        self.assertEqual(sorted(merged["strings"]), ["a", "base", "lane", "m", "z"])
 
 
 if __name__ == "__main__":

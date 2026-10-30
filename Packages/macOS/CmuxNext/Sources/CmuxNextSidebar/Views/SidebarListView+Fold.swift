@@ -17,6 +17,7 @@ extension SidebarListViewComponents {
             return reload(animated: true)
         }
         var o = model.listOptions()
+        o.pullRequests = SidebarSessionTree.shared.pullRequests
         o.excludedWorkspaces.formUnion(leaving)
         // What the animation needs of the rows before the fold: the realized ones and the group's block. The rest of
         // the layout is spliced in place (no copy of every row).
@@ -101,7 +102,7 @@ extension SidebarListViewComponents {
                     view.alphaValue = 1
                 }
             }
-            if opens { openingRows[row.key] = now }
+            if opens { openingRows[row.key] = SidebarRowOpening(until: now + Motion.sidebar.spring(.move).settlingTime()) }
             addSubview(view, positioned: .above, relativeTo: decorations)
             rowViews[row.key] = view
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
@@ -129,6 +130,8 @@ extension SidebarListViewComponents {
         if dy != 0 {
             for index in lines.indices where lines[index].frame.minY > header.y { lines[index].frame.origin.y += dy }
         }
-        return (lines + own, start)
+        // In list order, top to bottom, as a full rebuild lists them.
+        lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)
+        return (lines, start)
     }
 }

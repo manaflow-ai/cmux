@@ -38,7 +38,7 @@ struct NewTabStyleSwitchTests {
         // the snapshot is read after the write and its reload, not after a guessed number of yields
         // (the reload reads the file on a detached task, which yields on this actor do not wait for).
         var saves: [Task<Void, Never>] = []
-        model.onSetNewTabTemplate = { template in saves.append(Task { await NewTabPage.saveTemplate(template, settings: settings) }) }
+        model.onEditNewTab = { edit in if case .template(let template) = edit { saves.append(Task { await settings.saveNewTabTemplate(template) }) } }
 
         let reply = await Self.pick(model, "threads")
         #expect(reply["ok"] as? Bool == true)

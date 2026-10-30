@@ -45,6 +45,12 @@ struct PaneZoomTerminalResizeTests {
         }
     }
 
+    /// A window whose chrome resizes the content area over several frames, as the shell
+    /// window does while the sidebar slides open or closed (``ContentAreaMotionHosting``).
+    final class SlidingWindow: NSWindow, ContentAreaMotionHosting {
+        var isContentAreaInMotion = false
+    }
+
     final class Screen {
         let provider = Panes()
         let model: LayoutModel
@@ -52,17 +58,30 @@ struct PaneZoomTerminalResizeTests {
         let window: NSWindow
         let tree: SplitNode
 
-        init(_ tree: SplitNode, reduceMotion: Bool = false) {
+        init(_ tree: SplitNode, reduceMotion: Bool = false, sliding: Bool = false) {
             self.tree = tree
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s",
                                 focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = reduceMotion
-            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
+            let frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+            window = sliding
+                ? SlidingWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: true)
+                : NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: true)
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
+        }
+
+        /// Narrows the content area by `step` points `frames` times, as a sidebar sliding
+        /// open does: one layout pass per display frame, each at a real size.
+        func narrow(by step: CGFloat, frames: Int) {
+            var width = window.contentLayoutRect.width
+            for _ in 1...frames {
+                width -= step
+                window.setContentSize(NSSize(width: width, height: window.contentLayoutRect.height))
+                root.layoutSubtreeIfNeeded()
+            }
         }
 
         func zoom(_ pane: PaneID) {
@@ -123,6 +142,44 @@ struct PaneZoomTerminalResizeTests {
         screen.unzoom()
         screen.settle()
         #expect(probe.reports.count == rest, "an interrupted zoom resized the PTY \(probe.reports.count - rest) times")
+    }
+
+    /// Leo, 2026-10-20: side panes lag when the sidebar opens and closes. The sidebar's width
+    /// animation moves the content edge on every display frame, so every pane beside it
+    /// resizes on every frame even though no pane is on a layout spring of its own. The window
+    /// says the content area is in motion (``ContentAreaMotionHosting``) and the terminals hold
+    /// their grid until it lands, exactly as a zooming pane does.
+    @Test func aSidebarSlideReportsOneGridPerTerminalAtTheLandingNotOnEveryFrame() throws {
+        let screen = Screen(Self.pair, sliding: true)
+        let window = try #require(screen.window as? SlidingWindow)
+        let probe = try screen.probe("p1")
+        let before = probe.reports.count
+
+        window.isContentAreaInMotion = true
+        screen.narrow(by: 12, frames: 20)
+        #expect(probe.reports.count == before,
+                "a slide reported \(probe.reports.count - before) grids: a PTY resize and shell redraw per frame")
+
+        window.isContentAreaInMotion = false
+        screen.root.notifyPaneMotionSettled()
+        let reports = Array(probe.reports.dropFirst(before))
+        #expect(reports.count == 1, "the landing reported \(reports.count) grids")
+        #expect(reports.last == probe.grid, "the grid reported is not the pane's grid at the landing")
+        #expect(probe.settles >= 1, "the terminal never heard the slide land")
+    }
+
+    /// A resize with no sidebar motion still reaches the PTY on the frame it happens: the hold
+    /// is for the slide, not for every resize. This is what goes red if the window's conformance
+    /// stops matching the shell window's root view.
+    @Test func aResizeOutsideASlideStillReportsItsGridAtOnce() throws {
+        let screen = Screen(Self.pair, sliding: true)
+        let probe = try screen.probe("p1")
+        let before = probe.reports.count
+        // 48 points off the window is 24 off each pane of the pair: three columns a frame,
+        // so every step is a new grid and none is dropped as unchanged.
+        screen.narrow(by: 48, frames: 3)
+        #expect(probe.reports.count - before == 3,
+                "a plain resize reported \(probe.reports.count - before) grids instead of three: the hold leaked")
     }
 
     @Test func reduceMotionZoomReportsOnceInTheSameFrame() throws {

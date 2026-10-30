@@ -13,6 +13,7 @@ use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId
 
 mod layout_columns;
 mod layout_rows;
+mod split_around;
 
 #[cfg(test)]
 pub(crate) use layout_columns::normalize_dock_columns;

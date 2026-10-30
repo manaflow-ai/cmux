@@ -9,12 +9,14 @@
 //! agent's `OnClockChange` timer. A `{"resume": true}` socket line still
 //! works.
 
+use crate::json::JsonField;
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -27,6 +29,9 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
+use super::github;
+use super::github_minter::{Ask, Minter, Stop};
+use super::handoff::{self, HandoffReport};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -63,25 +68,67 @@ fn random_unit() -> f64 {
 /// Files under the agent's root: atomic (temp file + rename), parents 0700.
 pub struct FileStore {
     paths: Paths,
+    /// Tests: the next step of a write that fails.
+    #[cfg(test)]
+    fail_next: std::cell::Cell<Option<WriteStep>>,
+}
+
+/// The steps of a write that can fail (tests inject one).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteStep {
+    Write,
+    Permissions,
+    Rename,
+    Link,
+}
+
+/// A temp file removed when dropped, so no failure path leaves one behind.
+struct TempGuard {
+    path: PathBuf,
+}
+
+impl Drop for TempGuard {
+    fn drop(&mut self) {
+        match fs::remove_file(&self.path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => log(&format!("{}: temp file cleanup: {e}", self.path.display())),
+        }
+    }
 }
 
 impl FileStore {
     pub fn new(paths: Paths) -> FileStore {
-        FileStore { paths }
+        FileStore {
+            paths,
+            #[cfg(test)]
+            fail_next: std::cell::Cell::new(None),
+        }
     }
 
     fn at(&self, file: &str) -> PathBuf {
         self.paths.at(file)
     }
-}
 
-impl Store for FileStore {
-    fn read(&self, file: &str) -> Option<String> {
-        fs::read_to_string(self.at(file)).ok()
+    /// Tests: makes `step` of the next write fail.
+    #[cfg(test)]
+    pub fn fail_next(&self, step: WriteStep) {
+        self.fail_next.set(Some(step));
     }
 
-    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
-        let path = self.at(file);
+    fn step(&self, step: WriteStep) -> io::Result<()> {
+        #[cfg(test)]
+        if self.fail_next.get() == Some(step) {
+            self.fail_next.set(None);
+            return Err(io::Error::other(format!("injected {step:?} failure")));
+        }
+        let _ = step;
+        Ok(())
+    }
+
+    /// A finished temp file next to `path`, holding `text` with `mode`. The
+    /// guard removes it when dropped (a rename that moved it leaves nothing).
+    fn temp_beside(&self, path: &Path, text: &str, mode: u32) -> Result<TempGuard, String> {
         let dir = path.parent().ok_or("no parent directory")?;
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let tmp = dir.join(format!(
@@ -97,10 +144,52 @@ impl Store for FileStore {
             .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .map_err(|e| format!("{}: {e}", tmp.display()))?;
-        out.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-        out.set_permissions(fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
-        drop(out);
-        fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+        let guard = TempGuard { path: tmp };
+        self.step(WriteStep::Write)
+            .and_then(|()| out.write_all(text.as_bytes()))
+            .map_err(|e| e.to_string())?;
+        self.step(WriteStep::Permissions)
+            .and_then(|()| out.set_permissions(fs::Permissions::from_mode(mode)))
+            .map_err(|e| e.to_string())?;
+        Ok(guard)
+    }
+}
+
+impl Store for FileStore {
+    fn read(&self, file: &str) -> Option<String> {
+        fs::read_to_string(self.at(file)).ok()
+    }
+
+    fn present(&self, file: &str) -> Result<bool, String> {
+        let path = self.at(file);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
+    }
+
+    fn write(&mut self, file: &str, text: &str, mode: u32) -> Result<(), String> {
+        let path = self.at(file);
+        let tmp = self.temp_beside(&path, text, mode)?;
+        self.step(WriteStep::Rename)
+            .and_then(|()| fs::rename(&tmp.path, &path))
+            .map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn create_new(&mut self, file: &str, text: &str, mode: u32) -> Result<bool, String> {
+        let path = self.at(file);
+        let tmp = self.temp_beside(&path, text, mode)?;
+        // link() fails on any existing entry (a file, a dangling symlink, a
+        // directory), so a record written after the caller's check is kept.
+        // The temp name goes when `tmp` drops, linked or not.
+        let linked = self.step(WriteStep::Link).and_then(|()| fs::hard_link(&tmp.path, &path));
+        drop(tmp);
+        match linked {
+            Ok(()) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        }
     }
 
     fn remove(&mut self, file: &str) {
@@ -126,8 +215,8 @@ pub fn query_identify(socket: &Path, timeout: Duration) -> io::Result<Value> {
     let mut line = String::new();
     BufReader::new(stream).read_line(&mut line)?;
     let reply: Value = serde_json::from_str(&line).map_err(io::Error::other)?;
-    if reply["ok"] == true && reply["data"].is_object() {
-        Ok(reply["data"].clone())
+    if *reply.field("ok") == true && reply.field("data").is_object() {
+        Ok(reply.field("data").clone())
     } else {
         Err(io::Error::other("daemon identify refused"))
     }
@@ -193,6 +282,9 @@ struct WorkerHandle {
     control: UnixStream,
     /// Disconnects when the worker thread ends.
     done: Receiver<()>,
+    /// Set before `stop`: from then on the minter hands out no token,
+    /// even if the worker is stuck in a request past the deadline.
+    github_stop: Arc<Stop>,
 }
 
 impl CloudRole {
@@ -207,6 +299,9 @@ impl CloudRole {
     }
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
+        if let Some(worker) = self.worker.as_ref() {
+            worker.github_stop.set();
+        }
         self.send("stop");
         let Some(worker) = self.worker.take() else { return Ok(()) };
         // The worker ends after its current request (each is bounded by
@@ -238,17 +333,19 @@ impl Role for CloudRole {
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
+        let github_stop = Arc::new(Stop::default());
+        let worker_stop = Arc::clone(&github_stop);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs);
+                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop);
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
             })
             .map_err(|e| RoleError(e.to_string()))?;
-        self.worker = Some(WorkerHandle { thread, control: ours, done });
+        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop });
         Ok(())
     }
 
@@ -303,6 +400,8 @@ struct Worker {
     clients: Vec<Client>,
     activity: Activity,
     live: Option<Live>,
+    /// GitHub token asks, off the poll loop (`github_minter.rs`).
+    github: Minter<PosterHttp>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -315,6 +414,7 @@ impl Worker {
         instance_id: String,
         heartbeat_env: Option<String>,
         control: UnixStream,
+        github_stop: Arc<Stop>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;
@@ -341,6 +441,7 @@ impl Worker {
                 unsupported: false,
             },
             live: None,
+            github: Minter::spawn(wall_ms, log, github_stop)?,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -405,7 +506,7 @@ impl Worker {
                 }
                 return Err(err);
             }
-            let ready = |i: usize| fds[i].revents != 0;
+            let ready = |i: usize| fds.get(i).is_some_and(|fd| fd.revents != 0);
             if ready(0) && self.control_words()? {
                 return Ok(());
             }
@@ -434,7 +535,7 @@ impl Worker {
         loop {
             match self.control.read(&mut buf) {
                 Ok(0) => return Ok(true),
-                Ok(n) => self.control_buf.extend_from_slice(&buf[..n]),
+                Ok(n) => self.control_buf.extend_from_slice(read_part(&buf, n)?),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e),
@@ -478,7 +579,15 @@ impl Worker {
     fn accept(&mut self) {
         let Some(listener) = self.listener.as_ref() else { return };
         while let Ok((stream, _)) = listener.accept() {
-            if self.clients.len() >= MAX_CLIENTS || stream.set_nonblocking(true).is_err() {
+            if self.clients.len() >= MAX_CLIENTS {
+                // A GitHub token asker gets an answer rather than an EOF.
+                let mut stream = stream;
+                let busy = github::refusal("busy", "the Cloud agent's socket is full; retry");
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+                let _ = stream.write_all(format!("{busy}\n").as_bytes());
+                continue;
+            }
+            if stream.set_nonblocking(true).is_err() {
                 continue;
             }
             self.clients.push(Client { stream, buf: Vec::new() });
@@ -489,10 +598,10 @@ impl Worker {
         let mut closed = Vec::new();
         let mut lines = Vec::new();
         for &i in readable {
-            let client = &mut self.clients[i];
+            let Some(client) = self.clients.get_mut(i) else { continue };
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf));
+                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
                     if !open || client.buf.len() > MAX_LINE {
                         closed.push(i);
                     }
@@ -500,10 +609,41 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
-        for i in closed.into_iter().rev() {
-            self.clients.remove(i);
+        // A GitHub token ask or a hand-off report takes its connection to
+        // the minter, which answers it with one line and closes it: one ask
+        // per connection, and the poll loop never waits on the API.
+        let mut session_lines = Vec::new();
+        let mut asks: Vec<(usize, Ask)> = Vec::new();
+        for (i, line) in lines {
+            // One ask per connection, and none from a client already gone:
+            // nobody would read the reply.
+            if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
+            let ask = agent_ask(&line);
+            if closed.contains(&i) && ask.is_some() {
+                continue;
+            }
+            match ask {
+                Some(ask) => asks.push((i, ask)),
+                None => session_lines.push(line),
+            }
         }
-        for line in lines {
+        closed.extend(asks.iter().map(|(i, _)| *i));
+        closed.sort_unstable();
+        closed.dedup();
+        let mut taken = Vec::new();
+        for i in closed.into_iter().rev() {
+            if i < self.clients.len() {
+                taken.push((i, self.clients.remove(i).stream));
+            }
+        }
+        for (i, ask) in asks {
+            if let Some(pos) = taken.iter().position(|(at, _)| *at == i) {
+                self.github.ask(ask, taken.swap_remove(pos).1);
+            }
+        }
+        for line in session_lines {
             let now = self.now();
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
@@ -559,7 +699,8 @@ impl Worker {
             Ok(bound) => bound,
             Err(e) => return log(&format!("bound.json unreadable: {e}")),
         };
-        // A machine bound by an older build has no kind record yet.
+        // A machine bound by an older build may have no kind record yet; one
+        // that has a record keeps it.
         if let Err(e) = super::client::record_owner_kind(&mut self.store) {
             log(&format!("vm-kind write: {e}"));
         }
@@ -586,6 +727,10 @@ impl Worker {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
+        }
+        match github_client(&bound, &key) {
+            Ok(client) => self.github.bound(client),
+            Err(e) => log(&format!("github minter: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -616,7 +761,7 @@ impl Worker {
             .ok_or_else(|| io::Error::other("no daemon socket"))
             .and_then(|socket| {
                 let identify = query_identify(&socket, Duration::from_secs(2))?;
-                let caps = identify["capabilities"].as_array().cloned().unwrap_or_default();
+                let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
                 if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
                     return Ok(None);
                 }
@@ -646,17 +791,17 @@ impl Worker {
             };
             let now = self.now();
             let mut reqs = Vec::new();
-            if msg["ok"] == true && !self.activity.connected {
+            if *msg.field("ok") == true && !self.activity.connected {
                 self.activity.connected = true;
                 self.activity.backoff.reset();
                 if let Some(live) = self.live.as_mut() {
                     reqs.extend(live.session.activity_stream(true, now));
                 }
             }
-            let activity = if msg["event"] == "activity-changed" {
-                Some(&msg["activity"])
-            } else if msg["ok"] == true {
-                Some(&msg["data"]["activity"])
+            let activity = if *msg.field("event") == "activity-changed" {
+                Some(msg.field("activity"))
+            } else if *msg.field("ok") == true {
+                Some(msg.field("data").field("activity"))
             } else {
                 None
             };
@@ -726,8 +871,8 @@ impl Worker {
         let Some(live) = self.live.as_ref() else { return };
         let (ok, applied, status) = match answer {
             Answer::Http { status, body } => {
-                let ok = *status == 200 && body["ok"] == true;
-                (ok, ok.then(|| body["value"]["applied"] == true), Some(*status))
+                let ok = *status == 200 && *body.field("ok") == true;
+                (ok, ok.then(|| *body.field("value").field("applied") == true), Some(*status))
             }
             Answer::Transport => (false, None, None),
         };
@@ -741,6 +886,24 @@ impl Worker {
     }
 }
 
+/// The minter's own client for the bound machine: the same install key,
+/// its own HTTPS poster and bearer cache.
+fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
+    let key = InstallKey::from_pkcs8(key.pkcs8(), &SystemRandom::new())?;
+    Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
+}
+
+/// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
+/// line (checked), or `None` for every other line (the session's).
+fn agent_ask(line: &str) -> Option<Ask> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    if let Some(ask) = msg.get(github::REQUEST_KEY) {
+        return Some(github::TokenAsk::from_json(ask).into());
+    }
+    let report = msg.get(handoff::REQUEST_KEY)?;
+    Some(HandoffReport::from_json(report).into())
+}
+
 /// Reads what is available; `Ok(false)` at end of stream.
 fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool> {
     let mut chunk = [0u8; 4096];
@@ -748,7 +911,7 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
         match stream.read(&mut chunk) {
             Ok(0) => return Ok(false),
             Ok(n) => {
-                buf.extend_from_slice(&chunk[..n]);
+                buf.extend_from_slice(read_part(&chunk, n)?);
                 if buf.len() > MAX_LINE {
                     return Ok(true);
                 }
@@ -760,12 +923,20 @@ fn read_available(stream: &mut UnixStream, buf: &mut Vec<u8>) -> io::Result<bool
     }
 }
 
+/// The first `n` bytes of a read buffer; a reader that claims more than
+/// the buffer holds is an error.
+fn read_part(buf: &[u8], n: usize) -> io::Result<&[u8]> {
+    buf.get(..n).ok_or_else(|| io::Error::other("read returned more than its buffer"))
+}
+
 /// Complete lines out of `buf` (the rest stays).
 fn take_lines(buf: &mut Vec<u8>) -> Vec<String> {
     let mut out = Vec::new();
     while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
-        let line: Vec<u8> = buf.drain(..=nl).collect();
-        out.push(String::from_utf8_lossy(&line[..nl]).into_owned());
+        // `nl` is a position in `buf`, so the range is in bounds.
+        let mut line: Vec<u8> = buf.drain(..=nl).collect();
+        line.pop();
+        out.push(String::from_utf8_lossy(&line).into_owned());
     }
     out
 }
@@ -786,7 +957,7 @@ fn group_id(name: &str) -> Option<u32> {
 pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String> {
     let socket = daemon_socket(paths).ok_or_else(|| format!("{DAEMON_SOCKET_FILE} is missing"))?;
     let identify = query_identify(&socket, timeout).map_err(|e| format!("identify: {e}"))?;
-    let caps = identify["capabilities"].as_array().cloned().unwrap_or_default();
+    let caps = identify.field("capabilities").as_array().cloned().unwrap_or_default();
     if !caps.iter().any(|c| c == DAEMON_ACTIVITY_CAPABILITY) {
         return Err(format!("daemon does not advertise {DAEMON_ACTIVITY_CAPABILITY}"));
     }
@@ -798,10 +969,10 @@ pub fn probe_activity(paths: &Paths, timeout: Duration) -> Result<Value, String>
         .read_line(&mut line)
         .map_err(|_| "activity stream did not connect".to_owned())?;
     let msg: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-    if msg["ok"] != true || !msg["data"]["activity"].is_object() {
+    if *msg.field("ok") != true || !msg.field("data").field("activity").is_object() {
         return Err("activity stream did not connect".to_owned());
     }
-    let change = super::wire::activity_from_daemon(&msg["data"]["activity"]);
+    let change = super::wire::activity_from_daemon(msg.field("data").field("activity"));
     let mut activity = super::wire::Activity::default();
     change.apply(&mut activity);
     Ok(json!({ "capability": true, "connected": true, "activity": activity.to_json() }))

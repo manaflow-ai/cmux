@@ -41,6 +41,16 @@ nonisolated extension PaneEdge {
         }
     }
 
+    /// The layout's drop zone at this edge.
+    public var dropZone: PaneDropZone {
+        switch self {
+        case .left: .left
+        case .right: .right
+        case .top: .top
+        case .bottom: .bottom
+        }
+    }
+
     /// The axis a split at this edge divides.
     public var splitAxis: SplitAxis {
         switch self {

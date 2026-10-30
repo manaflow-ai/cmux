@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
@@ -23,6 +24,15 @@ enum AgentSessionBindOutcome: Equatable {
 }
 
 extension AgentTabStore {
+    /// The fixture Mac a showcase run names (`--showcase`, the capture scenes).
+    static let showcaseMachineName = MacName.captureName
+
+    /// This Mac's name on its panes and for other Macs: `read` answers it, except in a showcase run,
+    /// which names the fixture Mac and never reads the host's, so a capture shows no real computer name.
+    static func localMachineName(showcase: Bool, read: () async -> String) async -> String {
+        showcase ? showcaseMachineName : await read()
+    }
+
     /// `name` without control characters, cut to 255 bytes on a character boundary; nil when empty.
     static func displayName(_ name: String) -> String? {
         var result = ""
