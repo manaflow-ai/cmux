@@ -40,8 +40,8 @@ pub struct WindowSpec {
     /// The typed query, ranked by the palette ranker (the filter's own substring text is off).
     query: Option<String>,
     untitled: String,
-    /// The client's choice history (JSON text, checked when the spec is read).
-    history: Option<String>,
+    /// The client's choice history, parsed once when the spec is read.
+    history: Option<ParsedHistory>,
     count: bool,
 }
 
@@ -52,11 +52,22 @@ struct History {
     frecency: cmux_palette_ranker::Frecency,
 }
 
-impl WindowSpec {
-    fn history(&self) -> Option<History> {
-        self.history.as_deref().and_then(|text| serde_json::from_str(text).ok())
+/// A spec's history, parsed once. Two specs are equal when the client sent the same text (the
+/// parsed form has no equality of its own: floats and maps).
+#[derive(Clone, Debug)]
+struct ParsedHistory {
+    text: String,
+    now: f64,
+    frecency: cmux_palette_ranker::Frecency,
+}
+
+impl PartialEq for ParsedHistory {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
     }
 }
+
+impl Eq for ParsedHistory {}
 
 impl WindowSpec {
     pub fn from_params(params: &Value) -> Result<Self, String> {
@@ -104,9 +115,13 @@ impl WindowSpec {
         let history = match params.get("history") {
             None | Some(Value::Null) => None,
             Some(Value::String(text)) => {
-                serde_json::from_str::<History>(text)
+                let history = serde_json::from_str::<History>(text)
                     .map_err(|e| format!("history must be {{now, frecency}} JSON: {e}"))?;
-                Some(text.clone())
+                Some(ParsedHistory {
+                    text: text.clone(),
+                    now: history.now,
+                    frecency: history.frecency,
+                })
             }
             Some(_) => return Err("history must be a JSON string".to_owned()),
         };
@@ -285,7 +300,7 @@ fn ranked_rows(
         ));
         candidates.push((key, value));
     }
-    let order = ranked(query, entries, spec.history().map(|h| (h.now, h.frecency)));
+    let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
     let total = order.len();
     let mut slots: Vec<Option<(String, Value)>> = candidates.into_iter().map(Some).collect();
     let rows = order
