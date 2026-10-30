@@ -37,6 +37,7 @@ mod terminal_talk_tools;
 mod tests;
 mod transport;
 mod upstream;
+mod upstream_listing;
 mod v2_tools;
 mod watch;
 
