@@ -541,7 +541,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
             let daemon_cli_path = client.daemon_cli_path();
-            let show = || -> Result<()> {
+            let show = || async {
                 if let Some(group) = &args.group {
                     // Only explicit names opt into the app's predecessor-row reuse.
                     // Generated names can be identical on independent peers.
@@ -554,9 +554,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         group,
                         daemon_cli_path.as_deref(),
                         deadline,
-                    )?;
+                    )
+                    .await?;
                 }
-                Ok(())
+                Ok::<(), anyhow::Error>(())
             };
             if let Some(info) = &reused {
                 launch::check_reusable(
@@ -581,7 +582,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         warn_host_pressure(&accepted);
                     }
                 }
-                show()?;
+                show().await?;
                 if json_out {
                     let mut info = info.clone();
                     info["reused"] = json!(true);
@@ -617,7 +618,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     warn_host_pressure(&accepted);
                 }
             }
-            if let Err(mut open_error) = show() {
+            if let Err(mut open_error) = show().await {
                 if !queue_before_open && let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
                     if let Err(error) = before_deadline(
@@ -628,7 +629,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .await
                     {
                         open_error =
-                            anyhow!("{open_error}; first prompt was not confirmed: {error}");
+                            open_error.context(format!("first prompt was not confirmed: {error}"));
                     }
                 }
                 if ephemeral
@@ -640,9 +641,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     )
                     .await
                 {
-                    open_error = anyhow!(
-                        "{open_error}; the ephemeral session could not be retained: {error}; retry the launch without --ephemeral"
-                    );
+                    open_error = open_error.context(format!(
+                        "the ephemeral session could not be retained: {error}; retry the launch without --ephemeral"
+                    ));
                 }
                 return Err(open_error);
             }
@@ -798,13 +799,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         "team messages currently carry text only and do not support --supersede or --class"
                     ));
                 }
-                let client = connect(true).await?;
-                let receipt = client
-                    .request(
+                let client = before_deadline(deadline, &session, connect(true)).await?;
+                let receipt = before_deadline(
+                    deadline,
+                    &session,
+                    client.request(
                         method::MUX_TEAM_SEND,
                         json!({"to": session, "body": text, "idempotencyKey": prompt_id.id}),
-                    )
-                    .await?;
+                    ),
+                )
+                .await?;
                 if json_out {
                     print_json(&receipt);
                 } else {
@@ -928,6 +932,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         json_out,
                         deadline,
                     )
+                    .await
                 }
                 (Err(e), None)
                     if !no_wait

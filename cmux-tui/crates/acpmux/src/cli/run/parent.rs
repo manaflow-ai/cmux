@@ -99,7 +99,7 @@ pub(super) async fn run(
         }
         return Ok(());
     }
-    let row = before_deadline(deadline, &id, wait_turn(&client, &id, args.timeout)).await?;
+    let row = before_deadline(deadline, &id, wait_turn(&client, &id, deadline)).await?;
     // Masked as the sub-session tools mask what they hand another session's agent; whole, not cut.
     let reply = before_deadline(deadline, &id, last_replies(&client, &id, 1))
         .await?
@@ -143,10 +143,15 @@ fn turn_end(last: &Value) -> (&'static str, Option<String>) {
 
 /// The child's summary once its turn ended (`_acpmux/wait` until ready): a question or
 /// permission it asks waits on the person in the app.
-async fn wait_turn(client: &Arc<Client>, id: &str, timeout: Option<u64>) -> Result<Value> {
+async fn wait_turn(
+    client: &Arc<Client>,
+    id: &str,
+    deadline: Option<tokio::time::Instant>,
+) -> Result<Value> {
     let mut params = json!({"sessions": [id], "until": ["ready", "closed"]});
-    if let Some(secs) = timeout {
-        params.set("timeoutMs", json!(secs.saturating_mul(1000)));
+    if let Some(deadline) = deadline {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        params.set("timeoutMs", json!(remaining.as_millis().min(u64::MAX as u128) as u64));
     }
     let v = client.request(method::MUX_WAIT, params).await?;
     if v["timedOut"].as_bool().unwrap_or(false) {

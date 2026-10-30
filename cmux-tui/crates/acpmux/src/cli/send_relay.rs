@@ -18,11 +18,11 @@ use crate::cli::sender::FROM_ENV;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
+use tokio::process::Command;
 use tokio::time::Instant;
-use wait_timeout::ChildExt;
 
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -97,7 +97,7 @@ pub(crate) struct Relayed {
 /// Run a relay while respecting the caller's absolute deadline. The child is
 /// put in its own process group so expiry can only terminate this command and
 /// any descendants it started.
-pub(crate) fn relay_with_deadline(
+pub(crate) async fn relay_with_deadline(
     relay: &SendRelay,
     session: &str,
     text: &str,
@@ -114,57 +114,14 @@ pub(crate) fn relay_with_deadline(
         .stdin(Stdio::piped())
         .stdout(if capture { Stdio::piped() } else { Stdio::inherit() })
         .stderr(Stdio::inherit());
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     match from {
         Some(from) => cmd.env(FROM_ENV, from),
         None => cmd.env_remove(FROM_ENV),
     };
-    let mut child =
-        cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
-    let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("the send relay has no stdin"))?;
-    let mut stdout = child.stdout.take();
-    // Written beside the wait, so a relay that answers before reading it all never blocks us.
-    let body = text.as_bytes().to_owned();
-    let writer = std::thread::spawn(move || stdin.write_all(&body));
-    let reader = stdout.take().map(|mut stdout| {
-        std::thread::spawn(move || {
-            let mut output = Vec::new();
-            let result = stdout.read_to_end(&mut output);
-            (result, output)
-        })
-    });
-    let status = match deadline {
-        Some(deadline) => {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            match child.wait_timeout(remaining).context("the send relay")? {
-                Some(status) => status,
-                None => {
-                    terminate_child(&mut child);
-                    // Do not let a relay that deliberately keeps an inherited
-                    // pipe open extend the caller's deadline. The child group
-                    // is gone; helper threads are detached on this error path.
-                    return Err(AppError::timeout(format!(
-                        "the send relay for {session:?} exceeded its caller deadline"
-                    ))
-                    .into());
-                }
-            }
-        }
-        None => child.wait().context("the send relay")?,
-    };
-    let written = writer.join().unwrap_or_else(|_| Err(std::io::Error::other("writer panicked")));
-    let output = match reader {
-        Some(reader) => {
-            let (result, output) = reader
-                .join()
-                .unwrap_or_else(|_| (Err(std::io::Error::other("reader panicked")), Vec::new()));
-            result.context("reading the send relay")?;
-            output
-        }
-        None => Vec::new(),
-    };
-    let status = status.code().unwrap_or(1);
+    let (out, written) = super::subprocess::output(&mut cmd, Some(text), deadline, session)
+        .await
+        .with_context(|| format!("the send relay {program:?}"))?;
+    let status = out.status.code().unwrap_or(1);
     // A relay that stopped reading and still said yes was not handed the whole message; its own
     // refusal stays its status.
     if status == 0
@@ -174,24 +131,13 @@ pub(crate) fn relay_with_deadline(
     }
     Ok(Relayed {
         status,
-        output: capture.then(|| String::from_utf8_lossy(&output).trim_end().to_owned()),
+        output: capture.then(|| String::from_utf8_lossy(&out.stdout).trim_end().to_owned()),
     })
-}
-
-fn terminate_child(child: &mut Child) {
-    #[cfg(unix)]
-    if let Ok(pid) = i32::try_from(child.id()) {
-        // The group was created by this command, so this cannot target an
-        // unrelated process discovered by name.
-        unsafe { libc::kill(-pid, libc::SIGKILL) };
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// `acpmux send` to a target nobody here resolves, with a relay configured: run it, print what
 /// it printed and exit with its status (a refusal is an error that exits with it).
-pub(crate) fn send_with_deadline(
+pub(crate) async fn send_with_deadline(
     config: &SendRelay,
     session: &str,
     text: &str,
@@ -209,7 +155,7 @@ pub(crate) fn send_with_deadline(
     if !json_out {
         eprintln!("acpmux: no session {session:?} here or on a peer; handing it to the send relay");
     }
-    let done = relay_with_deadline(config, session, text, from, json_out, deadline)?;
+    let done = relay_with_deadline(config, session, text, from, json_out, deadline).await?;
     if json_out {
         print_json(&json!({
             "target": session,
@@ -290,8 +236,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn the_relay_gets_the_session_the_text_and_the_sender_and_its_status_is_ours() {
+    #[tokio::test]
+    async fn the_relay_gets_the_session_the_text_and_the_sender_and_its_status_is_ours() {
         let dir = scratch("run");
         let script = dir.join("relay");
         let seen = dir.join("seen");
@@ -306,11 +252,12 @@ mod tests {
 
         let done =
             relay_with_deadline(&config, "lane-b", "hello\nthere", Some("vm/lane"), true, None)
+                .await
                 .unwrap();
         assert_eq!(done, Relayed { status: 0, output: Some("delivery-42".into()) });
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|lane-b|-|vm/lane|hello\nthere");
 
-        let done = relay_with_deadline(&config, "refuse", "x", None, true, None).unwrap();
+        let done = relay_with_deadline(&config, "refuse", "x", None, true, None).await.unwrap();
         assert_eq!(done.status, 7);
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
 
@@ -322,18 +269,19 @@ mod tests {
         );
         let early = SendRelay { argv: vec![early.display().to_string()] };
         let big = "x".repeat(1 << 20);
-        let e = relay_with_deadline(&early, "lane-b", &big, None, true, None).unwrap_err();
+        let e = relay_with_deadline(&early, "lane-b", &big, None, true, None).await.unwrap_err();
         assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
         let missing = SendRelay { argv: vec![dir.join("absent").display().to_string()] };
-        assert!(relay_with_deadline(&missing, "lane-b", "x", None, true, None).is_err());
+        assert!(relay_with_deadline(&missing, "lane-b", "x", None, true, None).await.is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn a_relayed_send_with_attachments_is_refused() {
+    #[tokio::test]
+    async fn a_relayed_send_with_attachments_is_refused() {
         let config = SendRelay { argv: vec!["/nonexistent/relay".into()] };
-        let e = send_with_deadline(&config, "lane-b", "x", None, true, true, None).unwrap_err();
+        let e =
+            send_with_deadline(&config, "lane-b", "x", None, true, true, None).await.unwrap_err();
         assert_eq!(e.downcast_ref::<AppError>().map(|a| a.code), Some(Code::Usage));
         assert!(e.to_string().contains("text only"), "{e}");
     }

@@ -7,13 +7,12 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
-use std::sync::mpsc;
+use std::process::Stdio;
+use tokio::process::Command;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use tokio::time::Instant;
-use wait_timeout::ChildExt;
 
 use crate::cli::command::NewArgs;
 use crate::client::Client;
@@ -329,7 +328,7 @@ fn workspace_key(id: &str) -> String {
 /// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
-pub(super) fn show_in_group(
+pub(super) async fn show_in_group(
     id: &str,
     session_name: &str,
     title: Option<&str>,
@@ -348,18 +347,15 @@ pub(super) fn show_in_group(
     let cli =
         select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
     let path_cli = PathBuf::from("cmux");
-    let (cli, result) = run_with_fallback(&cli, &args, &path_cli, deadline);
+    let (cli, result) = run_with_fallback(&cli, &args, &path_cli, deadline, id).await;
     let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = result.map_err(|error| {
-        anyhow::anyhow!(
-            "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
-             bundled CLI on PATH, then retry on that Mac: {command}"
-        )
-    })?;
+    let out = result.with_context(|| format!(
+        "session {session_name} was created, but --group could not run cmux; retry only the open: {command}"
+    ))?;
     if !out.status.success() {
         bail!(
             "session {session_name} was created, but the cmux app did not show it ({}): {}; retry only the open: {command}",
@@ -370,98 +366,37 @@ pub(super) fn show_in_group(
     Ok(())
 }
 
-fn run_with_fallback(
+async fn run_with_fallback(
     primary: &Path,
     args: &[&str],
     fallback: &Path,
     deadline: Option<Instant>,
-) -> (PathBuf, std::io::Result<std::process::Output>) {
-    let result = run_bounded(primary, args, deadline);
+    session: &str,
+) -> (PathBuf, Result<std::process::Output>) {
+    let result = run_bounded(primary, args, deadline, session).await;
+    let timed_out = result.as_ref().is_err_and(|error| {
+        error
+            .downcast_ref::<crate::cli::errors::AppError>()
+            .is_some_and(|error| error.code == crate::cli::errors::Code::Timeout)
+    });
     if primary != fallback
         && !result.as_ref().is_ok_and(|output| output.status.success())
-        && !result.as_ref().is_err_and(|error| error.kind() == std::io::ErrorKind::TimedOut)
+        && !timed_out
     {
-        let fallback_result = run_bounded(fallback, args, deadline);
-        return (fallback.to_path_buf(), fallback_result);
+        return (fallback.to_path_buf(), run_bounded(fallback, args, deadline, session).await);
     }
     (primary.to_path_buf(), result)
 }
 
-fn run_bounded(path: &Path, args: &[&str], deadline: Option<Instant>) -> std::io::Result<Output> {
+async fn run_bounded(
+    path: &Path,
+    args: &[&str],
+    deadline: Option<Instant>,
+    session: &str,
+) -> Result<std::process::Output> {
     let mut command = Command::new(path);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
-    let mut child = command.spawn()?;
-    let stdout = pipe_reader(child.stdout.take());
-    let stderr = pipe_reader(child.stderr.take());
-    let status = match deadline {
-        Some(deadline) => {
-            match child.wait_timeout(deadline.saturating_duration_since(Instant::now()))? {
-                Some(status) => status,
-                None => {
-                    terminate_child(&mut child);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "cmux group open exceeded the caller deadline",
-                    ));
-                }
-            }
-        }
-        None => child.wait()?,
-    };
-    let stdout = read_pipe(stdout, deadline, &mut child)?;
-    let stderr = read_pipe(stderr, deadline, &mut child)?;
-    Ok(Output { status, stdout, stderr })
-}
-
-fn pipe_reader(
-    pipe: Option<impl Read + Send + 'static>,
-) -> Option<mpsc::Receiver<std::io::Result<Vec<u8>>>> {
-    let pipe = pipe?;
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut pipe = pipe;
-        let mut bytes = Vec::new();
-        let result = pipe.read_to_end(&mut bytes).map(|_| bytes);
-        let _ = tx.send(result);
-    });
-    Some(rx)
-}
-
-fn read_pipe(
-    pipe: Option<mpsc::Receiver<std::io::Result<Vec<u8>>>>,
-    deadline: Option<Instant>,
-    child: &mut Child,
-) -> std::io::Result<Vec<u8>> {
-    let Some(pipe) = pipe else { return Ok(Vec::new()) };
-    let result = match deadline {
-        Some(deadline) => {
-            match pipe.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok(result) => result,
-                Err(_) => {
-                    terminate_child(child);
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "cmux group output stalled",
-                    ));
-                }
-            }
-        }
-        None => {
-            pipe.recv().map_err(|_| std::io::Error::other("cmux group output reader stopped"))?
-        }
-    }?;
-    Ok(result)
-}
-
-fn terminate_child(child: &mut Child) {
-    #[cfg(unix)]
-    if let Ok(pid) = i32::try_from(child.id()) {
-        unsafe { libc::kill(-pid, libc::SIGKILL) };
-    }
-    let _ = child.kill();
-    let _ = child.wait();
+    crate::cli::subprocess::output(&mut command, None, deadline, session).await.map(|(out, _)| out)
 }
 
 fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
@@ -516,8 +451,8 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn a_failing_bundled_cli_retries_the_path_cli() {
+    #[tokio::test]
+    async fn a_failing_bundled_cli_retries_the_path_cli() {
         let root =
             std::env::temp_dir().join(format!("acpmux-cli-fallback-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&root).unwrap();
@@ -533,7 +468,7 @@ mod tests {
             }
         }
         let args = ["agent", "open", "session-id"];
-        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli, None);
+        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli, None, "test").await;
         assert_eq!(chosen, path_cli);
         assert!(output.unwrap().status.success());
         std::fs::remove_dir_all(root).unwrap();
@@ -657,8 +592,8 @@ mod tests {
         assert!(uuid::Uuid::parse_str(&k).is_ok());
     }
 
-    #[test]
-    fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
+    #[tokio::test]
+    async fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
         let error = show_in_group(
             "session-id",
             "lane-name",
@@ -667,6 +602,7 @@ mod tests {
             Some(Path::new("/definitely/missing/cmux")),
             None,
         )
+        .await
         .unwrap_err()
         .to_string();
         assert!(error.contains("session lane-name was created"), "{error}");
@@ -675,16 +611,24 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn a_stalled_group_open_is_killed_at_the_caller_deadline() {
+    #[tokio::test]
+    async fn a_stalled_group_open_is_killed_at_the_caller_deadline() {
         let path = std::env::temp_dir().join(format!("acpmux-group-stall-{}", std::process::id()));
         std::fs::write(&path, "#!/bin/sh\nsleep 30\n").unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         let started = std::time::Instant::now();
-        let result =
-            run_bounded(&path, &[], Some(Instant::now() + std::time::Duration::from_millis(200)));
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::TimedOut);
+        let result = run_bounded(
+            &path,
+            &[],
+            Some(Instant::now() + std::time::Duration::from_millis(200)),
+            "test",
+        )
+        .await;
+        assert_eq!(
+            result.unwrap_err().downcast_ref::<crate::cli::errors::AppError>().unwrap().code,
+            crate::cli::errors::Code::Timeout
+        );
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
         std::fs::remove_file(path).unwrap();
     }

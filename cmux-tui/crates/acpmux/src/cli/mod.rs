@@ -52,6 +52,7 @@ pub mod session_turn_cap;
 pub mod shutdown;
 pub mod stdio;
 pub(crate) mod steer_reply;
+pub(crate) mod subprocess;
 pub mod task;
 pub mod uniichat_agent;
 pub(crate) mod unknown_flag;
