@@ -41,6 +41,12 @@ use crate::wire::packet_source;
 const COMMAND_DEPTH: usize = 64;
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
+/// Datagrams handled per wake before the stack runs (as the mesh driver's
+/// `RECEIVE_BATCH`). Running the stack after every datagram falls behind a
+/// fast peer: the socket's receive buffer overflows, and a segment smoltcp's
+/// fast retransmit does not recover waits its 1 s minimum retransmission
+/// timeout.
+const RECEIVE_BATCH: usize = 64;
 
 /// A running tunnel. Dropping it stops the driver; every stream then reads
 /// EOF and fails writes.
@@ -408,6 +414,10 @@ impl Driver {
                     if let Some(received) = datagram.get(..count) {
                         self.handle_datagram(received, origin);
                     }
+                    if self.receive_ready(&mut datagram).await.is_err() {
+                        self.shutdown();
+                        return;
+                    }
                 }
                 Event::DatagramError(error) => {
                     if is_transient(&error) {
@@ -429,6 +439,30 @@ impl Driver {
             self.run_probes();
             self.underlay.flush();
         }
+    }
+
+    /// Handle the datagrams already waiting on the underlay, up to a batch,
+    /// so the stack runs once for all of them. Polled with this task's
+    /// waker, so a carrier that is not ready is woken as the main wait is.
+    /// `Err` is a receive error the driver cannot survive.
+    async fn receive_ready(&mut self, buffer: &mut [u8]) -> io::Result<()> {
+        for _ in 1..RECEIVE_BATCH {
+            let underlay = &mut self.underlay;
+            let ready =
+                std::future::poll_fn(|cx| Poll::Ready(underlay.poll_recv(cx, buffer))).await;
+            match ready {
+                Poll::Ready(Ok(received)) => {
+                    // A count past the buffer is not a datagram: drop it.
+                    if let Some(datagram) = buffer.get(..received.len) {
+                        self.handle_datagram(datagram, received.origin);
+                    }
+                }
+                Poll::Ready(Err(error)) if is_transient(&error) => {}
+                Poll::Ready(Err(error)) => return Err(error),
+                Poll::Pending => break,
+            }
+        }
+        Ok(())
     }
 
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
