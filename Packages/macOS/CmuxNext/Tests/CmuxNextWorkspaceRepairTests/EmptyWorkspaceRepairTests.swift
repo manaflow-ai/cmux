@@ -116,6 +116,47 @@ import Testing
         #expect(closes.value == 2, "the refused close restored the old connection's epoch over the new one's")
     }
 
+    /// The workspace, repopulated on a new connection while its close is in flight, loses its last
+    /// tab again before that close fails: the pane close was ignored (the close owned it), so the
+    /// failed close queues it, and the next change closes it instead of leaving it empty.
+    @Test func aWorkspaceEmptiedAgainDuringARefusedCloseIsClosedOnTheNextChange() async throws {
+        typealias Fixture = EmptyWorkspaceRepairCostTests
+        let store = DaemonStore()
+        let tree = { (revision: UInt64) in
+            DaemonTree(workspaceRevision: revision, workspaces: [Fixture.workspace(1), Fixture.workspace(2)])
+        }
+        store.apply(snapshot: tree(10))
+        let closes = Count(), epoch = Count()
+        epoch.value = 1
+        let first = WorkspaceKey(rawValue: "ws-1")
+        let repair = EmptyWorkspaceRepair(store: store, create: { _ in nil },
+                                          close: { key in
+                                              guard key == first else { return }
+                                              closes.value += 1
+                                              guard closes.value == 1 else { return }
+                                              // A reconnect shows ws-1 with its pane, the pane closes
+                                              // again, then the first close fails.
+                                              epoch.value = 2
+                                              store.apply(snapshot: tree(11))
+                                              await Fixture.settle()
+                                              store.apply(try Fixture.paneClosed(workspace: 1))
+                                              await Fixture.settle()
+                                              throw Refused()
+                                          },
+                                          cause: { _ in .tabClosed }, canCreate: { true }, epoch: { epoch.value },
+                                          isLive: { true })
+        await Fixture.settle { repair.visited >= 2 }
+
+        store.apply(try Fixture.paneClosed(workspace: 1))
+        await Fixture.settle { closes.value == 1 && repair.states[first] == nil }
+        #expect(closes.value == 1)
+
+        // Any later change (here ws-2's last tab) closes the stranded ws-1.
+        store.apply(try Fixture.paneClosed(workspace: 2))
+        await Fixture.settle { closes.value == 2 }
+        #expect(closes.value == 2, "ws-1, emptied again during its refused close, was left open")
+    }
+
     @Test func theCauseIsTheLastEndedTerminals() {
         #expect(EmptiedWorkspaceCause.from([], workspace: key) == .tabClosed)
     }
