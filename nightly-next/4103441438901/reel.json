@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4103441438901",
+  "notes": "notes/4103441438901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28192,
+      "title": "cmux-vm: promote dev image cmuxnp-dev-vmimg-ci-41026036265-1 (sh-0afbb63e) to the development Worker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27887,
+      "title": "fix(browser): keep a streamed upload on the input it started on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27802,
+      "title": "agent-chat: answer Codex request_user_input questions in the chat instead of declining them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28038,
+      "title": "acpmux docs: one page per command group, linked from the README",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
