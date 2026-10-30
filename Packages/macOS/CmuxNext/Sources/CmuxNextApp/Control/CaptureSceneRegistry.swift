@@ -25,8 +25,6 @@ final class CaptureSceneRegistry {
     var blockedTerminal: String?
     /// The terminals `home-chief` opened, closed after its snapshot.
     var openedTerminals: [String] = []
-    /// The grouping setting before a cloud-agent-machines render turned it on; nil while none is shown.
-    var agentMachinesGroupedBefore: Bool?
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -282,7 +280,6 @@ extension CaptureSceneRegistry {
         // The capture driver takes its light and dark stills (debug.window_snapshot) after this
         // returns: the machines stay until the next render. A failure takes them away at once.
         endAgentCloudMachines()
-        agentMachinesGroupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
         var shown = false
         defer { if !shown { endAgentCloudMachines() } }
         DesignSettings.shared.sidebarSections.groupsByComputer = true
@@ -322,7 +319,7 @@ extension CaptureSceneRegistry {
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         guard case .object(var result) = snapshot else { return snapshot }
-        shown = true
+        shown = result["error"] == nil
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
@@ -331,13 +328,13 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// Takes a shown cloud-agent-machines picture away: the machines, and the grouping setting it changed.
+    /// Takes a shown cloud-agent-machines picture away: the machines, and the grouping setting it
+    /// forced, back to the settings' own value. Stateless (each render is a new registry): a
+    /// picture is shown while its machines are in the registry.
     func endAgentCloudMachines() {
+        guard Self.agentMachineIDs.contains(where: { services.machines.session($0) != nil }) else { return }
         removeAgentCloudMachines()
-        if let grouped = agentMachinesGroupedBefore {
-            DesignSettings.shared.sidebarSections.groupsByComputer = grouped
-            agentMachinesGroupedBefore = nil
-        }
+        DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
     }
 
     func removeAgentCloudMachines() {
