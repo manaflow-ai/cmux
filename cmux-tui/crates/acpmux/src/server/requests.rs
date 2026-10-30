@@ -9,6 +9,7 @@ mod composer;
 mod events;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
+pub(super) mod person_stop;
 mod presets;
 #[path = "watches.rs"]
 mod watches;
@@ -153,13 +154,9 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
-                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`).
-                    let stopped = if conn.is_person() {
-                        hub.person_stop(&s).await
-                    } else {
-                        hub.cancel(&s).await
-                    };
-                    if let Err(e) = stopped {
+                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
+                    // a peer's person's too (`person_stop.rs`).
+                    if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
@@ -170,6 +167,7 @@ pub(super) async fn handle_notification(
                         &params,
                         &mut forwarded,
                     );
+                    person_stop::mark(conn, &params, &peer, &mut forwarded);
                     let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
                 }
             }
@@ -790,7 +788,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE], "trustGate": true}}
             });
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
@@ -1381,9 +1379,7 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            let stopped =
-                if conn.is_person() { hub.person_stop(&s).await } else { hub.cancel(&s).await };
-            if let Err(e) = stopped {
+            if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
             Ok(json!({}))

@@ -238,6 +238,9 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        if m == method::SESSION_CANCEL {
+            super::requests::person_stop::mark(conn, params, &peer, &mut p);
+        }
         bound_page(m, params, &mut p);
         // A peer's handles are this connection's own here (`media_forward.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
