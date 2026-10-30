@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4100904495201",
+  "notes": "notes/4100904495201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27731,
+      "title": "acpmux: CLI sessions from an interactive Mac go to a fleet host; held hosts never placed; session stop --id without --mesh",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
