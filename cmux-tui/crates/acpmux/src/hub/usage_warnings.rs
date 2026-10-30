@@ -7,10 +7,10 @@
 //! Each warning is `{rule, value, limit, text, action}`: `rule` is `noAutocompactCap`,
 //! `contextTokens` or `subagentsPerHour`; `value` the session's number (context tokens, or
 //! subagents started in the last hour), null when it has none; `limit` the threshold it passed,
-//! null for `noAutocompactCap`; `text` one line a tooltip shows, ending in what to do; `action`
-//! `{label, command, pending}`, the step that answers it (a metric must trigger an action, HQ#5123)
-//! and the command that takes it, `pending` the change that adds that command while it has not
-//! landed, else null. Nothing is done automatically. Empty for a closed session or one with no
+//! null for `noAutocompactCap`; `text` one line a tooltip shows, ending in what to do; `actions`
+//! `[{label, command, pending}]`, the steps that answer it, first the one to try first (a metric
+//! must trigger an action, HQ#5123), each with the command that takes it and `pending` the change
+//! that adds that command while it has not landed, else null. Nothing is done automatically. Empty for a closed session or one with no
 //! `usageStats` yet. A number acpmux could not read is unknown (null or absent), never zero, and
 //! an unknown number neither raises nor clears a warning.
 
@@ -27,38 +27,46 @@ pub const SUBAGENTS_PER_HOUR: &str = "subagentsPerHour";
 /// The change that adds `lane-place rotate`, named beside the command until it lands.
 const ROTATE_PENDING: &str = "leo-workspace#1617";
 
-/// The step that answers each rule, its label and the command that takes it for session `name`,
-/// and the change that adds that command while it has not landed.
-fn action(rule: &str, name: &str) -> Value {
-    let (label, command, pending) = match rule {
-        // `session restart` keeps the launch settings, so the old process carries on as it was:
-        // `lane-place rotate` starts a successor with a fresh context (a dry run until `--yes`).
-        NO_AUTOCOMPACT_CAP => {
-            ("Rotate to a fresh session", format!("lane-place rotate {name}"), Some(ROTATE_PENDING))
-        }
+/// The steps that answer each rule for session `name`, first the one to try first: each its
+/// label, the command that takes it and the change that adds that command while it has not landed.
+fn actions(rule: &str, name: &str) -> Vec<Value> {
+    let step = |label: &str, command: String, pending: Option<&str>| json!({"label": label, "command": command, "pending": pending});
+    // `lane-place rotate` starts a successor (a dry run until `--yes`); it keeps the harness
+    // profile unless `--harness` names another. `session restart` keeps the launch settings.
+    let rotate = |extra: &str| format!("lane-place rotate {name}{extra}");
+    match rule {
+        // The successor runs on the capped profile (claude-sr2, its sr2 `--autocompact`).
+        NO_AUTOCOMPACT_CAP => vec![step(
+            "Rotate onto a capped profile",
+            rotate(" --harness claude-sr2"),
+            Some(ROTATE_PENDING),
+        )],
         // Claude Code's own `/compact`, sent as a prompt (`claude_stdio`: it ends its prompt).
-        CONTEXT_TOKENS => ("Compact it", format!("acpmux send {name} /compact"), None),
-        _ => (
+        CONTEXT_TOKENS => vec![
+            step("Compact it", format!("acpmux send {name} /compact"), None),
+            step("rotate to a fresh session", rotate(""), Some(ROTATE_PENDING)),
+        ],
+        _ => vec![step(
             "Open the session to see what it starts; cancel its turn to stop it",
             format!("acpmux session cancel {name}"),
             None,
-        ),
-    };
-    json!({"label": label, "command": command, "pending": pending})
+        )],
+    }
 }
 
-/// `warning` with its action, and the action at the end of its text.
+/// One step as the tooltip says it: `Compact it (acpmux send lane-1 /compact)`.
+fn said(step: &Value) -> String {
+    let command = step["command"].as_str().unwrap_or_default();
+    let soon = step["pending"].as_str().map(|p| format!(", {p}")).unwrap_or_default();
+    format!("{} ({command}{soon})", step["label"].as_str().unwrap_or_default())
+}
+
+/// `warning` with its steps, and the steps at the end of its text (`… or …`).
 fn with_action(mut warning: Value, name: &str) -> Value {
-    let action = action(warning["rule"].as_str().unwrap_or_default(), name);
-    let command = action["command"].as_str().unwrap_or_default().to_owned();
-    let soon = action["pending"].as_str().map(|p| format!(", {p}")).unwrap_or_default();
-    let text = format!(
-        "{}. {} ({command}{soon})",
-        warning["text"].as_str().unwrap_or_default(),
-        action["label"].as_str().unwrap_or_default()
-    );
-    warning["text"] = json!(text);
-    warning["action"] = action;
+    let actions = actions(warning["rule"].as_str().unwrap_or_default(), name);
+    let steps = actions.iter().map(said).collect::<Vec<_>>().join(" or ");
+    warning["text"] = json!(format!("{}. {steps}", warning["text"].as_str().unwrap_or_default()));
+    warning["actions"] = Value::Array(actions);
     warning
 }
 
@@ -120,14 +128,24 @@ pub fn short(warning: &Value) -> String {
     }
 }
 
-/// `short` with the command that answers it, for `acpmux ls --wide`:
-/// `ctx 412k: acpmux send lane-1 /compact`, `no-cap: lane-place rotate lane-1 (leo-workspace#1617)`.
+/// `short` with the commands that answer it, for `acpmux ls --wide`:
+/// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1 (leo-workspace#1617)`.
 pub fn with_command(warning: &Value) -> String {
-    let action = &warning["action"];
-    match (action["command"].as_str(), action["pending"].as_str()) {
-        (Some(command), Some(pending)) => format!("{}: {command} ({pending})", short(warning)),
-        (Some(command), None) => format!("{}: {command}", short(warning)),
-        (None, _) => short(warning),
+    let commands = warning["actions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|step| {
+            let command = step["command"].as_str()?;
+            Some(match step["pending"].as_str() {
+                Some(pending) => format!("{command} ({pending})"),
+                None => command.to_owned(),
+            })
+        })
+        .collect::<Vec<_>>();
+    match commands.is_empty() {
+        true => short(warning),
+        false => format!("{}: {}", short(warning), commands.join(" | ")),
     }
 }
 

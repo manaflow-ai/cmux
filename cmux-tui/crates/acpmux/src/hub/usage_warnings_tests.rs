@@ -27,25 +27,31 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
     assert_eq!(
         w[0]["text"],
         "No autocompact cap: context is 412k and only compacts at the model's limit. \
-         Rotate to a fresh session (lane-place rotate dep-1, leo-workspace#1617)"
+         Rotate onto a capped profile (lane-place rotate dep-1 --harness claude-sr2, leo-workspace#1617)"
     );
     assert_eq!(
-        w[0]["action"],
-        json!({"label": "Rotate to a fresh session", "command": "lane-place rotate dep-1", "pending": "leo-workspace#1617"})
+        w[0]["actions"],
+        json!([{"label": "Rotate onto a capped profile", "command": "lane-place rotate dep-1 --harness claude-sr2",
+                "pending": "leo-workspace#1617"}])
     );
+    // Compact first (it works today); rotate once leo-workspace#1617 lands.
     assert_eq!(
         w[1],
         json!({"rule": "contextTokens", "value": 412_000, "limit": 400_000,
-        "text": "Context 412k tokens, above the 400k warning line. Compact it (acpmux send dep-1 /compact)",
-        "action": {"label": "Compact it", "command": "acpmux send dep-1 /compact", "pending": null}})
+        "text": "Context 412k tokens, above the 400k warning line. Compact it (acpmux send dep-1 /compact) \
+                 or rotate to a fresh session (lane-place rotate dep-1, leo-workspace#1617)",
+        "actions": [
+            {"label": "Compact it", "command": "acpmux send dep-1 /compact", "pending": null},
+            {"label": "rotate to a fresh session", "command": "lane-place rotate dep-1", "pending": "leo-workspace#1617"},
+        ]})
     );
     assert_eq!(
         w[2],
         json!({"rule": "subagentsPerHour", "value": 90, "limit": 40,
         "text": "90 subagents started in the last hour, above 40. Open the session to see what it starts; \
                  cancel its turn to stop it (acpmux session cancel dep-1)",
-        "action": {"label": "Open the session to see what it starts; cancel its turn to stop it",
-                   "command": "acpmux session cancel dep-1", "pending": null}})
+        "actions": [{"label": "Open the session to see what it starts; cancel its turn to stop it",
+                   "command": "acpmux session cancel dep-1", "pending": null}]})
     );
     assert_eq!(w.iter().map(short).collect::<Vec<_>>(), ["no-cap", "ctx 412k", "90 sub/h"]);
 }

@@ -1469,7 +1469,8 @@ mod tests {
         let row = serde_json::json!({"usageWarnings": warnings});
         assert_eq!(
             super::usage_warn_cell(&row, true),
-            "no-cap: lane-place rotate lane-1 (leo-workspace#1617); ctx 955k: acpmux send lane-1 /compact; \
+            "no-cap: lane-place rotate lane-1 --harness claude-sr2 (leo-workspace#1617); \
+             ctx 955k: acpmux send lane-1 /compact | lane-place rotate lane-1 (leo-workspace#1617); \
              90 sub/h: acpmux session cancel lane-1"
         );
         // The default listing marks the row with one word and no numbers.
