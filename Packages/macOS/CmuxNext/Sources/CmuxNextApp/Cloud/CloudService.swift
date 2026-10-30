@@ -89,6 +89,7 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Machine creations in flight (sidebar can show a placeholder).
     private(set) var creating = 0
+    @ObservationIgnored let changes = CloudMachineChanges()
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -242,7 +243,7 @@ final class CloudService {
 
     func start() {
         deviceID.preload()
-        auth.start()
+        auth.start(); changes.start()
         startCredentialProvider()
         if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
@@ -353,7 +354,7 @@ final class CloudService {
     func stop() {
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
-        observers.removeAll()
+        observers.removeAll(); changes.stop()
         if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
         linkEvents = nil
         if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
@@ -427,7 +428,7 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list)
+            reconcile(list); changes.listed(list) { [weak self] in await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
@@ -624,28 +625,27 @@ final class CloudService {
     static let inProgressRetries = 70
     static let inProgressDelay: Duration = .seconds(15)
 
+    /// Kill, Pause and Resume read Deleting…, Pausing… and Resuming… from the click; a killed machine stays, disconnected, until a list drops it.
     func deleteMachine(_ machineID: String) async throws {
         let brokerScope = auth.user.map { CloudCodexBrokerScope(userID: $0.id, teamID: auth.teamID) }
         if let brokerScope { try? await codexBroker.revoke(machineID: machineID, scope: brokerScope) }
-        try await api.deleteMachine(machineID)
+        try await CloudMachineChanges.run(.deleting, of: { machines.session(machineID) }) { try await api.deleteMachine(machineID) }
         if let brokerScope { await codexBroker.machineWasDeleted(machineID, scope: brokerScope) }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1
         creations.machineRemoved(machineID)
-        machines.remove(machineID)?.disconnect()
+        if let session = machines.session(machineID) { session.machine.status = .deleting; session.disconnect() }; changes.began { [weak self] in await self?.refresh() }
         logger.info("deleted machine \(machineID, privacy: .public)")
     }
 
     func pauseMachine(_ machineID: String) async throws {
-        try await api.pauseMachine(machineID)
-        await refresh()
-        logger.info("paused machine \(machineID, privacy: .public)")
+        try await CloudMachineChanges.run(.pausing, of: { machines.session(machineID) }) { try await api.pauseMachine(machineID) }
+        changes.began { [weak self] in await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
     }
 
     func resumeMachine(_ machineID: String) async throws {
-        try await api.resumeMachine(machineID)
-        await refresh()
-        logger.info("resumed machine \(machineID, privacy: .public)")
+        try await CloudMachineChanges.run(.starting, of: { machines.session(machineID) }) { try await api.resumeMachine(machineID) }
+        changes.began { [weak self] in await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
     /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes

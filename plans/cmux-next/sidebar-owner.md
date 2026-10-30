@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29: a Cloud machine's header names a change cmux Cloud accepted and has not finished:
+  Pausing…, Resuming… or Deleting…, in the attention tone (as Connecting… and Installing…), never
+  Paused while it still pauses and never gone while it is deleted. When the server's pause, resume or
+  resize failed after it answered, the header's tooltip adds "The last change to this machine failed:
+  <reason>". Nothing else about the header changes. Leo: "let's just get the cloud and its respective
+  ui up to snuff". Regression: `CloudMachineChangeStateTests`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown

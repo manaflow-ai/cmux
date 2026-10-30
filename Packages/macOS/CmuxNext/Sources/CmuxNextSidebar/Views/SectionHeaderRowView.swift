@@ -65,6 +65,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .failed: Strings.statusFailed
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -95,6 +98,9 @@ final class SectionHeaderRowView: SidebarRowView {
         case .failed: Strings.statusFailed
         case .paused: Strings.statusPaused
         case .pausedIdle: Strings.statusPausedIdle
+        case .pausing: Strings.statusPausing
+        case .resuming: Strings.statusResuming
+        case .deleting: Strings.statusDeleting
         }
     }
 
@@ -146,7 +152,8 @@ final class SectionHeaderRowView: SidebarRowView {
             // update available"): the header reads as connected, and the tooltip says it.
             case (_, .updateAvailable): statusTone = section.isHostGroup ? .success : nil
             case (_, .connected): statusTone = .success
-            case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired): statusTone = .attention
+            case (_, .connecting), (_, .reconnecting), (_, .installing), (_, .installRequired),
+                 (_, .pausing), (_, .resuming), (_, .deleting): statusTone = .attention
             case (_, .offline), (_, .paused), (_, .pausedIdle): statusTone = .quiet
             case (_, .updateRequired), (_, .authFailed), (_, .unreachable), (_, .failed): statusTone = .danger
             }

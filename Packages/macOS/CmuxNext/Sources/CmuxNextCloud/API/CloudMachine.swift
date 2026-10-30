@@ -5,13 +5,58 @@ public import Foundation
 public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public enum Status: String, Sendable, Hashable, Decodable {
         case provisioning, running, failed, paused, destroyed, unknown
+        /// A Pause Machine (or the idle auto-pause) the server accepted; the
+        /// provider call has not landed yet, so the machine is not paused.
+        case pausing
+        /// A Resume Machine the server accepted; the VM is starting again.
+        case starting
+        /// A Kill Machine the server accepted; the VM is not gone yet.
+        case deleting
 
         public init(from decoder: any Decoder) throws {
             self = Status(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
         }
 
         /// A machine whose daemon can be reached (or soon will be).
-        public var isLive: Bool { self == .running || self == .provisioning }
+        public var isLive: Bool { self == .running || self == .provisioning || self == .starting }
+
+        /// A pause, resume or delete is on its way.
+        public var isChanging: Bool { self == .pausing || self == .starting || self == .deleting }
+
+        /// Whether `action` waits for this status to land: Pause and Resume wait for any change on
+        /// its way; Kill only for a delete, so a machine stuck pausing or resuming can still be killed.
+        public func blocks(_ action: PowerAction) -> Bool { action == .kill ? self == .deleting : isChanging }
+    }
+
+    /// Pause, Resume and Kill Machine.
+    public enum PowerAction: Sendable, Hashable { case pause, resume, kill }
+
+    /// Why the machine's last pause, resume or resize failed (the cmux-next
+    /// backend's `error`): the server answers those calls at once and runs the
+    /// provider call after, so a failure only shows on the record.
+    public struct ChangeFailure: Sendable, Hashable, Decodable {
+        public var code: String
+        public var message: String
+        /// When it failed; nil when the server did not say.
+        public var at: Date?
+
+        /// What to show: the message, else the code.
+        public var text: String { message.isEmpty ? code : message }
+
+        public init(code: String, message: String, at: Date? = nil) {
+            self.code = code
+            self.message = message
+            self.at = at
+        }
+
+        private enum CodingKeys: String, CodingKey { case code, message, at }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            code = try c.decode(String.self, forKey: .code)
+            message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+            at = ((try? c.decodeIfPresent(Double.self, forKey: .at)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
+        }
     }
 
     /// Why a paused machine is paused: the idle auto-pause (`idle`) or a
@@ -211,6 +256,16 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// The auto-size pick a create with `autosize` answered (``CloudSizePick``); nil on a list
     /// record, on a create that sent its own size, and on an older server.
     public var sizePick: CloudSizePick?
+    /// Why the last pause, resume or resize failed; nil when it did not (or
+    /// the server does not say). The next change clears it on the server.
+    public var lastChangeFailure: ChangeFailure?
+    /// A Pause, Resume or Kill this app sent and the server has not answered yet (`pausing`,
+    /// `starting` or `deleting`): shown from the click. Never decoded, so the next list's record
+    /// replaces it.
+    public var pendingChange: Status?
+
+    /// The status the app shows: a change sent from here, else the record's.
+    public var shownStatus: Status { pendingChange ?? status }
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -239,12 +294,13 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
         case pauseReason, idlePauseMinutes, idlePause
         case hourlyRateUsd, runningSince, sizePick
+        case lastChangeFailure = "error"
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
                 slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
                 pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil,
-                idlePause: IdlePauseDiagnostics? = nil) {
+                idlePause: IdlePauseDiagnostics? = nil, lastChangeFailure: ChangeFailure? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
@@ -255,6 +311,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.pauseReason = pauseReason
         self.idlePauseMinutes = idlePauseMinutes
         self.idlePause = idlePause
+        self.lastChangeFailure = lastChangeFailure
     }
 
     public init(from decoder: any Decoder) throws {
@@ -281,6 +338,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
         runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
         sizePick = (try? c.decodeIfPresent(CloudSizePick.self, forKey: .sizePick)) ?? nil
+        lastChangeFailure = (try? c.decodeIfPresent(ChangeFailure.self, forKey: .lastChangeFailure)) ?? nil
     }
 }
 

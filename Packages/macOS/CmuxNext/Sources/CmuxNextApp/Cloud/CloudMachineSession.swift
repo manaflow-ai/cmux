@@ -141,7 +141,7 @@ final class CloudMachineSession {
     /// reconnects by itself, so nothing else changes.
     func attach(origin: CloudLinkOrigin = .user) {
         if appLink != nil { return connect(origin: origin) }
-        guard machine.status == .paused, !resuming, !disconnected, let resumer else { return }
+        guard machine.shownStatus == .paused, !resuming, !disconnected, let resumer else { return }
         resuming = true
         resumeFailure = nil
         // task-owner: one resume per attach; a second attach while it runs waits on it
@@ -279,9 +279,9 @@ final class CloudMachineSession {
     var stageInput: CloudMachineStageInput {
         var connected = false
         if case .connected = daemon.store.connectionState { connected = daemon.connection != nil }
-        return CloudMachineStageInput(creation: nil, machineStatus: machine.status, link: linkPhase, daemonConnected: connected,
+        return CloudMachineStageInput(creation: nil, machineStatus: machine.shownStatus, link: linkPhase, daemonConnected: connected,
                                       daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded,
-                                      pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure)
+                                      pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure, changeFailure: machine.lastChangeFailure?.text)
     }
 
     /// Where the machine is on its way to a usable daemon.
@@ -292,8 +292,8 @@ final class CloudMachineSession {
     /// no status (decoded as provisioning) and the list is not polled, so the
     /// record alone said "provisioning" after the terminal worked.
     var effectiveStatus: CloudMachine.Status {
-        guard machine.status == .provisioning || machine.status == .unknown, case .connected = daemon.store.connectionState else {
-            return machine.status
+        guard machine.shownStatus == .provisioning || machine.shownStatus == .unknown, case .connected = daemon.store.connectionState else {
+            return machine.shownStatus
         }
         return .running
     }
