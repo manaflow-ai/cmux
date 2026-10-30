@@ -162,7 +162,7 @@ describe("Home attachments: a direct completion recovers from lost answers and t
     return last!
   }
 
-  it("the last step's owner commit lost its answer: completing again commits the verified object and answers stored", async () => {
+  it("the last step's owner commit took effect and lost its answer: the file is stored, and a retry is refused (the slot is used) without touching it", async () => {
     const alice = await signIn("att-direct-commit-lost")
     const { id } = await group(alice)
     const body = new Uint8Array(32 * MiB + 9).map((_, i) => (i * 3) % 241)
@@ -171,7 +171,7 @@ describe("Home attachments: a direct completion recovers from lost answers and t
     const lost = ownerWith(small, { commitAttachment: async (stub, ...args) => { await stub.commitAttachment(...args); throw new Error("Network connection lost.") } })
     await expect(run(alice, id, r.json.value.slot, parts, lost)).rejects.toThrow("Network connection lost.")
     const again = await run(alice, id, r.json.value.slot, parts)
-    expect([again.status, again.json.value?.state]).toEqual([200, "stored"])
+    expect([again.status, again.json.error?.code]).toEqual([403, "attachment.slot_invalid"])
     const downloaded = new Uint8Array(await (await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)).arrayBuffer())
     expect(sha(downloaded)).toBe(sha(body))
   })
