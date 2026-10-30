@@ -37,6 +37,8 @@ function GalleryHarnesses({ acpmux, signedOut, expired, checking, install, updat
                 : expired?.includes(String(params.id))
                   ? "expired"
                   : "signedIn",
+              // acpmux names a login for every harness it knows (`builtin_login`).
+              login: `${String(params.id)} login`,
               ...(update ? { update: { command: update, elevated: false } } : {}),
             },
           });
