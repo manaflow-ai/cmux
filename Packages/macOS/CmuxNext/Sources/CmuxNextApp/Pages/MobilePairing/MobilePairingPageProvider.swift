@@ -47,9 +47,9 @@ final class MobilePairingPageProvider: PageProvider {
         /// This Mac's pairing link (``IPhoneHostService/pairInvite(macName:now:)``), nil until the
         /// host is online for the account with iPhone connections on.
         var invite: @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite? = { _ in nil }
-        /// The main-thread scheduler the `changes` stream's observation flushes on (`AppServices.mainWork`);
-        /// a test's own by default.
-        var mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        /// The main-thread scheduler the `changes` stream's observation flushes on (`AppServices.mainWork`;
+        /// a test passes its own).
+        var mainWork: MainWorkScheduler
     }
 
     private let dependencies: Dependencies

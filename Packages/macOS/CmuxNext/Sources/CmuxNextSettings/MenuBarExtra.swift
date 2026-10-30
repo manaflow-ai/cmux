@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The cmux item in the macOS menu bar (`app.showMenuBarIcon`, on by default; user 2026-10-27,
 /// after Raycast's): a template cmux icon whose menu (``MenuBarMenuSpec``) opens cmux, shows the
@@ -17,7 +18,7 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
     private let icon: NSImage
     private weak var host: (any MenuBarExtraHost)?
     private var item: NSStatusItem?
-    private var following: Task<Void, Never>?
+    private var following: ServiceObservation<Bool?>?
 
     /// - Parameters:
     ///   - registry: Runs every row.
@@ -41,15 +42,14 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
     /// Event-driven (Observation): no polling, nothing runs while the setting stays put.
     public func follow(_ settings: SettingsController, itemDidChange: @escaping @MainActor () -> Void) {
         following?.cancel()
-        // task-owner: replaced by the next follow; ends with this item (the App's services)
-        following = Task { [weak self, weak settings] in
-            guard let settings else { return }
-            await settings.waitForLoad(atLeast: 1)
-            for await shown in ObservationStream({ settings.snapshot.showMenuBarIcon }) {
-                guard let self else { return }
-                self.setShown(shown)
-                itemDidChange()
-            }
+        // Replaced by the next follow; ends with this item (the App's services). Nil until the first load.
+        following = ServiceObservation(.visible, owner: "MenuBarExtra.shown", on: settings.mainWork) { [weak settings] () -> Bool? in
+            guard let settings, settings.loadCount >= 1 else { return nil }
+            return settings.snapshot.showMenuBarIcon
+        } apply: { [weak self] shown in
+            guard let self, let shown else { return }
+            self.setShown(shown)
+            itemDidChange()
         }
     }
 

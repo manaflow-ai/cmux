@@ -207,8 +207,13 @@ final class NotificationCenterService {
         followApprovals(services)
         follow(services.daemon)
         // The Dock drops the badge while cmux runs windowless with no Dock icon; it comes back with the icon.
-        // task-owner: the service's app lifetime; event-driven (activation policy changes)
-        dockBadgeFollow = Task { [dockBadge] in await dockBadge.follow(DockBadge.activationPolicies()) }
+        // Each policy change reaches main as a visible task of the scheduler (the Dock icon shows it).
+        let policies = DockBadge.activationPolicies()
+        let delivery = MainDelivery(class: .visible, owner: "NotificationCenterService.dockBadge", on: services.mainWork)
+        // task-owner: the service's app lifetime; event-driven (activation policy changes), off main between them
+        dockBadgeFollow = Task { @concurrent [dockBadge] in
+            for await policy in policies { delivery.run { dockBadge.activationPolicyChanged(policy) } }
+        }
     }
 
     /// The source of `tab`'s retained marker, from the daemon

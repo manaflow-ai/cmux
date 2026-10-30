@@ -167,9 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An upgrade's payment page sends the person back here: read the plan again on each activation.
         services.lifetimeFollowers.append(services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "PaidPlan.returned") { [weak services] in
             guard let services else { return }
-            Task {
-                await services.paidPlanReturned()
-                await services.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
+            // task-owner: one plan and consent re-read per activation, off main between their steps; each awaits its own service.
+            services.work.task(.userVisible) { [weak services] in
+                await services?.paidPlanReturned()
+                await services?.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
             }
         })
         // The person's latest key or mouse input, before any page can make a join consent grant: one local event monitor.

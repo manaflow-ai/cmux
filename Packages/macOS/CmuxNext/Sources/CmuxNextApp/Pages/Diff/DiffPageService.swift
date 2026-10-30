@@ -91,7 +91,6 @@ final class DiffPageService: InternalPageProvider {
         servicesReference.resolve().map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
     }
 
-
     /// Remote chats get a runtime whose status reads and grants are owned by their daemon.
     /// Local tabs keep the shared sidecar runtime.
     private func runtime(for link: AgentPaneGitLink) -> DiffPageRuntime {

@@ -27,6 +27,7 @@ extension NSView {
     public func stackFloatingDocks(front: Set<ObjectIdentifier>) {
         let ranks = subviews.enumerated().map { (front.contains(ObjectIdentifier($1)) ? 1 : 0) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
-        StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks))).sort(self)
+        // A view is a subview once, so no identifier repeats; the first rank would win if one did.
+        StackingTable(ranks: Dictionary(zip(subviews.map(ObjectIdentifier.init), ranks), uniquingKeysWith: { first, _ in first })).sort(self)
     }
 }

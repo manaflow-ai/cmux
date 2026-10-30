@@ -381,7 +381,8 @@ impl Conn {
                 let (out, notices) = (self.out.clone(), self.notices.clone());
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
-                tokio::spawn(async move {
+                // Scoped to this connection: it owns only its channel end and counters.
+                crate::supervised::spawn_scoped(async move {
                     if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
                         let _ = out.send(lag()).await;
                     }

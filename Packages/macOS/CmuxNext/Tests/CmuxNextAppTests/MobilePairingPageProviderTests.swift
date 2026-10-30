@@ -4,6 +4,7 @@ import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import CoreImage
 import Foundation
 import Testing
@@ -27,7 +28,7 @@ import Testing
                     writes.append((path, value))
                     if path == MobileSettings.allowIPhoneConnectionsPath { allowed = value.boolValue ?? false }
                 },
-                invite: { [unowned self] _ in invite }))
+                invite: { [unowned self] _ in invite }, mainWork: .testing()))
         }
     }
 

@@ -44,11 +44,11 @@ public final class ChannelsPageProvider: PageProvider {
     public static let machinesStream = "cmux.settings.channels.machines.changed"
 
     /// - Parameter mainWork: the app's main-thread scheduler, on which the machines stream's observation
-    ///   flushes (``machinesStream``); a test's own by default.
+    ///   flushes (``machinesStream``).
     public init(updater: UpdaterService, daemon: (@Sendable () async -> (title: String, value: String)?)? = nil,
                 machines: (@MainActor @Sendable () -> Machines?)? = nil,
                 updateMachine: (@MainActor @Sendable (String) async -> String?)? = nil,
-                mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+                mainWork: MainWorkScheduler) {
         self.mainWork = mainWork
         self.updater = updater
         self.daemon = daemon

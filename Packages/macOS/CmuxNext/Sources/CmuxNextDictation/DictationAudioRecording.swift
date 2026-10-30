@@ -215,7 +215,7 @@ public final class DictationAudioRecording: Sendable {
         guard !output.failed, !samples.isEmpty else { return }
         do {
             if output.handle == nil { output.handle = try open() }
-            try output.handle?.write(contentsOf: Self.pcmBytes(samples))
+            try output.handle?.blockingWrite(contentsOf: Self.pcmBytes(samples))
         } catch {
             output.failed = true
             try? output.handle?.close()

@@ -27,26 +27,8 @@ extension TopHomePageView {
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
     }
 
-    /// What the Chief observation watches: the preferred Chief and whether this Mac's Chief is the
-    /// choice. The Engine row changes the choice while the preferred Chief stays nil (the cloud
-    /// read has not landed and this Mac's Chief is not listed yet), and the page must reconcile
-    /// what it opened by itself then too, so the choice is part of what it watches.
-    struct ChiefKey: Equatable {
-        var chief: String?
-        var prefersLocal: Bool
-    }
-
     static func chiefKey(_ home: HomeService) -> ChiefKey {
         ChiefKey(chief: chief(home), prefersLocal: home.prefersLocalChief)
-    }
-
-    /// What the page does when the preferred Chief changes, and which Chief it follows afterwards.
-    struct ChiefFollowUp: Equatable {
-        /// The conversation to open; nil: what is shown stays.
-        var open: ConversationID?
-        /// The Chief conversation the page opened by itself, which a later Chief replaces. What the
-        /// person picked themselves is never replaced, so it is not this.
-        var followed: String?
     }
 
     /// The preferred Chief is now `chief` (``HomeService/defaultChiefConversation``), the page

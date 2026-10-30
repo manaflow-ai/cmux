@@ -10,6 +10,8 @@ public nonisolated final class AssistiveClientAccess: Sendable {
         var requests = AssistiveClientRequests()
         var changed: (@MainActor @Sendable (Bool) -> Void)?
     }
+    // concurrency-allow: AppKit calls the accessibility entries nonisolated; each reads or writes the requests under this
+    // lock for a few field writes only (no call out while held), and the follower runs after the lock is released, on main.
     private let state = Mutex(State())
 
     public init() {}

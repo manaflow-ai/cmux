@@ -208,8 +208,8 @@ struct ChatDockLinkSplitMotionTests {
 
     /// Why `host` is off its part inside the strip in a way ``shown(_:)`` alone does not show, or
     /// nil when it is right: while any of it is inside the strip the host and its ancestors are not
-    /// hidden, and a mask on the host (the strip clip is the strip container's, p03-rendering-023, so
-    /// it carries none; a pane in front is a sibling stacked above, never a cutout) leaves that part whole.
+    /// hidden, and a mask on the host (the strip clip is the strip container's, so it carries none;
+    /// a pane in front is a sibling stacked above, never a cutout) leaves that part whole.
     static func strictError(_ host: PaneHostView, in screen: ScreenContentView, _ label: String) -> String? {
         let expected = Self.expectedShown(host, in: screen)
         guard expected.width > 1, expected.height > 1 else { return nil }

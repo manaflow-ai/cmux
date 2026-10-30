@@ -1615,8 +1615,9 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
     // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
     // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
-    // This async wait never holds runtime teardown open or kills the winner.
-    tokio::spawn(async move {
+    // This async wait never holds runtime teardown open or kills the winner. Scoped: it owns
+    // only the child handle, so a panic in it ends only that wait.
+    crate::supervised::spawn_scoped(async move {
         let _ = child.wait().await;
     });
     // Close this process's copy so end of file means the daemon closed it.

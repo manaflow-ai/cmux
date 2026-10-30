@@ -30,11 +30,15 @@ public final class DockBadge {
     /// the badge again. The Dock drops a badge with the icon while `NSDockTile.badgeLabel` keeps
     /// reading it, so an equal write would show nothing: it clears, then sets.
     public func follow(_ policies: AsyncStream<NSApplication.ActivationPolicy>) async {
-        for await policy in policies where policy == .regular {
-            guard let label else { continue }
-            tile.badgeLabel = nil
-            tile.badgeLabel = label
-        }
+        for await policy in policies { activationPolicyChanged(policy) }
+    }
+
+    /// One activation policy change (``follow(_:)``'s step, for a caller that delivers the policies
+    /// itself): a return to `.regular` shows the badge again, cleared first.
+    public func activationPolicyChanged(_ policy: NSApplication.ActivationPolicy) {
+        guard policy == .regular, let label else { return }
+        tile.badgeLabel = nil
+        tile.badgeLabel = label
     }
 
     /// The activation policy of `app` each time it changes (`NSRunningApplication` is KVO-observable,
