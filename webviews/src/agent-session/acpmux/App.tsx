@@ -9989,15 +9989,17 @@ function AcpmuxPane() {
   const continueWithoutFolder = useCallback(() => {
     // Move the unsent composer state before starting the private no-project chat. The old chat
     // remains untouched if creation fails; the user can retry or undo the trust decision.
-    const held = composerHandle.current?.draftState();
+    const held = composerHandle.current?.prepareDraftTransfer();
     const start = callNative("chat.new", { noProject: true });
     void start.then(
       () => {
         setProjectDraft(undefined);
+      },
+      () => {
+        // If creation failed, put the source draft back; no outward effect was completed.
         if (held && (held.text || held.attachments.length > 0))
           composerHandle.current?.restore(held.text, held.attachments);
       },
-      () => undefined,
     );
   }, []);
   const trustPending = trustAsk.holdsAsks;

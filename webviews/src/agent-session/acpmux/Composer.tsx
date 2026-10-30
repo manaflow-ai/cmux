@@ -198,6 +198,8 @@ export type ComposerHandle = {
   restore(text: string, attachments: ComposerAttachment[]): void;
   /// Reads the current unsent draft and attachments before moving this composer to another chat.
   draftState(): { text: string; attachments: ComposerAttachment[] };
+  /// Marks the next chat switch as a carried prompt, so its draft and chips move exactly once.
+  prepareDraftTransfer(): { text: string; attachments: ComposerAttachment[] };
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -675,6 +677,11 @@ export function Composer({
     () => ({
       draftState() {
         return { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
+      },
+      prepareDraftTransfer() {
+        const state = { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
+        carryPrompt.current = true;
+        return state;
       },
       restore(restoredText, restoredAttachments) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
