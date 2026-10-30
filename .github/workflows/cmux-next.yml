@@ -2836,7 +2836,7 @@ jobs:
   # package) instead of waiting for a Mac. The gateway runner runs nothing of
   # the commit: no checkout, no action, no token, no secret, only the client
   # (the checks-workflow guard GatewayRunsOnlyTheFleetClient).
-  # It tests the exact commit (a pull request's head, a push's sha) and checks
+  # It tests the exact commit fast-tier builds (github.sha: a pull request's merge commit) and checks
   # that every fleet step it reads tested that commit: no verdict, or a step at
   # another commit, fails it and is never a pass. fast-tier keeps the check
   # name and reports this job's verdict from a 2 vCPU Linux runner.
@@ -2858,7 +2858,9 @@ jobs:
       - name: Run the fast tier's Swift suites on the build fleet
         id: client
         env:
-          REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          # github.sha: a pull request's merge commit, the tree fast-tier itself checks out (as
+          # swift-canary-fleet), so a head that breaks against the current base is still caught.
+          REF: ${{ github.sha }}
           # fast-tier.json's swift entries, by package (FastTierFleetClient keeps them equal).
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
           CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests

@@ -3308,8 +3308,9 @@ esac
     def test_the_client_tests_the_exact_commit(self):
         step = self.jobs()["fast-tier-fleet"]["steps"][0]
         ref = step["env"]["REF"]
-        self.assertEqual(evaluate(ref, {"github.event_name": "pull_request", "github.sha": "merge",
-                                        "github.event.pull_request.head.sha": self.REF}), self.REF)
+        # A pull request tests its merge commit (github.sha), the tree fast-tier's own checkout builds.
+        self.assertEqual(evaluate(ref, {"github.event_name": "pull_request", "github.sha": self.REF,
+                                        "github.event.pull_request.head.sha": self.OTHER}), self.REF)
         self.assertEqual(evaluate(ref, {"github.event_name": "push", "github.sha": self.REF}), self.REF)
         self.assertIn("--no-supersede", step["run"])
 
