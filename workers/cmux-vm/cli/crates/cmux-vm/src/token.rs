@@ -386,7 +386,7 @@ pub fn refuse_if_one_is_stored(
     match load(env) {
         // Only a token known to have expired is dead on the server; one whose
         // expiry cannot be read may still be live, so it is revoked first too.
-        Ok(Some(token)) if !token.seconds_left(now_unix).is_some_and(|left| left <= 0) => {
+        Ok(Some(token)) if token.seconds_left(now_unix).is_none_or(|left| left > 0) => {
             Err(CliError::conflict(format!(
                 "the VM token {} is already stored (expires {}): to replace it, run `{p} token revoke` (which deletes its VMs) and then `{p} token create`",
                 token.key_id,
