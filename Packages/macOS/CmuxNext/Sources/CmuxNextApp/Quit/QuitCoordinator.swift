@@ -33,8 +33,11 @@ final class QuitCoordinator {
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
-    /// Ends the process if the engine stop never returns (cx-ccjnn).
-    let deadline = QuitDeadline()
+    /// Ends the process if the engine stop never returns (cx-ccjnn), recording the agent panes' state
+    /// files still saving then (`AgentPaneStateLoss`). Tests replace it.
+    var deadline: QuitDeadline
+    /// Chromium's close, the quit's last engine step (tests replace it).
+    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in await self?.services.cache.cef.shutdown() }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
@@ -45,6 +48,8 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
+        deadline = QuitDeadline(reason: "the engines began to stop (the agent panes' state files save around them)",
+                                end: services.quitDeadlineEnd())
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -165,7 +170,14 @@ final class QuitCoordinator {
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
         await services.cloud.prepareForTermination()
-        await QuitCompletion.run(choice, remember: remember, QuitSteps(
+        await QuitCompletion.run(choice, remember: remember, steps())
+        sender.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// The quit's steps after the decision (`QuitCompletion`).
+    func steps() -> QuitSteps {
+        let services = services
+        return QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
                       let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
@@ -208,23 +220,29 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { [weak self, deadline = self.deadline] in
+            stopBrowserEngines: { [weak self] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
-                self?.watchdog?.endHangAssertions()
+                watchdog?.endHangAssertions()
                 #if DEBUG || CMUX_BENCH_HOOKS
-                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
+                if wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
                 #endif
-                await services.cache.cef.shutdown()
+                // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's
+                // shutdown watchdog can end the process) and after (a Chromium-hosted agent page that
+                // closes saves its draft in its page-hide flush; only those pages close here).
+                // No limit of their own: the deadline bounds them and records what was still saving.
+                await services.stateFilesDrained()
+                await closeEngines()
+                await services.stateFilesDrained()
             }
-        ))
-        sender.reply(toApplicationShouldTerminate: true)
+        )
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.

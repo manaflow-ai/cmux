@@ -34,9 +34,10 @@ public final class AgentPaneScrollAnchors {
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
-    public init(directory: URL?) {
+    /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
+    public init(directory: URL?, files: AgentPaneStateFiles) {
         file = directory?.appending(path: Self.fileName)
-        store = file.map(AgentPaneStateFile.at)
+        store = file.map(files.at)
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {

@@ -4,10 +4,10 @@ import Dispatch
 /// Does nothing: the signal only has to be caught, not ignored, so that its
 /// default action does not end the process. `SignalRelay`'s dispatch source
 /// sees every delivery either way (kqueue `EVFILT_SIGNAL`).
-private let relayedSignalHandler: @convention(c) (Int32) -> Void = { _ in }
+@MainActor private let relayedSignalHandler: @convention(c) (Int32) -> Void = { _ in }
 
 /// Delivers process signals on the main queue through a `DispatchSource`
-/// per signal; nothing runs in signal-handler context.
+/// per signal; nothing runs in signal-handler context (the app's `QuitSignal`).
 ///
 /// The signals are caught by a no-op handler instead of `SIG_IGN`: a caught
 /// signal returns to its default action in every child the app execs, while
@@ -15,11 +15,11 @@ private let relayedSignalHandler: @convention(c) (Int32) -> Void = { _ in }
 /// `POSIX_SPAWN_SETSIGDEF`, forkpty), so a shell started by the app would
 /// ignore Ctrl-C and `kill`.
 @MainActor
-final class SignalRelay {
-    let signals: [Int32]
+public final class SignalRelay {
+    public let signals: [Int32]
     private var sources: [any DispatchSourceSignal] = []
 
-    init(signals: [Int32], handler: @escaping @MainActor (Int32) -> Void) {
+    public init(signals: [Int32], handler: @escaping @MainActor (Int32) -> Void) {
         self.signals = signals
         for signal in signals {
             let source = DispatchSource.makeSignalSource(signal: signal, queue: .main)
@@ -34,7 +34,7 @@ final class SignalRelay {
 
     /// Installs the no-op handler for each signal. Call again after anything
     /// that resets signal actions (Chromium's start).
-    func catchSignals() {
+    public func catchSignals() {
         for signal in signals {
             var action = sigaction()
             action.__sigaction_u.__sa_handler = relayedSignalHandler
@@ -45,7 +45,7 @@ final class SignalRelay {
     }
 
     /// Stops relaying and gives each signal its default action back.
-    func cancel() {
+    public func cancel() {
         for source in sources { source.cancel() }
         sources = []
         for signal in signals { _ = Darwin.signal(signal, SIG_DFL) }

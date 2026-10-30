@@ -126,7 +126,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
-  quit waits at most 2 s for it under `terminate`)
+  the quit awaits it holding no thread, with the agent panes' state files (`AppServices.stateFilesDrained`), after its deadline is armed; that deadline records the files still saving, `AgentPaneStateLoss`)
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children`,
   `com.cmuxterm.import-history-sync`

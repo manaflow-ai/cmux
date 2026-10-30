@@ -17,16 +17,16 @@ struct UnsentDraftTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "unsent-drafts-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentUnsentDrafts.fileName)
+        let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
 
         // This run's drafts, held as the tab store holds them.
-        let drafts = AgentUnsentDrafts(file: file)
+        let drafts = AgentUnsentDrafts(file: file, files: files)
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
 
         // The next run's tab, still without a session, opens as the chat with its draft.
-        let relaunched = AgentUnsentDrafts(file: file)
+        let relaunched = AgentUnsentDrafts(file: file, files: files)
         let seed = try #require(relaunched.seed(for: "tab-1", session: nil))
         #expect(await seed.take()?.draft == "compare the two retry policies")
         #expect(relaunched.seed(for: "tab-1", session: "s-1") == nil, "a chat with a session keeps its draft in acpmux")
@@ -34,9 +34,9 @@ struct UnsentDraftTests {
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
-        #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).seed(for: "tab-1", session: nil) == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
-        #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        #expect(AgentUnsentDrafts(file: file, files: files).seed(for: "tab-1", session: nil) == nil)
         withExtendedLifetime(drafts) {}
     }
 }

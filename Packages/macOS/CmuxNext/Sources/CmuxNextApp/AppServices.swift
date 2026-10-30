@@ -470,6 +470,10 @@ final class AppServices {
     let work: BackgroundWork
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The agent panes' state files (unsent drafts, scroll places): one writer per file; quit waits for them.
+    let agentPaneStateFiles: AgentPaneStateFiles
+    /// The state files a quit's deadline ended before they saved, told at the next launch.
+    let agentPaneStateLoss: AgentPaneStateLoss
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -492,9 +496,11 @@ final class AppServices {
     ///   socket uses); tests get one of their own, with no pending-input check.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
-         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
+         launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
+         agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
-        (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
+        (self.launchImages, self.relaunchWake, self.agentPaneStateFiles) = (launchImages, relaunchWake, agentPaneStateFiles)
+        agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
@@ -755,6 +761,22 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
+    }
+
+    /// A quit deadline's end: it names and records the state files still saving (a paired-phones save is
+    /// marked, and the next launch clears its seal), then ends the process (`AgentPaneStateLoss`).
+    func quitDeadlineEnd() -> @Sendable () -> Void {
+        agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.markCutOffIfSaving() })
+    }
+
+    /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
+    /// awaited together holding no thread and with no limit of their own: the quit awaits them after its
+    /// deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
+    func stateFilesDrained() async {
+        let files = agentPaneStateFiles
+        async let panes: Void = files.drained()
+        await iphone.pairedSavesDrained()
+        await panes
     }
 }
 
