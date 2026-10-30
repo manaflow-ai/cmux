@@ -23,7 +23,8 @@ public final class HistoryPageHostView: NSView, VisibilityGatedContent {
         let appearance = HistoryPageAppearance()
         self.model = model
         appearanceState = appearance
-        gate = VisibilityGatedHostingView(owner: "HistoryPageHostView") { HistoryPageView(model: model, appearance: appearance) }
+        gate = VisibilityGatedHostingView(owner: "HistoryPageHostView",
+                                          hosting: NSHostingView(rootView: HistoryPageView(model: model, appearance: appearance)))
         super.init(frame: .zero)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay

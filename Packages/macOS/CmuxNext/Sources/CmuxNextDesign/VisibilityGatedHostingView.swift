@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextWakeups
-public import SwiftUI
 
 /// A tab content view that hosts SwiftUI and stops its graph work while the tab's node is hidden
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, section B, task 214).
@@ -24,7 +23,7 @@ public import SwiftUI
 /// while hidden says why with ``Policy/optOut(reason:)``; it still counts its bodies.
 ///
 /// ```swift
-/// let gate = VisibilityGatedHostingView(owner: "Tasks") { TasksView(model: model, layout: layout()) }
+/// let gate = VisibilityGatedHostingView(owner: "Tasks", hosting: NSHostingView(rootView: TasksView(model: model)))
 /// gate.follow(cache.node(for: key), observations: services.observations)
 /// ```
 @MainActor public final class VisibilityGatedHostingView: NSView, VisibilityGatedContent {
@@ -62,23 +61,15 @@ public import SwiftUI
     /// The view inside the hosting view that had the keyboard when it left.
     private weak var focused: NSView?
 
-    /// Hosts `content`, built in the root's body: the observable state it reads is the root's, and each
-    /// evaluation counts (``bodyEvaluations``, `debug.observations`). Views below count themselves with
-    /// `@Environment(\.hostingBodyCounter)`.
-    public convenience init<Content: View>(owner: String, policy: Policy = .gated,
-                                           @ViewBuilder content: @escaping @MainActor () -> Content) {
-        let counter = HostingBodyCounter()
-        self.init(owner: owner, policy: policy, counter: counter,
-                  hosting: NSHostingView(rootView: HostingBodyCountedRoot(counter: counter, content: content)))
-    }
-
-    /// Gates a hosting view made elsewhere (an `NSHostingView` subclass that measures itself). Its bodies
-    /// count only where its views read `\.hostingBodyCounter`.
+    /// Gates `hosting` (the page's `NSHostingView`, made by the page) with a counter of its own; its bodies
+    /// count only where the page records them (``init(owner:policy:counter:hosting:)``).
     public convenience init(owner: String, policy: Policy = .gated, hosting: NSView) {
         self.init(owner: owner, policy: policy, counter: HostingBodyCounter(), hosting: hosting)
     }
 
-    private init(owner: String, policy: Policy, counter: HostingBodyCounter, hosting: NSView) {
+    /// Gates `hosting`, whose SwiftUI records each body evaluation into `counter` (``bodyEvaluations``,
+    /// `debug.observations`): the page passes the same counter to its root view.
+    public init(owner: String, policy: Policy = .gated, counter: HostingBodyCounter, hosting: NSView) {
         self.owner = owner
         self.policy = policy
         self.counter = counter

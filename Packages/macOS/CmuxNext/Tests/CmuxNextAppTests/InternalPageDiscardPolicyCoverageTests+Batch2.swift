@@ -9,7 +9,6 @@ import CmuxNextHistory
 @testable import CmuxNextTasks
 import CmuxNextWakeupsTestSupport
 import Foundation
-import SwiftUI
 import Testing
 
 /// Page policies batch 2: history, bookmarks, passwords, stashed, tasks and
@@ -102,12 +101,15 @@ import Testing
         #expect(model.newTaskDraft == "Write the release notes", "the typed title is lost")
     }
 
-    /// The real New Task field shows the model's draft and writes what is typed back to it.
+    /// The real New Task field, in the real Tasks pane, shows the model's draft and writes what is typed back to it.
     @Test func theNewTaskFieldIsTheModelsDraft() throws {
         let model = TasksModel(source: MockTasksSource())
+        // Connected, so the pane shows its New Task field (a never-connected owner shows a notice instead).
+        model.start()
+        defer { model.stop() }
         model.newTaskDraft = "Write the release notes"
         model.focusNewTask()
-        let (window, root) = Self.host(NewTaskField(model: model))
+        let (window, root) = Self.host(TasksHostView(model: model, layout: .list))
         defer { window.contentView = nil; window.close() }
         let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
         #expect(field.stringValue == "Write the release notes", "a field made again shows the draft")
@@ -361,9 +363,8 @@ import Testing
         return window
     }
 
-    static func host(_ view: some View) -> (NSWindow, NSView) {
+    static func host(_ hosting: NSView) -> (NSWindow, NSView) {
         let window = Self.window()
-        let hosting = NSHostingView(rootView: view.frame(width: 520, height: 80))
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         return (window, hosting)

@@ -60,7 +60,7 @@ public final class FeedHostView: NSView, VisibilityGatedContent {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
                             onReportsReply: onReportsReply)
-        let gate = VisibilityGatedHostingView(owner: "FeedHostView") { root }
+        let gate = VisibilityGatedHostingView(owner: "FeedHostView", hosting: NSHostingView(rootView: root))
         embed(gate)
         self.gate = gate
     }

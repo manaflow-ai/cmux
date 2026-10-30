@@ -49,6 +49,12 @@ struct WorkspaceChecklistTests {
     /// A store with workspace `ws_1` and the checklist above from a `session.events` snapshot.
     static func store() throws -> DaemonStore {
         let store = DaemonStore()
+        try seed(store)
+        return store
+    }
+
+    /// Puts workspace `w1` (`ws_1`) and the checklist above into `store`, as a `session.events` snapshot does.
+    static func seed(_ store: DaemonStore) throws {
         store.apply(snapshot: DaemonTree(workspaces: [
             WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "w1"), resourceID: ResourceID(rawValue: "ws_1"), name: "w"),
         ]))
@@ -56,7 +62,6 @@ struct WorkspaceChecklistTests {
             + #""extra":{"state":{"workspace_checklist":["# + checklistJSON + "]}}}}}"
         let item = try #require(SessionStreamItem.decode(Data(line.utf8)))
         store.session.apply(item, in: store)
-        return store
     }
 
     // MARK: The state resource

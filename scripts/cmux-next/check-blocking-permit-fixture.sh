@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PACKAGE="$ROOT/Packages/macOS/CmuxNext"
-FIXTURE="$PACKAGE/Tests/CompileFailFixtures/BlockingPermitNoasync.swift"
+FIXTURE="$PACKAGE/CompileFailFixtures/BlockingPermitNoasync.swift"
 
 if [ "${1:-}" != "--no-build" ]; then
   swift build --package-path "$PACKAGE" --target CmuxNextCompat
