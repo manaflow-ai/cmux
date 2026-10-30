@@ -49,6 +49,8 @@ export class ArtifactsStore {
   private listeners = new Set<() => void>();
   private treeRequest = 0;
   private fileRequest = 0;
+  /** The head the chosen file was last read at; a refresh at another head reads it again. */
+  private fileHead?: string;
 
   constructor(private readonly client: PageClient | null) {}
 
@@ -71,11 +73,10 @@ export class ArtifactsStore {
     try {
       const { paths, sha, truncated } = await this.readTree(this.client);
       if (request !== this.treeRequest) return;
-      const moved = this.snapshot.headSha !== undefined && this.snapshot.headSha !== sha;
       this.set({ status: paths.length ? "ready" : "empty", paths, headSha: sha, truncated });
       const selected = this.snapshot.selected;
       if (selected && paths.includes(selected)) {
-        if (moved) await this.select(selected, true);
+        if (this.fileHead !== sha) await this.select(selected, true);
       } else if (paths[0]) await this.select(paths[0]);
     } catch (error) {
       if (request !== this.treeRequest) return;
@@ -90,8 +91,11 @@ export class ArtifactsStore {
    */
   async select(path: string, reload = false): Promise<void> {
     const client = this.client;
-    if (!client || (path === this.snapshot.selected && !reload)) return;
+    // The chosen file again only to retry a failed read.
+    if (!client || (path === this.snapshot.selected && !reload && !this.snapshot.fileFailure)) return;
     const request = ++this.fileRequest;
+    // Read at the tree's commit, so the preview matches the tree even if a save lands meanwhile.
+    const head = this.snapshot.headSha;
     if (!reload)
       this.set({
         selected: path,
@@ -104,10 +108,14 @@ export class ArtifactsStore {
       });
     try {
       const [file, history] = await Promise.all([
-        client.call<ArtifactFile>(ArtifactsOps.file, { path }),
-        client.call<ArtifactHistory>(ArtifactsOps.history, { path, limit: HISTORY_LIMIT }),
+        client.call<ArtifactFile>(ArtifactsOps.file, head ? { path, ref: head } : { path }),
+        client.call<ArtifactHistory>(
+          ArtifactsOps.history,
+          head ? { path, ref: head, limit: HISTORY_LIMIT } : { path, limit: HISTORY_LIMIT },
+        ),
       ]);
       if (request !== this.fileRequest) return;
+      this.fileHead = head;
       this.set({ file, history: history.commits, fileLoading: false });
       const newest = history.commits[0];
       if (newest) await this.showCommit(newest, request, file);
@@ -157,7 +165,8 @@ export class ArtifactsStore {
     const next = async (): Promise<void> => {
       for (let folder = queue.shift(); folder !== undefined; folder = queue.shift()) {
         read += 1;
-        const tree = await client.call<ArtifactsTree>(ArtifactsOps.tree, folder ? { path: folder } : {});
+        // Folders read at the root's commit, so a save landing meanwhile cannot mix two trees.
+        const tree = await client.call<ArtifactsTree>(ArtifactsOps.tree, folder ? { path: folder, ref: sha } : {});
         sha ??= tree.sha;
         for (const entry of tree.entries) {
           if (entry.type === "blob") files.push(entry.path);

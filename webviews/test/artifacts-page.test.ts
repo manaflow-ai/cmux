@@ -242,3 +242,52 @@ test("a refresh with the head unchanged reads only the tree", async () => {
   await store.start();
   expect(host.calls.slice(before).every((call) => call.op === ArtifactsOps.tree)).toBe(true);
 });
+
+test("folders and the chosen file are read at the root's commit", async () => {
+  const mock = new MockArtifactsProvider();
+  const host = new Host((op, params) => mock.call(op, params));
+  const store = new ArtifactsStore(host);
+  await store.start();
+  const root = store.getSnapshot().headSha;
+  const reads = host.calls.filter((call) => call.op === ArtifactsOps.tree && call.params.path);
+  expect(reads.length).toBeGreaterThan(0);
+  expect(reads.every((call) => call.params.ref === root)).toBe(true);
+  const fileRead = host.calls.find((call) => call.op === ArtifactsOps.file);
+  expect(fileRead?.params.ref).toBe(root);
+});
+
+test("a reload that failed is tried again on the next refresh, and by choosing the file again", async () => {
+  const shas = ["1".repeat(40), "2".repeat(40)];
+  let head = 0;
+  let failing = false;
+  const host = new Host((op, params) => {
+    const sha = shas[head]!;
+    if (op === ArtifactsOps.tree) return { ref: "main", sha, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history) return { commits: [] };
+    if (failing) throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
+    return {
+      path: "a.md",
+      size: 1,
+      contentType: "text/markdown",
+      commit: params.ref ?? sha,
+      content: `at ${String(params.ref)}`,
+    };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  head = 1;
+  failing = true;
+  await store.start();
+  expect(store.getSnapshot().fileFailure?.code).toBe("cmux.artifacts.unavailable");
+  failing = false;
+  await store.select("a.md");
+  expect(store.getSnapshot().file?.content).toBe(`at ${shas[1]}`);
+  expect(store.getSnapshot().fileFailure).toBeUndefined();
+
+  head = 0;
+  failing = true;
+  await store.start();
+  failing = false;
+  await store.start();
+  expect(store.getSnapshot().file?.content).toBe(`at ${shas[0]}`);
+});

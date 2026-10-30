@@ -170,6 +170,8 @@ function Preview({ snapshot, strings }: { snapshot: ArtifactsSnapshot; strings: 
   if (isHtml(file))
     return (
       <iframe
+        // A new frame per document: a passive srcdoc frame refuses to be replaced (CEF and WebKit).
+        key={`${file.path}@${file.commit}`}
         className="artifacts-preview artifacts-frame"
         title={file.path}
         srcDoc={galleryArtifactDocument(text, "")}

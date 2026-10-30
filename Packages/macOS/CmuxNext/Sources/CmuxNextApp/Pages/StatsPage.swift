@@ -51,8 +51,9 @@ enum StatsPageTab {
         })
         registry.bindEffect("artifacts.show", unavailable: { [weak services] in
             services?.settings?.snapshot.previewFeatures == true ? nil : ArtifactsPageProvider.previewRefusal
-        }) { [weak services] _ in
-            if let services { _ = services.pages.show(.artifacts, in: services.windows.active, focus: true) }
+        }) { [weak services] invocation in
+            // A scripted run opens the tab without taking focus or leaving a top page.
+            if let services { _ = services.pages.show(.artifacts, in: services.windows.active, focus: invocation.allowsViewChange) }
             return .done
         }
     }
