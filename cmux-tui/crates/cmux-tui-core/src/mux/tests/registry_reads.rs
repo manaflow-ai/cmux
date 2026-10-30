@@ -162,7 +162,7 @@ fn a_hook_that_changes_no_projection_takes_no_registry_lock() {
     let held = mux.workspace_registry.lock().unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
     let hooking = mux.clone();
-    let terminal = terminal_id.clone();
+    let terminal = terminal_id;
     std::thread::spawn(move || {
         append_journal_hook(&hooking, &terminal, "PostToolUse", Some("hook-no-registry"));
         let _ = tx.send(());

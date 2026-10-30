@@ -239,7 +239,7 @@ impl Mux {
     fn agent_roster_fold_page_size(&self) -> usize {
         #[cfg(test)]
         {
-            let page = self.agent_roster_fold_page.load(std::sync::atomic::Ordering::Relaxed);
+            let page = self.agent_roster_fold_page.load(Ordering::Relaxed);
             if page > 0 {
                 return page;
             }
