@@ -33,10 +33,10 @@ export type QuickMenu = {
   current?: string;
   onModel(id: string): void;
   onModelEffort?(id: string, effort: string): void;
-  /** Opt in to inline model/effort segments; omitted or false keeps the Effort submenu. */
+  /** Opt in to the model rows' effort slider; omitted or false keeps the Effort submenu. */
   inlineEffort?: boolean;
-  /** Gallery alternatives; joined segments are the shipped choice. */
-  effortLook?: "joined" | "spaced" | "underline";
+  /** Where the effort slider sits (gallery alternatives; `hover` is the shipped choice). */
+  effortSlider?: QuickEffortSlider;
   /// The reasoning levels; absent when the model offers no choice.
   effort?: {
     levels: Choice[];
@@ -85,6 +85,15 @@ export type QuickMenu = {
 };
 
 export type QuickSearchGroups = "harness" | "flat";
+
+/// Where the model menu's one effort slider sits (Leo 2026-10-29: "i highly doubt you need the effort
+/// levels spelled out everywhere... sliders are fine in many cases"). One slider shows at a time, with
+/// its level named once beside it:
+/// - `hover` (shipped): at the trailing edge of the hovered or keyboard-highlighted model's row, else
+///   the running model's; a stop on another model's row lands that model and level in one click.
+/// - `running`: only on the running model's row; another model keeps the chat's level.
+/// - `list`: one Effort row under the models, for the running model.
+export type QuickEffortSlider = "hover" | "running" | "list";
 
 export type QuickSearchField = "always" | "typed" | "long";
 
@@ -246,6 +255,14 @@ export function QuickModelMenu({
   // On New Tab, More models is a row that shows the tab's other models in place, as T3 Code's
   // model menu does, not a submenu: the rail tab it was opened on.
   const [moreFor, setMoreFor] = useState<string | undefined>();
+  // A level moved on a model row's slider before it lands (a drag, or Left and Right on the row):
+  // the row's value and the level. The ref is the same pick for handlers that run before a render.
+  const [pending, setPendingState] = useState<{ value: string; effort: string } | undefined>();
+  const pendingRef = useRef(pending);
+  const setPending = (next: typeof pending) => {
+    pendingRef.current = next;
+    setPendingState(next);
+  };
   const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
@@ -258,6 +275,8 @@ export function QuickModelMenu({
       setQuery("");
       setMoreFor(undefined);
       setScrolled(false);
+      pendingRef.current = undefined;
+      setPendingState(undefined);
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
@@ -394,53 +413,112 @@ export function QuickModelMenu({
     }
     return advertised;
   };
+  const sliderLook: QuickEffortSlider = menu.effortSlider ?? "hover";
+  const isRunning = (model: Pick<QuickModel, "family" | "id">) =>
+    (!families || model.family === families.current) && model.id === current;
+  /// Lands `model` at `value`. The current model is already selected: its level goes through the
+  /// reported option, so the harness updates the same config as the Effort submenu. Another model
+  /// takes the combo path, which waits for that model to be reported first.
+  const landEffort = (model: QuickModel, value: string) => {
+    if (isRunning(model) && effort?.onPick) {
+      onOpenChange(false);
+      if (value !== effort.current) effort.onPick(value);
+      // A searched combo can also ask for Fast. It goes through the combo path, which maps "fast"
+      // onto the option's plain tier (the Fast toggle would restore a remembered higher one); the
+      // effort went through the reported option above, so a session-only level (Ultracode) lands too.
+      if (model.fast) pickRow({ ...model, effort: undefined });
+      return;
+    }
+    pickRow({ ...model, effort: value });
+  };
+  /// Where a row's thumb rests: a level moved but not landed yet, else the chat's level when the
+  /// model offers it. Another model's row then rests on its recommended level, else its first; the
+  /// running row whose level nobody resolved rests on none (no thumb, no name), never a guess.
+  const restingEffort = (model: QuickModel, choices: readonly Choice[]) => {
+    const moved = pendingRef.current;
+    if (moved?.value === valueOf(model) && choices.some((choice) => choice.id === moved.effort)) return moved.effort;
+    if (effort?.current && choices.some((choice) => choice.id === effort.current)) return effort.current;
+    if (isRunning(model)) return undefined;
+    return (choices.find((choice) => choice.recommended) ?? choices[0])?.id;
+  };
+  /// A row's pick by click or Enter: a level moved on its slider lands with it.
+  const pickWithEffort = (row: QuickModel) => {
+    const moved = pendingRef.current;
+    if (moved && moved.value === valueOf(row) && effortChoices(row).some((choice) => choice.id === moved.effort))
+      landEffort(row, moved.effort);
+    else pickRow(row);
+  };
+  /// One model's slider and its level's name. The name sits before the track, so the track keeps its
+  /// place at the trailing edge whatever the name's length.
+  const effortSlider = (model: QuickModel, choices: readonly Choice[]) => {
+    const at = restingEffort(model, choices);
+    const value = valueOf(model);
+    const land = () => {
+      const moved = pendingRef.current;
+      const level = moved?.value === value ? moved.effort : at;
+      if (level) landEffort(model, level);
+    };
+    return (
+      <span className="acpmux-quick-effort">
+        <span className="acpmux-quick-effort-level">{choices.find((choice) => choice.id === at)?.name}</span>
+        <EffortTrack
+          compact
+          efforts={[...choices]}
+          current={at}
+          label={`${model.name} · ${t("effort.title")}`}
+          onPick={(next) => setPending({ value, effort: next })}
+          // A click, or the end of a drag, lands the model and the level the thumb rests on.
+          onRangeClick={land}
+          onRangeKey={(event) => {
+            if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            event.stopPropagation();
+            land();
+          }}
+        />
+      </span>
+    );
+  };
   const withEffort = (model: QuickModel, name: React.ReactNode) => {
+    if (sliderLook === "list") return name;
+    const running = isRunning(model);
+    if (sliderLook === "running" && !running) return name;
     const choices = effortChoices(model);
     if (choices.length === 0) return name;
-    const running = (!families || model.family === families.current) && model.id === current;
-    const pickEffort = (value: string) => {
-      // The current model is already selected. Apply its effort through the reported
-      // option so the harness updates the same config as the Effort submenu. A different
-      // model still uses the combo path, which waits for that model to be reported first.
-      if (running && effort?.onPick) {
-        onOpenChange(false);
-        effort.onPick(value);
-        // A searched combo can also ask for Fast. It goes through the combo path, which maps "fast"
-        // onto the option's plain tier (the Fast toggle would restore a remembered higher one); the
-        // effort went through the reported option above, so a session-only level (Ultracode) lands too.
-        if (model.fast) pickRow({ ...model, effort: undefined });
-        return;
-      }
-      pickRow({ ...model, effort: value });
-    };
     return (
       <div
         className="acpmux-quick-model-effort"
         key={valueOf(model)}
-        data-effort-look={menu.effortLook ?? "joined"}
-        // The running row keeps its effort in view; every other row shows its levels only while
-        // it is hovered or focused (modelPicker.css), so the list reads as one row per model.
+        data-row-value={valueOf(model)}
+        // The running row shows its slider until another row is hovered or highlighted; every other
+        // row shows it only while it is (modelPicker.css), so one slider shows at a time.
         data-running={running ? "" : undefined}
       >
         {name}
-        <fieldset className="acpmux-quick-efforts" aria-label={`${model.name} · ${t("effort.title")}`}>
-          <MenuRadioGroup value={running ? (effort?.current ?? "") : ""} onValueChange={pickEffort}>
-            {choices.map((choice) => (
-              <MenuRadioItem
-                key={choice.id}
-                className="acpmux-quick-effort-segment"
-                disabled={model.disabled}
-                label={`${model.name} · ${choice.name}`}
-                value={choice.id}
-                closeOnClick
-              >
-                <span data-selected={running && effort?.current === choice.id ? "" : undefined}>{choice.name}</span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </fieldset>
+        {effortSlider(model, choices)}
       </div>
     );
+  };
+  /// The `list` look's one slider under the models: the running model's, when its row offers levels.
+  const listRow =
+    sliderLook === "list"
+      ? rows.find((row) => isRunning(row) && effortChoices(row).length > 0 && (!row.offers || providerLook === "row"))
+      : undefined;
+  /// Left and Right on a model row with a slider step its level, as in Claude Code's model menu;
+  /// Enter or a click then lands the model with it. Elsewhere they still move along the rail.
+  const stepRowEffort = (target: EventTarget | null, key: string) => {
+    if (sliderLook === "list" || (key !== "ArrowLeft" && key !== "ArrowRight")) return false;
+    const item = target instanceof Element ? target.closest<HTMLElement>('[role="menuitemradio"]') : null;
+    const holder = item?.parentElement?.closest<HTMLElement>(".acpmux-quick-model-effort");
+    if (!item || !holder || holder.querySelector('[role="menuitemradio"]') !== item) return false;
+    const model = [...rows, ...(shown?.more ?? [])].find((row) => valueOf(row) === holder.dataset.rowValue);
+    if (!model) return false;
+    const choices = effortChoices(model);
+    const at = choices.findIndex((choice) => choice.id === restingEffort(model, choices));
+    const next = choices[Math.min(choices.length - 1, Math.max(0, at + (key === "ArrowRight" ? 1 : -1)))];
+    if (next) setPending({ value: valueOf(model), effort: next.id });
+    return true;
   };
   /// The field's editing keys stay in it: Base UI's typeahead and the menu's own keys never see
   /// them. Digits on an empty field still pick a row, and Left and Right move along the rail.
@@ -479,6 +557,10 @@ export function QuickModelMenu({
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
     if (!event.currentTarget.contains(event.target as Node)) return;
     popup.current = event.currentTarget;
+    if (stepRowEffort(event.target, event.key)) {
+      event.preventDefault();
+      return;
+    }
     // Left and Right move along the rail (its tabs are not rows, so Up and Down stay in the list).
     // In the search field they move along the rail only while it is empty (fieldKeyDown).
     if (families && !query && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
@@ -562,7 +644,7 @@ export function QuickModelMenu({
           const row = rows
             .flatMap((choice) => [choice, ...(choice.offers ?? [])])
             .find((choice) => valueOf(choice) === value);
-          if (row) pickRow(row);
+          if (row) pickWithEffort(row);
         }}
       >
         {(groups ?? [{ id: "", name: "", rows }]).map((group, groupIndex) => {
@@ -717,7 +799,7 @@ export function QuickModelMenu({
                 value={currentValue}
                 onValueChange={(value) => {
                   const row = shown.more.find((choice) => rowValue(choice) === value);
-                  if (row) pickRow(row);
+                  if (row) pickWithEffort(row);
                 }}
               >
                 {shown.more.map((choice) =>
@@ -760,6 +842,15 @@ export function QuickModelMenu({
             </MenuItem>
           ))}
         </MenuGroup>
+      )}
+      {!query && onChatTab && listRow && (
+        <>
+          <MenuSeparator />
+          <div className="acpmux-quick-effort-row">
+            <span className="acpmux-menu-label">{t("effort.title")}</span>
+            {effortSlider(listRow, effortChoices(listRow))}
+          </div>
+        </>
       )}
       {!query &&
         onChatTab &&
@@ -839,7 +930,7 @@ export function QuickModelMenu({
                 value={currentValue}
                 onValueChange={(value) => {
                   const row = shown.more.find((choice) => rowValue(choice) === value);
-                  if (row) pickRow(row);
+                  if (row) pickWithEffort(row);
                 }}
               >
                 {shown.more.map((choice) =>
@@ -917,9 +1008,18 @@ export function QuickModelMenu({
     </>
   );
   // Keep the compact surface's intrinsic width stable while switching harness tabs. The probe is
-  // zero-height and hidden, but its widest model plus inline effort segments still participates in
-  // the popup's max-content measurement. This prevents a tab change from moving the rail or
-  // pushing the segments past the narrow chat boundary.
+  // zero-height and hidden, but its widest model plus a row's slider and longest level name still
+  // participates in the popup's max-content measurement. This prevents a tab change, or a hovered
+  // row's slider, from moving the rail or pushing the slider past the narrow chat boundary.
+  const longestLevel = (model: QuickModel) =>
+    (model.efforts?.length
+      ? reasoningChoices(
+          model.efforts.map((value) => ({ value })),
+          { efforts: model.efforts },
+          t,
+        )
+      : (effort?.levels ?? [])
+    ).reduce((longest, choice) => (choice.name.length > longest.length ? choice.name : longest), "");
   const widthProbe = families ? (
     <div className="acpmux-quick-width-probe" aria-hidden="true">
       {families.list
@@ -927,15 +1027,10 @@ export function QuickModelMenu({
         .map((model) => (
           <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
             <span className="acpmux-menu-label">{model.name}</span>
-            {menu.inlineEffort === true && (
-              <span className="acpmux-quick-width-probe-efforts acpmux-quick-efforts">
-                {(model.efforts?.length ? model.efforts : (effort?.levels.map((choice) => choice.id) ?? [])).map(
-                  (id) => (
-                    <span className="acpmux-quick-width-probe-segment" key={id}>
-                      {id}
-                    </span>
-                  ),
-                )}
+            {menu.inlineEffort === true && sliderLook !== "list" && model.efforts?.length !== 0 && (
+              <span className="acpmux-quick-effort">
+                <span className="acpmux-quick-effort-level">{longestLevel(model)}</span>
+                <span className="acpmux-quick-width-probe-track" />
               </span>
             )}
           </div>

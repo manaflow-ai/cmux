@@ -121,7 +121,10 @@ const MODEL = { role: "button", name: "Model" } as const;
 const openEffort: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(
-    () => ctx.document.querySelector('.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]') !== null,
+    () =>
+      ctx.document.querySelector(
+        ".acpmux-quick-menu .acpmux-quick-model-effort[data-running] .acpmux-effort-stop[data-at]",
+      ) !== null,
   );
 };
 

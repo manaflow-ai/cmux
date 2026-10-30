@@ -316,18 +316,18 @@ const modelPressDragRelease: Play = async (ctx) => {
   );
 };
 
-// The current model's effort is the inline control in its own row (#26521): the menu has no
-// Effort submenu while that row carries the levels.
-const CHECKED_EFFORT = '.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]';
+// The current model's effort is the slider on its own row: the menu has no Effort submenu while that
+// row carries the levels.
+const CURRENT_EFFORT = ".acpmux-quick-menu .acpmux-quick-model-effort[data-running] .acpmux-quick-effort";
+const CURRENT_RANGE = `${CURRENT_EFFORT} input[type="range"]`;
+const shownLevel = (levels: HTMLElement) => levels.querySelector(".acpmux-quick-effort-level")?.textContent ?? "";
 
-/// Opens the model menu; resolves with the current model's inline effort control.
+/// Opens the model menu; resolves with the current model's effort slider.
 async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
   await ctx.click(MODEL);
   let levels: HTMLElement | undefined;
   await ctx.waitFor(() => {
-    levels =
-      ctx.document.querySelector<HTMLElement>(CHECKED_EFFORT)?.closest<HTMLElement>(".acpmux-quick-efforts") ??
-      undefined;
+    levels = ctx.document.querySelector<HTMLElement>(CURRENT_EFFORT) ?? undefined;
     return levels;
   });
   return levels!;
@@ -335,31 +335,35 @@ async function openEffortMenu(ctx: Parameters<Play>[0]): Promise<HTMLElement> {
 
 const openEffort: Play = async (ctx) => {
   const levels = await openEffortMenu(ctx);
-  await ctx.waitFor(() => levels.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  await ctx.waitFor(() => levels.querySelector(".acpmux-effort-stop[data-at]") !== null);
 };
 
 const effortFocus: Play = async (ctx) => {
   const trigger = ctx.find(MODEL);
   const levels = await openEffortMenu(ctx);
-  const checked = levels.querySelector<HTMLElement>('[aria-checked="true"]')!;
-  await ctx.focus({ selector: CHECKED_EFFORT });
-  await ctx.waitFor(() => ctx.document.activeElement === checked);
-  await ctx.press("ArrowDown");
-  await ctx.waitFor(() => {
-    const highlighted = ctx.document.querySelector(".acpmux-quick-menu [data-highlighted]");
-    return highlighted !== null && highlighted !== checked;
-  });
+  const range = levels.querySelector<HTMLInputElement>('input[type="range"]')!;
+  const before = shownLevel(levels);
+  await ctx.focus({ selector: CURRENT_RANGE });
+  await ctx.waitFor(() => ctx.document.activeElement === range);
+  // The slider keeps its arrows: Left steps the level, the menu's own highlight stays put.
+  await ctx.press("ArrowLeft");
+  await ctx.waitFor(() => shownLevel(levels) !== before);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
 const effortPick: Play = async (ctx) => {
   const levels = await openEffortMenu(ctx);
-  const high = [...levels.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment")].find(
-    (segment) => segment.textContent?.trim() === "High",
-  );
-  if (!high) throw new Error("the current model's effort control offers no High");
-  await ctx.click({ selector: `.acpmux-quick-menu [aria-label="${high.getAttribute("aria-label")}"]` });
+  const stops = [...levels.querySelectorAll<HTMLElement>(".acpmux-effort-stop")];
+  const target = stops.findIndex((stop) => stop.dataset.name === "High");
+  if (target < 0) throw new Error("the current model's effort control offers no High");
+  const at = stops.findIndex((stop) => stop.hasAttribute("data-at"));
+  await ctx.focus({ selector: CURRENT_RANGE });
+  for (let step = at; step !== target; step += target > at ? 1 : -1)
+    await ctx.press(target > at ? "ArrowRight" : "ArrowLeft");
+  await ctx.waitFor(() => shownLevel(levels) === "High");
+  // Enter on the slider lands the level it rests on.
+  await ctx.press("Enter");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
   await ctx.waitFor(
     () =>

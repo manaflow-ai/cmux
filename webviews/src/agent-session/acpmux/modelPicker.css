@@ -562,84 +562,166 @@
   mask-image: none;
 }
 
-/* Model names and effort segments are sibling menu items: each has its own hit target and
-   keyboard focus, and an effort selection lands the model and level together. One row per model
-   (Leo 2026-10-29, on every model carrying a full row of levels: "BRO WHAT KIND OF FUCKING DESIGN
-   IS THIS????"): the levels sit on the model's own line at its trailing edge, and only the running
-   row and the hovered or keyboard-highlighted row show them. */
+/* The model rows' effort slider (QuickModelMenu `effortSlider`; Leo 2026-10-29: "i highly doubt you
+   need the effort levels spelled out everywhere... sliders are fine in many cases"). A row is one
+   line: the model's name, then its level's name and a compact track at the trailing edge. One slider
+   shows at a time: the hovered or keyboard-highlighted row's, else the running row's. The name item's
+   highlight covers the name only; the track is its own control. */
 .acpmux-quick-model-effort {
   display: flex;
   align-items: center;
-  gap: var(--ds-space-1);
+  gap: var(--ds-space-2);
 }
 .acpmux-quick-model-effort > .acpmux-quick-item {
   flex: 1 1 0;
   min-width: 0;
 }
-.acpmux-quick-efforts {
+.acpmux-quick-effort {
   display: none;
   flex: none;
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.acpmux-quick-model-effort[data-running] > .acpmux-quick-efforts,
-.acpmux-quick-model-effort:has([data-highlighted]) > .acpmux-quick-efforts {
-  display: block;
-}
-/* The running row's check would sit between the name and its levels: the selected level marks it. */
-.acpmux-quick-model-effort > .acpmux-quick-item .ui-menu-check {
-  display: none;
-}
-.acpmux-quick-efforts > [role="group"] {
-  display: flex;
-  flex-wrap: nowrap;
-}
-.ui-menu-item.acpmux-quick-effort-segment,
-.acpmux-quick-width-probe-segment {
-  display: flex;
-  flex: none;
-  justify-content: center;
   align-items: center;
-  min-height: calc(var(--ui-row-height) - 6px);
-  padding: 0 var(--ds-space-1);
-  border-radius: var(--ui-row-radius);
-  color: var(--agent-muted);
-  font-size: var(--text-caption);
-  white-space: nowrap;
+  gap: var(--ds-space-2);
+  padding-inline-end: var(--ui-row-padding-inline);
+  height: var(--ui-row-height);
 }
-.acpmux-quick-effort-segment .ui-menu-check {
+.acpmux-quick-model-effort[data-running] > .acpmux-quick-effort,
+.acpmux-quick-model-effort:is(:hover, :focus-within, :has([data-highlighted])) > .acpmux-quick-effort {
+  display: inline-flex;
+}
+/* Another row hovered or highlighted takes the slider from the running row, which then shows its
+   check again; while the running row shows its slider, the thumb is its mark. */
+.acpmux-quick-model-effort[data-running] > .acpmux-quick-item .ui-menu-check { display: none; }
+.acpmux-quick-list:has(.acpmux-quick-model-effort:not([data-running]):is(:hover, :focus-within, :has([data-highlighted])))
+  .acpmux-quick-model-effort[data-running]:not(:hover, :focus-within, :has([data-highlighted]))
+  > .acpmux-quick-effort {
   display: none;
 }
-.acpmux-quick-effort-segment[data-highlighted] {
-  background: var(--acpmux-menu-hover);
+.acpmux-quick-list:has(.acpmux-quick-model-effort:not([data-running]):is(:hover, :focus-within, :has([data-highlighted])))
+  .acpmux-quick-model-effort[data-running]:not(:hover, :focus-within, :has([data-highlighted]))
+  > .acpmux-quick-item .ui-menu-check {
+  display: inline-flex;
 }
-.acpmux-quick-effort-segment:has([data-selected]) {
-  color: var(--agent-text);
-  background: var(--acpmux-menu-hover);
-  font-weight: var(--weight-emphasis);
-}
-[data-effort-look="spaced"] .acpmux-quick-efforts {
-  border: 0;
-}
-[data-effort-look="spaced"] .acpmux-quick-efforts > [role="group"] {
-  gap: 4px;
-}
-[data-effort-look="spaced"] .acpmux-quick-effort-segment {
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-}
-[data-effort-look="underline"] .acpmux-quick-efforts {
-  border: 0;
-}
-[data-effort-look="underline"] .acpmux-quick-effort-segment:has([data-selected]) {
-  background: none;
-  box-shadow: inset 0 -2px var(--agent-text);
-}
-.acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-efforts) .acpmux-quick-rail { flex-basis: 28%; }
-.acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-efforts) .acpmux-quick-rail {
+.acpmux-quick-menu.acpmux-quick-placement-left:has(.acpmux-quick-model-effort) .acpmux-quick-rail { flex-basis: 28%; }
+.acpmux-quick-menu.acpmux-quick-placement-compact:has(.acpmux-quick-model-effort) .acpmux-quick-rail {
   flex-basis: 76px;
 }
+/* While a row shows its slider, its number key and check give way: the thumb marks the row, and the
+   trailing column stays the slider's. */
+.acpmux-quick-model-effort:is(:hover, :focus-within, :has([data-highlighted])) > .acpmux-quick-item .ui-menu-shortcut,
+.acpmux-quick-model-effort[data-running] > .acpmux-quick-item .ui-menu-shortcut {
+  display: none;
+}
+/* The level's name, once, before its track: right-aligned, so the track never moves. */
+.acpmux-quick-effort-level {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  white-space: nowrap;
+  text-align: end;
+}
+/* The `list` look: one Effort row under the models, the running model's. */
+.acpmux-quick-effort-row {
+  display: flex;
+  align-items: center;
+  height: var(--ui-row-height);
+  padding-inline-start: var(--ui-row-padding-inline);
+  color: var(--agent-text);
+}
+.acpmux-quick-effort-row > .acpmux-menu-label { flex: 1 1 auto; }
+.acpmux-quick-effort-row > .acpmux-quick-effort { display: inline-flex; }
+
+/* The compact track (EffortTrack `compact`, COMPACT_EFFORT_TRACK): 72px wide, a 12px thumb and 4px
+   stops whose left edges EffortTrack sets in whole pixels, so the thumb's centre is the stop's centre
+   at every level, ends included, and every edge is crisp at 1x and 2x. The track is a 24px control;
+   its centre line is 12px down, and the rail, the stops, the thumb (each inset the same from the top
+   and the bottom) and the level's name (align-items) all sit on it. No motion: it
+   moves under the pointer and the keyboard, many times a day. */
+.acpmux-effort-track[data-compact] {
+  position: relative;
+  display: block;
+  flex: none;
+  height: 24px;
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  animation: none;
+  direction: ltr;
+}
+.acpmux-effort-track[data-compact]::before {
+  content: "";
+  position: absolute;
+  inset: 10px 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-effort-track[data-compact] .acpmux-effort-fill {
+  position: absolute;
+  inset-block: 10px;
+  left: 0;
+  height: auto;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
+  transition: none;
+  will-change: auto;
+}
+.acpmux-effort-track[data-compact] .acpmux-effort-stop {
+  position: absolute;
+  inset-block: 10px;
+  width: 4px;
+  height: auto;
+  margin: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--agent-text) 35%, transparent);
+}
+.acpmux-effort-track[data-compact] .acpmux-effort-stop::after { content: none; }
+.acpmux-effort-track[data-compact] .acpmux-effort-stop[data-filled] {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 90%, transparent);
+}
+.acpmux-effort-track[data-compact] .acpmux-effort-thumb {
+  position: absolute;
+  inset-block: 6px;
+  width: 12px;
+  height: auto;
+  margin: 0;
+  box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 80%, var(--surface-popup));
+  border-radius: 50%;
+  background: var(--surface-popup);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 30%, transparent);
+  pointer-events: none;
+  transition: none;
+  will-change: auto;
+  transform: none;
+}
+/* The native range is the hit target, its own thumb the same 12px, so a pointer at a stop's centre
+   is that stop's value. */
+.acpmux-effort-track[data-compact] .acpmux-effort-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: none;
+  cursor: default;
+}
+.acpmux-effort-track[data-compact] .acpmux-effort-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+}
+.acpmux-effort-track[data-compact] .acpmux-effort-range::-moz-range-thumb {
+  width: 12px;
+  border: 0;
+}
+.acpmux-effort-track[data-compact]:has(.acpmux-effort-range:focus-visible) .acpmux-effort-thumb {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+  outline-offset: 1px;
+}
+
 .acpmux-quick-width-probe {
   display: inline-flex;
   flex-direction: column;
@@ -658,7 +740,6 @@
   min-height: var(--ui-row-height);
   padding-inline: var(--ui-row-padding-inline);
 }
-.acpmux-quick-width-probe-efforts {
-  display: inline-flex;
-  gap: var(--ds-space-1);
-}
+.acpmux-quick-width-probe .acpmux-quick-effort { display: inline-flex; height: auto; }
+/* The probe row's track: the name item's 16px check column, its gap, and the 72px track. */
+.acpmux-quick-width-probe-track { display: inline-block; width: calc(72px + 16px + var(--ds-space-2)); }

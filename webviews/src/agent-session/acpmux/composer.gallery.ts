@@ -65,14 +65,21 @@ async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
   return openEffortSubmenu(ctx);
 }
 
-/// With the model menu open, resolves with the current model's effort levels: the inline control in
-/// its row (#26521) when the row carries them, else the Effort submenu, opened (pressing the model
+/// The level the current model's effort control shows: the slider's named level, or the Effort
+/// submenu's checked row.
+const shownLevel = (levels: HTMLElement) =>
+  levels.matches(".acpmux-quick-effort")
+    ? levels.querySelector(".acpmux-quick-effort-level")?.textContent
+    : levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent;
+
+/// With the model menu open, resolves with the current model's effort levels: the slider in its row
+/// when the row carries one, else the Effort submenu, opened (pressing the model
 /// button again would close the menu).
 async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
   const inline = () =>
-    ctx.document
-      .querySelector<HTMLElement>('.acpmux-quick-menu .acpmux-quick-effort-segment[aria-checked="true"]')
-      ?.closest<HTMLElement>(".acpmux-quick-efforts") ?? undefined;
+    ctx.document.querySelector<HTMLElement>(
+      ".acpmux-quick-menu .acpmux-quick-model-effort[data-running] .acpmux-quick-effort",
+    ) ?? undefined;
   const row = () =>
     [...ctx.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitem"]')].find((item) =>
       item.textContent?.trim().startsWith("Effort"),
@@ -2089,12 +2096,12 @@ export default agentPaneEntry({
           throw new Error("Fast mode must be a checked row of the menu");
         // The menu is open: a second press on the model button would close it.
         const levels = await openEffortSubmenu(ctx);
-        // A submenu row names its level in its label; an inline segment in its aria-label ("Opus 5.5 · Low").
-        const names = [...levels.querySelectorAll('[role="menuitemradio"]')].map(
-          (node) =>
-            node.querySelector(".acpmux-menu-label")?.textContent?.trim() ??
-            node.getAttribute("aria-label")?.split(" · ").pop(),
-        );
+        // A submenu row names its level in its label; a slider stop in its data-name.
+        const names = levels.matches(".acpmux-quick-effort")
+          ? [...levels.querySelectorAll<HTMLElement>(".acpmux-effort-stop")].map((node) => node.dataset.name)
+          : [...levels.querySelectorAll('[role="menuitemradio"]')].map((node) =>
+              node.querySelector(".acpmux-menu-label")?.textContent?.trim(),
+            );
         // The fixture's Opus 5.5 offers Low, Medium, High and Max (no Extra High, so no Ultracode).
         const expected = ["Low", "Medium", "High", "Max"];
         if (names.join("|") !== expected.join("|")) throw new Error(`Effort lists ${names.join(", ")}`);
@@ -2120,9 +2127,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
         const levels = await openEffortMenu(ctx);
-        await ctx.waitFor(() =>
-          levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent?.includes("Medium"),
-        );
+        await ctx.waitFor(() => shownLevel(levels)?.includes("Medium"));
         if (levels.textContent?.includes("Ultrathink")) throw new Error("Effort lists Ultrathink");
       },
     },
@@ -2242,9 +2247,7 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         const levels = await openEffortMenu(ctx);
-        await ctx.waitFor(() =>
-          levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent?.includes("High"),
-        );
+        await ctx.waitFor(() => shownLevel(levels)?.includes("High"));
       },
     },
     "reasoning-none": {

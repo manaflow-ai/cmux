@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { effortSegments } from "./support/effortSlider";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -212,7 +213,7 @@ async function openEffort() {
   await settle();
   const opened = menus()[0]!;
   const current = opened.querySelector<HTMLElement>('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
-  const controls = current?.closest(".acpmux-quick-model-effort")?.querySelector<HTMLElement>(".acpmux-quick-efforts");
+  const controls = current?.closest(".acpmux-quick-model-effort")?.querySelector<HTMLElement>(".acpmux-quick-effort");
   if (controls) return controls;
   const row = effortRow();
   expect(row).toBeDefined();
@@ -222,20 +223,17 @@ async function openEffort() {
 }
 
 const checked = (popup: HTMLElement) => {
-  if (popup.matches(".acpmux-quick-efforts")) {
-    return [...popup.querySelectorAll<HTMLElement>('.acpmux-quick-effort-segment[aria-checked="true"]')].map((item) =>
-      (item.querySelector("[data-selected]")?.textContent ?? item.textContent ?? "").replace(/^✓/, "").trim(),
-    );
+  if (popup.matches(".acpmux-quick-effort")) {
+    return effortSegments(popup.parentElement)
+      .filter((item) => item.checked)
+      .map((item) => item.name);
   }
   return [...popup.querySelectorAll<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')].map(
     (item) => item.querySelector(".acpmux-menu-label")?.textContent,
   );
 };
 const shownEffort = (popup: HTMLElement) =>
-  (
-    popup.querySelector<HTMLElement>('.acpmux-quick-effort-segment[aria-checked="true"] [data-selected]')
-      ?.textContent ?? ""
-  )
+  ((popup.matches(".acpmux-quick-effort") ? popup.querySelector(".acpmux-quick-effort-level")?.textContent : "") ?? "")
     .replace(/^✓/, "")
     .trim() || popup.querySelector<HTMLElement>(".acpmux-quick-value")?.textContent;
 
@@ -254,17 +252,18 @@ test("its inline effort control names that level and checks it", async () => {
   const levels = await openEffort();
   expect(shownEffort(levels)).toBe("Medium");
   expect(checked(levels)).toEqual(["Medium"]);
-  // The check is the menus' own glyph, not a dot or a badge.
-  const medium = levels.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')!;
-  expect(medium.querySelector(".ui-menu-check")).not.toBeNull();
+  // The thumb is the mark: it rests on Medium's stop.
+  expect(levels.querySelector(".acpmux-effort-stop[data-at]")?.getAttribute("data-name")).toBe("Medium");
 });
 
 test("a level the chat picked wins over the model's default", async () => {
   const { sent } = await mount({ harness: "claude-sr2", family: "claude-sr2", effort: "default" });
   const levels = await openEffort();
-  const high = [...levels.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
-    (item) => item.textContent?.replace("✓", "").trim() === "High",
-  )!;
+  const high = levels.matches(".acpmux-quick-effort")
+    ? effortSegments(levels.parentElement).find((item) => item.name === "High")!
+    : [...levels.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+        (item) => item.textContent?.replace("✓", "").trim() === "High",
+      )!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual(["high"]);

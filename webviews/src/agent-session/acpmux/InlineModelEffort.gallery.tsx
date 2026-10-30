@@ -1,10 +1,14 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import React, { useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import type { QuickMenu } from "./QuickModelMenu";
 
 type Props = {
-  look?: QuickMenu["effortLook"];
+  /// Where the one effort slider sits: `hover` (shipped), `running` or `list`.
+  slider?: QuickMenu["effortSlider"];
+  /// The running model's level, for the every-level entries.
+  level?: string;
   chat?: boolean;
   placement?: QuickMenu["harnessPlacement"];
   /// Codex's eight models, each with up to six levels, as Leo's 2026-10-29 screenshot showed them.
@@ -32,6 +36,14 @@ const CODEX_MODELS = [
   ["daybreak-blue", "Daybreak Blue", 6],
 ] as const;
 
+const open: Play = async (ctx) => {
+  await ctx.click({ selector: "button[data-menu='model']" });
+};
+const hoverAstra: Play = async (ctx) => {
+  await open(ctx);
+  await ctx.hover({ role: "menuitemradio", name: /^GPT-6 Astra/ });
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.inline-model-effort",
   title: "Model and effort in one click",
@@ -39,15 +51,21 @@ export default componentEntry<Props>({
   height: 540,
   widths: { normal: 680, narrow: 380 },
   covers: ["agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu"],
-  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function InlineModelEffort({ look = "joined", chat = false, placement = "left", codex = false }: Props) {
+        function InlineModelEffort({
+          slider = "hover",
+          level,
+          chat = false,
+          placement = "left",
+          codex = false,
+        }: Props) {
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [open, setOpen] = useState(false);
           const [model, setModel] = useState(codex ? "gpt-6.1-sol" : "opus");
-          const [effort, setEffort] = useState(codex ? "xhigh" : "high");
+          const [effort, setEffort] = useState(level ?? (codex ? "xhigh" : "high"));
           const levels = codex ? CODEX_LEVELS : ["low", "medium", "high", "max"];
           const models = codex
             ? CODEX_MODELS.map(([id, name, count]) => ({
@@ -57,18 +75,18 @@ export default componentEntry<Props>({
                 efforts: CODEX_LEVELS.slice(0, count),
               }))
             : [
-            {
-              id: "opus",
-              name: "Opus 5.5",
-              family: "claude",
-              efforts: ["low", "medium", "high", "max"],
-            },
-            {
-              id: "sonnet",
-              name: "Sonnet 5.5",
-              family: "claude",
-              efforts: ["low", "medium", "high"],
-            },
+                {
+                  id: "opus",
+                  name: "Opus 5.5",
+                  family: "claude",
+                  efforts: ["low", "medium", "high", "max"],
+                },
+                {
+                  id: "sonnet",
+                  name: "Sonnet 5.5",
+                  family: "claude",
+                  efforts: ["low", "medium", "high"],
+                },
                 { id: "haiku", name: "Haiku 5.5", family: "claude", efforts: [] },
               ];
           return (
@@ -84,7 +102,7 @@ export default componentEntry<Props>({
                     models,
                     current: model,
                     onModel: setModel,
-                    effortLook: look,
+                    effortSlider: slider,
                     inlineEffort: true,
                     harnessPlacement: placement,
                     effort: {
@@ -116,50 +134,27 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
-    joined: {
-      props: {},
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-      },
-    },
-    spaced: {
-      props: { look: "spaced" },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-      },
-    },
-    underline: {
-      props: { look: "underline" },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-      },
-    },
-    chat: {
-      props: { chat: true },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-      },
-    },
-    // Leo 2026-10-29's screenshot: Codex's eight models. One row each; only the running row (and a
-    // hovered one) shows its levels, on its own line.
-    codex: {
-      props: { codex: true, chat: true },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-      },
-    },
-    "codex-hover": {
-      props: { codex: true, chat: true },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-        await ctx.hover({ role: "menuitemradio", name: /^GPT-6 Astra/ });
-      },
-    },
-    compact: {
-      props: { placement: "compact" },
-      play: async (ctx) => {
-        await ctx.click({ selector: "button[data-menu='model']" });
-      },
-    },
+    // The shipped look: one slider, on the hovered row or else the running row.
+    hover: { props: {}, play: open },
+    running: { props: { slider: "running" }, play: open },
+    list: { props: { slider: "list" }, play: open },
+    chat: { props: { chat: true }, play: open },
+    // Leo 2026-10-29's screenshot: Codex's nine models, one line each, one slider.
+    codex: { props: { codex: true }, play: open },
+    "codex-chat": { props: { codex: true, chat: true }, play: hoverAstra },
+    "codex-hover": { props: { codex: true }, play: hoverAstra },
+    "codex-running": { props: { codex: true, slider: "running" }, play: hoverAstra },
+    "codex-list": { props: { codex: true, slider: "list" }, play: open },
+    // The thumb at every level, ends included (Leo 2026-10-29: "the circle center wasn't on the
+    // selection scenter"): quick-model-menu-layout.test.ts measures each one.
+    ...Object.fromEntries(CODEX_LEVELS.map((id) => [`level-${id}`, { props: { codex: true, level: id }, play: open }])),
+    // Harness tabs across the top (Debug Settings harnessPlacement=top; Leo 2026-10-29: "didnt we
+    // already have a pretty good thign going on with the harnesses at the top?"), with the slider.
+    "codex-top": { props: { codex: true, placement: "top" }, play: open },
+    "codex-top-hover": { props: { codex: true, placement: "top" }, play: hoverAstra },
+    "codex-top-running": { props: { codex: true, placement: "top", slider: "running" }, play: hoverAstra },
+    "codex-top-list": { props: { codex: true, placement: "top", slider: "list" }, play: open },
+    "codex-compact": { props: { codex: true, placement: "compact" }, play: hoverAstra },
+    compact: { props: { placement: "compact" }, play: open },
   },
 });
