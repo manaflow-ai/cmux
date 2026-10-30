@@ -1129,6 +1129,14 @@ impl Hub {
         {
             tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
         }
+        #[cfg(test)]
+        {
+            let seam = self.finish_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
             let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
