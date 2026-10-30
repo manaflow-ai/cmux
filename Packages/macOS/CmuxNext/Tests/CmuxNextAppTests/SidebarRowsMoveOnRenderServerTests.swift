@@ -179,7 +179,7 @@ struct SidebarRowsMoveOnRenderServerTests {
     }
 
     /// Leo 2026-10-21: "when you create a workspace at the top it's a huge cascade". Under the default
-    /// `sidebar.insertMotion` (nudge) each row below a new row near the top travels at most the nudge, not a row height, and the
+    /// The nudge variant: each row below a new row near the top travels at most the nudge, not a row height, and the
     /// new row opens only its last nudge of height, on a spring that is at rest by 150 ms (`SidebarInsertMotionTests`).
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
@@ -187,6 +187,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aNewRowNearTheTopNudgesTheRowsBelowByAtMostTheNudge() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
 
@@ -246,6 +248,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func twoQuickNewRowsNeverMoveARowPastTheNudgeOrOverlap() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
 
@@ -297,6 +301,8 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
         let (model, list, _, restore) = try Self.sidebar(work(collapsed: true))
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let nudge = SidebarInsertMotion.nudgeDistance.value
         try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID("api"))] == nil, "the group did not start collapsed")
@@ -328,6 +334,8 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aNewRowWhoseOpenSettledMovesWithoutOpeningAgain() throws {
         let (model, list, _, restore) = try Self.sidebar(count: 30)
         defer { restore() }
+        let reset = Self.insertMotion(.nudge)
+        defer { reset() }
         try #require(SidebarInsertMotion.tunable.value == .nudge)
         let key = SidebarRowKey.workspace(try #require(Self.sections([0]).first?.workspaces.first?.id))
 
