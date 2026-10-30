@@ -36,6 +36,7 @@ git_q -C "$src" commit -m classic
 v1=$(key --version v1); v2=$(key --version v2)
 [[ "$(key)" == "$v2" ]] || fail "the default key is not v2"
 [[ "$v1" != "$v2" ]] || fail "v1 and v2 are equal although v1 hashes the classic gitlink"
+
 status=0; key --version v3 >/dev/null 2>&1 || status=$?
 [[ "$status" == 2 ]] || fail "an unknown key version did not exit 2 (exit $status)"
 

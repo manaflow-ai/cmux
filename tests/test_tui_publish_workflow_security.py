@@ -209,10 +209,14 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # default branch's workflow file, so a trigger here never ran.
     assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
-    # Every branch of this repository (forks never push here); tree-preflight
-    # is the filter: a push whose tree is published builds nothing.
+    # Every branch of this repository (forks never push here). Docs-only
+    # commits cannot publish a distinct runtime tree, so GitHub filters those
+    # pushes before tree-preflight; mixed commits still enter the workflow.
     assert push_trigger.get("branches") == ["**"]
-    assert "paths" not in push_trigger
+    assert push_trigger.get("paths-ignore") == ["cmux-tui/docs/**"]
+    retry = workflow_triggers(workflow("cmux-tui-artifacts-retry.yml"))
+    assert set(retry) == {"workflow_run"}
+    assert retry["workflow_run"]["workflows"] == ["cmux-tui artifacts"]
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
     assert "cmux_tui_tree_key.py" in preflight

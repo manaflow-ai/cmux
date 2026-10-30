@@ -23,6 +23,7 @@ V1_ONLY_INPUTS = frozenset({("gitlink", "ghostty")})
 # (2026-10-20). Every object read stays local and bounded.
 GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 GIT_TIMEOUT_SECONDS = 60
+DOCS_ONLY_PREFIX = "cmux-tui/docs/"
 
 
 def git(*args: str) -> str:
@@ -37,6 +38,20 @@ def git(*args: str) -> str:
     ).strip()
 
 
+def docs_only_parent(revision: str) -> str | None:
+    """Return the first parent when this revision only changes cmux-tui docs."""
+    try:
+        parents = git("rev-list", "--parents", "-n", "1", revision).split()[1:]
+        if len(parents) != 1:
+            return None
+        changed = git("diff-tree", "--first-parent", "--no-commit-id", "--name-only", "-r", revision, "--").splitlines()
+    except subprocess.CalledProcessError:
+        return None
+    if changed and all(path.startswith(DOCS_ONLY_PREFIX) for path in changed):
+        return parents[0]
+    return None
+
+
 def tree_key(revision: str, version: str = "v2") -> str:
     if version not in KEY_VERSIONS:
         raise RuntimeError(f"unknown cmux-tui tree key version {version!r}")
@@ -44,6 +59,10 @@ def tree_key(revision: str, version: str = "v2") -> str:
         git("cat-file", "-e", f"{revision}^{{commit}}")
     except subprocess.CalledProcessError:
         raise RuntimeError(f"{revision} is not a commit in this checkout; fetch it first") from None
+    if version == "v2":
+        parent = docs_only_parent(revision)
+        if parent is not None:
+            return tree_key(parent, version)
     entries: dict[tuple[str, ...], tuple[str, str, str]] = {}
     for raw in INPUTS.read_text(encoding="utf-8").splitlines():
         raw = raw.strip()

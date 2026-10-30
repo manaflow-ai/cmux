@@ -75,6 +75,12 @@ on:
   # published spends no macOS time (run_macos=false) and publishes nothing.
   push:
     branches: ["**"]
+    # The published binaries do not contain the prose under cmux-tui/docs.
+    # Keep the publisher asleep for docs-only commits; v2 tree-key computation
+    # excludes the same non-runtime subtree. A push that also changes code
+    # still runs.
+    paths-ignore:
+      - "cmux-tui/docs/**"
     # The branch itself is trusted. Run on every base-branch advance so a
     # Swift-only change can repair a missing cmux-tui tree publication before
     # downstream app jobs try to fetch it.
@@ -172,7 +178,9 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
-          fetch-depth: 1
+          # v2 key resolution maps docs-only commits to their published parent;
+          # retain that parent object in the preflight checkout.
+          fetch-depth: 2
 
       # The reads of the superseded check, the owner election and the
       # publisher lookups go out as the manaflow-glaeda-route App, on its
