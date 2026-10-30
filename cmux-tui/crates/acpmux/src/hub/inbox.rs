@@ -20,9 +20,9 @@
 //! ([`FirstWork`]), so of two that come at once only one is it; a refused one lets go. No notice
 //! goes ahead of it while it holds the chat (`inbox_review`); a person's prompt may, and its
 //! sender is the delegator still: its provenance says it is the first work ([`FIRST_WORK`]), in
-//! the queue too, so across a restart as well. Messages after it, and any to a chat that ran a
-//! turn, go to the inbox. A lane's brief came to it as a notice of its brief (2026-10-30), so the
-//! lane read a thread where it should have read its task.
+//! the queue too, so across a restart as well, where it also keeps notices behind it. Messages
+//! after it, and any to a chat that ran a turn, go to the inbox. A lane's brief came to it as a
+//! notice of its brief (2026-10-30), so the lane read a thread where it should have read its task.
 //!
 //! A review box (`review_box.rs`: the `*-review-box` harness `lane-place new --review` starts, or
 //! a session with a `review.` tag) has no inbox ([`review_box`]), and another agent's message
@@ -477,6 +477,13 @@ fn prompt_waits(session: &Session) -> bool {
     session.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| !q.held)
 }
 
+/// Whether a chat's first work waits in its queue ([`FIRST_WORK`] on its provenance), as one a
+/// person's prompt went ahead of does, and one a restart rebuilt with no hold of its own.
+fn first_work_waits(session: &Session) -> bool {
+    let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+    queue.iter().any(|q| !q.held && is_first_work(q.run.provenance.as_ref()))
+}
+
 /// Whether a notice may not steer into the running turn now: a prompt waits, or the turn is
 /// past its cap (`turns.rs` checks it again at dispatch).
 pub(super) fn notice_held(session: &Session) -> bool {
@@ -732,10 +739,11 @@ impl Hub {
                                 Next::Steer
                             }
                         }
-                        // A first work holds the chat and has no turn yet: no notice goes ahead
-                        // of it. Looked at again after the debounce, until its turn takes the
-                        // notice or its hold is let go.
-                        None if inbox.first.is_some() => {
+                        // A first work holds the chat, or waits in its queue (a restart rebuilds
+                        // it with no hold), and has no turn yet: no notice goes ahead of it.
+                        // Looked at again after the debounce, until its turn takes the notice,
+                        // its hold is let go, or it leaves the queue.
+                        None if inbox.first.is_some() || first_work_waits(session) => {
                             Next::WakeAt(now.saturating_add(WAKE_DEBOUNCE_MS))
                         }
                         None => {
