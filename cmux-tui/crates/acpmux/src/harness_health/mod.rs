@@ -407,8 +407,18 @@ impl HealthService {
     /// daemon's own, or the first caller's) instead of each running a full check.
     pub async fn first_check(&self, subjects: Vec<Subject>) -> Vec<HarnessHealth> {
         drop(self.checking.lock().await);
-        let rows = self.rows();
+        let rows = self.rows_for_subjects(&subjects);
         if rows.is_empty() { self.check(subjects, false).await } else { rows }
+    }
+
+    /// Cached observations with login commands from the current profiles. Never write
+    /// this projection back: a check may publish newer observations concurrently.
+    pub(crate) fn rows_for_subjects(&self, subjects: &[Subject]) -> Vec<HarnessHealth> {
+        let mut rows = self.rows();
+        if !self.fixed() {
+            rebind_cached_logins(&mut rows, subjects);
+        }
+        rows
     }
 
     /// Checks every subject on this machine, and asks each channel for its
@@ -479,6 +489,20 @@ impl HealthService {
         }
         self.replace_rows(rows.clone());
         rows
+    }
+}
+
+fn rebind_cached_logins(rows: &mut [HarnessHealth], subjects: &[Subject]) {
+    for row in rows {
+        let Some(subject) = subjects.iter().find(|subject| subject.id == row.id) else {
+            row.login = None;
+            continue;
+        };
+        row.login = crate::route_account::login_command(
+            subject.login.clone().or_else(|| builtin_login(&subject.family).map(str::to_owned)),
+            crate::route_account::home_var(&subject.family)
+                .and_then(|var| subject.env.get(var).map(|home| (var, Path::new(home.as_str())))),
+        );
     }
 }
 
@@ -576,7 +600,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 
 #[cfg(test)]
 mod tests {
-    use super::{Auth, auth_failure, codex_login_in_file};
+    use super::{Auth, Channel, HarnessHealth, HealthService, Subject, auth_failure, codex_login_in_file};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -644,6 +668,42 @@ mod tests {
             login(subject("gemini", "gemini", &[("CODEX_HOME", "/elsewhere")], None)),
             Some("gemini".into())
         );
+    }
+
+    #[tokio::test]
+    async fn first_check_rebinds_a_cached_login_to_the_current_profile_home() {
+        let service = HealthService::new();
+        service.replace_rows(vec![HarnessHealth {
+            id: "codex-sr".into(),
+            program: "codex".into(),
+            path: None,
+            channel: Channel::Standalone,
+            package: None,
+            version: None,
+            latest: None,
+            latest_checked_at: None,
+            outdated: false,
+            auth: Auth::SignedOut,
+            auth_detail: None,
+            login: Some("codex login".into()),
+            update: None,
+            problem: None,
+            checked_at: 1,
+            auto_update: false,
+            last_auto_update: None,
+        }]);
+        let subject = Subject {
+            id: "codex-sr".into(),
+            program: "codex".into(),
+            family: "codex".into(),
+            check: vec![],
+            env: BTreeMap::from([(String::from("CODEX_HOME"), String::from("/tmp/codex-sr"))]),
+            login: Some("codex login".into()),
+            unresolved: vec![],
+            probe_error: None,
+        };
+        let rows = service.first_check(vec![subject]).await;
+        assert_eq!(rows[0].login.as_deref(), Some("CODEX_HOME=/tmp/codex-sr codex login"));
     }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
