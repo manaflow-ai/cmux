@@ -67,6 +67,43 @@ import Testing
             #expect(list.focusedFold == nil)
             #expect(!SidebarGroupKeys(list: list).handle(try event(code: 36), flags: []))
             #expect(list.openShowMore.isEmpty)
+            // The fold coming back must not bring back its old focus or ring.
+            list.model.filterText = ""
+            list.reload(animated: false)
+            #expect(list.focusedFold == nil)
+            let back = try #require(list.rowViews[.showMore(Self.fold)])
+            #expect((back.layer?.borderWidth ?? 0) == 0)
+            #expect(!SidebarGroupKeys(list: list).handle(try event(code: 36), flags: []))
+            #expect(list.openShowMore.isEmpty)
+        }
+    }
+
+    @Test func clickingAnotherFoldMovesFocusAndItsRingAway() throws {
+        try withList { list in
+            try press(code: 125, in: list)
+            let showMore = try #require(list.rowViews[.showMore(Self.fold)])
+            #expect((showMore.layer?.borderWidth ?? 0) > 0)
+            try click(.doneFold(Self.fold), in: list)
+            #expect(list.openDoneFolds.contains(Self.fold))
+            #expect(list.focusedFold == .doneFold(Self.fold))
+            #expect((showMore.layer?.borderWidth ?? 0) == 0)
+            let done = try #require(list.rowViews[.doneFold(Self.fold)])
+            #expect((done.layer?.borderWidth ?? 0) == 0, "A click focuses without a ring")
+            try space(in: list)
+            #expect(list.openShowMore.isEmpty, "Space must not act on the fold the click left")
+            #expect(!list.openDoneFolds.contains(Self.fold))
+        }
+    }
+
+    private func click(_ key: SidebarRowKey, in list: SidebarListView) throws {
+        let row = try #require(list.displayed.row(for: key))
+        let frame = list.frame(for: row)
+        let at = list.convert(NSPoint(x: frame.midX, y: frame.midY), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: list.window?.windowNumber ?? 0, context: nil,
+                                                        eventNumber: 0, clickCount: 1, pressure: 1))
+            if type == .leftMouseDown { list.mouseDown(with: event) } else { list.mouseUp(with: event) }
         }
     }
 
