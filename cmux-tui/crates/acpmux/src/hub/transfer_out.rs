@@ -176,7 +176,20 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running")));
         }
-        self.append(session, "mux", "transfer_out", json!({"transferId": transfer_id}));
+        // The move is what withdraws the chat from this daemon's tabs (`transfer_authority.rs`):
+        // one that never reached the log does not begin.
+        let (_, logged) = self.append_at(
+            session,
+            "mux",
+            "transfer_out",
+            json!({"transferId": transfer_id}),
+            None,
+            None,
+        );
+        if !logged {
+            drop(guard);
+            return Err(unfreeze(transfer_error("store", "could not durably record transfer_out")));
+        }
         let dir = transfers_dir().join(&transfer_id);
         let made = self.export(session, &dir).and_then(|bundle| Ok(bundle_files(&bundle)?));
         drop(guard);
