@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextMobile
 @testable import CmuxNextMobileHost
@@ -44,7 +46,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = await Self.store(at: directory)
         let admission = PhoneAdmission(phones: store, disconnect: { _ in })
-        let questions = AsyncStream<CheckedContinuation<Bool, Never>>.makeStream()
+        let questions = AsyncStream<CheckedContinuation<PhoneAdmission.PromptResult, Never>>.makeStream()
         admission.ask = { _, _ in await withCheckedContinuation { questions.continuation.yield($0) } }
         // task-owner: this test owns and awaits its pending admission
         let first = Task { await admission.decide(Self.phone) }
@@ -55,7 +57,7 @@ import Testing
         // A second user cannot join the first user's outstanding question.
         store.select(userID: "one")
         await store.reload()
-        answer.resume(returning: true)
+        answer.resume(returning: .allow)
         #expect(await !first.value)
         #expect(!store.trusts(Self.phone))
     }
@@ -111,8 +113,10 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = await Self.store(at: directory)
         let admission = PhoneAdmission(phones: store, disconnect: { _ in })
-        let questions = AsyncStream<CheckedContinuation<Bool, Never>>.makeStream()
+        let questions = AsyncStream<CheckedContinuation<PhoneAdmission.PromptResult, Never>>.makeStream()
         var asks = 0
+        var quiet = 0
+        admission.quiet = { quiet += 1 }
         admission.ask = { _, _ in
             asks += 1
             return await withCheckedContinuation { questions.continuation.yield($0) }
@@ -131,12 +135,14 @@ import Testing
         third.phoneDeviceID = "third"
         #expect(await !admission.decide(third))
         #expect(asks == 2)
-        firstAnswer.resume(returning: true)
-        secondAnswer.resume(returning: false)
+        firstAnswer.resume(returning: .allow)
         #expect(await first.value)
+        #expect(quiet == 0)
+        secondAnswer.resume(returning: .deny)
         #expect(await repeated.value)
         #expect(await !second.value)
         #expect(asks == 2)
+        #expect(quiet == 1)
     }
 
     @Test func timeoutAndDismissalDoNotCreateDenialCooldown() async throws {
@@ -177,6 +183,14 @@ import Testing
         for _ in 0..<4 { await Task.yield() }
         let record = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == PhoneAdmission.dialogIdentifier })
         #expect(CmuxDialogCenter.shared.dismiss(record.id))
+        #expect(await task.value == .unavailable)
+    }
+
+    @Test func escapeIsUnavailableAndDoesNotCreateDenial() async throws {
+        let task = Task { await PhoneAdmission.askOnThisMac(Self.phone, user: "demo", timeout: .seconds(2)) }
+        for _ in 0..<4 { await Task.yield() }
+        let record = try #require(CmuxDialogCenter.shared.records.last { $0.spec.identifier == PhoneAdmission.dialogIdentifier })
+        #expect(CmuxDialogCenter.shared.key(.escape, in: record.id))
         #expect(await task.value == .unavailable)
     }
 

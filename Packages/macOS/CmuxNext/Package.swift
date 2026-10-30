@@ -1784,7 +1784,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

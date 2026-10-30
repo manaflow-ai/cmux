@@ -97,8 +97,12 @@ public final class CmuxDialogCenter {
     /// dialog or button.
     @discardableResult
     public func press(_ id: Int, button: String) -> Bool {
+        press(id, button: button, isDismissal: false)
+    }
+
+    private func press(_ id: Int, button: String, isDismissal: Bool) -> Bool {
         guard let entry = entries[id], let pressed = entry.spec.buttons.first(where: { $0.id == button }) else { return false }
-        finish(id, CmuxDialogAnswer(button: pressed.id, role: pressed.role, values: values(of: entry)))
+        finish(id, CmuxDialogAnswer(button: pressed.id, role: pressed.role, values: values(of: entry), isDismissal: isDismissal))
         return true
     }
 
@@ -194,6 +198,9 @@ public final class CmuxDialogCenter {
         }
         let view = CmuxDialogView(spec: entry.spec)
         view.onPress = { [weak self] button in self?.press(id, button: button) }
+        view.onKeyPress = { [weak self] button, key in
+            self?.press(id, button: button, isDismissal: key == .escape || key == .character("."))
+        }
         entries[id]?.view = view
         host.show(view, in: scope) { [weak self] in self?.dismiss(id) }
     }

@@ -129,6 +129,31 @@ struct PhoneAdmissionStoreTests {
         #expect(!restored.trusts(Self.phone))
     }
 
+    @Test func inFlightSaveCannotUndoRemoval() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostPairedStore(seal: MobileHostMemoryPairingSeal())
+        store.select(userID: "one")
+        await store.attach(directory: directory)
+        try await store.change(for: "one") { $0.approve(Self.phone, at: Date()) }
+        let entered = AsyncStream<Void>.makeStream()
+        let saving = Task {
+            try await store.change(for: "one") { list in
+                entered.continuation.yield(())
+                Thread.sleep(forTimeInterval: 0.05)
+                var other = Self.phone
+                other.phoneDeviceID = "other"
+                list.approve(other, at: Date())
+            }
+        }
+        var enteredEvents = entered.stream.makeAsyncIterator()
+        _ = try #require(await enteredEvents.next())
+        store.forget(id: Self.phone.phoneDeviceID, transport: .iroh)
+        try await saving.value
+        await store.reload()
+        #expect(!store.trusts(Self.phone))
+    }
+
     @Test func aValidUnsealedJsonFileIsNotTrustedAfterRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

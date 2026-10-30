@@ -138,23 +138,31 @@ public final class MobileHostPairedStore: Sendable {
                     continuation.resume(throwing: CocoaError(.userCancelled)); return
                 }
                 MobileHostPairedDevicesFile.enqueue { [self] in
-                    guard var next = self.state.withLock({ state in
+                    guard let current = self.state.withLock({ state in
                         state.generation == selected ? state.list : nil
                     }) else { continuation.resume(throwing: CocoaError(.userCancelled)); return }
+                    var next = current
                     edit(&next)
                     do {
-                        try file.save(next)
                         let completed = self.state.withLock { state -> [Removal: UUID] in
                             guard state.generation == selected, state.userID == user else { return [:] }
                             var completed: [Removal: UUID] = [:]
-                            for (removal, marker) in state.removals where next.devices.contains(where: {
-                                $0.id == removal.id && $0.transport == removal.transport
-                            }) {
-                                completed[removal] = marker
+                            for (removal, marker) in state.removals {
+                                let before = current.devices.first { $0.id == removal.id && $0.transport == removal.transport }
+                                let after = next.devices.first { $0.id == removal.id && $0.transport == removal.transport }
+                                if before != after { completed[removal] = marker }
                             }
                             return completed
                         }
-                        publish(next, generation: selected, completed: completed)
+                        var persisted = next
+                        let markers = self.state.withLock { state in
+                            state.generation == selected ? state.removals : [:]
+                        }
+                        for removal in markers.keys where completed[removal] == nil {
+                            persisted.remove(removal.id, transport: removal.transport)
+                        }
+                        try file.save(persisted)
+                        publish(persisted, generation: selected, completed: completed)
                         guard self.generation == selected else { throw CocoaError(.userCancelled) }
                         continuation.resume()
                     } catch { continuation.resume(throwing: error) }

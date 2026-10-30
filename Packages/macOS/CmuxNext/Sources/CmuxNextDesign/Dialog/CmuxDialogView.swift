@@ -12,6 +12,7 @@ public final class CmuxDialogView: NSView {
     public let spec: CmuxDialogSpec
     /// Called once per press with the button id; the center ends the dialog.
     var onPress: ((String) -> Void)?
+    var onKeyPress: ((String, CmuxDialogKeys.Key) -> Void)?
     private(set) var buttonViews: [CmuxDialogButtonView] = []
     private var inputs: [String: NSControl] = [:]
     /// Text fields, choices, check boxes, then buttons: the focus order.
@@ -75,7 +76,10 @@ public final class CmuxDialogView: NSView {
     public func handle(_ key: CmuxDialogKeys.Key, modifiers: CmuxDialogKeys.Modifiers) -> Bool {
         guard let action = CmuxDialogKeys.action(for: key, modifiers: modifiers, in: spec) else { return false }
         switch action {
-        case .press(let id): press(id)
+        case .press(let id):
+            if key == .escape || (key == .character(".") && modifiers.contains(.command)) {
+                onKeyPress?(id, key)
+            } else { press(id) }
         case .focusNext: moveFocus(backward: false)
         case .focusPrevious: moveFocus(backward: true)
         }

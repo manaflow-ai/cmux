@@ -59,7 +59,6 @@ final class PhoneAdmission {
             // task-owner: one question and save per endpoint, shared by concurrent connections
             question = (UUID(), selected, Task { [self] in
                 let answer = await ask(phone, accountName().isEmpty ? user : accountName())
-                if questions.count == 1 { quiet() }
                 guard !Task.isCancelled, phones.generation == selected, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
@@ -74,7 +73,10 @@ final class PhoneAdmission {
             questions[phone.phoneDeviceID] = question
         }
         let allowed = await question.task.value
-        if questions[phone.phoneDeviceID]?.id == question.id { questions[phone.phoneDeviceID] = nil }
+        if questions[phone.phoneDeviceID]?.id == question.id {
+            questions[phone.phoneDeviceID] = nil
+            if questions.isEmpty { quiet() }
+        }
         return allowed && phones.generation == selected && phones.trusts(phone)
     }
 
