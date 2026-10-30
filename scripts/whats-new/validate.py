@@ -88,6 +88,14 @@ def sentence_end_count(text):
             continue
         if is_abbreviation_period(text, index):
             continue
+        following = text[index + 1:]
+        after_closers = following.lstrip(")'\"”’»")
+        if after_closers != following and after_closers.strip():
+            # Inline quoted punctuation (a “cmux Updated!” card) does not
+            # end the enclosing sentence. Allow another quoted sentence.
+            next_sentence = after_closers.lstrip().lstrip("('\"“‘«")
+            if not next_sentence or not next_sentence[0].isupper():
+                continue
         count += 1
     return count
 

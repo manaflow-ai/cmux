@@ -113,6 +113,24 @@ class ValidateTests(unittest.TestCase):
                 self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document),
                                     "more than 2 sentences")
 
+    def test_inline_quoted_punctuation_does_not_split_a_highlight(self):
+        text = ("After every update, on every channel, the sidebar shows a “cmux Updated!” card once. "
+                "See What's New opens the notes for exactly the releases the update brought.")
+        document = nightly_document()
+        document["entries"][0]["summary"]["en"] = text
+        self.assertEqual(validate.sentence_end_count(text), 2)
+        self.assertEqual(validate.validate_document("1.0.0-nightly.42.json", document), [])
+
+    def test_closing_quotes_still_count_actual_sentence_boundaries(self):
+        for text in ("“One.” “Two.” “Three.”", "'One.' 'Two.' 'Three.'",
+                     "(One.) Two. Three.", "Choose “One!” Then continue. Finish here."):
+            with self.subTest(text=text):
+                self.assertEqual(validate.sentence_end_count(text), 3)
+                document = nightly_document()
+                document["entries"][0]["summary"]["en"] = text
+                self.assertMentions(validate.validate_document("1.0.0-nightly.42.json", document),
+                                    "more than 2 sentences")
+
     def test_length_limits(self):
         document = nightly_document()
         document["entries"][0]["title"]["en"] = "x" * 61
