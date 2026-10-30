@@ -51,8 +51,14 @@ struct AcpmuxRecords {
                 guard let id = image["id"]?.stringValue, !id.isEmpty else { return nil }
                 return .recordedImage(id: id, name: image["name"]?.stringValue, index: index)
             }
-            return [.userMessage(text: msg["text"]?.stringValue ?? "", promptId: msg["promptId"]?.stringValue ?? turnID,
-                                 turnId: turnID, attachments: images, at: at)]
+            var events: [AgentSessionEvent] = []
+            if let retry = msg["_meta"]?["provenance"], retry["kind"]?.stringValue == "auto_resume",
+               let previous = retry["turnId"]?.stringValue, previous != turnID {
+                events.append(.turnRetried(previousTurnID: previous, turnID: turnID))
+            }
+            events.append(.userMessage(text: msg["text"]?.stringValue ?? "", promptId: msg["promptId"]?.stringValue ?? turnID,
+                                 turnId: turnID, attachments: images, at: at))
+            return events
         case "queued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
             return [.queued(text: msg["text"]?.stringValue ?? "", promptId: promptID, position: Int(msg["position"]?.numberValue ?? 0))]

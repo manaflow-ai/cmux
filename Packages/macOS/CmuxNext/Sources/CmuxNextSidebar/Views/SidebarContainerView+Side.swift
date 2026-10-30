@@ -14,7 +14,7 @@ extension SidebarContainerView {
 
     /// How far past the container's content-side edge the sidebar shows: the outer half of the
     /// border line when it shows at rest (the resize handle centers it on the edge), else 0.
-    /// Hover cards beside a row stand one device pixel past this (`sidebarColumnOnScreen`).
+    /// Hover cards beside a row touch this edge (`sidebarColumnOnScreen`).
     var visibleEdgeOutset: CGFloat {
         guard !handle.isHiddenOrHasHiddenAncestor, handle.restingLineWidth > 0 else { return 0 }
         return handle.lineWidth / 2
