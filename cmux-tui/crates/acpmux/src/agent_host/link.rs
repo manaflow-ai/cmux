@@ -25,32 +25,18 @@ impl HostLauncher {
     }
 }
 
-/// Start a host for `spec` and return its record once the harness runs: a
-/// start a person waits for ([`StartPriority::Interactive`]).
-pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
-    spawn_as(launcher, spec, StartPriority::Interactive, &|_| {}).await
-}
-
-/// [`spawn`] at `priority`, admitted by the daemon's start gate
-/// ([`StartGate::global`]): a start beyond its cap waits for a slot and
-/// reports its place to `on_queued` once.
+/// Start a host for `spec` and return its record once the harness runs.
 ///
 /// The start has no time budget (P-AUSTIN B10). It ends on a signal from the
 /// host: its answer on the bootstrap pipe, or the pipe's end, which only the
 /// host's exit closes before it answers; or when the caller drops it, which
-/// ends the host (it is still this process's child) and frees its slot. A
-/// busy Mac makes a host slow, never wrong, so time alone never ends it; a
-/// caller with a deadline of its own (`agent_start`) drops the start.
+/// ends the host (it is still this process's child). A busy Mac makes a host
+/// slow, never wrong, so time alone never ends it; a caller with a deadline
+/// of its own (`agent_start`, the pool's `START_BUDGET`) drops the start.
 #[cfg(unix)]
-pub async fn spawn_as(
-    launcher: &HostLauncher,
-    spec: &SpawnSpec,
-    priority: StartPriority,
-    on_queued: &(dyn Fn(Queued) + Send + Sync),
-) -> Result<HostRecord> {
+pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
     // The build-session kill switch: no host and no harness (cx-9ettq).
     crate::launch_policy::refuse_if_disabled()?;
-    let _slot = StartGate::global().admit(priority, on_queued).await;
     let mut cmd = tokio::process::Command::new(&launcher.exe);
     cmd.args(&launcher.prefix)
         .arg(HOST_ARG)
@@ -130,12 +116,7 @@ pub async fn spawn_as(
 /// Windows port: agent hosts start through CreateProcess there (a later
 /// landing).
 #[cfg(not(unix))]
-pub async fn spawn_as(
-    _launcher: &HostLauncher,
-    _spec: &SpawnSpec,
-    _priority: StartPriority,
-    _on_queued: &(dyn Fn(Queued) + Send + Sync),
-) -> Result<HostRecord> {
+pub async fn spawn(_launcher: &HostLauncher, _spec: &SpawnSpec) -> Result<HostRecord> {
     Err(crate::platform::unsupported("agent hosts"))
 }
 
@@ -171,9 +152,10 @@ impl Bootstrapping {
 
     /// The host closed its pipe without an answer: its exit status, once it
     /// is reaped (it closes the pipe only by exiting).
+    /// The guard keeps the host while it waits, so a caller drop meanwhile
+    /// still ends it.
     async fn exited(mut self) -> Option<std::process::ExitStatus> {
-        let mut child = self.child.take()?;
-        child.wait().await.ok()
+        self.child.as_mut()?.wait().await.ok()
     }
 
     /// The host answered: it is no longer ended with this start.

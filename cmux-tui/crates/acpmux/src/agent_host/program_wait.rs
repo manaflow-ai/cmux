@@ -27,27 +27,15 @@ pub async fn spawn_within(
     spec: &SpawnSpec,
     budget: Duration,
 ) -> Result<HostRecord> {
-    spawn_as(launcher, spec, budget, StartPriority::Interactive, &|_| {}).await
-}
-
-/// [`link::spawn_as`] (a start at `priority`, admitted by the daemon's start
-/// gate), waiting up to `budget` for a harness binary that is being replaced.
-pub async fn spawn_as(
-    launcher: &link::HostLauncher,
-    spec: &SpawnSpec,
-    budget: Duration,
-    priority: StartPriority,
-    on_queued: &(dyn Fn(Queued) + Send + Sync),
-) -> Result<HostRecord> {
     // A refused launch is refused now, not after the wait.
     crate::launch_policy::refuse_if_disabled()?;
     wait_for_program(&spec.program, budget).await?;
-    match link::spawn_as(launcher, spec, priority, on_queued).await {
+    match link::spawn(launcher, spec).await {
         // Gone again between the check and the host's spawn: the same
         // update is still writing it.
         Err(_) if missing(&spec.program) => {
             wait_for_program(&spec.program, budget).await?;
-            link::spawn_as(launcher, spec, priority, on_queued).await
+            link::spawn(launcher, spec).await
         }
         started => started,
     }

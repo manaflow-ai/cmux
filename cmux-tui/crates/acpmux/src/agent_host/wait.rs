@@ -1,8 +1,8 @@
 //! Bounded waits on agent hosts. A wait on a running host's answer has a
 //! deadline (injected by tests through the `_within` variants) and fails
 //! with [`HostTimeout`]. A host's start has none: it ends on the host's
-//! answer or its exit (`link::spawn_as`, P-AUSTIN B10). A host's death is watched by at most one blocking thread
-//! per incarnation ([`wait_dead_within`]): repeated bounded waits on a host
+//! answer or its exit (`link::spawn`, P-AUSTIN B10). A host's death is
+//! watched by at most one blocking thread per incarnation ([`wait_dead_within`]): repeated bounded waits on a host
 //! that does not die share that thread instead of leaving one each.
 
 use super::*;
