@@ -66,10 +66,14 @@ const root = createRoot(host);
 type Row = Parameters<typeof UserBubble>[0]["row"];
 const prompt = (id: string, text: string, inlineParts: unknown[]): Row =>
   ({ id, version: 1, at: Date.now(), kind: "user", text, inlineParts }) as Row;
-const render = async (row: Row, reveal?: React.ContextType<typeof FindReveal>) => {
+const render = async (
+  row: Row,
+  reveal?: React.ContextType<typeof FindReveal>,
+  promptImage: (id: string) => Promise<string | undefined> = async () => "data:image/png;base64,AA==",
+) => {
   await act(async () => {
     root.render(
-      <TurnActionsContext.Provider value={{ promptImage: async () => "data:image/png;base64,AA==" }}>
+      <TurnActionsContext.Provider value={{ promptImage }}>
         <ImageViewerContext.Provider value={() => {}}>
           <FindReveal.Provider value={reveal}>
             <UserBubble row={row} text={row.text ?? ""} />
@@ -323,6 +327,25 @@ try {
     expect(
       [...host.querySelectorAll("[data-inline-attachment-strip] img")].map((img) => img.getAttribute("alt")),
     ).toEqual(["strip-shot.png"]);
+  });
+
+  test("inline: a placed image draws from its own bytes before acpmux knows it", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    const src = "data:image/png;base64,iVBORw0KGgo=";
+    // This pane's own row, before the echo: the composer's id, which acpmux cannot read yet.
+    await render(
+      prompt("placed-local", "look here", [
+        { kind: "text", text: "look" },
+        { kind: "image", id: "composer-shot", mimeType: "image/png", name: "local.png", src, placed: true },
+        { kind: "text", text: "here" },
+      ]),
+      undefined,
+      async () => undefined,
+    );
+    expect(inlineShape()).toEqual(["look", "image:local.png", "here"]);
+    expect(host.querySelector("[data-inline-content] img")?.getAttribute("src")).toBe(src);
   });
 
   // A placed prompt that is a text file alone, with nothing typed: its body went as a text block,
