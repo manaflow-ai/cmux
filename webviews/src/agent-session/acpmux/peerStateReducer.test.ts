@@ -95,3 +95,16 @@ test("a new connection has no inherited capability while initialize is pending",
   expect(events.supported).toBe(false);
   expect([...events.entries()]).toEqual([]);
 });
+
+test("a snapshot keeps a restarting peer marked restarting and not connected", () => {
+  // `_acpmux/peers` says `restarting` (acpmux peer_link.rs `PeerState::as_str`) while the daemon on
+  // the other end restarts; dropping the row would leave the picker no state and read it as ready.
+  const events = fixture();
+  events.changed(note("connected"));
+  const since = events.revision;
+  const read = events.readStarted();
+  expect(events.snapshot({ peers: [{ name: "studio-mac", state: "restarting", lastSeen: 7 }] }, since, read)).toBe(
+    true,
+  );
+  expect(peer(events)).toMatchObject({ state: "restarting", connected: false, lastSeen: 7 });
+});

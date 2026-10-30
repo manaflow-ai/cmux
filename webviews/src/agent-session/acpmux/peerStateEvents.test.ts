@@ -149,6 +149,32 @@ test("a lag notice reads the peer snapshot again, so a dropped disconnect is not
   }
 });
 
+test("a restarting peer in the snapshot stays restarting, so the picker never offers it as ready", async () => {
+  const { environmentReady, knownMachines } = await import("./environments");
+  const f = await fixture("local");
+  try {
+    f.notify(note("connected"));
+    f.peers([{ name: "studio-mac", state: "restarting", lastSeen: 5, error: null }]);
+    const restarting = f.waitForState("restarting");
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: 1 } }),
+    });
+    await restarting;
+    const latest = f.latest();
+    expect(latest.peerConnected?.["studio-mac"]).toBe(false);
+    const peers = {
+      kinds: { "studio-mac": "ssh" as const },
+      connected: latest.peerConnected,
+      states: latest.peerStates,
+    };
+    const [machine] = knownMachines(["studio-mac"], [], peers.kinds, [], peers.connected, peers.states);
+    expect(machine).toMatchObject({ state: "restarting", connected: false });
+    expect(environmentReady(machine!)).toBe(false);
+  } finally {
+    f.client.close();
+  }
+});
+
 for (const [origin, supported] of [
   ["peer", true],
   ["remote", true],
