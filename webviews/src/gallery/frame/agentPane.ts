@@ -39,6 +39,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     cmuxAcpmuxMockHarnessHealth: state.mockHarnessHealth,
     cmuxAcpmuxMockNative: state.native,
     cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
+    cmuxAcpmuxMockCapabilities: state.mockCapabilities,
   });
   const snapshot = structuredClone(state.snapshot);
   const processList = state.native?.["_acpmux/process/list"];

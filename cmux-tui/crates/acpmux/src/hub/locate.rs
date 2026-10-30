@@ -41,7 +41,7 @@ impl Hub {
                 return Err(RpcError::not_found(self.unfound(query, None, shown)));
             }
             let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
-            return Ok(json!({"session": matches[0], "matches": matches, "link": null}));
+            return Ok(json!({"session": matches.first(), "matches": matches, "link": null}));
         }
         let (link, found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
@@ -58,7 +58,7 @@ impl Hub {
         }
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
-            "session": matches[0],
+            "session": matches.first(),
             "matches": matches,
             "link": link.map(|l| json!({
                 "harness": l.harness,
@@ -68,6 +68,27 @@ impl Hub {
                 "message": l.message,
             })),
         }))
+    }
+
+    /// Read one exact mux session id without rebuilding the complete session list.
+    /// This is an opt-in operation for native callers that already have the id;
+    /// the normal resolver above keeps its name, prefix and link semantics.
+    pub fn locate_exact(&self, query: &str, names_hosts: bool) -> Result<Value, RpcError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(RpcError::invalid_params("sessionId is required"));
+        }
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
+        let summary = self
+            .session_summaries_of(&[query.to_owned()])
+            .remove(query)
+            .ok_or_else(|| RpcError::not_found(self.unfound(query, None, shown)))?;
+        // `card` derives the display host from the cached row's peer marker.
+        // Session summaries do not carry a host field, so do not overwrite
+        // that derived locality with a missing value.
+        let session = card(&summary, None);
+        Ok(json!({"session": session}))
     }
 
     /// Where `locate` looked, for its not-found error: this machine and its peers by name, which

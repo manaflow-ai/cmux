@@ -33,6 +33,50 @@ PATH containing acpmux and the installed harness. `host doctor` checks
 `target/release` is not enough for that check. For SSH peering, harness login
 and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
+## Labs: static userspace WireGuard
+
+`transport.wireguard` defaults to false. When enabled, acpmux carries its peer
+WebSocket streams over one userspace WireGuard UDP socket, using boringtun and
+smoltcp. It needs no root access, TUN device or system routes. The existing
+listener token, peer token, and permission rules still apply; a WireGuard key
+alone does not grant access to sessions or app-only operations.
+
+Configure each side in its private `config.json`, with different node keys and
+virtual addresses. The endpoint is the other machine's UDP address; `address`
+is its virtual service address, used only inside acpmux:
+
+```json
+{
+  "transport": {
+    "wireguard": true,
+    "wireguardStatic": {"listen": "0.0.0.0:51820", "address": "10.77.0.1:4100"}
+  },
+  "peers": {
+    "workstation": {
+      "url": "ssh://workstation",
+      "token": "<existing remote listener token>",
+      "peerToken": "<existing remote peer token>",
+      "wireguard": {
+        "publicKey": "<remote standard padded base64 public key>",
+        "endpoint": "203.0.113.2:51820",
+        "address": "10.77.0.2:4100"
+      }
+    }
+  }
+}
+```
+
+The key helper owns `~/.acpmux/node.wg.key`; status reports only `node.wgPublicKey`.
+Provision application credentials through the existing authorized path. The peer
+token changes when its daemon starts. Direct WireGuard is tried before the saved
+peer URL when a listener credential is configured; that URL remains the fallback.
+
+This first Labs version reads the Labs flag, interface and peer routes at daemon
+startup. Changes, including disabling the transport or removing an allowed key,
+require a daemon restart. Its WebSocket listener must bind loopback or a
+wildcard address, and each endpoint must resolve to the UDP listener's address
+family. Discovery, hole punching and relays are separate components.
+
 ## Quick start
 
 ```sh
@@ -126,12 +170,13 @@ raw.
 
 ### Remote ergonomics
 
-Use a non-interactive SSH probe before saving a peer. If the first attempt is
-offline, `acpmux host add` saves the peer, exits 0, and prints a warning to
-stderr. With `--json`, the response instead includes a `warning` object with
-`reason: "peer_unreachable"`, the exact `ssh -o BatchMode=yes HOST true` probe
-in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
-For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
+`acpmux host add` saves the peer and returns while connectivity is probed in
+the background. A pending probe is reported on stderr. With `--json`, the
+response instead includes a `warning` object with `reason: "peer_probing"`,
+the exact `ssh -o BatchMode=yes HOST true` probe in `try`, and
+`detail: "the peer was saved and is probing in the background"`.
+For WebSocket URLs, `try` is `acpmux host ls`. Check `acpmux host ls` for the
+connection result. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
 `peer_version_skew` with `acpmux host update NAME`; status adds the peer's
@@ -158,7 +203,7 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. An agent's send steers by default even when it waits for the reply, and then prints the reply of the turn it went into; the person's waiting send queues unless given `--steer`, and `--no-steer` queues any send. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. `--class block\|question\|result\|fyi` says what an agent's message asks of the receiver (a block: you cannot go on until it acts; a question: you wait for its answer; a result: work you finished, the default; an FYI): it is kept on the queued message and shown in its queue row as `class`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it. Any size and number: small files ride in the message, and the rest are uploaded to the session first, in chunks, and named by reference (an image too large to show inline reaches the agent by its path). |
 | `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
@@ -193,6 +238,29 @@ session with the same name, and list qualified IDs to select from. Once resolved
 keeps the owning peer and session ID even if another host has a copy of that session.
 The target daemon decides which start policy and controls the caller may use; a peer link
 does not grant app-only permissions.
+
+With the mesh relay configured, lifecycle commands can reach hosts without a peer link:
+
+```sh
+acpmux session start review --host worker -m codex --policy ask --cwd /workspace
+acpmux session resume worker/review --mesh
+acpmux session stop SESSION_ID --mesh --id
+acpmux session receipt MESSAGE_ID
+```
+
+These commands print a queued receipt; only a `delivered` receipt means the target finished
+the operation. `receipt` reads once. Reuse the printed `--idempotency-key` after an uncertain
+enqueue. Mesh names must match uniquely; UUIDs are treated as stable session IDs, and `--id`
+selects any other exact ID. Stop preserves the stored session; resume releases held prompts.
+The local daemon sends through its configured relay client and keeps its token out of the CLI.
+Remote connections cannot borrow this daemon's identity to enqueue controls.
+
+Control reception is off unless the target machine's owner adds a hub-stamped sender daemon
+ID to `meshRelay.controlFrom` in its own `config.json`, for example
+`[{"daemonId":"inst_example","ops":["start","resume","stop"]}]`. Omitting `ops` allows those
+three operations; an empty list allows none. Claimed names, hosts and session IDs confer no
+authority. An allowed sender still follows the target daemon's existing peer and start-policy
+rules, including app-only permission checks.
 
 ## Orchestrating agents from scripts
 
@@ -234,6 +302,7 @@ acpmux pending                                                # every pending pe
 acpmux session deny NAME                                      # an allow is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
 acpmux session limits NAME [--max N | --clear]                 # sub-sessions running at once (more wait), running and queued now
+acpmux session turn-cap NAME [--minutes N | --off | --clear]  # past it, other agents' messages wait for the next turn
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
@@ -925,8 +994,10 @@ the workspace may move focus. Add
 `--name demo --reuse` when rerunning should reuse the same
 session and row; an unnamed launch creates a new session each time. The
 invoking Mac needs `cmux` on PATH and the app must use the daemon that mirrors
-HOST. A failed sidebar open warns without stopping the agent; retry the
-printed `cmux agent open` command. Wrappers executing acpmux on HOST should
+HOST. A failed sidebar open returns a nonzero error after creating the session and
+preserving its first prompt; the error prints the exact `cmux agent open`
+command to retry. If the app's bundled CLI is stale or not executable, acpmux
+falls back to `cmux` on PATH. Wrappers executing acpmux on HOST should
 omit `--group` remotely and open the returned ID on the controller Mac after
 creation. See [remote agents](../../../docs/remote-agents-and-cloud.md) for
 native tab commands and connection diagnostics.
@@ -1271,6 +1342,7 @@ Extensions:
 | `_acpmux/attachment {sessionId, id}` | An image a prompt of the session sent, as `{mimeType, data}` (base64). `user_message` names a prompt's images as `images: [{id, mimeType, name?}]`; the bytes are kept once by SHA-256 under `<ACPMUX_HOME>/attachments`. Only an id the session's own log names is read. |
 | `_acpmux/info`, `_acpmux/rename`, `_acpmux/kill {purge}`, `_acpmux/set_policy` | Session control. |
 | `_acpmux/queue_remove {promptId}` | Withdraw a queued prompt before its turn starts: `removed` is false once it started. Its `session/prompt` answers `cancelled` with `_meta.acpmux.withdrawn`, and the log records `queue_removed`. |
+| `_acpmux/queue_text {promptId}` | One queued prompt read whole: `{promptId, turnId, text, prompt, fromAgent, fromSessionId, fromHarness}`. The queue list carries a 200-character `prompt` preview per row; this reads one on demand. A read for whoever may read the log; `queue.not_found` once it left the queue. Capability `queue-text-v1`. |
 | `_acpmux/permission_respond {sessionId, permissionId, optionId}` | Answer a request announced by `_acpmux/permission_pending`. Any client may deny or cancel; only the cmux app's connection (it presents the app's per-launch person key) may allow. Others get `permission.person_required` ("approve this on the Mac app") and the request stays pending. The same rule guards every grant that widens what runs without asking (policy, rules, modes, defaults). |
 | `_acpmux/export {sessionId, dest}`, `_acpmux/import {path, name}` | Bundles. |
 | `_acpmux/file_put {sessionId, fileName, data}` | Save a file the person dropped into the chat (base64, at most 10 MiB) on the machine that runs it, owner-only under `<ACPMUX_HOME>/uploads/<sessionId>/<random>/<fileName>`, and answer `{path}`. A peer's chat is forwarded there (only to a peer whose `initialize` features list `filePut`; else `Method not found`, `data.reason: "filePut.unsupported"`). Not from a Web connection (`filePut.remote`). Nothing deletes uploads yet. |

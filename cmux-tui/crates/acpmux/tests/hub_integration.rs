@@ -27,6 +27,8 @@ mod agent_digest;
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/carried_turns.rs"]
+mod carried_turns;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
@@ -45,6 +47,8 @@ mod permission_display;
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
 mod presence;
+#[path = "hub_integration/prompt_class.rs"]
+mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
@@ -1582,6 +1586,8 @@ mod preset_args;
 mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/failover_unstartable.rs"]
+mod failover_unstartable;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]

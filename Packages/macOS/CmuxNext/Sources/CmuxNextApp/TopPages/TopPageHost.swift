@@ -20,7 +20,7 @@ final class TopPageHost {
     /// The page's view, made on first show; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
         guard let services else { return nil }
-        if case .page(let id) = route, (id == .appStore || id == .changelog),
+        if case .page(let id) = route, InternalPageTabStore.isPreviewPage(id),
            services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[route] { return view }
         let view: NSView

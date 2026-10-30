@@ -37,6 +37,8 @@ fn write_sessions(home: &Path, count: usize) {
             "harness": "claude", "model": "sonnet", "cwd": "/tmp", "status": "idle",
             "createdAt": at, "updatedAt": at, "turnCount": 1, "lastSeq": 0,
             "eventCount": 0,
+            "tools": {"rows": [{"id": "mcp:example", "name": "example", "kind": "mcp",
+                "source": "claude", "enabled": true, "canToggle": true}], "mutable": true},
             "tags": {"area": {"value": "cli"}, "pad": {"value": "x".repeat(3650)}}
         });
         fs::write(dir.join("session.json"), row.to_string()).unwrap();
@@ -101,6 +103,13 @@ fn selected_listing_is_bounded_and_newest_first_for_a_large_store() {
     assert!(full.status.success(), "full listing failed: {full:?}");
     let full_value: Value = serde_json::from_slice(&full.stdout).unwrap();
     assert_eq!(full_value["sessions"].as_array().map(Vec::len), Some(3_000));
+    assert!(full_value["sessions"].as_array().unwrap().iter().all(|s| s.get("tools").is_none()));
+    let (with_tools, _) = run(&root, &["--json", "ls", "--with-tools", "--limit", "1"]);
+    assert!(with_tools.status.success(), "inventory listing failed: {with_tools:?}");
+    let with_tools: Value = serde_json::from_slice(&with_tools.stdout).unwrap();
+    assert_eq!(with_tools["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(with_tools["sessions"][0]["tools"][0]["id"], "mcp:example");
+    assert_eq!(with_tools["sessions"][0]["toolsMutable"], true);
     eprintln!("ls benchmark baseline: full={} bytes/{full_elapsed:?}", full.stdout.len());
     let (selected, selected_elapsed) =
         run(&root, &["--json", "ls", "--limit", "20", "--fields", "name,harness,model,status,cwd"]);
