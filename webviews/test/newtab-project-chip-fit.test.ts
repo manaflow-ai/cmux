@@ -24,6 +24,12 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
       browser,
       params: { variant: "idle", theme: "Apple System Colors" },
     });
+    // The modern New Tab imports what the classic page does not: warm it too, so the optimizer's
+    // reload for those dependencies lands here and not on the first test's page.
+    await warmGalleryFrame(vite, "agent-pane.new-tab", {
+      browser,
+      params: { variant: "inherited-project", theme: "Apple System Colors Light" },
+    });
   });
   afterAll(async () => {
     await browser?.close();

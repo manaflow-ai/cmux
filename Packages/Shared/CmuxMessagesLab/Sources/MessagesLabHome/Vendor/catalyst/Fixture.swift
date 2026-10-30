@@ -223,6 +223,11 @@ enum Fixture {
         if !themedAccent, !lightAppearance { return UIColor(srgbRed: 60 / 255, green: 124 / 255, blue: 212 / 255, alpha: 1) }
         return mix(outgoing, into: background, 0.85)
     }
+    /// cmux: the outline of a group's quote of another person's message, drawn at `ThreadPreview.cmuxGroupOpacity`
+    /// (macOS Messages, dark, the user's 2x group reference of 2026-10-29: sRGB 80 on the 30 background, the incoming
+    /// text half way into the background at half opacity). Light mode and themes follow the same mix: UNVERIFIED against
+    /// a light Messages reference.
+    static var groupQuoteOutline: UIColor { mix(incomingText, into: background, 0.5) }
     /// `c` at `amount` over `base`, in sRGB.
     private static func mix(_ c: UIColor, into base: UIColor, _ amount: CGFloat) -> UIColor {
         guard let a = c.usingColorSpace(.sRGB), let b = base.usingColorSpace(.sRGB) else { return c }

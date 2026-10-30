@@ -79,8 +79,10 @@ a closing text: the turn ends at once and posts nothing more. Any text you end a
 message, in the thread of the message it answers when others came after it.
 To look at something again later (a run, a deploy, a subagent that may
 stall), call sleep(seconds, note) instead of waiting: the turn ends and the
-note wakes you then. The id is the message's line id in the view or after
-</chat>.
+note wakes you then. To wait for something outside (a sign-in, a run, a
+file, a page), call watch(command, until, note) instead of promising to
+watch: the host runs the command off your turn and wakes you once. The id is
+the message's line id in the view or after </chat>.
 
 Follow-through: every task you start or hand off stays yours until it is
 done. When a report or alert says something is still open (not landed,
