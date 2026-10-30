@@ -18,7 +18,7 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   nightly-next builder, pr_runner_pool.NIGHTLY_DEDICATED_LABEL; unset switches it off) while
   its runner is online and idle. It keeps a warm checkout and DerivedData and builds each new
   tip incrementally (nightly_build_state.py), so it comes first. While it is busy (the build
-  of the previous tip, or a verify) this waits up to DEDICATED_WAIT_SECONDS (5 min) for it,
+  of the previous tip, or a verify) this waits up to DEDICATED_WAIT_SECONDS (1 min) for it,
   reading the runners every 30 s; offline, unread or still busy after that, it is skipped.
   Leo, 2026-10-27: "what if we just dedicatd one, only, always, and it just
   incrementally... did the thing?"
@@ -97,10 +97,12 @@ def owned_label(label: str) -> bool:
     return pool.persistent(label) or bool(NIGHTLY_SLOT_LABEL.fullmatch(label or ""))
 
 
-# How long a run waits for the dedicated builder while it is busy, and how often it looks. Its
-# incremental build of the previous tip or a 3-minute verify usually ends inside this; a longer
-# wait would cost more than the cold build on the next pool saves.
-DEDICATED_WAIT_SECONDS = 5 * 60
+# How long a run waits for the dedicated builder while it is busy, and how often it looks. With
+# builds side by side (the 5-minute rolling window) the builder is usually busy with a whole
+# 10-minute build, not a short tail: on 10-29 four picks waited the full 5 minutes and then built
+# cold elsewhere anyway (runs 40924321847, 40930394811, 40935345693, 40936301031: 15.1-19.8 min
+# builds after a 4.9-minute pick). One look a minute later, then an idle owned Mac.
+DEDICATED_WAIT_SECONDS = 60
 DEDICATED_LOOK_SECONDS = 30
 
 

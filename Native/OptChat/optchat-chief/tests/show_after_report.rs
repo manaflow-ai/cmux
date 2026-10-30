@@ -550,3 +550,30 @@ fn a_restart_redelivers_a_done_report_saved_before_deliver() {
         owner.run_steps
     );
 }
+
+/// Lawrence (Oct 29): "diff should have been opened in a845 workspace. so it
+/// can just make link that goes to workspace/diff." A subagent with a cmux
+/// workspace gets its diff and previews opened there, as new tabs, and the
+/// Chief links that tab; the right column of Home is only the fallback.
+#[test]
+fn a_subagent_with_a_workspace_shows_its_work_there() {
+    let block = show::block_in(REPORT, Some("ws_0123abcd")).expect("things to show");
+    assert!(
+        block.contains("tab create browser --workspace ws_0123abcd --url https://github.com/manaflow-ai/cmux/compare/1a2b3c4d5e6...9f8e7d6c5b4"),
+        "{block}"
+    );
+    assert!(
+        block.contains("tab create browser --workspace ws_0123abcd --url http://127.0.0.1:55999/"),
+        "{block}"
+    );
+    assert!(
+        block.contains("cmux pane list --workspace ws_0123abcd"),
+        "{block}"
+    );
+    assert!(
+        !block.contains("browser right"),
+        "never Home's column: {block}"
+    );
+    assert!(block.contains("link"), "the Chief links the tab: {block}");
+    assert_eq!(show::block_in(REPORT, None), show::block(REPORT));
+}
