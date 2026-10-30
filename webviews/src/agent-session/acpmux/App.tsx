@@ -5697,7 +5697,8 @@ function AcpmuxPane() {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
-    useSummaryColumn(shell, artifact !== undefined || freshView),
+    // The side panel and Background tasks take the right column: the Summary stays a popover then.
+    useSummaryColumn(shell, artifact !== undefined || backgroundPanel !== undefined || freshView),
     summaryHasContent || childSessions.length > 0,
   );
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
