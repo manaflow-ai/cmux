@@ -76,8 +76,13 @@ nonisolated enum AcpmuxServerPeer {
     /// What a passing peer is: the acpmux at this app's own path, or another install's.
     enum Match: Equatable { case own, foreign }
 
-    /// Pids of another install's daemons that passed rules 1 and 2 (their WebSocket may be used).
-    private static let foreignDaemons = Mutex<Set<pid_t>>([])
+    /// Another install's daemons that passed rules 1 and 2 (their WebSocket may be used), each
+    /// by its pid and the process the pid named then (start time and audit token): a pid the
+    /// kernel gives to another process after the daemon exits is not one of them.
+    private static let foreignDaemons = Mutex<[pid_t: AcpmuxUnresponsiveWatch.Daemon]>([:])
+
+    /// `LOCAL_PEERTOKEN` (sys/un.h), as ``UnixSocketPeer`` reads it.
+    private static let localPeerToken: Int32 = 0x006
 
     /// Paths already logged as refused (one line each per launch).
     private static let refusedPaths = Mutex<Set<String>>([])
@@ -144,8 +149,18 @@ nonisolated enum AcpmuxServerPeer {
     /// Every owner passes the executable rule, or is another install's daemon that passed rules
     /// 1 and 2 on its unix socket; none refuses. The scan lists only this user's processes.
     private static func judge(_ owners: [pid_t], executable: URL, what: String) -> Bool {
-        let foreign = foreignDaemons.withLock { $0 }
-        guard let refusal = refusal(owners, executable: executable, foreign: foreign, path: executablePath(pid:)) else {
+        let process = AcpmuxUnresponsiveWatch.kernelProcess(pid:)
+        let known = foreignDaemons.withLock { $0 }
+        // Forget a daemon whose pid now names another process, or none.
+        let gone = known.filter { process($0.key) != $0.value }
+        if !gone.isEmpty {
+            foreignDaemons.withLock { daemons in
+                for (pid, daemon) in gone where daemons[pid] == daemon { daemons[pid] = nil }
+            }
+        }
+        let foreign = known.filter { gone[$0.key] == nil }
+        guard let refusal = refusal(owners, executable: executable, foreign: foreign, process: process,
+                                    path: executablePath(pid:)) else {
             return true
         }
         if refusedPaths.withLock({ $0.insert(what).inserted }) {
@@ -157,11 +172,15 @@ nonisolated enum AcpmuxServerPeer {
     /// Why ``judge(_:executable:what:)`` refuses `owners`, nil when it passes them. Another
     /// install's daemon (`foreign`, it passed rules 1 and 2) passes before its path is read: one an
     /// update deleted the file of has no path, and it serves the chats it served on the unix socket.
-    static func refusal(_ owners: [pid_t], executable: URL, foreign: Set<pid_t>,
+    /// It passes only while its pid still names that process (`process`, its start time and audit
+    /// token now): a pid reused by another process is checked by its path like any other owner.
+    static func refusal(_ owners: [pid_t], executable: URL, foreign: [pid_t: AcpmuxUnresponsiveWatch.Daemon],
+                        process: (pid_t) -> AcpmuxUnresponsiveWatch.Daemon?,
                         path: (pid_t) -> String?) -> Refusal? {
         guard !owners.isEmpty else { return .noPeer }
         let wanted = executable.resolvingSymlinksInPath().path
-        for pid in Set(owners) where !foreign.contains(pid) {
+        for pid in Set(owners) {
+            if foreign[pid] != nil { continue }
             guard let found = path(pid) else { return .noPeer }
             let resolved = URL(fileURLWithPath: found).resolvingSymlinksInPath().path
             if resolved != wanted { return .otherExecutable(resolved) }
@@ -349,6 +368,20 @@ nonisolated enum AcpmuxServerPeer {
         return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
+    /// The peer process of `descriptor` (``AcpmuxUnresponsiveWatch/kernelProcess(pid:)``), nil
+    /// unless its audit token is the socket's own peer token (`LOCAL_PEERTOKEN`): the pid then
+    /// names that very process, not one that took the pid after the peer exited.
+    private static func peerProcess(_ descriptor: Int32) -> AcpmuxUnresponsiveWatch.Daemon? {
+        guard let pid = peerPID(descriptor), let process = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) else {
+            return nil
+        }
+        var token = audit_token_t()
+        var size = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(descriptor, SOL_LOCAL, localPeerToken, &token, &size) == 0,
+              token.val.5 == process.token.val.5, token.val.7 == process.token.val.7 else { return nil }
+        return process
+    }
+
     /// A connected unix socket to `socketPath`, unchecked: the caller reads its peer on this
     /// very descriptor (``UnixSocketPeer``) before it writes anything.
     static func connect(_ socketPath: String) throws -> Int32 {
@@ -396,6 +429,8 @@ nonisolated enum AcpmuxServerPeer {
         }
         try write(payload, to: descriptor, until: until)
         var buffer = Data()
+        // This connection's peer passed rule 2 and is known by its process (``peerProcess(_:)``).
+        var foreignPassed = false
         while true {  // wakeup-allow: each pass waits in poll(2) for socket data; EOF, error or the deadline ends it
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
@@ -404,15 +439,16 @@ nonisolated enum AcpmuxServerPeer {
                 if match == .foreign, let initialize = try AcpmuxStatusClient.detailedReply(to: 1, in: line) {
                     let features = ((initialize["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["features"] as? [String]
                     guard features?.contains("personChallenge") == true else { throw Refusal.olderDaemon }
-                    if let pid = peerPID(descriptor) {
-                        foreignDaemons.withLock { $0.insert(pid) }
-                        logger.info("acpmux at \(socketPath, privacy: .public) is another cmux install's (pid \(pid, privacy: .public)); its allows stay refused unless this app keyed it")
+                    if let daemon = peerProcess(descriptor) {
+                        foreignDaemons.withLock { $0[daemon.pid] = daemon }
+                        foreignPassed = true
+                        logger.info("acpmux at \(socketPath, privacy: .public) is another cmux install's (pid \(daemon.pid, privacy: .public)); its allows stay refused unless this app keyed it")
                     }
                     continue
                 }
                 if let result = try AcpmuxStatusClient.detailedReply(to: 2, in: line) {
                     // The reply came before the initialize check (it cannot: replies are in order).
-                    guard match == .own || foreignDaemons.withLock({ set in peerPID(descriptor).map(set.contains) ?? false }) else {
+                    guard match == .own || foreignPassed else {
                         throw Refusal.olderDaemon
                     }
                     return ResultBox(result)

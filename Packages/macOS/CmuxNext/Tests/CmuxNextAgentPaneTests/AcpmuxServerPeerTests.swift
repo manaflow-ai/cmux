@@ -65,13 +65,46 @@ struct AcpmuxServerPeerTests {
         let executable = URL(fileURLWithPath: "/App/bin/acpmux")
         let paths: [pid_t: String] = [7: "/App/bin/acpmux", 8: "/elsewhere/acpmux"]
         let path = { (pid: pid_t) in paths[pid] }
+        let daemon = Self.process(pid: 9, start: 100, version: 1)
+        let process = { (pid: pid_t) in pid == 9 ? daemon : nil }
+        let foreign = [pid_t(9): daemon]
 
-        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: [9], path: path) == nil)
-        #expect(AcpmuxServerPeer.refusal([7, 9], executable: executable, foreign: [9], path: path) == nil)
-        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: [], path: path) == .noPeer)
-        #expect(AcpmuxServerPeer.refusal([8], executable: executable, foreign: [], path: path)
+        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: foreign, process: process, path: path) == nil)
+        #expect(AcpmuxServerPeer.refusal([7, 9], executable: executable, foreign: foreign, process: process, path: path) == nil)
+        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: [:], process: process, path: path) == .noPeer)
+        #expect(AcpmuxServerPeer.refusal([8], executable: executable, foreign: [:], process: process, path: path)
             == .otherExecutable("/elsewhere/acpmux"))
-        #expect(AcpmuxServerPeer.refusal([], executable: executable, foreign: [9], path: path) == .noPeer)
+        #expect(AcpmuxServerPeer.refusal([], executable: executable, foreign: foreign, process: process, path: path) == .noPeer)
+    }
+
+    /// Codex review of #27799: a daemon that passed rules 1 and 2 exits and the kernel gives its
+    /// pid to another process of this user. That process's listener is not the daemon's: its pid
+    /// names another process (another start time and pid version), so its path is checked.
+    @Test func aPidReusedByAnotherProcessIsNotAnotherInstallsDaemon() {
+        let executable = URL(fileURLWithPath: "/App/bin/acpmux")
+        let passed = Self.process(pid: 9, start: 100, version: 1)
+        let reused = Self.process(pid: 9, start: 200, version: 2)
+        let foreign = [pid_t(9): passed]
+        let noPath = { (_: pid_t) -> String? in nil }
+
+        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: foreign,
+                                         process: { _ in passed }, path: noPath) == nil)
+        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: foreign,
+                                         process: { _ in reused }, path: noPath) == .noPeer)
+        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: foreign,
+                                         process: { _ in reused }, path: { _ in "/elsewhere/listener" })
+            == .otherExecutable("/elsewhere/listener"))
+        #expect(AcpmuxServerPeer.refusal([9], executable: executable, foreign: foreign,
+                                         process: { _ in nil }, path: noPath) == .noPeer)
+    }
+
+    /// A process as ``AcpmuxUnresponsiveWatch/kernelProcess(pid:)`` reads it: `version` is the
+    /// audit token's pid version (`val.7`).
+    private static func process(pid: pid_t, start: UInt64, version: UInt32) -> AcpmuxUnresponsiveWatch.Daemon {
+        var token = audit_token_t()
+        token.val.5 = UInt32(bitPattern: pid)
+        token.val.7 = version
+        return AcpmuxUnresponsiveWatch.Daemon(pid: pid, startSeconds: start, startMicroseconds: 0, token: token)
     }
 
     /// End to end on a real process: a listener whose executable file was deleted while it runs,
