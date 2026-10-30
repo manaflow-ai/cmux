@@ -614,6 +614,12 @@ export type QueuedPromptSummary = {
   fromSessionId: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
+  /**
+   * Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+   * person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+   * on an older acpmux.
+   */
+  heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
   prompt: string;

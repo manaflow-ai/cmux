@@ -656,9 +656,10 @@ export function mergeQueue(
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
     );
-    // A person's Stop holds it while acpmux lists it held; listed unheld, it was let go. A list
-    // without the field (an older acpmux) keeps what the records said.
-    return entry?.held === false ? merged : keepStopHold(merged, had);
+    // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
+    // let go. A list without the field (an older acpmux) keeps what the records said.
+    if (entry?.heldByStop === true && entry?.held !== false) return { ...merged, heldByStop: true };
+    return entry?.held === false || entry?.heldByStop === false ? merged : keepStopHold(merged, had);
   });
 }
 
@@ -3594,15 +3595,18 @@ export class AcpmuxDirectClient {
       if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
-        ? queuedEntry(
-            entry.id,
-            entry.prompt,
-            entry.next === true,
-            entry.sending === true,
-            entry.images,
-            message,
-            entry.author,
-            entry.inlineParts,
+        ? keepStopHold(
+            queuedEntry(
+              entry.id,
+              entry.prompt,
+              entry.next === true,
+              entry.sending === true,
+              entry.images,
+              message,
+              entry.author,
+              entry.inlineParts,
+            ),
+            entry,
           )
         : entry;
     });
@@ -3725,15 +3729,18 @@ export class AcpmuxDirectClient {
       if (parts && this.optimisticPromptParts.has(id)) this.optimisticPromptParts.set(id, parts);
       this.queue = this.queue.map((entry) =>
         entry.id === id
-          ? queuedEntry(
-              id,
-              String(msg.text ?? ""),
-              entry.next === true,
-              false,
-              recordImages(msg),
-              undefined,
-              promptAuthor(msg),
-              recordedPromptParts(msg, entry.inlineParts) ?? entry.inlineParts,
+          ? keepStopHold(
+              queuedEntry(
+                id,
+                String(msg.text ?? ""),
+                entry.next === true,
+                false,
+                recordImages(msg),
+                undefined,
+                promptAuthor(msg),
+                recordedPromptParts(msg, entry.inlineParts) ?? entry.inlineParts,
+              ),
+              entry,
             )
           : entry,
       );

@@ -10,6 +10,7 @@ Behaviour per prompt text:
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "cancel-ends-turn" -> streams "running", then answers session/cancel with end_turn, not cancelled
+  "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
   "answer-then-exit" -> answers, then the agent exits between turns
@@ -1066,6 +1067,17 @@ def handle_prompt(rid, params):
                 break
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-errors" streams "running" and answers session/cancel with an error, as an adapter
+    # whose interrupt fails the turn (bounded at 30 s).
+    if text == "cancel-errors":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "turn interrupted: request aborted"}})
         return
     # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
     # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with

@@ -154,3 +154,42 @@ test("a list that names a held message unheld lets it go; a failed turn's hold i
     close();
   }
 });
+
+test("acpmux's list says which messages a Stop holds, also with no record of it, and an edit keeps it", async () => {
+  const { daemon, view, until, id, close } = await pane();
+  try {
+    // An attach whose page holds none of the Stop's records: the list alone says so.
+    daemon.touch(id, {
+      status: "ready",
+      queuePaused: true,
+      queue: [
+        { ...listed("p-a", "builder", true), heldByStop: true },
+        { ...listed("p-b", "linter", true), heldByStop: false },
+      ],
+    });
+    await until(() => view.shown.queue?.length === 2);
+    expect(held(view.shown)).toEqual([
+      ["p-a", true],
+      ["p-b", false],
+    ]);
+    expect(await lead(view.shown)).toBe(translate("message.heldByStop"));
+    // A reorder rebuilds every entry; the hold stays.
+    daemon.emit(id, { mux: "queue_order", msg: { order: ["p-b", "p-a"], promptId: "p-b", next: true } });
+    await until(() => view.shown.queue?.[0]?.id === "p-b");
+    expect(held(view.shown)).toEqual([
+      ["p-b", false],
+      ["p-a", true],
+    ]);
+    // A list that says the Stop no longer holds it lets it go.
+    daemon.touch(id, {
+      status: "ready",
+      queue: [
+        { ...listed("p-b", "linter", false), heldByStop: false },
+        { ...listed("p-a", "builder", true), heldByStop: false },
+      ],
+    });
+    await until(() => view.shown.queue?.every((entry) => !entry.heldByStop) === true);
+  } finally {
+    close();
+  }
+});

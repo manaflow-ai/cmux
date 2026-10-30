@@ -156,3 +156,22 @@ async fn a_stop_its_agent_answers_end_turn_still_ends_the_turn_cancelled() {
     let last = events.iter().rev().find(|e| e.kind == "turn_result").unwrap();
     assert_eq!(last.msg["status"], "completed", "{:?}", last.msg);
 }
+
+/// An adapter whose interrupt fails the turn: the error is the Stop's doing, so the turn reads as
+/// stopped, with Continue, and holds no queue as a failure does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_its_agent_answers_with_an_error_still_ends_the_turn_cancelled() {
+    let (hub, s) = chat(false).await;
+    let run = prompt(&hub, &s, "cancel-errors");
+    record(&hub, &s, "", "agent_message_chunk", |m| {
+        m["params"]["update"]["content"]["text"] == "running"
+    })
+    .await;
+    hub.cancel(&s).await.unwrap();
+    let answer = tokio::time::timeout(WAIT, run).await.expect("the prompt answers").unwrap();
+    assert!(answer.is_err(), "{answer:?}");
+    let result = record(&hub, &s, "mux", "turn_result", |_| true).await;
+    assert_eq!(result.msg["status"], "cancelled", "{:?}", result.msg);
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    assert!(!events.iter().any(|e| e.kind == "queue_paused"), "the Stop's turn held the queue");
+}

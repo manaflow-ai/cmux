@@ -965,9 +965,6 @@ impl Hub {
             result = Ok(super::cancel::forced_answer(true));
         }
         let carries_on = carried_next.is_some();
-        // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`):
-        // the turn ends as the Stop's, cancelled; the prompt's caller still hears why.
-        let stopped_early = result.as_ref().err().filter(|e| is_stopped_before_prompt(e)).cloned();
         // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
         let carried_to = || {
             carried_next.map(|n| {
@@ -1072,6 +1069,15 @@ impl Hub {
             super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
+        // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`),
+        // or the agent of a turn a Stop was stopping ended it with an error (it exited, its
+        // cancel failed, or it reported one): the turn ends as the Stop's, cancelled, and holds
+        // no queue as a failure does; the prompt's caller still hears why.
+        let stopped_early = result
+            .as_ref()
+            .err()
+            .filter(|e| is_stopped_before_prompt(e) || (was_stopping && !carries_on))
+            .cloned();
         if stopped_early.is_some() {
             result = Ok(stopped_answer());
         }
