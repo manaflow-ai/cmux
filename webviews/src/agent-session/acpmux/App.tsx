@@ -1364,12 +1364,21 @@ const EditedFilesRow = memo(
     a.onOpenDiff === b.onOpenDiff,
 );
 
-/// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
-const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+/// The pane's client, for the module-level open actions below (set by `App` while it is mounted).
+let pageClient: { current: AcpmuxDirectClient | undefined } | undefined;
+/// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here. The chat is
+/// handed to the app host first (direct.ts `handOverForOpen`), so its new tab draws it on its first
+/// frame instead of a blank pane until its attach answers.
+const openOfferChat = (sessionId: string) => {
+  pageClient?.current?.handOverForOpen(sessionId);
+  void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+};
 /// Opens the chat that sent this one a message, from its received line's chip: any chat the daemon
 /// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
-const openSenderChat = (sessionId: string) =>
+const openSenderChat = (sessionId: string) => {
+  pageClient?.current?.handOverForOpen(sessionId);
   void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
+};
 /// Send now on a steer the agent has not read (`_acpmux/queue_edit` send_now with its promptId).
 const sendSteerNow = (promptId: string) => void editQueued(promptId, { op: "send_now" }).catch(() => false);
 /// Another agent's message waiting in the queue: its received card after the running turn
@@ -4595,6 +4604,12 @@ function AcpmuxPane() {
   // ids only grow, so a new client never reads an older client's cache entry.
   const catalogClientId = useRef(0);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  useEffect(() => {
+    pageClient = directClient;
+    return () => {
+      if (pageClient === directClient) pageClient = undefined;
+    };
+  }, []);
   const [catalogSource, setCatalogSource] = useState<{ id: number; client: HarnessCatalogSource }>();
   /// A chat acpmux would not start because its folder harness needs the user's Enable or the
   /// folder's Trust answer first (`harness.needs_enable` / `harness.needs_trust`).
@@ -6279,6 +6294,8 @@ function AcpmuxPane() {
   /// this pane when this is a subagent's pane or the host opens none.
   const showSubagent = useCallback((id: string, focus = true) => {
     if (subagentPane.current) return setSubagentView(id);
+    // The pane opens on this chat's session: handed over first, so it draws on its first frame.
+    directClient.current?.handOverCurrentTail();
     void openSubagentPane(callNative, id, focus).then((opened) => {
       if (!opened && focus) setSubagentView(id);
     });

@@ -45,7 +45,15 @@ import { clampRunning, subsessionLimits } from "./subsessionLimits";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
-import { forgetTail, keptTail, KEPT_EVENTS, readHostTail, rememberReadAhead, rememberTail } from "./tailCache";
+import {
+  forgetTail,
+  type KeptTail,
+  keptTail,
+  KEPT_EVENTS,
+  readHostTail,
+  rememberReadAhead,
+  rememberTail,
+} from "./tailCache";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
@@ -6295,6 +6303,30 @@ export class AcpmuxDirectClient {
     this.queueReadAhead([sessionId], true);
   }
 
+  /// Warms the app host for `sessionId` opening in a tab of its own (a sub-session's chat, a
+  /// message's sender: `chat.offer.open`), so that tab draws the chat from the host's tail on its
+  /// first frame (tailCache.ts) instead of a blank pane until its own attach answers (Leo
+  /// 2026-10-29: "I clicked into your subagent and it's just like, okay, there's nothing there.
+  /// It's just a blank."). The chat on screen hands over its own tail; a chat this page read or
+  /// read ahead hands over that; any other is read now, its newest page as a read ahead reads it,
+  /// and handed over when it lands. Never awaited: the open goes out on the press, and a read that
+  /// lands after the new tab asked costs nothing but the read.
+  handOverForOpen(sessionId: string): void {
+    if (!sessionId || this.closed) return;
+    if (sessionId === this.selectedSessionId) return this.rememberCurrentTail();
+    const kept = keptTail(sessionId);
+    if (kept) rememberTail(sessionId, kept, false);
+    this.queueReadAhead([sessionId], true);
+    // Only while a read is queued or out for it: its end (`pumpReadAhead`) drops the mark, so a
+    // chat that never gets read leaves nothing behind.
+    if (this.readingAhead.has(sessionId) || this.readAheadQueue.includes(sessionId))
+      this.handOverOnRead.add(sessionId);
+  }
+
+  /// Chats `handOverForOpen` asked for whose read ahead is queued or out: each read hands its tail
+  /// to the host as well as keeping it in the page.
+  private handOverOnRead = new Set<string>();
+
   /// Chats read ahead, by when their read went out.
   private readAheadAt = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
@@ -6342,6 +6374,7 @@ export class AcpmuxDirectClient {
         .catch(() => undefined)
         .finally(() => {
           this.readingAhead.delete(sessionId);
+          this.handOverOnRead.delete(sessionId);
           this.pumpReadAhead();
         });
       this.readingAhead.set(sessionId, read);
@@ -6371,7 +6404,7 @@ export class AcpmuxDirectClient {
     const oldest = Math.min(...page.map((event) => event.seq));
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     if (listed?.peer !== asked?.peer || listed?.createdAt !== asked?.createdAt) return;
-    rememberReadAhead(sessionId, {
+    const tail: KeptTail = {
       events: page,
       summary: listed ? { ...listed } : undefined,
       turnOpener: undefined,
@@ -6379,7 +6412,10 @@ export class AcpmuxDirectClient {
       queue: [],
       configSeq: 0,
       usageFromSeq: result?.hasMore === true ? oldest : 0,
-    });
+    };
+    rememberReadAhead(sessionId, tail);
+    // A press opens it in another tab (`handOverForOpen`): that tab reads the host, not this page.
+    if (this.handOverOnRead.has(sessionId)) rememberTail(sessionId, tail, false);
   }
 
   /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
