@@ -114,7 +114,7 @@ export function ThemePicker({
     cancelDwell();
     dismiss();
     const chosen = name === CONFIG ? null : names.includes(name) ? name : undefined;
-    if (chosen === undefined) return preview(null);
+    if (chosen === undefined) return end();
     const pickOwner = owner.current;
     void Promise.resolve(onPick(chosen)).finally(() => end(pickOwner ?? undefined));
   };

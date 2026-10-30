@@ -95,7 +95,7 @@ export function FontPicker({
     cancelDwell();
     dismiss();
     const chosen = name === DEFAULT_FONT_ROW ? null : names.includes(name) ? name : undefined;
-    if (chosen === undefined || chosen === value) return preview(null);
+    if (chosen === undefined || chosen === value) return end();
     const pickOwner = owner.current;
     void Promise.resolve(onPick(chosen)).finally(() => end(pickOwner ?? undefined));
   };
