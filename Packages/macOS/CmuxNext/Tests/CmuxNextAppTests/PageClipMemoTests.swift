@@ -61,13 +61,13 @@ import Testing
     /// holes on the next read: the memo is keyed on the geometry, not on posts.
     @Test func aResizeWithoutAPostRebuildsTheHoles() {
         let column = Column()
-        let first = column.page.cmuxOcclusionRects()
+        _ = column.page.cmuxOcclusionRects()
         let before = CEFHostView.trackerStats.occlusionBuilds
         column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
         column.host.layoutSubtreeIfNeeded()
-        let after = column.page.cmuxOcclusionRects()
+        // No holes either way, and an empty NSArray bridges to one shared object: count builds.
+        _ = column.page.cmuxOcclusionRects()
         #expect(CEFHostView.trackerStats.occlusionBuilds - before == 1)
-        #expect(first !== after, "a new geometry gets a new bridge")
     }
 
     @Test func aStripClipWithoutAFrameChangeGivesTheNewShape() throws {
