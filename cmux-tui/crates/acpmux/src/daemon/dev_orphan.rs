@@ -22,6 +22,10 @@
 //! platform but macOS, nor a daemon run from outside an app bundle (a
 //! checkout's binary, `CMUX_NEXT_ACPMUX_BIN`): no bundle names it a DEV one.
 //!
+//! A bundle deleted in the instant between the daemon's exec and its read of
+//! the bundle's Info.plist cannot be told from a Release or NIGHTLY bundle
+//! being replaced, so it is never watched (as on a daemon without this file).
+//!
 //! The app counts as alive while anything accepts a connect on its socket:
 //! the watch cannot tell the app from another process that binds that path
 //! after it quits. A same-tag DEV rebuilt elsewhere is that case, and it is
@@ -136,16 +140,12 @@ pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'stati
     // that replaced it in between, and the watch would hold that one.
     let facts = std::env::current_exe().ok().and_then(|exe| {
         let executable = Executable::open(&exe);
-        if let Some(socket) = dev_app_socket(&exe) {
-            return Some((socket, executable));
-        }
-        // The bundle went away during the startup, before its Info.plist was read: an app
-        // bundle that names an app socket and whose executable is already gone is watched too
-        // (it reads as gone at once), or nothing would ever stop this daemon.
-        bundle_gone_at_start(&exe, &executable)
-            .then(app_socket_env)
-            .flatten()
-            .map(|socket| (socket, executable.gone_at_start()))
+        let socket = dev_app_socket(&exe)?;
+        // A DEV bundle whose binary was already unlinked (a rebuild in the instant before the
+        // open): gone from the start, or the watch could never see it go.
+        let executable =
+            if executable.0.is_none() { executable.gone_at_start() } else { executable };
+        Some((socket, executable))
     });
     async move {
         match facts {
@@ -174,7 +174,7 @@ impl Executable {
         Self(std::fs::File::open(path).ok(), false)
     }
 
-    /// One already gone when the daemon started (`bundle_gone_at_start`): always gone.
+    /// One already unlinked when a DEV daemon started (see `watch`): always gone.
     fn gone_at_start(self) -> Self {
         Self(self.0, true)
     }
@@ -254,14 +254,6 @@ fn dev_app_socket(exe: &Path) -> Option<PathBuf> {
 /// The app's control socket this daemon was started with (`CMUX_SOCKET_PATH`).
 fn app_socket_env() -> Option<PathBuf> {
     std::env::var_os("CMUX_SOCKET_PATH").filter(|path| !path.is_empty()).map(PathBuf::from)
-}
-
-/// On macOS, whether this executable sat in an app bundle that is gone already: its
-/// Info.plist cannot be read and the executable has no name left (or could not be opened).
-fn bundle_gone_at_start(exe: &Path, executable: &Executable) -> bool {
-    cfg!(target_os = "macos")
-        && containing_app_bundle(exe).is_some_and(|bundle| bundle_id(&bundle).is_none())
-        && (executable.0.is_none() || executable.gone())
 }
 
 /// Whether the app accepts a connection on its control socket. The
@@ -358,7 +350,7 @@ mod tests {
         let third = Executable::open(&exe);
         std::fs::remove_file(&exe).unwrap();
         assert!(third.gone(), "deleted");
-        // Not opened at the start: never gone, unless its bundle was already gone then.
+        // Not opened at the start: never gone, unless marked gone then (a DEV binary unlinked).
         assert!(!Executable::open(&dir.join("missing")).gone());
         assert!(Executable::open(&dir.join("missing")).gone_at_start().gone());
         let _ = std::fs::remove_dir_all(&dir);
