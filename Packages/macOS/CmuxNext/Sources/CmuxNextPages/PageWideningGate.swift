@@ -25,9 +25,27 @@ public import Foundation
         claimedGestures.insert(event).inserted
     }
 
-    @MainActor public final class WritePermit {
-        public private(set) var valid = true
-        public func invalidate() { valid = false }
+    public final class WritePermit: @unchecked Sendable {
+        private let lock = NSLock()
+        private var valid = true
+        private var claimed = false
+
+        /// Atomically claims the write slot. Cancellation that wins before this returns prevents the
+        /// host call; cancellation after it returns cannot pretend that an already-started host call did
+        /// not happen.
+        nonisolated func claim() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard valid, !claimed else { return false }
+            claimed = true
+            return true
+        }
+
+        nonisolated func invalidate() {
+            lock.lock()
+            valid = false
+            lock.unlock()
+        }
     }
 
     /// Turns `key` on or off through `write` (the host's error, or nil); throws `refusal` for an on that
@@ -58,7 +76,7 @@ public import Foundation
             await previous?.value
             guard !Task.isCancelled, let self else { return .none }
             if on, self.offs[key, default: 0] != offsAsked { return .none }
-            guard !Task.isCancelled, permit.valid else { return .none }
+            guard !Task.isCancelled, permit.claim() else { return .none }
             return .some(await write(on, permit))
         }
         // task-owner: the chain's tail, which the next write for this key waits on; ends with `task`.
@@ -67,10 +85,8 @@ public import Foundation
             guard let answer = await task.value else { throw refusal }
             return answer
         }, onCancel: {
-            Task { @MainActor in
-                permit.invalidate()
-                task.cancel()
-            }
+            permit.invalidate()
+            task.cancel()
         })
     }
 }
