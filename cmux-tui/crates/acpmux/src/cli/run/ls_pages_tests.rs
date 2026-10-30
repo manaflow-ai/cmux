@@ -202,12 +202,36 @@ async fn a_daemon_too_old_for_pages_sends_the_whole_list() {
 }
 
 #[tokio::test]
-async fn a_cursor_that_comes_twice_is_an_error_not_a_loop() {
+async fn a_cursor_that_comes_again_and_again_is_an_error_not_a_loop() {
     let looping = |_: Value| {
         std::future::ready(Ok(json!({"sessions": [{"sessionId": "a"}], "nextCursor": "k1.1"})))
     };
     let e = read(json!({}), None, plan(1), keep, looping).await.unwrap_err();
-    assert!(e.to_string().contains("twice"), "{e}");
+    assert!(e.to_string().contains("again and again"), "{e}");
+}
+
+/// A chat here and its copy on a peer, updated in the same millisecond, share one cursor: a page
+/// that ends on the copy names it, and the page after starts at the copy again. The read widens
+/// that page and goes on, each row once (the old single request listed them all).
+#[tokio::test]
+async fn a_cursor_a_chat_and_its_peer_copy_share_is_read_past() {
+    let mut rows = sessions(6, 1);
+    for row in &mut rows {
+        row.as_object_mut().unwrap().remove("peer");
+    }
+    let mut copy = rows[1].clone();
+    copy["peer"] = json!("peer-1");
+    rows.insert(2, copy);
+    let list = RefCell::new(rows.clone());
+    // Three rows ending on the copy, then a page of one: the copy again, under the same cursor.
+    let want = Plan { want: Some(4), ..plan(3) };
+    let got = read_all(&list, want, usize::MAX, &Seen::default()).await.unwrap();
+    let keys: Vec<_> =
+        got.rows.iter().map(|r| (r["sessionId"].clone(), r["peer"].clone())).collect();
+    let all: Vec<_> = rows.iter().map(|r| (r["sessionId"].clone(), r["peer"].clone())).collect();
+    assert_eq!(keys, all[..4]);
+    let whole = read_all(&list, plan(3), usize::MAX, &Seen::default()).await.unwrap();
+    assert_eq!(whole.rows.len(), 7);
 }
 
 /// `--limit` with a filter the daemon does not apply stops in the middle of a page; the cursor it

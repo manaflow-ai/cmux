@@ -23,6 +23,9 @@ use crate::cli::errors::{AppError, Code};
 /// message limit, and four requests for 3,700 sessions.
 pub(super) const PAGE_ROWS: u64 = 1000;
 
+/// The most times a read takes a cursor it had already followed, each with a page twice as wide.
+const MAX_REPEATS: u32 = 16;
+
 /// What a read does with a row.
 pub(super) enum Step {
     Keep,
@@ -55,7 +58,8 @@ pub(super) struct Pages {
 
 /// Reads `params`' rows page by page from `cursor` with `fetch` (one `_acpmux/sessions`
 /// request), each row through `step`. A row that comes twice (one session id on one host, moved
-/// to the top between pages) is kept once; a cursor that comes twice is an error, never a loop.
+/// to the top between pages) is kept once; a cursor that comes again is followed with a wider
+/// page, a bounded number of times, never a loop.
 pub(super) async fn read<F, Fut>(
     params: Value,
     cursor: Option<String>,
@@ -67,14 +71,15 @@ where
     F: FnMut(Value) -> Fut,
     Fut: Future<Output = Result<Value>>,
 {
-    let (mut size, mut cursor) = (plan.size.max(1), cursor);
+    let (mut size, mut cursor, mut widen, mut repeats) = (plan.size.max(1), cursor, 0u64, 0);
     let (mut rows, mut seen, mut cursors) = (Vec::new(), HashSet::new(), HashSet::new());
     loop {
         let left = plan.want.map(|want| want.saturating_sub(rows.len()));
         let ask = match left {
             Some(left) if plan.exact => size.min(u64::try_from(left).unwrap_or(u64::MAX)).max(1),
             _ => size,
-        };
+        }
+        .saturating_add(widen);
         let mut page_params = params.clone();
         page_params.set("limit", Value::from(ask));
         if let Some(cursor) = &cursor {
@@ -139,8 +144,18 @@ where
             }
             (None, Some(next)) => next,
         };
-        if !cursors.insert(next.clone()) {
-            anyhow::bail!("the daemon gave the session page cursor {next:?} twice");
+        // A cursor that comes again: it names a session id and time, which a chat here and its
+        // copy on a peer may share (`session_pages.rs`), so the page after it starts at the copy
+        // again. A wider page gets past it; a daemon that keeps giving one cursor is an error,
+        // never a loop.
+        if cursors.insert(next.clone()) {
+            widen = 0;
+        } else {
+            repeats += 1;
+            if repeats > MAX_REPEATS {
+                anyhow::bail!("the daemon gave the session page cursor {next:?} again and again");
+            }
+            widen = widen.saturating_mul(2).max(1);
         }
         cursor = Some(next);
     }

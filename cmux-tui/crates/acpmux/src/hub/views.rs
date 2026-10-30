@@ -25,12 +25,14 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
 /// two titles; `session info` and attach keep the whole title.
 const TITLE_CHARS: usize = 200;
 
-/// `title`, or for a longer one its first [`TITLE_CHARS`], folded and cut as `lastPrompt` is.
+/// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
+/// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
+/// left as a head a peer's masking no longer knows (`peer_text.rs`).
 fn summary_title(title: &str) -> String {
     if title.chars().nth(TITLE_CHARS).is_none() {
         title.to_owned()
     } else {
-        short_text(title, TITLE_CHARS)
+        masked_cut(title, TITLE_CHARS)
     }
 }
 
@@ -194,12 +196,17 @@ fn lane_title(summary: &Value) -> Value {
     line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
 }
 
-/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`. Only the
+/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`.
+fn masked_line(text: &str) -> String {
+    masked_cut(text, LANE_STEP_CHARS)
+}
+
+/// `text` folded to one line, masked and cut to `max` characters. Only the
 /// head of the folded text is scanned (a pasted log can be megabytes), and it
 /// is masked before the cut, so a cut never leaves part of a secret unmasked.
 /// The head is cut after folding: a raw cut inside a token behind a blank run
 /// would leave the token's head unmasked once the run folds away.
-fn masked_line(text: &str) -> String {
+fn masked_cut(text: &str, max: usize) -> String {
     let (mut head, mut chars) = (String::new(), 0);
     for word in text.split_whitespace() {
         if chars > 0 {
@@ -213,7 +220,7 @@ fn masked_line(text: &str) -> String {
             break;
         }
     }
-    super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
+    super::session::short_text(&crate::secret_scan::mask(&head), max)
 }
 
 /// A turn's error masked, lines kept. An error can be a whole pasted log, so

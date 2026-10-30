@@ -162,3 +162,15 @@ fn a_peers_census_row_cuts_its_title_too() {
     let short = super::without_summary_tools(json!({"sessionId": "p", "title": "a  b"}));
     assert_eq!(short["title"], "a  b");
 }
+
+/// A secret the title's cut would split is masked whole first: no head of it is left for a
+/// peer's masking to miss.
+#[test]
+fn a_secret_across_the_title_cut_is_masked_before_the_cut() {
+    let title = format!("{} {} {}", "a".repeat(180), github_token(), "b".repeat(300));
+    let cut = super::summary_title(&title);
+    assert!(!cut.contains("ghp_"), "{cut}");
+    assert!(cut.chars().count() <= super::TITLE_CHARS + 1, "{cut}");
+    let census = super::without_summary_tools(json!({"title": title}));
+    assert!(!census["title"].as_str().unwrap().contains("ghp_"), "{census}");
+}
