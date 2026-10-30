@@ -109,9 +109,8 @@ for (const [kind, toolKind] of GROUP_KINDS.slice(1))
   test(`an open ${kind} group shows every call`, async () => {
     const items = calls(toolKind);
     const container = await render(<ToolGroupRow kind={kind} items={items} disclosureKey={`all-${kind}`} />);
-    expect(container.querySelectorAll(".cv-tool-group > .cv-tool:not(.cv-tool-group__more)")).toHaveLength(
-      items.length,
-    );
+    // One step row per call, each between the group's hairlines (ToolGroupRow.tsx Step).
+    expect(container.querySelectorAll(".cv-steps > .cv-step > .cv-tool")).toHaveLength(items.length);
     expect(container.textContent).not.toMatch(/\+\d+ more/);
     for (const item of items) expect(container.textContent).toContain(item.text);
   });

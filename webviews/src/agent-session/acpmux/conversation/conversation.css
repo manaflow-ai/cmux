@@ -2595,7 +2595,8 @@ pre.cv-math-source {
   .cv-sent-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
-  .cv-message:hover .cv-sent-actions {
+  .cv-message:hover .cv-sent-actions,
+  .cv-sent:hover .cv-sent-actions {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
   }
   .cv-sent-actions:focus-within {
@@ -2603,6 +2604,7 @@ pre.cv-math-source {
   }
 }
 .cv-message:hover .cv-sent-actions,
+.cv-sent:hover .cv-sent-actions,
 .cv-sent-actions:focus-within {
   opacity: 1;
 }
