@@ -345,7 +345,7 @@ describe("the inline player", () => {
 
   test("Open in tab asks the host to open the file, never the granted URL", async () => {
     const { container, calls } = await mount();
-    const open = container.querySelector<HTMLButtonElement>('button.cv-media__action[aria-label="Open in tab"]');
+    const open = container.querySelector<HTMLButtonElement>("button.cv-media__action:not(.cv-media__expand)");
     expect(open).not.toBeNull();
     await act(async () => open!.click());
     expect(calls).toEqual([["link.openPath", { path: SOURCE }]]);
@@ -364,7 +364,7 @@ describe("the inline player", () => {
     expect(video.dataset.played).toBe("muted");
     jest.useRealTimers();
     await act(async () =>
-      container.querySelector<HTMLButtonElement>('button.cv-media__action[aria-label="Expand"]')!.click(),
+      container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click(),
     );
     const stage = dom!.window.document.querySelector(".cv-media-stage");
     expect(stage).not.toBeNull();
@@ -376,6 +376,24 @@ describe("the inline player", () => {
     expect(play).not.toBeNull();
     await act(async () => play!.click());
     expect(large.muted).toBe(false);
+    expect(large.dataset.played).toBe("sound");
+  });
+
+  test("expanded playback takes over the inline player at its current position", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    video.currentTime = 12;
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click(),
+    );
+    const stage = dom!.window.document.querySelector(".cv-media-stage")!;
+    const large = stage.querySelector<HTMLVideoElement>("video")!;
+    await act(async () => stage.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    expect(video.dataset.paused).toBe("yes");
+    expect(large.currentTime).toBe(12);
     expect(large.dataset.played).toBe("sound");
   });
 
