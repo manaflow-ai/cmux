@@ -14,11 +14,13 @@ import Testing
 /// stale running record. A machine the provider failed still reads "Failed to start".
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudLinkEndedHeaderTests {
-    /// A Cloud machine with `status` whose app link refuses every connect, as a dropped link does.
-    static func session(status: CloudMachine.Status) -> CloudMachineSession {
+    /// A Cloud machine with `status` whose app link refuses every connect with `error` (by default
+    /// the link-down a dropped link answers).
+    static func session(status: CloudMachine.Status,
+                        error: CloudLinkError = .disconnected(reason: "link down")) -> CloudMachineSession {
         let id = "vm-ended-\(UUID().uuidString.prefix(8))"
         let session = CloudMachineSession(machine: CloudMachine(id: id, status: status, displayName: "Ended VM"),
-                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: EndedLinkResolver()),
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: EndedLinkResolver(error: error)),
                                           localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         return session
     }
@@ -62,6 +64,27 @@ struct CloudLinkEndedHeaderTests {
         #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Paused (idle)")
     }
 
+    /// The app server's `cloud.machine.connect` failed with a provider error (not a link that went
+    /// down or was revoked) on a machine whose record reads running or provisioning: the machine did
+    /// not start, so it reads "Failed to start", not "Disconnected".
+    @Test(arguments: [CloudMachine.Status.running, .provisioning])
+    func aConnectThatTheProviderFailedReadsFailedToStart(status: CloudMachine.Status) async {
+        let session = Self.session(status: status, error: .failed(code: "vm_start_failed", message: "the provider could not start it"))
+        defer { session.disconnect() }
+        await Self.connectAndEnd(session)
+        let header = CloudCreationRows.machine(session, compatibility: nil)
+        #expect(header.status == .failed)
+        #expect(SectionHeaderRowView.statusText(header.status, hostGroup: false) == "Failed to start")
+    }
+
+    /// A revoked link is a link that ended, like a drop: "Disconnected".
+    @Test func aRevokedLinkReadsDisconnected() async {
+        let session = Self.session(status: .running, error: .revoked(reason: "access removed"))
+        defer { session.disconnect() }
+        await Self.connectAndEnd(session)
+        #expect(CloudCreationRows.machine(session, compatibility: nil).status == .disconnected)
+    }
+
     /// The provider failed the machine: "Failed to start", also when its link ended too.
     @Test func aMachineTheProviderFailedStillReadsFailedToStart() async {
         let session = Self.session(status: .failed)
@@ -73,10 +96,12 @@ struct CloudLinkEndedHeaderTests {
     }
 }
 
-/// The app server's `cloud.machine.connect` for a machine whose link went down.
+/// The app server's `cloud.machine.connect` for a machine whose connect fails with `error`.
 private struct EndedLinkResolver: CloudLinkResolver {
+    let error: CloudLinkError
+
     func open(_ key: CloudLinkKey, intent: String, origin: CloudLinkOrigin) async throws -> CloudLinkSocket {
-        throw CloudLinkError.disconnected(reason: "link down")
+        throw error
     }
 
     func close(_ key: CloudLinkKey) async {}
