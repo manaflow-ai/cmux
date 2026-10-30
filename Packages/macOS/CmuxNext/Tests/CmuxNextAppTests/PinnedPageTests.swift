@@ -72,9 +72,7 @@ struct PinnedPageTests {
             configuration: .init(binary: binary, session: "cn-pinned-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppActions.bind(services)
+        let services = TestHosts.liveDaemonApp()
         services.windows.ordersWindowsIn = false
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: launcher.endpointProvider)
