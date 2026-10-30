@@ -121,8 +121,18 @@ class DumpTests(unittest.TestCase):
         self.assertEqual(prefetch.binary_artifacts(dump), [("https://h/x.zip", good)])
 
     def test_reads_local_path_dependencies(self) -> None:
-        dump = {"dependencies": [{"fileSystem": [{"path": "/abs/Pkg"}]}, {"sourceControl": [{}]}]}
+        # Swift 6.2 dump-package: PackageDependency's enum coding.
+        dump = {"dependencies": [
+            {"fileSystem": [{"identity": "cmuxghosttykit", "nameForTargetDependencyResolutionOnly": None,
+                             "path": "/abs/Pkg", "productFilter": None, "traits": []}]},
+            {"sourceControl": [{"identity": "x", "location": {"remote": [{"urlString": "https://h/x"}]}}]},
+        ]}
         self.assertEqual(prefetch.local_dependencies(dump, Path("/root/P")), [Path("/abs/Pkg")])
+
+    def test_reads_a_flat_file_system_dependency(self) -> None:
+        dump = {"dependencies": [{"kind": "fileSystem", "location": "../Sibling"},
+                                 {"kind": "sourceControl", "location": "https://h/x"}]}
+        self.assertEqual(prefetch.local_dependencies(dump, Path("/root/P")), [Path("/root/Sibling")])
 
 
 class SoftFailureTests(unittest.TestCase):

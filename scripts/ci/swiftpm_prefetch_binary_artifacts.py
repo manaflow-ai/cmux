@@ -144,12 +144,20 @@ def binary_artifacts(dump: dict) -> list[tuple[str, str]]:
 
 
 def local_dependencies(dump: dict, package: Path) -> list[Path]:
-    """The path dependencies a dump-package JSON declares, as absolute directories."""
+    """The path dependencies a dump-package JSON declares, as absolute directories. Swift 6.2's dump-package
+    writes `{"fileSystem": [{"identity": ..., "path": ...}]}` (PackageDependency's enum coding; run
+    41076235054 seeded WebRTC and GhosttyNextKit, which only local packages declare); a flat
+    `{"kind": "fileSystem", "location"|"path": ...}` is read too, should a later SwiftPM write that."""
     found = []
     for dependency in dump.get("dependencies") or []:
-        for entry in dependency.get("fileSystem") or []:
-            path = entry.get("path") if isinstance(entry, dict) else None
-            if path:
+        if not isinstance(dependency, dict):
+            continue
+        entries = dependency.get("fileSystem")
+        if not isinstance(entries, list):
+            entries = [dependency] if dependency.get("kind") == "fileSystem" else []
+        for entry in entries:
+            path = (entry.get("path") or entry.get("location")) if isinstance(entry, dict) else None
+            if isinstance(path, str) and path:
                 found.append((package / path).resolve())
     return found
 
