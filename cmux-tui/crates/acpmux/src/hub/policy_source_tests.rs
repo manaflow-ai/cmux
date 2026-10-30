@@ -362,3 +362,56 @@ async fn a_policy_set_before_the_old_host_ended_keeps_the_end_and_the_grant() {
     let hub = hub_at(dir.path());
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll, "cleared again");
 }
+
+/// A store whose saved records lag their logs (a lost async save, `meta_writer.rs`): the
+/// VM_HOST_ERA chat's `policy` approve-all record (seq 2) is past its saved `lastSeq` (1), and
+/// an owner grant made after the upgrade (seq 3, with its source) is past it too on LOCAL.
+fn lagging_store(dir: &std::path::Path) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir).unwrap();
+    store.append(VM_HOST_ERA, &record(1, "created", json!({"harness": "claude"}))).unwrap();
+    store.append(VM_HOST_ERA, &record(2, "policy", json!({"policy": "approve-all"}))).unwrap();
+    let mut era = legacy(VM_HOST_ERA, true, Some("approve-all"));
+    era.last_seq = 1;
+    era.event_count = 1;
+    store.save(&era).unwrap();
+    store.append(LOCAL, &record(1, "created", json!({"harness": "claude"}))).unwrap();
+    store.append(LOCAL, &record(2, "policy", json!({"policy": "ask", "source": SET}))).unwrap();
+    store
+        .append(LOCAL, &record(3, "policy", json!({"policy": "approve-all", "source": SET})))
+        .unwrap();
+    let mut local = legacy(LOCAL, false, Some("ask"));
+    local.policy_source = Some(SET.into());
+    local.last_seq = 1;
+    local.event_count = 1;
+    store.save(&local).unwrap();
+    store.flush().unwrap();
+}
+
+/// A cleared approve-all stays cleared when the log tail is replayed over the saved record: the
+/// load clears the stale record's grant, and the tail's older `policy` record (no source, an
+/// older daemon's) must not bring it back. An owner's grant in the tail, logged with its source,
+/// comes back with it.
+#[tokio::test]
+async fn a_cleared_approve_all_stays_cleared_when_the_log_tail_is_replayed() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    lagging_store(dir.path());
+    let hub = hub_at(dir.path());
+    let era = hub.resolve(VM_HOST_ERA).unwrap();
+    hub.catch_up(&era);
+    assert_eq!(
+        answers(&hub, VM_HOST_ERA),
+        PermissionPolicy::Ask,
+        "the replay granted approve-all again"
+    );
+    assert_eq!(era.meta().policy_source.as_deref(), Some(CLEARED));
+    let local = hub.resolve(LOCAL).unwrap();
+    hub.catch_up(&local);
+    assert_eq!(
+        answers(&hub, LOCAL),
+        PermissionPolicy::ApproveAll,
+        "the owner's logged grant was lost"
+    );
+    assert_eq!(local.meta().policy_source.as_deref(), Some(SET));
+}
