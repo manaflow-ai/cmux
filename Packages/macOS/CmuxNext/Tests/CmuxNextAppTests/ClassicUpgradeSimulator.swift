@@ -157,7 +157,7 @@ final class ClassicUpgradeSimulator {
         do {
             let st = services.daemon.store
             let env = ProcessInfo.processInfo.environment.filter { $0.key.hasPrefix("CMUX") || $0.key.hasPrefix("XDG") || $0.key == "HOME" }
-            print("CLASSIC-DIAG stateResources=\(st.servesStateResources) personalLoaded=\(st.personal.isLoaded) mixed=\(st.supportsPersonalMixedOrder) sidebarDoc=\(services.daemon.supports(DaemonCapabilities.sidebarDoc)) docActive=\(SidebarDocWiring.isActive) placement=\(String(describing: services.settings?.snapshot.newWorkspacePlacement)) windows=\(services.windows.registry.value.windows.map { "\($0.id.prefix(6)):\($0.isOpen)" }) env=\(env.sorted { $0.key < $1.key })")
+            print("CLASSIC-DIAG2 screens=\(NSScreen.screens.count) controllers=\(services.windows.controllers.count) nswindows=\(NSApp.windows.count) visible=\(NSApp.windows.filter(\.isVisible).count) launchSnapshot=\(services.daemon.launchSnapshotWindows != nil)"); print("CLASSIC-DIAG stateResources=\(st.servesStateResources) personalLoaded=\(st.personal.isLoaded) mixed=\(st.supportsPersonalMixedOrder) sidebarDoc=\(services.daemon.supports(DaemonCapabilities.sidebarDoc)) docActive=\(SidebarDocWiring.isActive) placement=\(String(describing: services.settings?.snapshot.newWorkspacePlacement)) windows=\(services.windows.registry.value.windows.map { "\($0.id.prefix(6)):\($0.isOpen)" }) env=\(env.sorted { $0.key < $1.key })")
         }
         launchMade = Set(made().keys)
         watch(from: migrating)
