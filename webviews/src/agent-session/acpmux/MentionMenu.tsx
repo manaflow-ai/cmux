@@ -27,6 +27,21 @@ export function mentionQuery(markdown: string, at: number): { start: number; que
   return { start, query: found[2]!.replace(/\\(.)/g, "$1") };
 }
 
+/// Where the caret, counted in the characters the prompt shows, falls in its markdown: a
+/// backslash escape and a character reference (the serializer's `&#x20;`) each show as one, and so
+/// does an attachment placed in the text: the editor counts its atom as one place, the markdown
+/// holds its whole token (attachments.ts inlineToken).
+export function markdownOffset(markdown: string, shown: number): number {
+  let index = 0;
+  for (let count = 0; count < shown && index < markdown.length; count++) {
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
+      markdown.slice(index),
+    );
+    index += escape ? escape[0].length : 1;
+  }
+  return index;
+}
+
 /// `@path ` as the prompt's markdown writes it: quoted when the path has a space (an agent reads a
 /// mention up to the first one), with markdown's specials escaped so `__init__.py` is not bold.
 /// `shown` is what the person sees, for the caret.
