@@ -775,6 +775,36 @@ for (const turnId of ["turn-grace", undefined])
     }
   });
 
+// Review at e0eaed50 (P2): a Stop bound to a known turn does not cover a later turn that names none;
+// that turn's Stop is sent.
+test("a Stop of a known turn does not swallow the next unnamed turn's Stop", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "first", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old" }],
+    ]),
+  );
+  const { client } = await connect(daemon);
+  const cancels = () => daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel").length;
+  try {
+    await client.cancel();
+    expect(cancels()).toBe(1);
+    daemon.push(
+      record(
+        [
+          ["mux", "user_message", { text: "legacy next" }],
+          ["mux", "turn_started", {}],
+        ],
+        3,
+      ),
+    );
+    await client.cancel();
+    expect(cancels()).toBe(2);
+  } finally {
+    client.close();
+  }
+});
+
 // Review at f3f7ad83 (P2): turn_error is the legacy pair of turn_result, as turn_end is; it answers
 // an unidentified Stop the same way.
 test("a legacy turn_error answers an unidentified Stop, so the next turn's Stop is sent", async () => {
