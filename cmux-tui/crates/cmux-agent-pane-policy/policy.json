@@ -79,7 +79,7 @@
     "_acpmux/models": {"params": ["refresh"], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},
-    "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
+    "_acpmux/draft_set": {"params": ["sessionId", "text", "generation"], "acpmux": []},
     "_acpmux/bookmark_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
     "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline"], "acpmux": []},

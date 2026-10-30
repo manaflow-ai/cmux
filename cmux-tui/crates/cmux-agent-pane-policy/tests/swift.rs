@@ -67,3 +67,13 @@ fn the_known_params_are_the_macos_hosts() {
         .collect();
     assert_eq!(rust, swift, "policy.json known_params vs AcpmuxPaneMethods.knownParams");
 }
+
+#[test]
+fn draft_set_allows_generation_but_no_other_new_fields() {
+    let known = &policy().known_params["_acpmux/draft_set"].params;
+    assert!(known.contains("sessionId"));
+    assert!(known.contains("text"));
+    assert!(known.contains("generation"));
+    assert!(!known.contains("revision"));
+    assert!(!known.contains("unexpected"));
+}
