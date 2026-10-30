@@ -53,7 +53,7 @@ final class CEFDevToolsSendOrder {
     /// - Returns: What `post` returned.
     func send(_ browser: Int32, params: [String: any Sendable], post: (String) -> CEFDevToolsSend?) async -> CEFDevToolsSend? {
         let ticket = take(browser)
-        let text = await CEFDevToolsResult.encodedParams(params)
+        let text = CEFDevToolsResult.params(params) // red proof: encoded on main
         await turn(ticket, of: browser)
         let sent = post(text)
         leave(ticket, of: browser)

@@ -48,7 +48,7 @@ enum CEFThumbnail {
             // The answer is for a page that may have gone meanwhile: nothing of a closed page is kept.
             guard let tab, !tab.isClosed else { throw BrowserTabError.closed }
             // Decoded off the main actor: base64 and PNG or JPEG of a whole page view.
-            return try await CEFDevToolsResult.decodedScreenshot(json)
+            return try CEFDevToolsResult.screenshot(json) // red proof: decoded on main
         }
     }
 }
