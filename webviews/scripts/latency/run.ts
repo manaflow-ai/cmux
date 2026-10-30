@@ -156,6 +156,7 @@ try {
       for (const action of spec.actions) {
         if (actionFilter && !action.name.includes(actionFilter)) continue;
         // Every action starts from a freshly loaded page, so one action's state never leaks into the next.
+        if (process.env.LATENCY_TRACE) console.error(`latency trace: ${spec.name} / ${action.name}: load`);
         await page.goto(`${base}${spec.path}`);
         await page.waitForFunction(spec.ready, undefined, { timeout: 30_000 });
         // Let the first frames settle (workers, highlighting) before measuring.

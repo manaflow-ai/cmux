@@ -77,16 +77,23 @@ export async function measureOnce(
   action: LatencyAction,
   timeoutMs = 5000,
 ): Promise<{ sample: LatencySample | null; error?: string }> {
+  // LATENCY_TRACE=1: each phase of each run on stderr, to find where a run stalls.
+  const trace = (phase: string) => {
+    if (process.env.LATENCY_TRACE) console.error(`latency trace: ${action.name}: ${phase} at ${Math.round(performance.now())} ms`);
+  };
   let predicate: string;
+  trace("prepare");
   try {
     predicate = await action.prepare(page);
   } catch (error) {
     return { sample: null, error: `prepare failed: ${String((error as Error).message ?? error).split("\n")[0]}` };
   }
+  trace("arm");
   await page.evaluate(`window.__latencyCheck = () => (${predicate});`);
   await page.evaluate((source) => window.__latency!.arm(source), predicate);
   const armError = await page.evaluate(() => window.__latency!.error);
   if (armError) return { sample: null, error: armError };
+  trace("input");
   try {
     await action.input(page);
   } catch (error) {
@@ -97,6 +104,7 @@ export async function measureOnce(
   } catch {
     return { sample: null, error: `no response within ${timeoutMs} ms (predicate: ${predicate})` };
   } finally {
+    trace("settle");
     await action.settle?.(page);
   }
   return { sample: await page.evaluate(() => window.__latency!.result()) };
