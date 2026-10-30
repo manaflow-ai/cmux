@@ -6574,21 +6574,17 @@ export class AcpmuxDirectClient {
     const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
     const generation = this.selectionGeneration;
     const moved = () => this.closed || generation !== this.selectionGeneration;
-    // acpmux answers a watch it already has (another tab's) with that session: only one this
-    // request made is removed when nobody looks at it.
-    const known = new Set(this.sessions.map((session) => session.sessionId));
     let result: any;
     try {
       result = await this.request("session/new", newSessionParams({ adopt: watch }));
     } catch {
       return moved();
     }
+    // A watch answered after the person moved on stays listed, as any chat opened and then left
+    // does. It is never removed here: acpmux answers with the watch it already has for this chat,
+    // which may be another pane's (the same session shown in two places).
+    if (moved()) return true;
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
-    if (moved()) {
-      if (sessionId && !known.has(sessionId) && !this.closed)
-        await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
-      return true;
-    }
     if (!sessionId) return false;
     if (!adoptedBy(result, watch)) {
       await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);

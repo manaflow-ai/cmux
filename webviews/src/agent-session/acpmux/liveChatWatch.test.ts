@@ -178,8 +178,8 @@ test("a watch that answers after the person moved to another chat leaves that ch
     expect(now().liveChat).toBeUndefined();
     expect(now().liveTakeOver).toBeUndefined();
     expect(client.adopted).toBeUndefined();
-    // The watch it made for nobody is removed.
-    expect(killed).toEqual(["watched-1"]);
+    // The watch stays: acpmux may have answered with another pane's watch of the same chat.
+    expect(killed).toEqual([]);
   } finally {
     client.close?.();
   }
