@@ -17,7 +17,7 @@ import type { AgentQuestion } from "../question/model";
 
 let cardRenders = 0;
 const realUseT = i18n.useT;
-mock.module("../i18n", () => ({
+void mock.module("../i18n", () => ({
   ...i18n,
   useT: () => {
     cardRenders++;
