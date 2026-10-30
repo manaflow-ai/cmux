@@ -204,7 +204,18 @@ export function useFolderTrustAsk(
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
   const resend = useRef(
-    new Map<string | undefined, { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }>(),
+    new Map<
+      string | undefined,
+      {
+        again: () => void;
+        cwds: (string | undefined)[];
+        family?: string;
+        ready: boolean;
+        authorityEpoch: number;
+        ownerEpoch: number;
+        visitValue: unknown;
+      }
+    >(),
   );
   /// What acpmux's last trust refusal said of each chat's folder, until an answer there: the
   /// question draws from it when the folder's read gets no answer in time (a peer's folder, read
@@ -518,6 +529,19 @@ export function useFolderTrustAsk(
       resend.current.delete(sessionId);
       return;
     }
+    // A callback belongs to the exact route/visit that received the refusal.
+    // Never replay it after a client or chat selection changes, even when the
+    // session id and folder happen to match.
+    if (
+      held.authorityEpoch !== authorityEpoch ||
+      held.ownerEpoch !== ownerEpoch ||
+      held.visitValue !== visitValue ||
+      !sameVisit() ||
+      !sameAuthority()
+    ) {
+      resend.current.delete(sessionId);
+      return;
+    }
     if (!held.ready || !trusted || blockSend || !cwd || !mounted.current) return;
     resend.current.delete(sessionId);
     try {
@@ -526,7 +550,7 @@ export function useFolderTrustAsk(
       // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
       setAsk({ cwd, state: "failed" });
     }
-  }, [ask, trusted, blockSend, sessionId, cwd, family]);
+  }, [ask, trusted, blockSend, sessionId, cwd, family, authorityEpoch, ownerEpoch, visitValue, sameVisit, sameAuthority]);
 
   const blocked: SendBlock | undefined = reading
     ? {}
@@ -592,7 +616,16 @@ export function useFolderTrustAsk(
         setTrusted(false);
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
-        if (again) resend.current.set(sessionId, { again, cwds: [cwd, refusedFolder], family, ready: false });
+        if (again)
+          resend.current.set(sessionId, {
+            again,
+            cwds: [cwd, refusedFolder],
+            family,
+            ready: false,
+            authorityEpoch,
+            ownerEpoch,
+            visitValue,
+          });
         else {
           const held = resend.current.get(sessionId);
           if (held) held.ready = false;
