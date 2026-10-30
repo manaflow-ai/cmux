@@ -4,6 +4,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { GALLERY_NOW } from "../src/gallery/clock";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -47,6 +48,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
+          // Keep the longest format present while measuring: the gallery clock otherwise
+          // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
+          await page.clock.setFixedTime(new Date(GALLERY_NOW));
+          await page.waitForFunction(
+            () =>
+              document.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")?.textContent?.trim() ===
+              "12h 59m 59s",
+          );
           const pinned = await page.evaluate(() => {
             const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
             const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
