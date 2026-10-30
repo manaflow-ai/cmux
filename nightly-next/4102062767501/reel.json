@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "4102062767501",
+  "notes": "notes/4102062767501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26627,
+      "title": "cmux NEXT: keep ambiguous child starts in shell rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26614,
+      "title": "ci(nightly-next): queue on the busy owned pool, not a stalled Blacksmith label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27940,
+      "title": "cmux NEXT Cloud: caller-ownership answer on connect_info, bound to the link token (cmux-platform#89 A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27754,
+      "title": "acpmux: stop is session stop; unknown commands name the right command; --json parse errors are JSON",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26084,
+      "title": "cmux NEXT: first-run New Tab opens harness setup and shows No project / Browse",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27800,
+      "title": "acpmux: answer Claude Code's hook_callback with no decision, not an error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27741,
+      "title": "ci(signing): an unverified Blacksmith pick says so and never trusts the variable blind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27514,
+      "title": "debug.capture_backdrop: a patterned window behind a window for capture snapshots",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27803,
+      "title": "acpmux: bound parent, group-open and relay paths by the caller deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27984,
+      "title": "cmux-vm: pin cmux-tui 308bd369, the newest published feat-cmux-next build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27792,
+      "title": "agent chat: show Codex plans, goals, compactions and thread lifecycle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26772,
+      "title": "cloud setup-github: the cmux GitHub App by default, the device flow as the fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27051,
+      "title": "cmux NEXT: show Chief agent messages in default Home",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27002,
+      "title": "acpmux: preserve SSH failure reasons and slow retries for long-down peers",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
