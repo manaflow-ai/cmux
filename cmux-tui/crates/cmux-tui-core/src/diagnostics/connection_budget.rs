@@ -17,10 +17,11 @@
 //! - **A fair share per client on the session socket.** A client is the
 //!   process session of the connecting process (`getsid`): a terminal's shell,
 //!   the agent in it, its hooks and a `cmux` run in it share one. A client may
-//!   take a connection only while it then holds fewer connections than the
-//!   lane still has free, so no client takes the last half of what is left:
-//!   one terminal opening connection after connection stops at half of the
-//!   lane, and every new client still finds room.
+//!   take its first connection whenever the lane has room, and a further one
+//!   only while it then holds fewer connections than the lane still has free:
+//!   one terminal opening connection after connection stops at about half of
+//!   the lane, every new client still finds room, and a lane of one admits
+//!   one client.
 //! - **The budget comes from the open-file limit.** The owner raises its soft
 //!   `RLIMIT_NOFILE` at start (`cmux_pty::raise_open_file_limit`, to the hard
 //!   limit, at most `kern.maxfilesperproc` / `OPEN_MAX` on macOS); the budget
@@ -141,7 +142,10 @@ impl LaneCounts {
     }
 
     /// Whether `slot` may be admitted under `budget`: its lane has room, and
-    /// its client then holds fewer connections than the lane has left free.
+    /// its client either holds none yet or then holds fewer connections than
+    /// the lane has left free. A client's first connection always gets in
+    /// while the lane has room, so a lane at the smallest budget (one) still
+    /// admits a client, and every new client finds the room a greedy one left.
     fn admits(&self, budget: ConnectionBudget, slot: ConnectionSlot) -> bool {
         let limit = budget.lane(slot.lane);
         let held = self.held(slot.lane);
@@ -150,7 +154,7 @@ impl LaneCounts {
         }
         let Some(identity) = slot.identity else { return true };
         let mine = self.by_identity.get(&identity).copied().unwrap_or_default();
-        mine + 1 < limit - held
+        mine == 0 || mine + 1 < limit - held
     }
 
     fn take(&mut self, slot: ConnectionSlot) {

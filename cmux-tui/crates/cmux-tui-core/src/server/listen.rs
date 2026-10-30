@@ -401,7 +401,18 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
     }
     let listener = transport::listen(&path)?;
     let file = SocketFile { path, owned: true };
-    let app = bind_app_lane(&file.path)?;
+    // The app socket is an addition: without it the app connects to the
+    // session socket (LineTransport's fallback), so it never stops a start.
+    let app = match bind_app_lane(&file.path) {
+        Ok(app) => app,
+        Err(error) => {
+            eprintln!(
+                "cmux-tui: the app socket next to {} is not served ({error:#}); the app uses the session socket",
+                file.path.display()
+            );
+            None
+        }
+    };
     drop(start_lock);
     let bound = BoundSocket { listener, app, file };
     platform::restrict_file(bound.path())?;
@@ -411,8 +422,9 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
 /// Bind the app's socket next to the session socket, under the same start
 /// lock: whoever owns the session socket owns this one, so a file left by a
 /// crashed owner is stale and goes. `None` when the path does not fit a Unix
-/// socket path; the app then connects to the session socket, as with an older
-/// daemon.
+/// socket path, and an error when it can't be bound; either way the caller
+/// serves the session socket alone and the app connects there, as with an
+/// older daemon.
 fn bind_app_lane(
     session_socket: &Path,
 ) -> anyhow::Result<Option<(transport::Listener, SocketFile)>> {
