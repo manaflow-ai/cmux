@@ -191,6 +191,42 @@ git -C "$repo" mv "$SRC/L/Pair.swift" "$SRC/K/Pair.swift"
 git -C "$repo" rm -q -f "$SRC/K/Pair.swift"
 printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
 git -C "$repo" add -A
+# A move that rewrote a listed file into a path the base listed but did not have keeps its SwiftUI.
+mkdir -p "$repo/$SRC/M" "$repo/$SRC/N"; printf 'import SwiftUI\nstruct Mv {}\n' > "$repo/$SRC/M/Mv.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/M/Mv.swift" "$SRC/N/Mv.swift" > "$repo/$LIST"
+commit base4c-listed-destination
+base4c=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" rm -q "$SRC/M/Mv.swift"
+printf 'import SwiftUI\nimport AppKit\n\n/// Rewritten while it moved.\nstruct Moved { let a = 1; let b = 2; let c = 3 }\n' > "$repo/$SRC/N/Mv.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/N/Mv.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base4c" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a rewritten move into a path the base listed" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/N/Mv.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+# An allowlisted symlink to a SwiftUI source, unchanged since the base, passes.
+mkdir -p "$repo/$SRC/S"; printf 'import SwiftUI\nstruct Real {}\n' > "$repo/$SRC/S/Real.swift"
+ln -s Real.swift "$repo/$SRC/S/Link.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/S/Link.swift" "$SRC/S/Real.swift" > "$repo/$LIST"
+commit base4d-symlink
+python3 -I "$CHECK" --base "$(git -C "$repo" rev-parse HEAD)" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: an unchanged allowlisted symlink" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/S/Link.swift" "$SRC/S/Real.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+# A base source that is not UTF-8 is read, not a crash.
+mkdir -p "$repo/$SRC/U"; printf 'import SwiftUI\n// caf\xe9\nstruct U {}\n' > "$repo/$SRC/U/Latin.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" "$SRC/U/Latin.swift" > "$repo/$LIST"
+commit base4e-latin1
+base4e=$(git -C "$repo" rev-parse HEAD)
+printf 'import SwiftUI\n// cafe\nstruct U {}\n' > "$repo/$SRC/U/Latin.swift"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base4e" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a base source that is not UTF-8" >&2; cat "$tmp/err" >&2; exit 1; }
+git -C "$repo" rm -q -f "$SRC/U/Latin.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
 # An allowlist already unsorted on the base warns while the change leaves it alone, and fails once the change edits it.
 printf '%s\n' "$SRC/C/Two.swift" "$SRC/B/One.swift" > "$repo/$LIST"
 commit base5-unsorted

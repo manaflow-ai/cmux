@@ -48,6 +48,7 @@ from __future__ import annotations
 import argparse
 import os
 import pathlib
+import posixpath
 import re
 import subprocess
 import sys
@@ -110,13 +111,20 @@ def renamed_since(root: pathlib.Path, base: str) -> dict[str, str]:
     return moves
 
 
-def imported_at(root: pathlib.Path, ref: str, path: str) -> bool:
-    """Whether `path` existed at `ref` and imported SwiftUI there."""
+def imported_at(root: pathlib.Path, ref: str, path: str, _hops: int = 0) -> bool:
+    """Whether `path` existed at `ref` and imported SwiftUI there (a symlink: its target, as the work tree reads it)."""
     try:
-        text = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{path}"],
-                              check=True, capture_output=True, text=True).stdout
+        mode = subprocess.run(["git", "-C", str(root), "ls-tree", ref, "--", path],
+                              check=True, capture_output=True, text=True).stdout.split(" ", 1)[0]
+        text = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{path}"], check=True,
+                              capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+    if mode == "120000":
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(path), text.strip()))
+        if _hops >= 8 or target.startswith(("/", "../")) or target == "..":
+            return False
+        return imported_at(root, ref, target, _hops + 1)
     return IMPORT.search(re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)) is not None
 
 
@@ -205,18 +213,15 @@ def main() -> int:
             # Finding 4: an entry the base had stale, filled with SwiftUI by this change.
             for f in sorted(importing & allowed_set):
                 name = pathlib.PurePosixPath(f).name
-                if f in old_allowed:
-                    origins = [f] + ([moves[f]] if f in moves else [])
-                elif moves.get(f) in old_allowed:
-                    origins = [moves[f]]
-                elif len(dropped.get(name, [])) == 1 and len(added_names.get(name, [])) == 1:
-                    origins = dropped[name]
-                else:
+                paired = dropped[name] if len(dropped.get(name, [])) == 1 else []
+                if f not in old_allowed and moves.get(f) not in old_allowed \
+                        and not (paired and len(added_names.get(name, [])) == 1):
                     continue  # an entry this change added: the growth check above judges it
-                # The file at its own path (or git's rename source) importing SwiftUI at the base is not
-                # new SwiftUI either: a base red the change lists while it drops a gone entry of its name.
-                origins += [f, moves.get(f, f)]
-                if not any(imported_at(root, args.base, o) for o in dict.fromkeys(origins)):
+                # Its origins at the base: its own path, git's rename source, and the one gone entry of its
+                # name (a move that rewrote the file, also into a path the base already listed). SwiftUI
+                # any of them had is not new.
+                origins = dict.fromkeys([f, moves.get(f, f)] + paired)
+                if not any(imported_at(root, args.base, o) for o in origins):
                     findings.append(f"{f}: imports SwiftUI, which it did not at {args.base}; its allowlist entry "
                                     f"was stale there, so delete the line and keep the file AppKit")
 
