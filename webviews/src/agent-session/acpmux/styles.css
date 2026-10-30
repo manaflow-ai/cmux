@@ -855,7 +855,7 @@ fieldset.acpmux-question[hidden]{display:none}
 @media (prefers-reduced-transparency:reduce){.acpmux-palette-list[data-fade-top],.acpmux-palette-list[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
 :root[data-reduce-transparency] .acpmux-palette-list[data-fade-top],:root[data-reduce-transparency] .acpmux-palette-list[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
 /* The groups are split by the shared menu separator (PaletteMenu.tsx), in the pane's menu hairline. */
-.acpmux-palette-menu .ui-separator{flex:none;height:var(--cmux-hairline,.5px);margin:4px 8px;border:0;background:var(--agent-border)}
+.acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */

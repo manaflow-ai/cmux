@@ -80,7 +80,11 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
             ? {
                 height: line.height,
                 between: line.top >= lastRow.bottom - 0.5 && line.bottom <= header.top + 0.5,
-                background: css!.backgroundColor,
+                // The hairline it paints: a fill, or a top border (the pane's menu rule).
+                paint:
+                  Number.parseFloat(css!.borderTopWidth) > 0 && css!.borderTopStyle !== "none"
+                    ? css!.borderTopColor
+                    : css!.backgroundColor,
               }
             : null,
         };
@@ -92,7 +96,7 @@ await requireBrowserLane("composer-plus-menu-polish.browser.test.ts", async () =
       expect(gap.separator).not.toBeNull();
       expect(gap.separator!.between).toBe(true);
       expect(gap.separator!.height).toBeGreaterThan(0);
-      expect(gap.separator!.background).not.toMatch(/^(transparent|rgba\(0, 0, 0, 0\))$/);
+      expect(gap.separator!.paint).not.toMatch(/^(transparent|rgba\(0, 0, 0, 0\))$/);
       // A menu's group spacing: the separator's own margins around its hairline, no more.
       expect(gap.empty).toBeLessThanOrEqual(12);
     }
