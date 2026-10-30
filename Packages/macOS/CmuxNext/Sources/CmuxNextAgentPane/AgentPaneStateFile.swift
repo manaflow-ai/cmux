@@ -85,6 +85,20 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
     /// app's quit awaits it (`QuitCoordinator`), and the forced quit after its own deadline is armed
     /// (`ForcedQuitExit`). False when some were still queued at the limit.
     @discardableResult
+    public func flushAll(within limit: TimeInterval) -> Bool {
+        let all = files.withLock { Array($0.values) }
+        // concurrency-allow: red-proof ref only (the base's quit flush, inside allowBlocking(.terminate)); bounded by `limit`
+        let drained = DispatchSemaphore(value: 0)
+        for file in all { file.queue.async { drained.signal() } }
+        let deadline = DispatchTime.now() + limit
+        for _ in all {
+            // concurrency-allow: red-proof ref only; one shared deadline for every file
+            if drained.wait(timeout: deadline) == .timedOut { return false }
+        }
+        return true
+    }
+
+    @discardableResult
     public func drained(within limit: Duration) async -> Bool {
         await QueueDrain().drained(files.withLock { $0.values.map(\.queue) }, within: limit)
     }
