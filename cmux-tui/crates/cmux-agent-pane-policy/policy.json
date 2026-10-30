@@ -7,7 +7,7 @@
     "_acpmux/watch", "_acpmux/sessions", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
     "_acpmux/peer_snapshot", "_acpmux/peer_reconnect", "_acpmux/retry",
     "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
-    "_acpmux/status", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
+    "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit",
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
@@ -78,6 +78,7 @@
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
     "_acpmux/models": {"params": ["refresh"], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
+    "_acpmux/peers": {"params": [], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/draft_set": {"params": ["sessionId", "text"], "acpmux": []},
     "_acpmux/bookmark_get": {"params": ["sessionId"], "acpmux": []},
@@ -125,7 +126,8 @@
   },
   "reply_shapes": {
     "_acpmux/status": {"object": {"peers": {"list": {"object": {"name": "string"}}}}},
-    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "error": "string"}}}}}
+    "_acpmux/peer_reconnect": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "error": "string"}}}}},
+    "_acpmux/peers": {"object": {"peers": {"list": {"object": {"name": "string", "state": "string", "lastSeen": "number", "error": "string"}}}}}
   },
   "history_replies": ["_acpmux/attach", "_acpmux/events"],
   "path_keys": ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
