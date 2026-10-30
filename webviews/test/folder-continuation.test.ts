@@ -105,3 +105,37 @@ test("a stale successful selection cannot clear the newer folder", async () => {
 test("recovery requests a folder-free chat without sending the held prompt", () => {
   expect(folderContinuationRequest).toEqual({ noProject: true, continueWithoutFolder: true });
 });
+
+for (const navigates of [false, true]) {
+  test(`selection's own generation bump ${navigates ? "still fences later navigation" : "clears the recovered folder"}`, async () => {
+    const continuation = new FolderContinuation();
+    let clientGeneration = 1;
+    let expectedGeneration = clientGeneration;
+    let folder: string | undefined = "/declined";
+    const selection = deferred<boolean>();
+    const selecting = deferred<void>();
+    const run = continuation.run({
+      start: async () => "destination",
+      current: () => clientGeneration === expectedGeneration,
+      copyText: () => {},
+      select: () => {
+        // AcpmuxDirectClient.select changes the visit before its first await.
+        clientGeneration += 1;
+        expectedGeneration = clientGeneration;
+        selecting.resolve();
+        return selection.promise;
+      },
+      clearFolder: () => {
+        folder = undefined;
+      },
+    });
+    await selecting.promise;
+    if (navigates) {
+      clientGeneration += 1;
+      folder = "/newer";
+    }
+    selection.resolve(true);
+    await run;
+    expect(folder).toBe(navigates ? "/newer" : undefined);
+  });
+}

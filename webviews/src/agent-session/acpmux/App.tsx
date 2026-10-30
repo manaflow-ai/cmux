@@ -5855,10 +5855,12 @@ function AcpmuxPane() {
     if (continuationProject.current !== projectDraft) continuationProjectGeneration.current += 1;
     continuationProject.current = projectDraft;
   }, [projectDraft]);
+  // Session changes are fenced by the live client generation, including before React renders.
+  // Invalidating on snapshot.sessionId would also cancel recovery on its own destination render.
   useLayoutEffect(() => {
     folderContinuation.invalidate();
     return () => folderContinuation.invalidate();
-  }, [folderContinuation, projectDraft, snapshot.sessionId, clientEpoch]);
+  }, [folderContinuation, projectDraft, clientEpoch]);
 
   const processSource = useMemo<ProcessSource>(
     () => ({
@@ -8438,7 +8440,7 @@ function AcpmuxPane() {
           // a chat with no project (`noProject`) or for a peer gets no start folder.
           "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
             if (noProject === true && continueWithoutFolder === true) {
-              const generation = client.trustGeneration;
+              let generation = client.trustGeneration;
               const trustGeneration = trustRevision.current;
               const projectGeneration = continuationProjectGeneration.current;
               const holder = composerHandle.current;
@@ -8461,7 +8463,11 @@ function AcpmuxPane() {
                 select: async (id) => {
                   holder?.suppressAttachmentCarryFor(summary?.sessionId);
                   try {
-                    const selected = await client.select(id);
+                    // select advances the visit synchronously. Adopt only this operation's
+                    // bump before awaiting it, so any later navigation still invalidates us.
+                    const selection = client.select(id);
+                    generation = client.trustGeneration;
+                    const selected = await selection;
                     if (
                       selected !== id ||
                       client.selectedSession !== id ||
