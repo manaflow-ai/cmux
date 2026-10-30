@@ -74,6 +74,21 @@ if [[ "\$method" == POST ]]; then
   esac
   exit 22
 fi
+# REFUSE: $TMP/refuse-count (a number of reads, or "always") answers an
+# artifacts runs read with $TMP/refuse-headers (status line and headers, which
+# the caller's -D gets) and $TMP/refuse-body: GitHub's rate-limit refusal.
+hdr=""
+for ((i = 0; i < \${#args[@]}; i++)); do [[ "\${args[i]}" == -D ]] && hdr="\${args[i+1]}"; done
+if [[ -z "\$url" && -f "$TMP/refuse-count" && "\$api" == */cmux-tui-artifacts.yml/runs* ]]; then
+  left=\$(cat "$TMP/refuse-count")
+  if [[ "\$left" == always || "\$left" -gt 0 ]]; then
+    [[ "\$left" == always ]] || echo \$((left - 1)) > "$TMP/refuse-count"
+    echo "\$(date +%s) \$api" >> "$TMP/refused.log"
+    [[ -z "\$hdr" ]] || cp "$TMP/refuse-headers" "\$hdr"
+    cat "$TMP/refuse-body"
+    exit 0
+  fi
+fi
 # A head_sha= run query lists only that commit's runs (a run without head_sha
 # matches every query, as the older fixtures expect).
 if [[ -z "\$url" && "\$api" == *"head_sha="* ]]; then
@@ -146,6 +161,64 @@ set_runs "$none"
 expect "push, no artifacts run" push failed "no cmux-tui artifacts run"
 rm -f "$runs_dir/runs"
 expect "push, unreadable API" push failed "could not read"
+
+# A GitHub API rate limit is waited out, never a red (2026-10-30: the shared
+# REST budget at 0 failed every feat-cmux-next push's same-tree cmux-tui job,
+# run 41018375309, "could not read the cmux-tui artifacts runs"). Each case
+# refuses the runs read; `refuse <count> <status> [header...]` with the body from refuse_body.
+refuse() {
+  printf '%s\n' "$1" > "$TMP/refuse-count"
+  { printf 'HTTP/2 %s\r\n' "$2"; shift 2; printf '%s\r\n' "$@"; printf '\r\n'; } > "$TMP/refuse-headers"
+  : > "$TMP/refused.log"
+}
+refuse_body() { printf '%s\n' "$1" > "$TMP/refuse-body"; }
+refusals() { wc -l < "$TMP/refused.log" | tr -d ' '; }
+set_head "$sha"; set_runs "$active"
+primary_body='{"message":"API rate limit exceeded for installation ID 1.","documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api","status":"403"}'
+# (r1) The primary limit (403, x-ratelimit-remaining: 0) once: wait for its
+# reset, read again, and resolve the publisher's active run.
+refuse_body "$primary_body"
+refuse 1 403 x-ratelimit-limit:\ 5000 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 30 ))"
+probe push
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(r1) a rate-limited runs read must wait and then defer to the active publisher"
+grep -qF "active cmux-tui artifacts run ($sha)" <<<"$reason" || fail "(r1) reason must name the resolved publisher: $reason"
+(( took == 31 )) || fail "(r1) must wait until the reset (31s), waited ${took}s"
+[[ "$(refusals)" == 1 ]] || fail "(r1) expected one refused read, got $(refusals)"
+grep -qF "GitHub API rate limit (HTTP 403)" <<<"$out" || fail "(r1) the wait must be logged"
+# (r2) A 429 with Retry-After: wait exactly that long, then read the runs: a
+# real result (here a failed publish) after the wait is reported as before.
+refuse_body '{"message":"Too Many Requests"}'
+refuse 1 429 "retry-after: 7"
+set_runs "$failed_run"
+probe push
+[[ "$status" == 0 && "$state" == failed ]] || fail "(r2) after the wait the failed publish must be reported"
+grep -qF "failure: u3" <<<"$reason" || fail "(r2) reason: $reason"
+(( took == 7 )) || fail "(r2) must wait the Retry-After (7s), waited ${took}s"
+# (r3) The secondary limit: a 403 with no rate-limit headers whose message
+# names it waits 60s (it names no reset) when the wait allows it.
+set_runs "$active"
+refuse_body '{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}'
+refuse 1 403
+CMUX_TUI_TREE_RATE_LIMIT_WAIT_SECONDS=120 probe push
+[[ "$status" == 0 && "$state" == deferred ]] || fail "(r3) the secondary limit must be waited out"
+(( took == 60 )) || fail "(r3) must back off 60s, waited ${took}s"
+# (r4) A reset past this check's wait (the budget empty for 50 minutes): no
+# sleep, and deferred, never failed: the publisher's end starts or reports the
+# tree jobs through the wait marker.
+refuse_body "$primary_body"
+refuse always 403 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 3000 ))"
+expect "push, rate limit resets after the wait" push deferred "rate limit"
+(( took == 0 )) || fail "(r4) must not sleep for a reset past the wait (${took}s)"
+[[ "$(refusals)" == 1 ]] || fail "(r4) a rate limit is not re-checked: $(refusals) reads"
+# (r5) A 403 that is not a rate limit (a permission refusal) and a 5xx still
+# fail as before.
+refuse_body '{"message":"Resource not accessible by integration"}'
+refuse always 403
+expect "push, permission 403" push failed "could not read"
+refuse_body '{"message":"Server Error"}'
+refuse always 502
+expect "push, 5xx" push failed "could not read"
+rm -f "$TMP/refuse-count"
 
 # A pull request whose merge keeps the base's cmux-tui waits for the base push's publisher.
 set_runs "$active"
@@ -354,6 +427,16 @@ set_runs "{\"total_count\":1,\"workflow_runs\":[{\"id\":6,\"status\":\"in_progre
 eval "$(dev_probe_environment tree)"
 expect "scheduled dev, cold tree, same-key owner running" workflow_dispatch deferred "$owner_sha"
 [[ ! -s "$TMP/posts.log" ]] || fail "dev probe with a same-key owner must not write: $(cat "$TMP/posts.log")"
+# The runs list itself rate-limited once: the same-key owner is still found
+# after the wait (active_publisher_for_key reads through the same wait).
+refuse_body "$primary_body"
+refuse 1 403 x-ratelimit-remaining:\ 0 "x-ratelimit-reset: $(( $(date +%s) + 9 ))"
+eval "$(dev_probe_environment tree)"
+probe workflow_dispatch
+[[ "$status" == 0 && "$state" == deferred ]] || fail "scheduled dev: a rate-limited runs read must wait, then defer to the same-key owner"
+grep -qF "$owner_sha" <<<"$reason" || fail "scheduled dev: reason must name the owner $owner_sha: $reason"
+(( took == 10 )) || fail "scheduled dev: must wait until the reset (10s), waited ${took}s"
+rm -f "$TMP/refuse-count"
 set_runs "$none"
 mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
 printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
