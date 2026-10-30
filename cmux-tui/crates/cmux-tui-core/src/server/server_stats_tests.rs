@@ -60,7 +60,7 @@ fn server_stats_include_reports_registry_and_state_lock_sites() {
     // A long hold at a known line: it heads the state lock's p99 list.
     let state_line = line!() + 1;
     let held = mux.state.lock().unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    std::thread::sleep(Duration::from_millis(300));
     drop(held);
 
     let plain = stats(&mux, client, json!({"cmd":"server-stats"}));

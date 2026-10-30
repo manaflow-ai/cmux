@@ -165,12 +165,12 @@ fn a_request_waiting_behind_a_writer_commit_does_not_hold_state() {
 fn settling_a_late_registry_receipt_does_not_relock_state() {
     let mux = test_mux();
     let (answer, pending) = crate::journal_ingress::PendingRegistryReceipt::for_test();
-    let settled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let settled = Arc::new(AtomicBool::new(false));
     let settled_by = settled.clone();
     mux.workspace_registry.lock().unwrap().connection.hold_unsettled_for_test(
         pending,
         Some(Box::new(move |_state, _receipt| {
-            settled_by.store(true, std::sync::atomic::Ordering::SeqCst);
+            settled_by.store(true, Ordering::SeqCst);
         })),
     );
     answer
@@ -197,5 +197,5 @@ fn settling_a_late_registry_receipt_does_not_relock_state() {
         Ok(()),
         "pinning state to settle a late receipt deadlocked or panicked"
     );
-    assert!(settled.load(std::sync::atomic::Ordering::SeqCst), "the owed state update ran");
+    assert!(settled.load(Ordering::SeqCst), "the owed state update ran");
 }
