@@ -398,6 +398,39 @@ import Testing
         }
     }
 
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterAFailedLocalReaction(unsent: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // Message 25 was edited or unsent while disconnected.
+        var changed = backend.makeMessage(seq: 25, sender: "lc")
+        changed.text = unsent ? "" : "Edited while disconnected"
+        if unsent { changed.unsentAt = Date(timeIntervalSince1970: 2000) }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // Reacting to the still-visible copy is an optimistic local change,
+        // and this backend refuses it. It must not hold back the recovered
+        // edit or unsend.
+        store.react(messageID: "m25", reaction: .heart)
+        #expect(store.message(id: "m25")?.reactions.isEmpty == false)
+        gate.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let result = try #require(store.message(id: "m25"))
+        #expect(result.text == changed.text)
+        #expect(result.unsentAt == changed.unsentAt)
+        if unsent { #expect(result.reactions.isEmpty) }
+    }
+
     @Test func typingClearsWhenThatParticipantsMessageArrives() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30)
