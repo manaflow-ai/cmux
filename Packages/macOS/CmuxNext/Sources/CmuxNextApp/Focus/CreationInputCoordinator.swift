@@ -38,6 +38,12 @@ final class CreationInputCoordinator {
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
 
+    /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
+    func isHolding(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return buffers[window.windowNumber] != nil
+    }
+
     init(router: KeyRouter) { self.router = router }
 
     /// A window's keyboard belongs to the person's new terminal, asked for under focus generation `generation`.
