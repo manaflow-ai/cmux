@@ -110,6 +110,17 @@ pub(super) const MOVED_AWAY: &str = "moved-away";
 /// keep it, until a later load reads its log. No move has that id.
 pub(super) const LOG_UNREADABLE: &str = "log-unreadable";
 
+/// The `moving` mark a load restores from its log scan: the scan's own when it read the log,
+/// else frozen (`LOG_UNREADABLE`). An unreadable log may hold a move that began here, so the
+/// chat never runs beside the copy that may be running on its target.
+pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<String> {
+    if scanned { moving } else { moving.or_else(|| Some(LOG_UNREADABLE.to_owned())) }
+}
+
+#[cfg(test)]
+#[path = "restore_freeze_tests.rs"]
+mod restore_freeze_tests;
+
 /// What a chat that moved away answers a start: where it went.
 pub(super) fn moved_error(to: &Value) -> RpcError {
     let host = to["host"].as_str().map(|h| format!(" to {h}")).unwrap_or_default();

@@ -145,8 +145,6 @@ mod peer_grace;
 mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
-#[cfg(test)]
-mod restore_freeze_tests;
 pub use peer_lease::PeerLease;
 mod peers;
 mod remote_rows;
