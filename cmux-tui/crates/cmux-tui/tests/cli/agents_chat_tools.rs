@@ -1055,10 +1055,19 @@ fn an_agent_steers_renames_and_sets_a_chat_it_started() {
     assert_eq!(code, Some(0), "{queued}");
     assert_eq!(queued["action"], "chat.send", "{queued}");
 
-    let (code, renamed) = chat_json(as_caller(), &["rename", &target, "27879: helper"]);
+    let mut no_app = as_caller();
+    no_app.arg("--app-socket").arg(daemon.dir.join("no-app.sock"));
+    let (code, renamed) = chat_json(no_app, &["rename", &target, "27879-helper"]);
     assert_eq!(code, Some(0), "{renamed}");
+    assert_eq!(renamed["result"]["session_name"], true, "{renamed}");
     let info = Acp::connect(&daemon).call("_acpmux/info", json!({"sessionId": target}));
-    assert_eq!(info["result"]["name"], "27879: helper", "{info}");
+    assert_eq!(info["result"]["name"], "27879-helper", "{info}");
+    // A name only a tab can carry, with no tab: refused, saying how to get one.
+    let mut no_app = as_caller();
+    no_app.arg("--app-socket").arg(daemon.dir.join("no-app.sock"));
+    let (code, untabbed) = chat_json(no_app, &["rename", &target, "27879: helper"]);
+    assert_eq!(code, Some(3), "{untabbed}");
+    assert_eq!(error_of(&untabbed)["code"], "chat.no_tab", "{untabbed}");
 
     let (code, refused) = chat_json(as_caller(), &["set", &target]);
     assert_eq!(code, Some(2), "a set names a change: {refused}");

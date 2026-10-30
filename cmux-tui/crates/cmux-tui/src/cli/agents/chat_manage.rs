@@ -5,7 +5,8 @@
 //! - `steer` sends text into the running turn, as the composer's Steer does
 //!   (`_meta.acpmux.steer`); with no running turn it runs next. It goes in as this agent's
 //!   message (`kind: agent_message` provenance), never as the person's words.
-//! - `rename` names the chat (`_acpmux/rename`): its tab and its list row follow.
+//! - `rename` names the chat's tabs, as a tab's Rename does, and acpmux's own name for it
+//!   (`_acpmux/rename`) when the name is one acpmux takes (`session_name.rs`).
 //! - `set` changes its model (`session/set_model`), effort (`session/set_config_option`
 //!   `effort`) or mode (`session/set_mode`), as its pickers do. acpmux decides whether this
 //!   caller may widen a mode (`hub/person.rs`): an agent never widens one past its own.
@@ -146,13 +147,44 @@ pub(in crate::cli) fn rename(
     origin: &str,
 ) -> Result<Value, CallFailure> {
     let found = chat::scoped_chat(global, target)?;
-    chat::acp::call(
-        acpmux::rpc::method::MUX_RENAME,
-        json!({"sessionId": found.id, "newName": name}),
-        found.socket(),
-    )
-    .map_err(|error| not_run("chat.unavailable", format!("cannot rename {}: {error}", found.id)))?;
-    Ok(receipt("chat.rename", origin, json!({"chat": found.id, "name": name})))
+    // The name a person sees: each tab that shows the chat, as the tab's Rename does
+    // (`rename-surface`). No app, or no tab yet: none.
+    let mut tabs = Vec::new();
+    if let Ok(app) =
+        mcp::agent_app(global, "snapshot.get", json!({}), super::super::app::READ_TIMEOUT, None)
+    {
+        chat_tabs(&app["topology"], &found.id, &mut tabs);
+    }
+    for tab in &tabs {
+        resource_change(global, &["tab".into(), tab.clone(), "rename".into(), name.to_owned()])?;
+    }
+    // acpmux's own name (`acpmux attach NAME`, the list row) takes only a word safe for a shell
+    // (`session_name.rs`); "27879: helper" stays the tabs' name alone.
+    let session_name = acpmux::session_name::validate(name).is_ok();
+    if session_name {
+        chat::acp::call(
+            acpmux::rpc::method::MUX_RENAME,
+            json!({"sessionId": found.id, "newName": name}),
+            found.socket(),
+        )
+        .map_err(|error| {
+            not_run("chat.unavailable", format!("cannot rename {}: {error}", found.id))
+        })?;
+    } else if tabs.is_empty() {
+        return Err(not_run(
+            "chat.no_tab",
+            format!(
+                "no tab shows chat {} and {name:?} is no acpmux session name (letters, digits, \
+                 '-', '_' and '.'); open a tab with `cmux agent open {}` first",
+                found.id, found.id
+            ),
+        ));
+    }
+    Ok(receipt(
+        "chat.rename",
+        origin,
+        json!({"chat": found.id, "name": name, "renamed_tabs": tabs, "session_name": session_name}),
+    ))
 }
 
 pub(in crate::cli) fn set(
