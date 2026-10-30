@@ -90,7 +90,6 @@ fn text(args: &[String]) -> Option<String> {
 
 fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) -> Option<String> {
     let text = match scope {
-        "settings" | "config" => messages.settings_usage,
         "keybinding" => messages.keybinding_usage,
         "app" => APP_HELP,
         "window" => WINDOW_HELP,

@@ -199,7 +199,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
     (
         "settings.list",
-        "CLI listings read schema rows from the daemon. MCP access awaits a policy for credential-bearing setting values.",
+        "The raw daemon listing stays CLI-only until its MCP read policy for credential-bearing values lands; agents use the schema-scoped settings_list tool.",
     ),
     ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
     ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
