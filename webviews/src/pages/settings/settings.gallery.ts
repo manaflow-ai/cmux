@@ -609,6 +609,17 @@ Object.assign(variants, {
       { selector: ".host-form input", action: "select" },
     ],
   }),
+  "clear-refused": variant("browser", {
+    options: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
+    note: "Clear Browsing Data refusal, scrolled into view for the captured row.",
+    steps: [click('[data-profile="p-work"] .host-toggle'), wait(".host-form"), click("[data-clear]")],
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector("[data-clear-error]"));
+      const field = ctx.find({ selector: "[data-clear-browsing-data]" });
+      field.setAttribute("data-gallery-capture", "");
+      field.scrollIntoView({ block: "center" });
+    },
+  }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
   "search-results-theme": variant("general", {
