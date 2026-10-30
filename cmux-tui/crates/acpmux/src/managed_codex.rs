@@ -56,15 +56,23 @@ pub async fn install() -> Result<serde_json::Value> {
     std::fs::write(&archive, &bytes)?;
     let file = std::fs::File::open(&archive)?;
     tar::Archive::new(flate2::read::GzDecoder::new(file)).unpack(&staging)?;
-    let extracted = staging.join("codex");
-    if !extracted.is_file() {
-        bail!("Codex archive did not contain codex")
-    }
+    let extracted = std::fs::read_dir(&staging)?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .find(|path| {
+            path.is_file()
+                && path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "codex" || n.starts_with("codex-"))
+        })
+        .ok_or_else(|| anyhow::anyhow!("Codex archive did not contain a target codex binary"))?;
     let final_dir = root();
     if final_dir.exists() {
         std::fs::remove_dir_all(&final_dir)?;
     }
     std::fs::rename(&staging, &final_dir)?;
+    let installed = final_dir.join("codex");
+    std::fs::rename(final_dir.join(extracted.file_name().unwrap()), &installed)?;
     let ready = serde_json::json!({"version": VERSION, "sha256": expected, "path": managed_path(), "url": url});
     crate::config::write_atomic(&ready_path(), serde_json::to_string_pretty(&ready)?.as_bytes())?;
     Ok(ready)
