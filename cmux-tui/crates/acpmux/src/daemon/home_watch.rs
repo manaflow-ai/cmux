@@ -103,6 +103,7 @@ impl Owned {
 
 /// Set just before a shutdown removes the socket it bound: from then on the watch leaves the
 /// socket out, so that removal is not taken for a lost home.
+#[cfg_attr(not(unix), allow(dead_code))]
 static SOCKET_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// This daemon removes its own socket now (see [`SOCKET_RELEASED`]).
@@ -194,9 +195,6 @@ impl Owned {
         None
     }
 }
-
-#[cfg(not(unix))]
-pub(crate) fn release_socket() {}
 
 #[cfg(not(unix))]
 pub(crate) fn watch(
