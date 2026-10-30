@@ -340,6 +340,33 @@ import Testing
         #expect(store.messages.compactMap(\.seq) == Array(61...101))
     }
 
+    /// The catch-up jump fetches older pages itself; one asked for before a
+    /// lagged reconnect must not bring back a message unsent meanwhile either.
+    @Test func catchUpPageAskedBeforeReconnectNeverLandsStaleRows() async throws {
+        let backend = ScriptedBackend(total: 100)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let older = PreparationGate()
+        defer { older.open() }
+        backend.nextHistoryGate = older
+        let loaded = Task { await store.loadThrough(seq: 70) }
+        try await waitUntil { backend.historyCount == 2 }
+        var unsent = backend.makeMessage(seq: 70, sender: "lc")
+        unsent.text = ""
+        unsent.unsentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        backend.setHistoryMessage(unsent)
+        backend.total = 101
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { store.message(id: "m101") != nil }
+        older.open()
+        #expect(await loaded.value)
+        #expect(store.message(id: "m70")?.unsentAt == unsent.unsentAt)
+        #expect(store.message(id: "m70")?.text == "")
+        #expect(store.messages.compactMap(\.seq) == Array(61...101))
+    }
+
     /// A delivery receipt is not a newer revision of the message: a live
     /// receipt during recovery keeps its delivery, and the recovered edit or
     /// unsend still applies.
