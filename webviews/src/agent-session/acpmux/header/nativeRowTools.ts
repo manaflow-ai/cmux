@@ -250,8 +250,9 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
         ),
         enabled: true,
       });
-      runs.set(id, () =>
-        void extra.actions.answer(item, choice).catch((error) => extra.onFailure?.(item, "answer", error)),
+      runs.set(
+        id,
+        () => void extra.actions.answer(item, choice).catch((error) => extra.onFailure?.(item, "answer", error)),
       );
     }
     const goId = `needsYou:${itemKey}:goToSource`;
@@ -260,10 +261,12 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
     if (capabilities.askAbout) {
       const askId = `needsYou:${itemKey}:askAbout`;
       children.push({ id: askId, label: menuLabel(t?.("needsYou.askAbout") ?? "Ask about this"), enabled: true });
-      runs.set(askId, () =>
-        void extra.actions
-          .ask(item, sideQuestionPrompt(item, t?.("needsYou.askSeed") ?? "What is going on here?"))
-          .catch((error) => extra.onFailure?.(item, "ask", error)),
+      runs.set(
+        askId,
+        () =>
+          void extra.actions
+            .ask(item, sideQuestionPrompt(item, t?.("needsYou.askSeed") ?? "What is going on here?"))
+            .catch((error) => extra.onFailure?.(item, "ask", error)),
       );
     }
     if (extra.failure?.itemId === item.id) {

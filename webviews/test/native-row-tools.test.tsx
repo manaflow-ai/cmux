@@ -396,7 +396,9 @@ test("native Needs You surfaces rejected answer and ask actions while keeping re
   expect(h.tool("needsYou").menu![0]!.children).toContainEqual(
     expect.objectContaining({ label: "answer refused", enabled: false }),
   );
-  expect(h.tool("needsYou").menu![0]!.children!.some((entry) => entry.id.includes(":answer:") && entry.enabled)).toBe(true);
+  expect(h.tool("needsYou").menu![0]!.children!.some((entry) => entry.id.includes(":answer:") && entry.enabled)).toBe(
+    true,
+  );
 
   const askItemId = h.tool("needsYou").menu![0]!.children!.find((entry) => entry.id.includes(":askAbout"))!.id;
   await act(async () => h.invoke("needsYou", askItemId));
