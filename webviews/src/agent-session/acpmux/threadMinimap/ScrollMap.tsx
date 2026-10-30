@@ -6,14 +6,14 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
+import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { RAIL_RIGHT, railLeftEdge, railSideFits, useRailSide } from "./railSide";
+import { railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -22,7 +22,6 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  railPlacement,
   replyPreview,
   ROW_WIDTH,
   THREAD_PADDING_TOP,
@@ -43,6 +42,8 @@ import {
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.
 const SCRUB_SLOP = 3;
+/// How far the full-height map may lie over the transcript text, as the compact rail could on base.
+const MAP_MAX_OVERLAP = 8;
 /// The drawn lengths, at rest and fully grown: a prompt's tick, and a reply's.
 const USER_LENGTH = [11, TICK_BOX] as const;
 const AGENT_LENGTH = [5, 15] as const;
@@ -60,7 +61,7 @@ export function ScrollMap({
   scroller,
   viewportHeight,
   scrolls,
-  width,
+  placement,
   marks: bookmarks,
   jump,
 }: {
@@ -70,7 +71,8 @@ export function ScrollMap({
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
-  width: number;
+  /// The compact rail's pane-edge placement (useRailPlacement), measured against the actual text.
+  placement: { left: number; width: number; overlapsText: boolean; gutter: number };
   marks: PromptMarks;
   /// The compact rail's jump to a prompt (ThreadMinimap), so a click lands and flashes the same.
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
@@ -102,15 +104,17 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
-  const placement = railPlacement(transcriptColumn(width).inset);
-  const { side, inset, menu } = useRailSide(placement.left);
-  const railLeft = railLeftEdge(side, width, placement.left);
+  // The full-height map keeps its 36 px box and has no reveal strip, so it shows only where that box
+  // overlaps the text by at most MAP_MAX_OVERLAP: past that its click and drag handlers would take
+  // text selection and links (the compact rail compresses and reveals itself instead).
+  // Its edge (railSide.ts), mirrored as the compact rail is.
+  const { side, menu } = useRailSide();
   const shown =
     turns.length >= MAP_MIN_PROMPTS &&
     scrolls &&
     height > 4 * MAP_MARGIN &&
-    !placement.hidden &&
-    railSideFits(side, transcriptColumn(width).inset);
+    !placement.overlapsText &&
+    placement.width >= ROW_WIDTH - MAP_MAX_OVERLAP;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
@@ -248,14 +252,14 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${railLeft}px` } as React.CSSProperties}>
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       <ContextMenu items={menu}>
         <nav
           ref={rail}
           className="acpmux-minimap__rail acpmux-scrollmap"
           aria-label={t("minimap.label")}
           data-side={side}
-          style={{ ...inset, top: MAP_MARGIN, width: ROW_WIDTH, height }}
+          style={{ ...railEdge(side, placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
           data-hovering={pointerY !== undefined || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
@@ -340,8 +344,8 @@ export function ScrollMap({
           ref={card}
           id={cardId}
           side={side}
-          x={(side === "right" ? RAIL_RIGHT : placement.left) + ROW_WIDTH}
-          railLeft={railLeft}
+          x={placement.left + ROW_WIDTH}
+          railLeft={placement.left}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}

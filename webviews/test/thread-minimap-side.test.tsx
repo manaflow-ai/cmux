@@ -2,7 +2,9 @@
 // right.. maybe specifically right clicking that area (and as a toggle) it can happen"). Right-clicking
 // the rail opens a menu whose one item moves it to the other edge and back; the choice is the
 // cmux.json key agentPane.display.rail.side, written through the host and read back from its
-// `display` event, so it persists. On the right the preview card opens on the rail's left.
+// `display` event, so it persists. The right rail is the left one mirrored (design/session-rail.md):
+// the same pane-edge inset counted from the right edge, its narrow-pane hover strip at that edge, and
+// its preview card opening on its left.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -125,35 +127,36 @@ test.each(["compact", "full"])(
           />,
         ),
       );
-      // The current base places the left rail beside the text: 120 px in this viewport.
+      // Pinned to the pane's left edge at its spacing-token inset (useRailPlacement: 10 px here).
       expect(rail().dataset.side).toBe("left");
-      expect(rail().style.left).toBe("120px");
+      expect(rail().style.left).toBe("10px");
       expect(rail().style.right).toBe("");
 
       let written = nextWrite();
       await move(3, "Move to Right Edge");
       expect(chatDisplay().railSide).toBe("right");
       expect(rail().dataset.side).toBe("right");
-      expect(rail().style.right).toBe("16px");
+      // The same inset, from the right edge.
+      expect(rail().style.right).toBe("10px");
       expect(rail().style.left).toBe("");
       expect(await written).toEqual([RAIL_SIDE_KEY, "right"]);
 
       // The card opens on the rail's left: it draws outside the scroller (PreviewCard.tsx), counted
-      // from an anchor at the rail box's top-right corner, its right edge 52 px in from it.
+      // from an anchor at the pane's right edge, its right edge the rail's inset plus its 36 px in.
       await act(async () => tick(5).focus());
       const card = document.querySelector<HTMLElement>(".acpmux-minimap__card")!;
       expect(card).not.toBeNull();
       const anchor = document.querySelector<HTMLElement>(".acpmux-minimap__anchor")!;
       expect(anchor.style.right).toBe("0px");
       expect(anchor.style.left).toBe("auto");
-      expect(card.style.transform).toMatch(/^translate3d\(-52px, .*\) translateX\(-100%\)$/);
+      expect(card.style.transform).toMatch(/^translate3d\(-46px, .*\) translateX\(-100%\)$/);
       await act(async () => tick(5).blur());
 
       // And back: the key goes, so the default holds again.
       written = nextWrite();
       await move(3, "Move to Left Edge");
       expect(rail().dataset.side).toBe("left");
-      expect(rail().style.left).toBe("120px");
+      expect(rail().style.left).toBe("10px");
       expect(await written).toEqual([RAIL_SIDE_KEY, null]);
 
       // The host's own event (cmux.json, Settings, another pane's menu) moves it too.
@@ -168,58 +171,31 @@ test.each(["compact", "full"])(
   },
 );
 
-// The current base allows the left rail to overlap the text by at most 8px. A right rail's
-// fixed 16px inset needs 44px of gutter for that same limit, rather than the left rail's 28px.
-for (const arm of ["compact", "full"]) {
-  for (const width of [780, 800, 808])
-    test(`${arm}: a right rail at pane width ${width} never takes more than 8px of transcript input`, async () => {
-      paneWidth = width;
-      setChatDisplay({ "agentPane.display.minimap": arm, [RAIL_SIDE_KEY]: "right" });
-      const root = createRoot(document.getElementById("root")!);
-      try {
-        await act(async () =>
-          root.render(
-            <VirtualTranscript
-              rows={turnView(turns, new Set())}
-              sessionId="rail-side-room"
-              onToggleActivity={() => {}}
-              expanded={new Set()}
-            />,
-          ),
-        );
-        const rail = document.querySelector<HTMLElement>(".acpmux-minimap__rail");
-        if (width < 808) expect(rail === null).toBe(true);
-        else {
-          expect(rail).not.toBeNull();
-          expect(rail!.style.right).toBe("16px");
-        }
-      } finally {
-        await act(async () => root.unmount());
-        paneWidth = 1040;
-        setChatDisplay({});
-      }
-    });
-
-  test(`${arm}: the left rail remains available at pane width 780`, async () => {
-    paneWidth = 780;
-    setChatDisplay({ "agentPane.display.minimap": arm });
+// A pane too narrow for the rail beside the text hides it at rest on either edge and keeps the live
+// hover strip at that same edge (design/session-rail.md: never removed for pane width).
+for (const side of ["left", "right"] as const)
+  test(`a ${side} rail in a narrow pane keeps its hover strip on the ${side}`, async () => {
+    paneWidth = 300;
+    setChatDisplay({ "agentPane.display.minimap": "compact", [RAIL_SIDE_KEY]: side });
     const root = createRoot(document.getElementById("root")!);
     try {
       await act(async () =>
         root.render(
           <VirtualTranscript
             rows={turnView(turns, new Set())}
-            sessionId="rail-left-room"
+            sessionId={`rail-side-narrow-${side}`}
             onToggleActivity={() => {}}
             expanded={new Set()}
           />,
         ),
       );
-      expect(document.querySelector(".acpmux-minimap__rail")).not.toBeNull();
+      expect(rail().dataset.side).toBe(side);
+      expect(rail().hasAttribute("data-occluded")).toBe(true);
+      const strip = document.querySelector<HTMLElement>(".acpmux-minimap__strip")!;
+      expect(strip.dataset.side).toBe(side);
     } finally {
       await act(async () => root.unmount());
       paneWidth = 1040;
       setChatDisplay({});
     }
   });
-}

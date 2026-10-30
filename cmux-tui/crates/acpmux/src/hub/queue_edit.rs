@@ -19,6 +19,9 @@ const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
 mod withdraw;
+// `_acpmux/queue_text`, one queued prompt's whole text (`hub/mod.rs` is at its size budget).
+#[path = "queue_text.rs"]
+mod queue_text;
 
 /// The Full-access machine an edited prompt keeps (`PromptRun::full_access_device`): its own,
 /// only when the edit comes from that same machine.
@@ -293,8 +296,11 @@ impl Hub {
                     crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
                 }),
                 agent: None,
+                class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
+                message_id: None,
+                message_sender: None,
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -385,8 +391,11 @@ impl Hub {
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
+                    message_id: q.run.message_id.clone(),
+                    message_sender: q.run.message_sender.clone(),
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }

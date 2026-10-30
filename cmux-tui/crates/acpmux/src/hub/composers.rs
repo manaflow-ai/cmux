@@ -235,6 +235,8 @@ impl Hub {
             .queue()
             .into_iter()
             .map(|q| {
+                let (from_session_id, from_harness) =
+                    crate::prompt_provenance::sender_of(q.run.provenance.as_ref());
                 json!({
                     "promptId": q.prompt_id,
                     "turnId": q.turn_id,
@@ -243,6 +245,9 @@ impl Hub {
                     "queuedAt": q.queued_at,
                     "held": q.held,
                     "fromAgent": q.run.agent,
+                    "fromSessionId": from_session_id,
+                    "fromHarness": from_harness,
+                    "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),
                     "surface": label(&q.prompt_id),
                 })

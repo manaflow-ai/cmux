@@ -56,6 +56,7 @@ impl Hub {
         session_env: std::collections::BTreeMap<String, String>,
         workspace_id: Option<String>,
         through: Option<u64>,
+        start_later: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
@@ -217,12 +218,14 @@ impl Hub {
             Made::ClaudeResume | Made::Fresh => (json!({}), None),
         };
         let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
+        let name_given = name.is_some();
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
         let now = now_ms();
         let meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
+            name_given,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             spawn_argv: None,
@@ -290,6 +293,7 @@ impl Hub {
             unread: false,
             claude_unstored: false,
             hibernated_ms: 0,
+            moved_to: None,
             claude_profile: None,
             last_turn: None,
             harness_failures: Default::default(),
@@ -333,6 +337,10 @@ impl Hub {
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
             lineage: None,
             subagent_retry_open: false,
+            // The person's setting for the chat it came from, not for the fork.
+            turn_cap_ms: None,
+            turn_cap_noticed: None,
+            delegator: None,
         };
         let new = self.make_session(meta);
         match made {
@@ -454,13 +462,24 @@ impl Hub {
         self.append(&new, "mux", "forked", forked);
         self.append(session, "mux", "fork_child", json!({"childId": id}));
         // The forked agent session lives in the parent's process. Load it in
-        // its own process so one session keeps one child.
-        match self.child_for(&new).await {
-            Ok(_) => {}
-            Err(e) => tracing::warn!(session = %new.id, "fork child start failed: {e}"),
-        }
+        // its own process so one session keeps one child. Fork Conversation
+        // (`start_later`) answers first: the fork's model, effort, env and
+        // history are all in its meta and log by now, a harness start takes
+        // seconds, and the fork's first prompt waits for this start (`child_for`
+        // holds the spawn lock). A start that fails says why at that prompt.
         self.save_meta(&new);
         creation_guard.disarm();
+        if start_later {
+            let hub = self.clone();
+            let fork = new.clone();
+            tokio::spawn(async move {
+                if let Err(e) = hub.child_for(&fork).await {
+                    tracing::warn!(session = %fork.id, "fork child start failed: {e}");
+                }
+            });
+        } else if let Err(e) = self.child_for(&new).await {
+            tracing::warn!(session = %new.id, "fork child start failed: {e}");
+        }
         Ok(new)
     }
 }

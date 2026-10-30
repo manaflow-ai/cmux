@@ -86,8 +86,11 @@ export const PreviewCard = React.forwardRef<
     metadata?: MinimapTurnMetadata;
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
     railLeft?: number;
+    /// The rail's edge of the pane (railSide.ts). On the right, `x` counts in from the pane's right
+    /// edge and the card opens to its left, so card.right == rail.left.
     side?: "left" | "right";
     bookmark?: PreviewBookmark;
+    onPointerEnter?(): void;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
     onSizeChange?(): void;
     onFocus?(): void;
@@ -103,8 +106,9 @@ export const PreviewCard = React.forwardRef<
     reply,
     metadata,
     railLeft = 0,
-    side,
+    side = "left",
     bookmark,
+    onPointerEnter,
     onPointerLeave,
     onSizeChange,
     onFocus,
@@ -185,21 +189,24 @@ export const PreviewCard = React.forwardRef<
   );
   const at = layer ? origin : { x: 0, y: 0 };
   const scrollKey = layer ? (event: React.KeyboardEvent) => forwardScrollKey(scroller!, event) : undefined;
-  const cardStyle: React.CSSProperties & { "--acpmux-rail-left": string } = {
-    "--acpmux-rail-left": `${railLeft}px`,
-    ...(side !== "right"
-      ? { transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }
-      : layer
-        ? { transform: `translate3d(${at.x - x}px, ${at.y + y}px, 0) translateX(-100%)` }
-        : { left: "auto", right: 0, transform: `translate3d(${-x}px, ${y}px, 0)` }),
-  };
   const card = (
     <div
       ref={own}
       id={id}
       className="acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
-      style={cardStyle}
+      style={
+        {
+          "--acpmux-rail-left": `${railLeft}px`,
+          // On the right the anchor is the pane's right edge: the card ends `x` in from it.
+          ...(side === "left"
+            ? { transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }
+            : layer
+              ? { transform: `translate3d(${at.x - x}px, ${at.y + y}px, 0) translateX(-100%)` }
+              : { left: "auto", right: 0, transform: `translate3d(${-x}px, ${y}px, 0)` }),
+        } as React.CSSProperties
+      }
+      onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}
