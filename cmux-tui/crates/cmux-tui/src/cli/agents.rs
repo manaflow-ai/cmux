@@ -770,11 +770,7 @@ fn app_chat_sessions(topology: &Value) -> HashMap<String, String> {
 /// saw no chat and started another. Each tab the app shows as a chat becomes
 /// `content_kind: conversation` with its `agent_session`, and its stand-in browser leaves
 /// `browsers`.
-fn mark_agent_chat_tabs(
-    tabs: &mut Value,
-    browsers: &mut Value,
-    chats: &HashMap<String, String>,
-) {
+fn mark_agent_chat_tabs(tabs: &mut Value, browsers: &mut Value, chats: &HashMap<String, String>) {
     if chats.is_empty() {
         return;
     }
@@ -793,7 +789,9 @@ fn mark_agent_chat_tabs(
     }
     if let Some(browsers) = browsers.as_array_mut() {
         browsers.retain(|browser| {
-            browser.get("id").and_then(Value::as_str).is_none_or(|id| !stand_ins.contains(id))
+            let field = |key: &str| browser.get(key).and_then(Value::as_str);
+            !field("id").is_some_and(|id| stand_ins.contains(id))
+                && !field("tab_id").is_some_and(|id| chats.contains_key(id))
         });
     }
 }
