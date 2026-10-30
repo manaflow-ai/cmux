@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextBrowser
-import struct CmuxNextDaemon.PaneModel
+import class CmuxNextDaemon.PaneModel
 import CmuxNextHistory
 import Foundation
 
