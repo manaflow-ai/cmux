@@ -141,11 +141,31 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
         #endif
-        Task {
-            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-            if BuildCapabilities.current.push, [.authorized, .provisional, .ephemeral].contains(status) { application.registerForRemoteNotifications() }
+        registerForPushIfAllowed(application)
+        // Back in front: notifications turned on in iOS Settings while cmux ran (they were off at
+        // launch, so nothing registered) get their token now. A scene-based app never gets
+        // `applicationDidBecomeActive`, so this listens for the notification. Registering again
+        // when already registered just returns the same token. The observer lives as long as the
+        // app delegate, which is the process.
+        activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil,
+                                                                queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.registerForPushIfAllowed(UIApplication.shared) }
         }
         return true
+    }
+
+    private var activeObserver: (any NSObjectProtocol)?
+
+    private func registerForPushIfAllowed(_ application: UIApplication) {
+        Task {
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            if Self.registersForPush(status: status, pushBuild: BuildCapabilities.current.push) { application.registerForRemoteNotifications() }
+        }
+    }
+
+    /// A push build the person has allowed notifications for asks APNs for a token.
+    static func registersForPush(status: UNAuthorizationStatus, pushBuild: Bool) -> Bool {
+        pushBuild && [.authorized, .provisional, .ephemeral].contains(status)
     }
 
     public func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
