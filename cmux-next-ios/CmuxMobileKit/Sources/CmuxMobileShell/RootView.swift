@@ -653,13 +653,16 @@ struct ShellTabs: View {
         TabView(selection: $shell.tab) {
             Tab("Home", systemImage: "house", value: RootTab.home) {
                 HomeScreen(shell: shell)
+                    .modifier(TabBarProbeHost())
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
+                    .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
+                    .modifier(TabBarProbeHost())
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
@@ -677,11 +680,24 @@ struct ShellTabs: View {
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }
+                .modifier(TabBarProbeHost())
             }
         }
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+    }
+}
+
+/// The UI tests' tab bar probe (``TabBarProbe``) in a tab's content, outside
+/// its stack; nothing outside DEBUG builds launched with its argument.
+private struct TabBarProbeHost: ViewModifier {
+    func body(content: Content) -> some View {
+        #if DEBUG
+        content.overlay(alignment: .topLeading) { TabBarProbe() }
+        #else
+        content
+        #endif
     }
 }
 
