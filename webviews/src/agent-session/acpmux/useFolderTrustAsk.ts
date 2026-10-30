@@ -233,6 +233,10 @@ export function useFolderTrustAsk(
   }>();
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
+  // Incremented when a pending Trust resend is canceled. A late refusal from the
+  // canceled send must not be released by the save that was already in flight.
+  const resendGeneration = useRef(0);
+  const generationAtRender = resendGeneration.current;
   const resend = useRef(
     new Map<
       string | undefined,
@@ -244,6 +248,7 @@ export function useFolderTrustAsk(
         authorityEpoch: number;
         ownerEpoch: number;
         visitValue: unknown;
+        generation: number;
       }
     >(),
   );
@@ -465,6 +470,7 @@ export function useFolderTrustAsk(
       // (the one acpmux named in a refusal).
       const chatCwd = current.current.cwd;
       const refusalBeforeSave = refusedTrust.current.get(sessionId);
+      const saveGeneration = resendGeneration.current;
       const repo = ask?.repo ?? (scope?.cwd === asked.cwd ? scope.repo : undefined);
       const recorded = folder ?? asked.cwd;
       const stillHere = () =>
@@ -571,7 +577,9 @@ export function useFolderTrustAsk(
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
         const held = resend.current.get(asked.sessionId);
         if (level === "trusted") {
-          if (held) held.ready = true;
+          // Only release the callback belonging to this save generation. A cancel can
+          // race a late refusal and replace the map entry while this save is in flight.
+          if (held && held.generation === saveGeneration) held.ready = true;
         } else resend.current.delete(asked.sessionId);
       } catch {
         if (stillHere()) setAsk({ cwd: asked.cwd, state: "failed" });
@@ -675,6 +683,7 @@ export function useFolderTrustAsk(
     },
     /// Cancel leaves the draft or failed row in place for a later explicit send/retry.
     cancelResend: useCallback(() => {
+      resendGeneration.current += 1;
       resend.current.delete(sessionId);
     }, [sessionId]),
     /// Trust only the chat's folder.
@@ -690,6 +699,8 @@ export function useFolderTrustAsk(
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(
       (error: unknown, again?: () => void): boolean => {
+        // This callback may be delivered after cancelResend from an older render.
+        if (generationAtRender !== resendGeneration.current) return false;
         if (!mounted.current || !sameAuthority() || !sameVisit()) return false;
         const said = trustRefusal(error);
         if (!said) return false;
@@ -718,6 +729,7 @@ export function useFolderTrustAsk(
             authorityEpoch,
             ownerEpoch,
             visitValue,
+            generation: resendGeneration.current,
           });
         else {
           const held = resend.current.get(sessionId);
@@ -726,7 +738,7 @@ export function useFolderTrustAsk(
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, family, authorityEpoch, ownerEpoch, visitValue, sameAuthority, sameVisit],
+      [sessionId, cwd, family, authorityEpoch, ownerEpoch, visitValue, generationAtRender, sameAuthority, sameVisit],
     ),
   };
 }
