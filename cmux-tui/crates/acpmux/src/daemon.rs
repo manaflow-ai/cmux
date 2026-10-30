@@ -35,6 +35,7 @@ mod handover;
 mod home_watch;
 mod notify;
 mod persist_retry;
+pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
 
@@ -209,11 +210,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
-    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
-    // `local-coderouter` routes read its port and mint keys from it. Opt-in
-    // (the cmux app sets ACPMUX_LOCAL_ROUTER=1). Its owner ties the router's
-    // life to this daemon (daemon/router_owner.rs: the owner FIFO, shared
-    // with the agent hosts, on Unix; a kill-on-close job on Windows).
+    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
+    // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
+    // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
+    // shared with the agent hosts, on Unix; a kill-on-close job on Windows).
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
@@ -281,12 +281,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mut moved_listener = false;
     let ws_listener = match &ws {
-        // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller
-        // asked for that address). A taken configured port (an unrelated
-        // program, or a squatter) moves the daemon to a free loopback port,
-        // which it reports and saves; the app reads the port from status
-        // and checks its listener before it connects, and a proof names its
-        // transport, so a squatter on the old port relays nothing.
+        // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that
+        // address). A taken configured port (an unrelated program, or a squatter) moves the daemon
+        // to a free loopback port, which it reports and saves; the app reads the port from status
+        // and checks its listener before it connects, and a proof names its transport, so a
+        // squatter on the old port relays nothing.
         Some((listen, token)) => match crate::server::bind_ws(listen).await {
             Ok(l) => Some((l, token.clone())),
             Err(e) if explicit_listen => {
@@ -371,9 +370,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
-        // A Team-signed daemon takes the key only from the signed app's
-        // `_acpmux/person_enroll`: a same-uid process could restart it with
-        // a key of its own.
+        // A Team-signed daemon takes the key only from the signed app's `_acpmux/person_enroll`: a
+        // same-uid process could restart it with a key of its own.
         if cmux_link::app_caller::signed_app_build() {
             tracing::warn!(
                 "--person-key-fd ignored: a signed daemon enrolls the app by its signature"
@@ -508,10 +506,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         socket_path().display(),
         bound.as_deref().unwrap_or("none")
     );
-    // The stop signals are registered before the ready line: a launcher may
-    // stop the daemon as soon as it reads the line, and a signal that came
-    // before registration would end the daemon by the default action
-    // (no shutdown path: the token, pid file and socket would stay).
+    // The stop signals are registered before the ready line: a launcher may stop the daemon as soon
+    // as it reads the line, and a signal that came before registration would end the daemon by the
+    // default action (no shutdown path: the token, pid file and socket would stay).
     #[cfg(unix)]
     let mut stop_signals = {
         use tokio::signal::unix::{SignalKind, signal};
@@ -530,6 +527,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         &socket_path(),
     ));
     let _home_watch = AbortOnDrop(home_gone.abort_handle());
+    // Unused for its grace on a home of its own: a normal stop (`daemon/unused_exit.rs`).
+    let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
     // Its home and lock, re-read during the shutdown too.
     let recheck_home = move || {
         if let Some(why) = owned_home.as_ref().and_then(|owned| owned.lost()) {
@@ -542,9 +541,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
-    // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon
-    // right after the ready line, so integration tests can stop it in that
-    // window. Bounded; release builds have no seam.
+    // Debug builds only: `ACPMUX_TEST_HOLD_AFTER_READY_MS` holds the daemon right after the ready
+    // line, so integration tests can stop it in that window. Bounded; release builds have no seam.
     #[cfg(debug_assertions)]
     if let Some(ms) =
         std::env::var("ACPMUX_TEST_HOLD_AFTER_READY_MS").ok().and_then(|v| v.parse::<u64>().ok())
@@ -624,6 +622,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = hub.shutdown.notified() => {},
                 // A normal stop, not a restart handoff: nothing can reach this daemon again.
                 Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
+                why = &mut unused => tracing::info!("stopping: {why}"),
             }
         }
         #[cfg(not(unix))]
@@ -632,6 +631,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
                 Ok(why) = &mut home_gone => tracing::warn!("stopping: {why}"),
+                why = &mut unused => tracing::info!("stopping: {why}"),
             }
         }
     };
