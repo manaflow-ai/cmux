@@ -508,9 +508,8 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             if m.title.is_none()
-                && let Some(first) = turns
-                    .iter()
-                    .find_map(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
+                && let Some(first) =
+                    turns.iter().find_map(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
             {
                 m.title = Some(short_text(first.trim(), 80));
             }
