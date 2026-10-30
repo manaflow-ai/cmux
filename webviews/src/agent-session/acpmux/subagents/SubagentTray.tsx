@@ -1,4 +1,4 @@
-import { subagentName, type OpenSubagent } from "./subagentNavigation";
+import { subagentFullName, subagentName, subagentTitle, type OpenSubagent } from "./subagentNavigation";
 // The tray of running work at the foot of the chat (runningTray.ts): a part of the bottom stack
 // right above the composer (bottomStack.css), so it never scrolls away with history and the
 // transcript keeps its last row above it. It is the one place running background work shows, in a
@@ -336,8 +336,8 @@ export const SubagentTray = memo(function SubagentTray({
           state={subagentStateText(t, item.agent, waiting)}
           time={formatDuration(elapsed(item.agent, now))}
           depth={item.depth}
-          title={item.agent.task}
-          label={t("subagents.open", { name: subagentName(item.agent) })}
+          title={subagentTitle(item.agent)}
+          label={t("subagents.open", { name: subagentFullName(item.agent) })}
           kind={t("tray.kind.subagent")}
           chevron
           trayColumns

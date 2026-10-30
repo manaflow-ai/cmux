@@ -4,7 +4,7 @@
 // incomingOpened.ts) passes `open` and `onOpenChange` in place of `disclosureKey`; `actions` sit after
 // the toggle, outside its button, for the controls a row adds at the line's end (a menu, a queue tag,
 // Reply).
-import { useCallback, useId, type ReactNode } from "react";
+import { useCallback, useId, type MouseEvent, type ReactNode } from "react";
 import type { AcpmuxActivity } from "../model";
 import { useFindReveal } from "../conversation/chatFind";
 import { ChevronRight } from "../conversation/icons";
@@ -25,7 +25,8 @@ export type DisclosureRowProps = {
   openLabel?: string;
   /// The open button's tooltip, when it says more than `openLabel` (its accessible name).
   openTitle?: string;
-  onOpen?: () => void;
+  /// Gets the click, so a Cmd-click can open in the background (subagentNavigation.ts).
+  onOpen?: (event: MouseEvent<HTMLButtonElement>) => void;
   children?: ReactNode;
   defaultOpen?: boolean;
   /// The state, when the caller holds it.

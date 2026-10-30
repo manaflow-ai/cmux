@@ -1,4 +1,4 @@
-import { subagentName, type OpenSubagent } from "./subagentNavigation";
+import { subagentFullName, subagentName, type OpenSubagent } from "./subagentNavigation";
 // A batch of subagents inline in the transcript, after the ChatGPT and T3 Code apps: one line with
 // their avatars, "4 subagents", how many are working or done, the time since the first started,
 // and a chevron; opened, a bordered list with a row per subagent (SUBAGENT_ROW rows below it).
@@ -205,7 +205,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       className="cv-subagent"
       data-edge={row.status}
       data-agent-tone={tones?.get(agent.id)}
-      aria-label={t("subagents.open", { name: subagentName(agent) })}
+      aria-label={t("subagents.open", { name: subagentFullName(agent) })}
       onClick={(event) => open(agent.id, event)}
     >
       {content}
@@ -228,7 +228,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
-  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: subagentName(agent) });
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: subagentFullName(agent) });
   return (
     <button
       type="button"
