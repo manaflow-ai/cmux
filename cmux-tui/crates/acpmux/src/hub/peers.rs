@@ -225,14 +225,24 @@ impl Hub {
     ) -> Value {
         let started = tokio::time::Instant::now();
         // A peer that never ran (refused at its start) or was removed meanwhile dropped its
-        // sender: no attempt settled, and the peer reads null.
-        let done = matches!(tokio::time::timeout(budget, settled.changed()).await, Ok(Ok(())));
+        // sender: no attempt settled, and the wait did not run out either (`stopped`).
+        let (done, stopped) = match tokio::time::timeout(budget, settled.changed()).await {
+            Ok(Ok(())) => (true, false),
+            Ok(Err(_)) => (false, true),
+            Err(_) => (false, false),
+        };
         let peer = self.peer(name).map(|p| p.summary()).unwrap_or(Value::Null);
-        if !done {
+        if stopped {
+            tracing::warn!(peer = %name, "it stopped before its connect attempt settled");
+        } else if !done {
             tracing::warn!(peer = %name, state = %peer["state"], "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
         }
         let waited = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        json!({"settled": done, "waitedMs": waited, "peer": peer})
+        let mut wait = json!({"settled": done, "waitedMs": waited, "peer": peer});
+        if stopped {
+            wait["stopped"] = Value::Bool(true);
+        }
+        wait
     }
 
     /// A config reload's saved peers' VM boundaries and GitHub lending (`catalog_reload.rs`),
@@ -1205,6 +1215,8 @@ mod tests {
         drop(gone);
         let quick = hub.wait_for_peer("m", &mut dropped, budget).await;
         assert_eq!(quick["settled"], false, "{quick}");
+        assert_eq!(quick["stopped"], true, "a stopped peer read as a wait that ran out: {quick}");
+        assert!(waited.get("stopped").is_none(), "{waited}");
         assert!(waited["waitedMs"].as_u64().unwrap() >= 50, "{waited}");
         assert_eq!(waited["peer"]["name"], "m", "{waited}");
         assert!(waited["peer"]["state"].is_string(), "{waited}");

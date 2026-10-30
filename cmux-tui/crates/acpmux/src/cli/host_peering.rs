@@ -201,6 +201,12 @@ pub(crate) async fn peer_step(
     };
     let settle = |reply: Result<Value>| match reply {
         Err(e) => fail(format!("the local daemon refused {name} at {url}: {e}")),
+        // The peer stopped (it was removed, or never started) before its attempt settled.
+        Ok(reply) if reply["wait"]["stopped"] == true => fail(format!(
+            "{name} at {url} stopped before it connected{}",
+            last_error(&reply["wait"]["peer"])
+        ))
+        .with_fix("`acpmux host ls` shows whether it is still configured; add it again if not."),
         // The daemon's wait ran out before the attempt settled (`Hub::wait_for_peer`): say how
         // far it got, not "does not connect" with no reason.
         Ok(reply) if reply["wait"]["settled"] == false => {

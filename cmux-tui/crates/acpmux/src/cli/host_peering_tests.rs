@@ -19,6 +19,8 @@ struct Fake {
     local_connects: bool,
     /// Whether the local daemon's wait for that attempt ran out first, the peer in its handshake.
     local_waits_out: bool,
+    /// Whether that peer stopped (was removed) before its attempt settled.
+    local_stops: bool,
     tailnet: Option<&'static str>,
     user: Option<&'static str>,
     /// The remote's peers (`daemon status`); `None`: no daemon runs there.
@@ -37,6 +39,7 @@ impl Default for Fake {
             peers: RefCell::new(Vec::new()),
             local_connects: true,
             local_waits_out: false,
+            local_stops: false,
             tailnet: Some(TAILNET),
             user: Some("leo"),
             remote_peers: RefCell::new(Some(Vec::new())),
@@ -74,6 +77,10 @@ impl Io for Fake {
             let peer =
                 json!({"name": name, "connected": false, "handshaking": true, "error": null});
             let wait = json!({"settled": false, "waitedMs": 30_000, "peer": peer});
+            return Ok(json!({"peers": *peers, "wait": wait}));
+        }
+        if self.local_stops && method != "_acpmux/peers" {
+            let wait = json!({"settled": false, "stopped": true, "waitedMs": 0, "peer": null});
             return Ok(json!({"peers": *peers, "wait": wait}));
         }
         Ok(json!({"peers": *peers}))
@@ -258,6 +265,15 @@ async fn peer_reports_an_attempt_still_running_when_the_wait_ran_out() {
     let r = peer_with(&fake, &target(None), true).await;
     assert_eq!(r.state, StepState::Fail);
     assert_eq!(r.detail, "hb at ssh://huge-blue is still in its handshake after 30s");
+}
+
+/// A peer that stopped before its attempt settled is not "still connecting after 0s".
+#[tokio::test]
+async fn peer_reports_a_peer_that_stopped_before_it_connected() {
+    let fake = Fake { local_connects: false, local_stops: true, ..Fake::default() };
+    let r = peer_with(&fake, &target(None), true).await;
+    assert_eq!(r.state, StepState::Fail);
+    assert_eq!(r.detail, "hb at ssh://huge-blue stopped before it connected");
 }
 
 #[tokio::test]
