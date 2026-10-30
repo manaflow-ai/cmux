@@ -67,6 +67,10 @@ public final class PulledBuildWatch {
     @ObservationIgnored var fetch: @Sendable (URL) async -> Data?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
+    /// Whether a list read is currently in flight. Callers that must fail closed
+    /// while the list is unknown use this instead of guessing from the cache.
+    public var isRefreshing: Bool { refreshTask != nil }
+
     init(build: String, feedURL: @escaping () -> String,
          fetch: @escaping @Sendable (URL) async -> Data? = PulledBuildWatch.download) {
         self.build = build

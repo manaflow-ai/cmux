@@ -82,7 +82,22 @@ final class StagedUpdateRefresh {
         // A pulled staged build must never be installed, even when Sparkle does not expose a
         // cancellable installer.  Other non-cancellable staged builds keep the old fast path.
         let pulledAlready = updater.pulledWatch.isPulled(staged) || updater.droppedPulled.contains(staged)
-        guard isCancellable(updater) || pulledAlready else { return install() }
+        guard isCancellable(updater) || pulledAlready else {
+            // Refresh before deciding: a pulled build must fail closed even when
+            // the first list read has not completed yet.
+            pendingClick = (staged, install)
+            _ = updater.pulledWatch.refresh()
+            clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
+                guard let self, let updater else { return }
+                self.settleClick(answered: false, updater: updater)
+            }
+            Task { @MainActor [weak self, weak updater] in
+                guard let self, let updater else { return }
+                await updater.pulledWatch.refresh().value
+                self.settleClick(answered: true, updater: updater)
+            }
+            return
+        }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         pendingClick = (staged, install)
         let probe = updater.probe()
@@ -106,6 +121,11 @@ final class StagedUpdateRefresh {
         guard updater.stagedBuild() == staged else { return install() }
         // A build dropped as pulled before stays pulled, whatever the latest read of the list said.
         let pulled = updater.pulledWatch.isPulled(staged) || updater.droppedPulled.contains(staged)
+        guard updater.pulledWatch.isRefreshing || !updater.pulledWatch.pulledBuilds.isEmpty || isCancellable(updater) else {
+            updater.log.append("install click: pulled list unavailable; not installing staged build \(staged)")
+            updater.presentUpdateUI?()
+            return
+        }
         var newer: String?
         if answered, case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) {
             newer = item.version
