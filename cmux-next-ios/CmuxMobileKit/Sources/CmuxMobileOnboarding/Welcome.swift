@@ -10,15 +10,15 @@ private let welcomeLog = Logger(subsystem: "dev.cmux.mobile", category: "welcome
 private let theme = CmuxMobileTheme.standard
 
 /// The launch screen's mark, re-drawn as the first SwiftUI frame so the handoff
-/// is seamless (SPEC 5.1): same 72 pt mark, same center, on `bg`.
+/// is seamless (SPEC 5.1): the same image, same 72 pt chevron, same center, on `bg`.
 public struct LaunchMarkView: View {
     public init() {}
 
     public var body: some View {
-        CmuxMark()
-            .fill(theme.colors.label)
-            .frame(width: 72, height: 72)
-            .accessibilityHidden(true)
+        // Full screen, so the root's `ignoresSafeArea` centers the mark on the
+        // screen as iOS centers the launch image, not in the safe area.
+        CmuxLogoMark(chevronHeight: 72)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -177,9 +177,9 @@ public struct WelcomeView: View {
         .accessibilityLabel(Text(verbatim: "cmux"))
     }
 
-    /// The launch screen's mark (72 pt, centered, `label`) on the first frame,
-    /// gliding into the lockup slot while it takes the app icon's gradient.
-    /// It stays the lockup's chevron afterwards, so nothing is swapped.
+    /// The launch screen's mark (72 pt, centered, the app icon's gradient) on
+    /// the first frame, gliding into the lockup slot. It stays the lockup's
+    /// chevron afterwards, so nothing is swapped.
     private func launchMark(t: Double) -> some View {
         typealias E = IntroEase
         return GeometryReader { proxy in
@@ -187,18 +187,17 @@ public struct WelcomeView: View {
             let target = CGPoint(x: lockupMark.midX, y: lockupMark.midY)
             let glide = reduceMotion ? 1 : E.outQuint(E.seg(t, 0, 0.45))
             let size = E.lerp(Self.launchMarkSize, lockupMark.width > 0 ? lockupMark.width : lockupMarkSize, glide)
-            let colour = reduceMotion ? E.seg(t, 0, 0.35) : E.seg(t, 0.05, 0.4)
+            // Reduce Motion: the launch mark crossfades into the lockup's.
+            let fade = reduceMotion ? E.seg(t, 0, 0.35) : 1
             ZStack {
                 if reduceMotion {
-                    WelcomeMark(gradient: 0, glow: 0)
-                        .frame(width: Self.launchMarkSize, height: Self.launchMarkSize)
+                    CmuxLogoMark(chevronHeight: Self.launchMarkSize)
                         .position(center)
-                        .opacity(1 - colour)
+                        .opacity(1 - fade)
                 }
-                WelcomeMark(gradient: colour, glow: 0.3 * colour, opaqueBase: !reduceMotion)
-                    .frame(width: size, height: size)
+                CmuxLogoMark(chevronHeight: size)
                     .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
-                    .opacity(reduceMotion ? colour : 1)
+                    .opacity(fade)
             }
         }
         .ignoresSafeArea()
@@ -331,7 +330,7 @@ public struct WelcomeView: View {
 
     /// The legal line, its links underlined.
     private static let legalText: AttributedString = {
-        var text = (try? AttributedString(markdown: String(localized: "By continuing, you agree to the [Terms](https://cmux.com/terms) and [Privacy Policy](https://cmux.com/privacy)."))) ?? AttributedString()
+        var text = (try? AttributedString(markdown: String(localized: "By continuing, you agree to the [Terms](https://cmux.com/terms-of-service) and [Privacy Policy](https://cmux.com/privacy-policy)."))) ?? AttributedString()
         for run in text.runs where run.link != nil {
             text[run.range].underlineStyle = .single
         }
@@ -413,31 +412,25 @@ private final class WelcomeIntroClock {
     }
 }
 
-/// The cmux chevron. `gradient` 0 is the monochrome launch mark (`label`),
-/// 1 is the app icon's cyan-to-indigo gradient with a soft glow (`glow` 0...1).
-/// `opaqueBase` keeps the `label` chevron fully under the gradient so a
-/// crossfade never turns the mark translucent.
-struct WelcomeMark: View {
-    var gradient: Double
-    var glow: Double
-    var opaqueBase = false
-    @Environment(\.colorScheme) private var colorScheme
+/// The cmux chevron: the chevron layer of the app icon (`AppIcon.icon`), the
+/// image the launch screen shows (`LaunchMark`, written by
+/// `scripts/generate-launch-mark.swift`), glow included. The image is
+/// `imageHeight` points tall with its solid chevron `imageChevronHeight` tall
+/// at its center; `chevronHeight` scales it so the solid chevron is that tall.
+struct CmuxLogoMark: View {
+    var chevronHeight: CGFloat
 
-    /// Sampled from `AppIcon.icon` (leading edge to the chevron tip).
-    private static let iconGradient = LinearGradient(
-        colors: [Color(hex: "#06CDFE"), Color(hex: "#2AA0F9"), Color(hex: "#5170F3")],
-        startPoint: .leading, endPoint: .trailing
-    )
+    private static let imageHeight: CGFloat = 86
+    private static let imageChevronHeight: CGFloat = 72
 
     var body: some View {
-        ZStack {
-            CmuxMark().fill(theme.colors.label).opacity(opaqueBase ? 1 : 1 - gradient)
-            CmuxMark()
-                .fill(Self.iconGradient)
-                .shadow(color: Color(hex: "#2AA0F9").opacity((colorScheme == .dark ? 0.55 : 0.3) * glow), radius: 4 + 8 * glow)
-                .opacity(gradient)
-        }
-        .accessibilityHidden(true)
+        // The app's asset catalog (main bundle): the launch screen reads the same entry.
+        Image("LaunchMark", bundle: .main)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(height: Self.imageHeight * chevronHeight / Self.imageChevronHeight)
+            .accessibilityHidden(true)
     }
 }
 

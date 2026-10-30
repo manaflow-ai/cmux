@@ -256,6 +256,11 @@ PUBLISH_PATH = (
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
+# A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
+NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
+# Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
+# deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
+NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -279,11 +284,18 @@ class WorkflowTests(unittest.TestCase):
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume, (name, steps[i].get("name")))
+                # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
+                app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
-            timeout = self.jobs[name].get("timeout-minutes", 360)
+            timeout = str(self.jobs[name].get("timeout-minutes", 360))
+            by_track = NEXT_TIMEOUT.fullmatch(timeout)
+            if by_track:
+                # A shorter nightly-next bound only where that track makes no gh call.
+                self.assertIn(name, NO_GH_ON_NIGHTLY_NEXT, name)
+                timeout = by_track.group(2)
             self.assertGreaterEqual(int(timeout), 65, name)
             # A step bounded on its own that calls gh needs the hour too, or it times out mid-wait.
             # A step that never waits (GH_BUDGET_WAIT_MAX_SECONDS 0) needs no hour.
@@ -293,7 +305,18 @@ class WorkflowTests(unittest.TestCase):
                     self.assertGreaterEqual(int(step["timeout-minutes"]), 65, (name, step.get("name")))
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
-        steps = self.jobs["build-nightly-app"]["steps"]
+        job = self.jobs["attest-nightly-remote-daemon"]
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", job["runs-on"])
+        self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
+        self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
+        # No consumer can put this advisory job back on the publication path,
+        # directly or transitively. A budget wait must not delay the feed.
+        for name, consumer in self.jobs.items():
+            needs = consumer.get("needs", [])
+            if isinstance(needs, str):
+                needs = [needs]
+            self.assertNotIn("attest-nightly-remote-daemon", needs, name)
+        steps = job["steps"]
         names = [s.get("name") for s in steps]
         attest = names.index("Attest immutable SSH daemon assets")
         self.assertIn("gh_budget_wait.sh --reserve 200", steps[attest - 1]["run"])
@@ -301,6 +324,11 @@ class WorkflowTests(unittest.TestCase):
         wait = steps[names.index("Wait for the API budget before retrying the daemon attestation")]["run"]
         self.assertIn("gh_budget_wait.sh --reserve 200", wait)
         self.assertNotIn("sleep", wait)
+
+    def test_the_app_engine_fetch_keeps_its_budget_wrapper(self) -> None:
+        steps = self.jobs["build-nightly-app"]["steps"]
+        names = [s.get("name") for s in steps]
+        self.assertNotIn("Attest immutable SSH daemon assets", names)
         # The engine fetch's gh release fallback comes after the install too.
         self.assertLess(next(i for i, s in enumerate(steps) if INSTALL.search(str(s.get("run", "")))),
                         names.index("Fetch the Chromium engine"))

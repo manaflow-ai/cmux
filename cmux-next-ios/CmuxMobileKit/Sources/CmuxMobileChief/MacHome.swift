@@ -76,7 +76,10 @@ public struct MacHomeRow: Identifiable, Hashable, Sendable {
         name = object["name"] as? String ?? ""
         unread = (object["unread"] as? NSNumber)?.intValue ?? 0
         activityAt = Self.time(object["activity_at"] as? String) ?? .distantPast
-        preview = plainPreview(object["preview"] as? String ?? "")
+        // A Chief's failure note reads as the conversation shows it, not in operator
+        // words (only in a Chief's conversation: the brain posts it there).
+        let wirePreview = object["preview"] as? String ?? ""
+        preview = plainPreview(object["chief"] is String || kind == .chief ? ChiefTurnFailure.previewText(wirePreview) : wirePreview)
         chief = object["chief"] as? String
         chiefState = (object["chief_state"] as? String).flatMap(ChiefState.init(rawValue:))
         isPinned = object["pinned"] as? Bool ?? false

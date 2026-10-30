@@ -156,8 +156,16 @@ public nonisolated enum LayoutTunables {
         help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real docked columns keep their own mode).",
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
+    /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): a window frames whole workspaces at its edges
+    /// around the stage the sidebar switches. Off (the default): the actions refuse with this reason and no window
+    /// record gets docks.
+    public static let dockedWorkspaces = Tunable<Bool>.toggle(
+        "window.dockedWorkspaces", .sidebar, "Docked workspaces (window frame prototype)",
+        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. Palette: Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
+        default: false, code: "LayoutTunables.dockedWorkspaces")
+
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
+        [dockedWorkspaces.descriptor, prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
          paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }

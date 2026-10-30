@@ -18,6 +18,7 @@ public nonisolated struct AddDeviceStrings {
         case .network: s("addDevice.way.network", "On your network")
         case .code: s("addDevice.way.code", "It shows a code")
         case .newDevice: s("addDevice.way.newDevice", "Set up a new device")
+        case .joinLine: s("addDevice.way.joinLine", "Any machine")
         }
     }
 
@@ -40,6 +41,8 @@ public nonisolated struct AddDeviceStrings {
         s("addDevice.network.unavailable", "cmux could not read your network. Add a computer by its name instead.")
     }
     static var yours: String { s("addDevice.network.yours", "Yours") }
+    /// A computer the network does not list, found in the person's ssh config.
+    static var sshConfig: String { s("addDevice.network.sshConfig", "From your ssh config") }
 
     static var codeHelp: String {
         s("addDevice.code.help", "The new computer shows a code like K0Q5-1M6C and four words. Type the code here, check that the words match, then approve.")
@@ -59,10 +62,48 @@ public nonisolated struct AddDeviceStrings {
         switch action {
         case .pick: s("addDevice.add", "Add")
         case .otherComputer: s("addDevice.otherComputer", "Other Computer…")
+        case .newCloudMachine: s("addDevice.newCloudMachine", "New Cloud VM…")
         case .enterCode: s("addDevice.enterCode", "Enter Code…")
+        case .installTailscale: s("addDevice.installTailscale", "Install Tailscale…")
         case .copyLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
+        case .copyJoinLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
+        case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
+        case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
+        case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
         case .done: s("addDevice.done", "Done")
         case .cancel: s("addDevice.cancel", "Cancel")
+        }
+    }
+
+    // "Any machine: one line" (Labs labs.machineJoin).
+    static var joinLineHelp: String {
+        s("addDevice.joinLine.help", "Paste this line in a terminal on any Mac or Linux machine. It installs what that machine needs and joins it to your team's machines.")
+    }
+    static var joinLineName: String { s("addDevice.joinLine.name", "Name (optional)") }
+    static var joinLineNamePlaceholder: String { s("addDevice.joinLine.namePlaceholder", "e.g. build-box") }
+    static var joinLineMinting: String { s("addDevice.joinLine.minting", "Making a line…") }
+    static var joinLineWaiting: String { s("addDevice.joinLine.waiting", "Waiting for it to join. This card changes when it does.") }
+    static var joinLineConsent: String {
+        s("addDevice.joinLine.consent", "Screen sharing and control stay off until that machine allows them.")
+    }
+    static var joinLinePaste: String { s("addDevice.joinLine.paste", "Paste it in a terminal on that machine.") }
+    static var joinLineOnce: String { s("addDevice.joinLine.once", "It works once, on one machine.") }
+    static func joinLineExpires(_ seconds: Int) -> String {
+        let clock = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        return String(format: s("addDevice.joinLine.expiresIn", "Expires in %@"), clock)
+    }
+    static var joinLineExpired: String {
+        s("addDevice.joinLine.expired", "That line expired before a machine used it. Make a new one.")
+    }
+    static func joinLineJoined(_ name: String) -> String {
+        String(format: s("addDevice.joinLine.joined", "%@ joined"), name)
+    }
+    static var joinLineChecking: String { s("addDevice.joinLine.checking", "Checking it…") }
+    static func joinLineFailed(_ failure: JoinLineFailure) -> String {
+        switch failure {
+        case .signedOut: s("addDevice.joinLine.signedOut", "Sign in to cmux to make a line.")
+        case .unavailable: s("addDevice.joinLine.unavailable", "Joining with one line is not available on this cmux account yet.")
+        case .failed: s("addDevice.joinLine.failed", "cmux could not make a line. Try again.")
         }
     }
 

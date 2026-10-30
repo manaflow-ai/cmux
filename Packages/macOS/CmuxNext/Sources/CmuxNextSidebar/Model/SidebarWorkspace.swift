@@ -95,9 +95,15 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// The winning report is an OSC 7501 program status record: the program opted in to the
+    /// finer row icons (a shield for permission, each pending item), with
+    /// `sidebar.detailedStatusIcons` off (Lawrence msg 1351).
+    public var activityFromProgram = false
     /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
     /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?
+    /// A custom harness's own icon (user 12922), drawn instead of `agentBrand`'s mark when set.
+    public var agentIcon: SidebarAgentIcon?
     /// That agent's name ("Claude Code", "Codex"): the hover card's agent line (cx-13w3).
     public var agentName: String?
     /// The last message of the workspace's agent chat: an expanded row's second line (cx-13w3.1).
@@ -180,6 +186,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         agentBrand: String? = nil,
+        agentIcon: SidebarAgentIcon? = nil,
         agentName: String? = nil,
         progress: SidebarProgress? = nil,
         tabs: [SidebarTab] = [],
@@ -208,6 +215,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.agentBrand = agentBrand
+        self.agentIcon = agentIcon
         self.agentName = agentName
         self.progress = progress
         self.tabs = tabs

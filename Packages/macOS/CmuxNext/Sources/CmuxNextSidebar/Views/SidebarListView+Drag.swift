@@ -90,8 +90,7 @@ extension SidebarListViewComponents {
         guard let drag else { return }
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
-        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
-        if offerHandoff(drag, windowPoint: windowPoint) { return }
+        if SidebarListPinDrop.holds(self, drag, at: windowPoint) || offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
@@ -117,10 +116,11 @@ extension SidebarListViewComponents {
         drag.lift.setRefused(target == nil)
         showDragLayout()
     }
-    func finishDrag() {
+    func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
         autoscroll.stop()
         if SidebarListPinDrop.finish(self, drag) { return }
+        if let windowPoint, finishDragOut(drag, at: windowPoint) { return } // the release decides; none: a programmatic end
         // A group dropped where it came from, or where nothing takes it, moves nothing: it goes back as for a cancel.
         if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {
@@ -242,7 +242,7 @@ extension SidebarListViewComponents {
             shape = slot
             rest = false
         } else if drag.tileSource != nil || drag.restShaped == false {
-            shape = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+            shape = NSRect(x: inset, y: 0, width: indentWidth, height: metrics.rowHeight)
         }
         if rest, case let .position(position)? = drag.target, let group = position.group,
            let header = displayed.row(for: .group(group)) {
@@ -275,7 +275,7 @@ extension SidebarListViewComponents {
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.
     func land(_ drag: Drag, at slot: NSRect? = nil, then: (@MainActor () -> Void)? = nil) {
-        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
+        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0).clippedX(to: bounds) } } // as `dragTile` cut it
         // The dragged rows where the layout just applied puts them (their views' model frames), not the
         // `displayed` geometry: on the document path that can lag the views a held drag moved (ptr5: 36 pt pops).
         // A group's card also covers its members' line, as it did when it lifted (SidebarListLift.blockFrame).
@@ -425,7 +425,7 @@ extension SidebarListViewComponents {
     func settledFrame(_ views: [NSView]) -> NSRect? {
         let frames = views.filter { $0.isDescendant(of: self) }.map { convert($0.bounds, from: $0) }
         guard let first = frames.first else { return nil }
-        return frames.dropFirst().reduce(first) { $0.union($1) }
+        return frames.dropFirst().reduce(first) { $0.union($1) }.clippedX(to: bounds) // a band row runs past the edge by its trim
     }
 
     // MARK: - The drag's look (DESIGN "Drag feel" 3)
@@ -485,7 +485,7 @@ extension SidebarListViewComponents {
         // (no line over the rows, Lawrence 2026-10-23): it starts at the x its rows take in the group it joins.
         let stepIn = dropStepIn(layout)
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map {
-            NSRect(x: inset + stepIn, y: $0, width: max(0, bounds.width - inset * 2 - stepIn), height: layout.gapHeight)
+            NSRect(x: inset + stepIn, y: $0, width: max(0, indentWidth - stepIn), height: layout.gapHeight)
         } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
@@ -513,13 +513,13 @@ extension SidebarListViewComponents {
         guard !leaving.isEmpty else { return }
         // The motion probe keeps sampling a fading row until it is gone (a fade is not a pop).
         for (view, _) in leaving { fadingRows[ObjectIdentifier(view)] = view }
+        let generations = leaving.map(\.0.reuseGeneration)
         Motion.feedback.animate(.hover, in: self, {
             for (view, _) in leaving { view.animator().alphaValue = 0 }
-        }, completion: { [weak self, leaving] in
+        }, completion: { [weak self, leaving, generations] in
             guard let self else { return }
-            for (view, _) in leaving {
-                self.fadingRows[ObjectIdentifier(view)] = nil
-                if !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+            for ((view, _), generation) in zip(leaving, generations) {
+                self.finishLeaving(view, generation: generation)
             }
         })
     }

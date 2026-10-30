@@ -19,13 +19,18 @@ import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { CloudEntitlementStore } from "./cloud-entitlements.ts"
 import { decodeParams } from "./domains/common.ts"
 import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, isApprovedRun, needsCloudApproval, wakeCloudApprovals, type CloudApprovalHost } from "./cloud-approvals.ts"
+import { buildEnvironmentSnapshot, EnvironmentBuildError, environmentBuildStartExec } from "@cmux/cloud-env"
+import { asWorkUser, GuardedCloudSandbox } from "./cloud-env-sandbox.ts"
+import { ENV_SETUP_TIMEOUT_MS, isEnvBuild, publicEnvironment, TABLE_ENVIRONMENT_ROWS, type EnvironmentRow } from "./domains/cloud-environment.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
 
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
-const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore"])
+const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.environment.boot", "cloud.environment.delete"])
+/** Limited per team like the provider ops, but answered at once: the alarm runs the build (minutes). */
+const BUILD_OPS: ReadonlySet<string> = new Set(["cloud.environment.build"])
 /** Ops that may start cost: the team's paid plan is refreshed first (cloud-entitlements.ts). */
-const PLAN_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.start", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore"])
+const PLAN_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.start", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.environment.build", "cloud.environment.boot"])
 /** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
 export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
 const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.provider_state", "cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
@@ -68,6 +73,9 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const at = this.vmRevokes.dueAt()
     if (at !== null) void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(Math.max(at, Date.now())) : undefined))
   }
+
+  /** Client session identities waiting for their provider delete (CloudDO, cloud-client-session.ts); a no-op here. */
+  protected async sweepClientIdentities(_now: number, _first?: ReadonlyArray<string>): Promise<void> {}
 
   /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
   protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>
@@ -174,6 +182,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         const all = rows?.range<SnapshotRow>(TABLE_SNAPSHOT, { limit: 1000 }).map((r) => r.row) ?? []
         return { ok: true, value: { snapshots: all.filter((r) => machine === undefined || r.machine === machine).map(publicSnapshot) }, revision: "" }
       }
+      case "cloud.environment.list": {
+        const all = rows?.range<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, { limit: 1000 }).map((r) => r.row) ?? []
+        return { ok: true, value: { environments: all.sort((a, b) => a.created_at - b.created_at).map((e) => publicEnvironment(this.config, rows, e)) }, revision: "" }
+      }
       case "cloud.plan.get":
         return { ok: true, value: planView(teamPlan(this.config, state.team ?? principal.team), state, Date.now()), revision: "" }
       default:
@@ -237,13 +249,15 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     if (slot && "until" in slot) return reject(entity, frame.idempotency_key, "cloud.rate_limited", "this device started machines 10 times in the last hour; retry later or start it from the dashboard", true, { retry_after_ms: Math.max(0, slot.until - Date.now()) })
     // Paid entitlements: the plan the reducer and the provider pass read is refreshed before an op that may cost money.
     if (PLAN_OPS.has(frame.op)) await this.entitlements.refresh(entity, principal)
-    const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
+    const limited = PROVIDER_OPS.has(frame.op) || BUILD_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
     const result = limited ?? (await super.submit(entity, principal, frame))
     const committed = result.frames.some((f) => f.t === "result" && !f.replayed)
     if (slot && "id" in slot && !committed) this.installStarts.release(slot.id)
     if (limited) return limited
     if (fresh && committed) this.audit.record({ op: frame.op, machine: (frame.params as { machine?: unknown } | null)?.machine ?? null, ...who(principal), at: Date.now() })
     await this.drainRevokes(Date.now() + this.skewMs)
+    // A deleted machine's client session identities go with it (never blocks the answer on a failed delete).
+    if (frame.op === "cloud.machine.delete" && committed) await this.sweepClientIdentities(Date.now() + this.skewMs).catch(() => undefined)
     if (!PROVIDER_OPS.has(frame.op)) return result
     const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return result
@@ -355,7 +369,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
       const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
-      const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
+      const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot" || row.op === "env_build") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
       const captureRecovery = row.op === "snapshot" && row.transport === "vm-api"
       const bindDenied = row.op === "create" && !row.cancel && !this.bindFileConfig()
       let driver: GuardedCloudDriver | null = null
@@ -365,7 +379,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
       // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
       if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
-      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
+      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number }; env_build?: { stage?: "boot" | "ready" | "setup" | "snapshot" | "warm"; log_tail?: string; timings?: { boot_ms: number; ready_ms: number; setup_ms: number; snapshot_ms: number; warm_ms: number; total_ms: number } } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
       if (planDenied && !captureRecovery) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
@@ -382,7 +396,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const found = await driver.findOwned(row.provider_name, tag)
             result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
           } else if (row.op === "create") {
-            // Freestyle's own timers are off (createBody): idle belongs to our policy and backstop.
+            // The provider's own timers are off (every provider's create): idle belongs to our policy and backstop.
             const m = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
             const fromSnapshot = m?.from_snapshot
@@ -395,8 +409,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const cfg = this.bindFileConfig()!
             await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, ...cfg }))
             const res = await driver.resourcesOf(row.provider_name, tag).catch(() => null)
+            await this.startEnvironmentSetup(driver, row.provider_name, tag, m)
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
           }
+          else if (row.op === "env_build") result = await this.runEnvironmentBuild(driver, row, tag)
           else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
           else if (row.op === "snapshot" && row.snapshot_name) result = { key: row.key, ok: true, provider_id: (await driver.snapshot(row.provider_name, tag, row.snapshot_name)).id }
           else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name, tag, emptyFenceSettles(row)), { key: row.key, ok: true })
@@ -417,6 +433,40 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       this.submitSystem("cloud.driver_result", result, commitKey)
       if (!result.ok) return
       if (row.op === "start" && driver) await this.edge.started(driver, tag.team, row.machine, engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row, Date.now() + this.skewMs)
+    }
+  }
+
+  /**
+   * One environment build (cloud-environments-DESIGN.md §2) through the CloudSandbox seam: builder from
+   * the deployment's image, detached setup, snapshot under the recorded slug, warm boot, builder deleted.
+   * A setup failure (non-zero exit or past its deadline) is final: the same script fails again. Every other failure retries.
+   */
+  protected async runEnvironmentBuild(driver: GuardedCloudDriver, row: LedgerRow, tag: { team: string; machine: string }) {
+    const env = row.environment ? this.boundEngine?.rows.get<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, row.environment)?.row : undefined
+    if (!env || !row.snapshot_name || !this.config.image) return { key: row.key, ok: false, error: { code: "cloud.environment.not_found", message: "the environment is gone" }, final: true }
+    const sandbox = new GuardedCloudSandbox(driver, tag, row.transport ?? "direct")
+    try {
+      const out = await buildEnvironmentSnapshot(sandbox, env.spec, { baseImage: this.config.image, builderName: row.provider_name, snapshotName: row.snapshot_name, ...(row.env_warm ? { warmName: row.env_warm } : { warmName: null }), setupTimeoutMs: ENV_SETUP_TIMEOUT_MS, ...(this.env.ENVIRONMENT === "test" ? { setupPollMs: 10, readyIntervalMs: 10 } : {}) })
+      const t = out.timings
+      const ms = (n: number) => Math.max(0, Math.round(n))
+      return { key: row.key, ok: true, provider_id: out.snapshotId, env_build: { timings: { boot_ms: ms(t.bootMs), ready_ms: ms(t.readyMs), setup_ms: ms(t.setupMs), snapshot_ms: ms(t.snapshotMs), warm_ms: ms(t.warmMs), total_ms: ms(t.totalMs) } } }
+    } catch (e) {
+      const err = e instanceof EnvironmentBuildError ? e : new EnvironmentBuildError("boot", String(e))
+      const setup = err.stage === "setup"
+      console.warn(JSON.stringify({ msg: "cloud environment build failed", stage: err.stage, environment: env.id, attempt: row.attempts + 1 }))
+      return { key: row.key, ok: false, error: { code: setup ? "cloud.environment.build_failed" : "cloud.provider.unavailable", message: err.message }, final: setup, env_build: { stage: err.stage, ...(err.logTail ? { log_tail: err.logTail } : {}) } }
+    }
+  }
+
+  /** A cold boot of an environment: starts its setup on the new machine, detached; a failure leaves the machine as it is. */
+  protected async startEnvironmentSetup(driver: GuardedCloudDriver, name: string, tag: { team: string; machine: string }, m: MachineRow | undefined) {
+    if (!m?.env_setup) return
+    const env = this.boundEngine?.rows.get<EnvironmentRow>(TABLE_ENVIRONMENT_ROWS, m.env_setup.environment)?.row
+    if (!env) return
+    try {
+      await driver.execStdin(name, tag, asWorkUser(environmentBuildStartExec(env.spec, m.env_setup.digest)), null, 60_000)
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: "cloud environment setup did not start", machine: m.id, error: e instanceof Error ? e.message : String(e) }))
     }
   }
 
@@ -444,12 +494,17 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     const engine = this.boundEngine
     if (!engine) return
     const now = realNow + this.skewMs
-    const machines = new Set(Object.values(engine.currentState.pending).filter((p) => p.due_at <= now).map((p) => p.machine))
+    const due = Object.entries(engine.currentState.pending).filter(([, p]) => p.due_at <= now)
+    // Environment builds take minutes: every other machine's call runs first.
+    const builds = new Set(due.filter(([key]) => isEnvBuild(engine.rows, key)).map(([, p]) => p.machine))
+    const machines = new Set(due.map(([, p]) => p.machine).filter((m) => !builds.has(m)))
     for (const m of machines) await this.runMachine(m, now)
+    for (const m of builds) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
     if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     await this.vmRevokes.settleRegisters(now, async (reg) => ((r) => (r.ok ? { ok: true as const, id: r.id } : { ok: false as const, code: r.code }))(await registerVmInstall(this.env, reg)), (m) => engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.vm_install)
     await this.drainRevokes(now)
+    await this.sweepClientIdentities(now).catch(() => undefined)
     await this.pauseSilent(now)
     const entity = this.boundEntity()
     if (entity) await wakeCloudApprovals(this.approvalHost(entity), realNow, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))

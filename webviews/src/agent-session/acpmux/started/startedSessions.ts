@@ -47,6 +47,8 @@ export type StartedSession = {
   /// The title is one the chat was given (its title or name), not the first prompt or "New chat"
   /// standing in for one: only then can a reply name it by title.
   named?: boolean;
+  /// A sub-session acpmux holds until its chat's running limit has a free slot (`waitsForSlot`).
+  waitsForSlot?: boolean;
   /// What its running turn does now (acpmux's doing line, sessionList.ts `doingLine`), for the tray;
   /// only with `doing` asked for, so the transcript's cards do not redraw on each of its calls.
   doing?: string;
@@ -54,6 +56,8 @@ export type StartedSession = {
   doingTool?: string;
   /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
   retry?: RetryState;
+  /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
+  harness?: string;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -147,9 +151,11 @@ export function startedSessions(
         ...(state === "idle" && entry.unread ? { unread: true } : {}),
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
+        ...(entry.waitsForSlot ? { waitsForSlot: true } : {}),
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
         ...(entry.retry ? { retry: entry.retry } : {}),
+        ...(entry.harness ? { harness: entry.harness } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

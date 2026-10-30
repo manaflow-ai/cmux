@@ -126,6 +126,7 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
+    "scripts/cmux-next/judge-action-exports.sh",
     # The settings exports (regenerate-settings-exports.sh; the generated
     # files job exports them fresh and compares). The CmuxNextSettings sources
     # and the export tests are under PACKAGE.
@@ -139,13 +140,13 @@ GENERATED_INPUTS = (
 
 # The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
 # CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
-# build phases are the scheme compile's). The Linux Release check (cmux-next-swift-check --app
-# --release) builds the same package sources with SwiftPM and compiles its string catalogs. What
+# build phases are the scheme compile's). The fleet Release compile check (cmux-next/compile)
+# builds the same package sources with SwiftPM and compiles its string catalogs. What
 # only xcodebuild sees: how it resolves the package graph (every local package's Package.swift and
 # Package.resolved), actool on package asset catalogs, package plists, xcconfigs and entitlements,
 # and the Xcode pin and the compile scripts. A same-repository pull request runs the Mac Release
-# compile only when it changes one of these. Apple's Swift 6.2 (Xcode 26.6) against the Linux
-# swift.org 6.3.3, -O codegen and tests are caught after the merge by the base push's Mac Release
+# compile only when it changes one of these. Xcode's own Swift (26.6) against the check's
+# toolchain, -O codegen and tests are caught after the merge by the base push's Mac Release
 # compile.
 MAC_RELEASE_INPUTS = (
     "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
@@ -208,7 +209,7 @@ CI_ONLY = (
     ".github/workflows/*", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
-    "tests/test_base_red_excuse.py", "tests/test_ci_*.py",
+    "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -230,6 +231,30 @@ def web_fast(path: str) -> bool:
 
 def ci_only(path: str) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
+
+
+# The Python test registry. A tests/test_*.py file whose lane there is linux-guard runs only on
+# Linux (scripts/ci/run_python_test_lane.py; the macOS lanes are ci-macos.yml's), so a change to it
+# needs no Mac tier unless a Mac tier reads it (consumed()). Its lane is read from the registry,
+# never from a list here: a file moved to a macOS lane routes to the Mac tiers again. No cmux-next
+# Mac tier reads the registry itself.
+REGISTRY = "tests/test-execution.toml"
+LINUX_LANE = "linux-guard"
+
+
+def linux_guard_tests(root: Path) -> frozenset[str]:
+    """The registry's linux-guard test files; none when it or its reader cannot be read, so they keep their tiers."""
+    try:
+        from test_execution_registry import load_registry  # noqa: PLC0415 - a copied router may come without it
+        entries = load_registry(root / REGISTRY)
+    except (ImportError, OSError, ValueError, SyntaxError):
+        return frozenset()
+    return frozenset(str(entry.get("path")) for entry in entries
+                     if entry.get("lane") == LINUX_LANE and fnmatch.fnmatch(str(entry.get("path")), "tests/test_*.py"))
+
+
+def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
+    return path in linux_tests or (path == REGISTRY and bool(linux_tests))
 
 
 def consumed(path: str, tree_inputs: list[str], read) -> bool:
@@ -379,10 +404,13 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
     # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
     tree_inputs_early = tree_input_paths(root)
+    linux_tests = linux_guard_tests(root)
     if "dev-build" not in labels and all(
-        (web_fast(path) or ci_only(path)) and not consumed(path, tree_inputs_early, read) for path in changed
+        (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
+        and not consumed(path, tree_inputs_early, read) for path in changed
     ):
-        kinds = sorted({"CI" if ci_only(path) else "web" for path in changed})
+        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests) else "web"
+                        for path in changed})
         result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
         return result
     packages = package_inputs(root, graph)

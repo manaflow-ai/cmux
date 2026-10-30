@@ -11,7 +11,8 @@
 //   2026-10-19: no mousedown and mouseup click feedback).
 // - A mouse click leaves no focus ring, on the chip or on the menu it opens, even right after
 //   typing (WebKit draws a programmatic focus as keyboard focus once a key was pressed).
-//   Keyboard focus on the same chip still shows its ring.
+//   Keyboard focus on the same chip still shows: the soft hover pill, with no outline (#23745, Leo
+//   2026-10-21: no focus rings in the agent pane).
 // - Every chip takes a press over a box at least 24 px tall, the small folder chip included.
 // - A menu row takes a press anywhere on it, its check gutter and trailing edge included.
 //
@@ -146,6 +147,19 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       };
     }, chip(name));
 
+  /** Whether the chip has keyboard focus and paints the soft pill: a tinted fill, or the pane's focus
+   *  wash laid over it as a background image (shared/styles.css). */
+  const pill = (page: Page, name: string) =>
+    page.evaluate((selector) => {
+      const button = document.querySelector(selector)!;
+      const style = getComputedStyle(button);
+      const clear = (color: string) => color === "transparent" || /^rgba\(0, 0, 0, 0\)$|\/ 0\)$/.test(color);
+      const washes = [...style.backgroundImage.matchAll(/(?:rgba?|color)\([^()]*\)/g)].map(([color]) => color);
+      return (
+        button.matches(":focus-visible") && (!clear(style.backgroundColor) || washes.some((color) => !clear(color)))
+      );
+    }, chip(name));
+
   for (const [engine] of engines)
     for (const width of [760, 300])
       for (const stage of STAGES) {
@@ -223,7 +237,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
           await page.close();
         });
 
-        test(`${where}: a mouse click leaves no focus ring, after typing too; the keyboard still shows one`, async () => {
+        test(`${where}: a mouse click leaves no focus ring, after typing too; the keyboard shows the pill, ringless`, async () => {
           for (const name of stage.chips) {
             const page = await open(engine, stage, width);
             // Typing first: WebKit then draws a programmatic focus as keyboard focus.
@@ -235,12 +249,13 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             const closed = await rings(page, name);
             expect({ name, opened }).toEqual({ name, opened: { focused: "", chip: false, popups: [] } });
             expect({ name, closed: closed.chip }).toEqual({ name, closed: false });
-            // Keyboard focus on the chip draws its ring.
+            // Keyboard focus on the chip draws the soft pill and no ring (#23745).
             await page.keyboard.press("Escape");
             await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
             await page.keyboard.press("Shift");
             await page.locator(chip(name)).first().focus();
-            expect({ name, keyboard: (await rings(page, name)).chip }).toEqual({ name, keyboard: true });
+            const keyboard = { ring: (await rings(page, name)).chip, pill: await pill(page, name) };
+            expect({ name, keyboard }).toEqual({ name, keyboard: { ring: false, pill: true } });
             await page.close();
           }
         });

@@ -4,6 +4,270 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes cloud.shell.open declares.
+    CloudShellOpenError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachinePaused = "cloud.machine.paused",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudSnapshotCreateOp {
+        name: "cloud.snapshot.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudSnapshotCreateParams,
+        result: CloudSnapshotCreateResult,
+        error: CloudSnapshotCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotCreateParams {
+    pub machine: MachineId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotCreateResult {
+    pub snapshot: CloudSnapshot,
+}
+
+wire_errors! {
+    /// The error codes cloud.snapshot.create declares.
+    CloudSnapshotCreateError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudMachineNotRunning = "cloud.machine.not_running",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudSnapshotDeleteOp {
+        name: "cloud.snapshot.delete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: CloudSnapshotDeleteParams,
+        result: CloudSnapshotDeleteResult,
+        error: CloudSnapshotDeleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotDeleteParams {
+    pub snapshot: SnapshotId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotDeleteResult {
+    pub deleted: BoolLit<true>,
+}
+
+wire_errors! {
+    /// The error codes cloud.snapshot.delete declares.
+    CloudSnapshotDeleteError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineBusy = "cloud.machine.busy",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Snapshots of one machine, or of the team.
+    CloudSnapshotListOp {
+        name: "cloud.snapshot.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudSnapshotListParams,
+        result: CloudSnapshotListResult,
+        error: CloudSnapshotListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<MachineId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotListResult {
+    pub snapshots: Vec<CloudSnapshot>,
+}
+
+wire_errors! {
+    /// The error codes cloud.snapshot.list declares.
+    CloudSnapshotListError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
+    CloudSnapshotRestoreOp {
+        name: "cloud.snapshot.restore",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:CloudDO",
+        risk: "money",
+        principals: [Session, Install],
+        params: CloudSnapshotRestoreParams,
+        result: CloudSnapshotRestoreResult,
+        error: CloudSnapshotRestoreError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotRestoreParams {
+    pub snapshot: SnapshotId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudSnapshotRestoreResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.snapshot.restore declares.
+    CloudSnapshotRestoreError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeLocked = "cloud.size.locked",
+        CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmEventEmitOp {
+        name: "cloud.vm.event.emit",
+        class: Mutation,
+        idempotency: None,
+        owner: "cloud:CloudDO",
+        risk: "execute",
+        principals: [Install],
+        params: CloudVmEventEmitParams,
+        result: CloudVmEventEmitResult,
+        error: CloudVmEventEmitError,
+    }
+}
+
+wire_enum! {
+    CloudVmEventEmitParamsKind {
+        AgentStarted = "agent.started",
+        AgentFinished = "agent.finished",
+        AgentNeedsInput = "agent.needs_input",
+        Notification = "notification",
+        BrowserLeaseChanged = "browser.lease.changed",
+        CuaSessionStarted = "cua.session.started",
+        CuaSessionEnded = "cua.session.ended",
+        ServicePortOpened = "service.port.opened",
+        ServicePortClosed = "service.port.closed",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmEventEmitParams {
+    pub machine: MachineId,
+    pub kind: CloudVmEventEmitParamsKind,
+    pub at: i64,
+    pub data: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmEventEmitResult {
+    pub delivered: bool,
+}
+
+wire_errors! {
+    /// The error codes cloud.vm.event.emit declares.
+    CloudVmEventEmitError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
     CloudVmSelfGetOp {
@@ -627,274 +891,4 @@ wire_errors! {
         RevisionConflict = "revision.conflict",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// The team's claimed and verified email domains (owners and admins).
-    DomainListOp {
-        name: "domain.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: DomainListParams,
-        result: DomainListResult,
-        error: DomainListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainListResult {
-    pub team: TeamId,
-    pub domains: Vec<TeamDomain>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes domain.list declares.
-    DomainListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Give up a claimed or verified domain (owners and admins). Another team may then verify it.
-    DomainReleaseOp {
-        name: "domain.release",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: DomainReleaseParams,
-        result: DomainReleaseResult,
-        error: DomainReleaseError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainReleaseParams {
-    pub domain: EmailDomain,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainReleaseResult {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.release declares.
-    DomainReleaseError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins).
-    DomainVerifyOp {
-        name: "domain.verify",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: DomainVerifyParams,
-        result: TeamDomain,
-        error: DomainVerifyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DomainVerifyParams {
-    pub domain: EmailDomain,
-}
-
-wire_errors! {
-    /// The error codes domain.verify declares.
-    DomainVerifyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DomainNotVerified = "domain.not_verified",
-        DomainTaken = "domain.taken",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect.
-    FeedAdoptOp {
-        name: "feed.adopt",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: FeedAdoptParams,
-        result: FeedAdoptResult,
-        error: FeedAdoptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptParams {
-    pub item: FeedItem,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.adopt declares.
-    FeedAdoptError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedAdoptCancelled = "feed.adopt_cancelled",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.
-    FeedAdoptCancelOp {
-        name: "feed.adopt.cancel",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: FeedAdoptCancelParams,
-        result: FeedAdoptCancelResult,
-        error: FeedAdoptCancelError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptCancelParams {
-    pub key: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAdoptCancelResult {
-    pub cancelled: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub item: Option<FeedItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.adopt.cancel declares.
-    FeedAdoptCancelError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed.
-    FeedAnswerOp {
-        name: "feed.answer",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedAnswerParams,
-        result: FeedAnswerResult,
-        error: FeedAnswerError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAnswerParams {
-    pub item: FeedItemId,
-    pub answer: Value,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedAnswerResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.answer declares.
-    FeedAnswerError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them).
-    FeedArchiveOp {
-        name: "feed.archive",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedArchiveParams,
-        result: FeedArchiveResult,
-        error: FeedArchiveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<FeedItemId>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub filter: Option<FeedFilter>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedArchiveResult {
-    pub items: Vec<FeedArchiveResultItemsItem>,
 }

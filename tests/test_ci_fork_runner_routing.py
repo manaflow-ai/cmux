@@ -22,7 +22,6 @@ MACOS_15_FORK_JOBS = {
     # Builds the release Ghostty CLI helper against the macOS 15 SDK.
     ("ci-macos.yml", "swift-package-tests"),
     ("release.yml", "build-ghostty-cli-helper"),
-    ("nightly.yml", "build-nightly-ghostty-cli-helper"),
     # Checks the release Ghostty CLI helper's Zig fetch list with a real
     # build, which must use the same macOS 15 SDK as the helper it describes.
     ("cmux-next-source-archive.yml", "archive"),
@@ -84,7 +83,7 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "report text that prints the lane's effective label, not a runs-on value"
     ),
     ("cmux-next-fast-tier-seed.yml",
-     '{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
+     '[{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30}]'): (
         "a seed pool row in the `due` job, which runs only when github.repository == 'manaflow-ai/cmux' "
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),
@@ -188,6 +187,14 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
+    ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
+    ("cmux-next-guards.yml", "MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}"): (
+        "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
+        "literal label and selects no runner"
+    ),
     ("cmux-next.yml", "FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}"): (
         "side_lane_placement.py's input: the placement step is gated to glaeda routes "
         "(never a fork) and selects no runner; fast_route() writes it to fast_runner "

@@ -4,7 +4,7 @@
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,6 +16,13 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// Absolute path to the CLI bundled with the app that started the daemon,
+    /// when the daemon was launched by an app. A standalone acpmux CLI does
+    /// not inherit the app's environment, so this is how `--group` finds the
+    /// matching app CLI from a plain shell.
+    daemon_cli_path: std::sync::Mutex<Option<std::path::PathBuf>>,
+    /// The features the daemon listed at initialize (`_meta.acpmux.features`).
+    daemon_features: std::sync::Mutex<Vec<String>>,
     /// The person challenge `{nonce, connection}` of this connection, when the
     /// daemon offered one at initialize (`hub/person.rs`).
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
@@ -77,9 +84,9 @@ impl Client {
                 }
                 closed.store(true, Ordering::SeqCst);
                 let mut p = pending.lock().await;
-                for (_, tx) in p.drain() {
-                    let _ = tx.send(Err(RpcError::internal("daemon connection closed")));
-                }
+                // Dropping the senders identifies transport EOF independently
+                // of any message or error code supplied by the daemon.
+                p.clear();
                 drop(p);
                 // The stream never ends on its own (the client keeps a
                 // sender), so say goodbye explicitly.
@@ -89,6 +96,8 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            daemon_cli_path: std::sync::Mutex::new(None),
+            daemon_features: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
             out,
             next_id: AtomicI64::new(1),
@@ -119,6 +128,15 @@ impl Client {
         let init = client.request(method::INITIALIZE, hello).await?;
         *client.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        *client.daemon_cli_path.lock_or_recover() = init
+            .pointer("/_meta/acpmux/cliPath")
+            .and_then(Value::as_str)
+            .filter(|path| std::path::Path::new(path).is_absolute())
+            .map(std::path::PathBuf::from);
+        if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
+            *client.daemon_features.lock_or_recover() =
+                features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        }
         if let (Some(n), Some(c)) = (
             init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
             init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
@@ -145,6 +163,16 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The CLI path reported by the daemon's app launcher, if any.
+    pub fn daemon_cli_path(&self) -> Option<std::path::PathBuf> {
+        self.daemon_cli_path.lock_or_recover().clone()
+    }
+
+    /// Whether the daemon listed `feature` at initialize.
+    pub fn daemon_lists(&self, feature: &str) -> bool {
+        self.daemon_features.lock_or_recover().iter().any(|f| f == feature)
     }
 
     /// The error for a connection that ended: says why, as far as the pid
@@ -204,7 +232,9 @@ impl Client {
         if !reply_lacks_lineage(reply) {
             return;
         }
-        let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
+        // A peer may return the same raw id as a local session. Keep the owner
+        // namespace on the tag request just like prompts and lifecycle calls.
+        let Some(id) = crate::cli::resolve::routed_id(reply).ok() else { return };
         let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
     }
@@ -229,9 +259,6 @@ impl Client {
         }
         match rx.await {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) if e.message == "daemon connection closed" => {
-                Err(self.closed(&format!("waiting for the reply to {m}")))
-            }
             Ok(Err(e)) => Err(DaemonError(e).into()),
             Err(_) => Err(self.closed(&format!("waiting for the reply to {m}"))),
         }
@@ -294,6 +321,18 @@ impl std::fmt::Display for DaemonError {
 
 impl std::error::Error for DaemonError {}
 
+/// A local socket/channel closure, never a JSON-RPC error received from the daemon.
+#[derive(Debug)]
+pub struct TransportClosed(String);
+
+impl std::fmt::Display for TransportClosed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for TransportClosed {}
+
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an
 /// internal error), died without cleanup (a crash), or was shut down.
@@ -331,10 +370,10 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         }
         _ => String::new(),
     };
-    anyhow!(
+    TransportClosed(format!(
         "daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}",
         home.join("daemon.log").display()
-    )
+    )).into()
 }
 
 #[cfg(test)]

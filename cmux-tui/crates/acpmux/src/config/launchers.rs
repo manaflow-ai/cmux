@@ -8,6 +8,11 @@ use super::*;
 /// (`claude-cr`) the installed CLI does not have. Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
+    // A capture fixture's harnesses name no installed program, and nothing
+    // of this host (`~/.subrouter`) is read (`harness_fixture.rs`).
+    if crate::harness_fixture::active().is_some() {
+        return;
+    }
     let servers =
         dirs::home_dir().map(|home| home.join(".subrouter/codex/servers.json")).unwrap_or_default();
     let env_route =

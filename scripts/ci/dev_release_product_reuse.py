@@ -8,7 +8,10 @@ other products), the whole cmux-next.yml, Xcode, the SDK, the arch, the cmux-tui
 and RECIPE. The key is content only: no branch, commit or path.
 
 `record` writes `manifest.json` after a compile (or a reuse) uploaded the app as the run's
-`cmux-next-dev-daily-unsigned-<sha>` artifact; the workflow uploads it as the artifact
+`cmux-next-dev-daily-unsigned-<sha>` artifact, with the Swift compilation mode the compile resolved
+(`swift_mode`: singlefile or wholemodule) beside the one asked for (`swift_mode_requested`, often
+`auto`). The key keeps only the requested mode: both resolved modes are a correct product of the same
+inputs, and a reuse carries its source's resolved mode forward. The workflow uploads it as the artifact
 `cmux-next-dev-release-product-<key>`. `lookup` finds the newest such record from a trusted run
 (a push or dispatch of cmux-next.yml on feat-cmux-next in this repository), downloads that run's
 app archive, checks its SHA-256 against the record and prints `hit=true` and `archive=`. Signing,
@@ -323,7 +326,11 @@ def try_record(api: Api, item: dict, key: str, repo: str, out_dir: Path, scratch
         bundle.unlink(missing_ok=True)
     return {"hit": "true", "archive": str(archive), "source_run_id": str(run_id),
             "source_sha": manifest["source_sha"], "archive_sha256": manifest["archive_sha256"],
-            "compiled_run_id": str(manifest.get("compiled_run_id") or run_id)}
+            "compiled_run_id": str(manifest.get("compiled_run_id") or run_id),
+            # What the source compile resolved its requested mode to (`auto` -> singlefile or wholemodule);
+            # empty for a record written before it was kept.
+            "swift_mode": str(manifest.get("swift_mode") or ""),
+            "swift_mode_requested": str(manifest.get("swift_mode_requested") or "")}
 
 
 def lookup(api: Api, key: str, env: dict[str, str], out_dir: Path, lane: Lane = DEV) -> dict[str, str]:
@@ -352,8 +359,10 @@ def summarize(outputs: dict[str, str], key: str, summary: str | None, lane: Lane
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if outputs.get("hit") == "true":
         url = f"{server}/{repo}/actions/runs/{outputs['source_run_id']}"
+        mode = swift_mode_note(outputs.get("swift_mode_requested", ""), outputs.get("swift_mode", ""))
         line = (f"{lane.name} Release product: **hit**. Reused the app {url} compiled at `{outputs['source_sha'][:12]}` "
-                f"(key `{key[:16]}`, sha256 `{outputs['archive_sha256'][:16]}`); xcodebuild skipped.")
+                f"(key `{key[:16]}`, sha256 `{outputs['archive_sha256'][:16]}`{', swift_mode ' + mode if mode else ''}); "
+                "xcodebuild skipped.")
         print(f"::notice title={lane.name} Release product reused::{url} at {outputs['source_sha'][:12]}, key {key[:16]}",
               file=sys.stderr)
     else:
@@ -365,6 +374,16 @@ def summarize(outputs: dict[str, str], key: str, summary: str | None, lane: Lane
                 stream.write(line + "\n")
         except OSError:
             pass
+
+
+def swift_mode_note(requested: str, resolved: str) -> str:
+    """`auto -> wholemodule`, `singlefile`, or "" when nothing was recorded."""
+    if requested and resolved and requested != resolved:
+        return f"{requested} -> {resolved}"
+    return resolved or requested
+
+
+SWIFT_MODES = ("auto", "singlefile", "wholemodule")
 
 
 def sha256_file(path: Path) -> str:
@@ -391,6 +410,16 @@ def record(args: argparse.Namespace, env: dict[str, str], lane: Lane = DEV) -> d
     }
     if args.reused_from_run:
         manifest["reused_from"] = {"run_id": int(args.reused_from_run), "source_sha": args.reused_from_sha}
+    # Reporting only: the key never holds the resolved mode (see the module docstring).
+    for field in ("swift_mode", "swift_mode_requested"):
+        value = (getattr(args, field, "") or "").strip()
+        if value:
+            if value not in SWIFT_MODES:
+                # A report field never costs the record: an unknown value is left out, not fatal.
+                print(f"record: ignoring --{field.replace('_', '-')} {value!r} (not one of {', '.join(SWIFT_MODES)})",
+                      file=sys.stderr)
+                continue
+            manifest[field] = value
     if getattr(args, "builder", ""):
         manifest["builder"] = json.loads(Path(args.builder).read_text())
     if lane.fresh_builder and clean_builder(manifest.get("builder")):
@@ -418,12 +447,16 @@ def main(argv: list[str] | None = None, lane: Lane = DEV) -> int:
     rec.add_argument("--reused-from-sha", default="")
     rec.add_argument("--compiled-run", default="", help="the run that ran xcodebuild for these bytes")
     rec.add_argument("--builder", default="", help="the builder JSON nightly_release_product_reuse.py builder wrote")
+    rec.add_argument("--swift-mode", default="", help="the Swift compilation mode the compile resolved (or the reused source's)")
+    rec.add_argument("--swift-mode-requested", default="", help="the mode the compile was asked for (the key's)")
     args = parser.parse_args(argv)
     env = dict(os.environ)
     if args.command == "record":
         manifest = record(args, env, lane)
         print(f"record={record_name(args.key, lane)}")
         print(f"archive_sha256={manifest['archive_sha256']}")
+        if manifest.get("swift_mode"):
+            print(f"swift_mode={manifest['swift_mode']}")
         return 0
     outputs: dict[str, str]
     try:
