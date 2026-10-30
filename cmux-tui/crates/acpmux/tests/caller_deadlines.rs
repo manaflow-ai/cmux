@@ -72,9 +72,13 @@ async fn assert_deadline(stalled: &'static str, team: bool, delayed_setup: bool)
     if team {
         command.args(["--json", "send", "--timeout", "1", "@team", "hello"]);
     } else {
+        // `run` detaches by policy. Foreground parent waits/replies are reached
+        // through `new -q`; keep setup coverage on the detached `run` alias.
+        let foreground = matches!(stalled, "_acpmux/wait" | "_acpmux/attach" | "_acpmux/events");
         command.args([
             "--json",
-            "run",
+            if foreground { "new" } else { "run" },
+            "-q",
             "--parent",
             "parent",
             "--tag",

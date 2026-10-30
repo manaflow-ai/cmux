@@ -43,7 +43,7 @@ fn running(pid: i32) -> bool {
         // An orphan can await init's reap after being killed. It has stopped
         // executing and cannot retain the pipes; do not mistake it for a leak.
         let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else { return false };
-        return stat.rsplit_once(") ").is_some_and(|(_, state)| !state.starts_with('Z'));
+        stat.rsplit_once(") ").is_some_and(|(_, state)| !state.starts_with('Z'))
     }
     #[cfg(not(target_os = "linux"))]
     unsafe {
@@ -189,7 +189,13 @@ else:
     assert!(!helper_pids.is_empty(), "{mode}: subprocess was never reached");
     assert!(sentinel_alive, "{mode}: timeout killed an unrelated owned process");
     let status = status.expect("subprocess exceeded the CLI deadline").unwrap();
-    assert_eq!(status.code(), Some(3), "{mode}: stdout={stdout:?}, stderr={stderr:?}");
+    assert_eq!(
+        status.code(),
+        Some(3),
+        "{mode}: stdout={}, stderr={}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
     assert!(helpers_stopped, "{mode}: owned subprocess survived timeout");
     assert!(elapsed < Duration::from_millis(1500), "{mode}: budget reset: {elapsed:?}");
 }
