@@ -325,9 +325,6 @@ type EarlyAttach = {
   watch: AttachWatch;
   sent: SentAttach;
   live: EventRecord[];
-  /// The chat's row changed after some of `live` came: those may be of the session before
-  /// (recreated meanwhile), which nothing in a record says, so the open attaches again.
-  suspect?: boolean;
 };
 
 /// A settled promise's value, unread: the race waits on the settling only.
@@ -3219,7 +3216,9 @@ export class AcpmuxDirectClient {
   /// The attach of the chat this open is for, asked with the chat list (`open`): on a page that
   /// holds nothing of the chat yet, for a chat not known to run on another machine (whose open may
   /// draw the Mac's copy first, `drawPeerCopy`). The open takes it once the list says it is the
-  /// chat opened (`takeEarly`) or drops it (`dropEarly`).
+  /// chat opened (`takeEarly`) or drops it (`dropEarly`). It is asked as shown, as the open's own
+  /// attach is: it names the chat id the page opens on, which the list only confirms. An id the
+  /// daemon lacks fails there, waking and marking nothing.
   private askEarly(): EarlyAttach | undefined {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length > 0 || this.lastSeq > 0 || this.peerCopy?.sessionId === sessionId)
@@ -3376,13 +3375,11 @@ export class AcpmuxDirectClient {
     };
     if (strayed()) return again();
     // An attach asked before the list was read, whose reply is of another session than the list
-    // names, whose row moved machines since, or whose row changed after it streamed records
-    // (`suspect`): the records it streamed before the open took it
+    // names, or whose row moved machines since: the records it streamed before the open took it
     // (applied above, `takeEarly`) may be that other session's, so none of them stays.
     if (
       early &&
-      (early.suspect ||
-        (typeof askedGen === "number" && typeof replyOf === "number" && replyOf !== askedGen) ||
+      ((typeof askedGen === "number" && typeof replyOf === "number" && replyOf !== askedGen) ||
         recreated ||
         rowNow?.peer !== askedOf)
     )
@@ -3600,10 +3597,6 @@ export class AcpmuxDirectClient {
     const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
-    // Records the attach asked with the list streamed before the row changed may be of the
-    // session before it (`EarlyAttach.suspect`).
-    const early = this.earlyAttach;
-    if (early?.sessionId === session.sessionId && early.live.length > 0) early.suspect = true;
     watch?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
       createdAt: session.createdAt,
       peer: session.peer,
