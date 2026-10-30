@@ -54,7 +54,7 @@ import Testing
         let ws = SidebarWorkspace(id: WorkspaceID("w"), title: "dev-vm", directory: "~")
         let preferences = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: []))
         #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "dev-vm").detail == "~")
-        #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "dev-vm · Paused").detail == "Paused · ~")
+        #expect(WorkspaceRowContent(ws, preferences: preferences, machine: SidebarMachineLabel(name: "dev-vm", status: "Paused")).detail == "Paused · ~")
         #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "build-vm").detail == "build-vm · ~")
     }
 

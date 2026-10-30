@@ -90,12 +90,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Separates second-line items.
     public static let separator = " · "
 
-    /// The computer label (`name`, or `name · status`) without the name when the row's title already is it (an
-    /// unnamed workspace of another computer reads as that computer): `dev-vm · dev-vm · ~` said it twice.
-    static func unrepeated(_ machine: String?, title: String) -> String? {
-        guard let machine = nonEmpty(machine), !title.isEmpty else { return nonEmpty(machine) }
-        if machine == title { return nil }
-        return machine.hasPrefix(title + separator) ? String(machine.dropFirst(title.count + separator.count)) : machine
+    /// The computer label (`name`, or `name · status`) without the name when the row's title already is the whole
+    /// name (an unnamed workspace of another computer reads as that computer): `dev-vm · dev-vm · ~` said it twice.
+    /// A title that only starts a name holding the separator keeps the name.
+    static func unrepeated(_ machine: SidebarMachineLabel?, title: String) -> String? {
+        guard let machine else { return nil }
+        guard machine.name == title else { return nonEmpty(machine.text) }
+        return nonEmpty(machine.status)
     }
 
     /// The content of `ws`'s row under `preferences`; `now` decides whether
@@ -104,15 +105,15 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// leads the second line whatever the preferences show, followed by the
     /// workspace's folder on that computer and a starting Cloud machine's
     /// stage (`SidebarWorkspace.stage`).
-    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
+    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: SidebarMachineLabel? = nil, ages: AgeTextCache) {
         self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
     }
 
-    public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil) {
+    public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: SidebarMachineLabel? = nil) {
         self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache())
     }
 
-    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: SidebarMachineLabel?, ageCache ages: AgeTextCache) {
         let set = preferences.resolved(for: ws.rowKind)
         // Another computer's workspace names its folder after the computer, so the row says
         // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
@@ -155,13 +156,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// since the last change on the title's line, and a third line for the
     /// computer and the pull request. `now` is the start of today, so the
     /// time reads in days; a change today shows its time.
-    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true,
+    public init(expanded ws: SidebarWorkspace, now: Date, machine: SidebarMachineLabel? = nil, showsNotification: Bool = true,
                 showsPullRequest: Bool = true) {
         self.init(expanded: ws, now: now, machine: machine, showsNotification: showsNotification,
                   showsPullRequest: showsPullRequest, ages: AgeTextCache())
     }
 
-    init(expanded ws: SidebarWorkspace, now: Date, machine: String?, showsNotification: Bool, showsPullRequest: Bool,
+    init(expanded ws: SidebarWorkspace, now: Date, machine: SidebarMachineLabel?, showsNotification: Bool, showsPullRequest: Bool,
          ages: AgeTextCache) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.unrepeated(machine, title: ws.title), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }

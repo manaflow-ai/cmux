@@ -194,10 +194,10 @@ nonisolated extension SidebarLayout {
     /// the one-list sidebar (never this Mac, nor the Chief on it, whose workspaces
     /// read like this Mac's: their hover card says who started them), with its
     /// status when it cannot connect; nil otherwise. The one rule for `make` and a row update.
-    static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
+    static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> SidebarMachineLabel? {
         guard o.flattensMachines, let machine = section.machine, machine.kind != .local
         else { return nil }
-        return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
+        return SidebarMachineLabel(name: machine.name, status: o.machineStatusLabels[machine.id])
     }
 }
 

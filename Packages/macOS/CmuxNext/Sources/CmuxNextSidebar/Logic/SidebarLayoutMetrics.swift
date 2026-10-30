@@ -203,7 +203,7 @@ nonisolated extension SidebarLayoutOptions {
     /// second line (including another computer's name and a machine's
     /// stage), the status block, counts and badges; the working spinner,
     /// loading, the progress bar and attention states still show, like the unread mark.
-    func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+    func rowContent(_ ws: SidebarWorkspace, machine: SidebarMachineLabel?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
         content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
@@ -227,7 +227,7 @@ nonisolated extension SidebarLayoutOptions {
         return content
     }
 
-    private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+    private func baseRowContent(_ ws: SidebarWorkspace, machine: SidebarMachineLabel?) -> WorkspaceRowContent {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
             var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)

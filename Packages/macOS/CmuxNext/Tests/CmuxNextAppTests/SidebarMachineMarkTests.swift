@@ -92,7 +92,7 @@ import Testing
             let cloud = SidebarMachine(id: MachineID("cloud-\(label)"), name: "cloud", kind: .cloud, status: status)
             let cloudSection = SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("cloud-ws"), title: "ws"))])
             let options = SidebarModel(sections: [section(mac), cloudSection]).listOptions()
-            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == "cloud · \(label)")
+            #expect(SidebarLayout.machineLabel(cloudSection, options: options)?.text == "cloud · \(label)")
         }
     }
 
