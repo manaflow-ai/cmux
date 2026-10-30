@@ -217,15 +217,12 @@ public struct SidebarMapping {
         if let explicitWorkspaceTitle, !explicitWorkspaceTitle.isEmpty { return workspaceTitle }
         let originalName = workspaceName ?? workspaceTitle
         // A rename remains authoritative even when the user chose a default-looking name or
-        // the session id. Revision zero also supports older sessions created with that id.
+        // the session name. Revision zero also supports launcher-named workspaces.
         if workspaceNameSource == .user, workspaceNameRevision > 0 { return workspaceTitle }
         let machineNamed = workspaceNameSource == .auto || WorkspaceModel.isDefaultName(originalName)
             || originalName == sessionName
         guard machineNamed else { return workspaceTitle }
-        if let explicitChatTitle {
-            let trimmed = explicitChatTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return explicitChatTitle }
-        }
+        if let explicitChatTitle, !explicitChatTitle.isEmpty { return explicitChatTitle }
         for candidate in [chatTitle, taskSummary] {
             guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty,
                   value.caseInsensitiveCompare(sessionName ?? "") != .orderedSame else { continue }

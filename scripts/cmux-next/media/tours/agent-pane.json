@@ -34,7 +34,7 @@
         "--name",
         "demo-lane-1",
         "--",
-        "Review the repository structure, compare the current branch with its baseline, summarize the relevant changes, and outline a safe follow-up plan with enough detail for the sidebar task preview to remain useful."
+        "Title: Review repository structure\nInspect the repository structure, compare the current branch with its baseline, summarize the relevant changes, and outline a safe follow-up plan with enough detail for the sidebar task preview to remain useful."
       ],
       "wait": 2,
       "optional": "agent backend unavailable on this runner"
@@ -50,7 +50,7 @@
         "--name",
         "demo-lane-2",
         "--",
-        "Inspect the project configuration, identify the files that define the user-facing behavior, and report the implementation and validation steps without changing unrelated defaults or settings."
+        "Title: Inspect project configuration\nIdentify the files that define the user-facing behavior, and report the implementation and validation steps without changing unrelated defaults or settings."
       ],
       "wait": 2,
       "optional": "agent backend unavailable on this runner"
@@ -66,7 +66,7 @@
         "--name",
         "demo-lane-3",
         "--",
-        "Prepare a concise review of the active work, including repository and pull-request context, current status, and the next concrete verification to run before landing the change."
+        "Title: Review active work\nPrepare a concise review of the active work, including repository and pull-request context, current status, and the next concrete verification to run before landing the change."
       ],
       "wait": 2,
       "optional": "agent backend unavailable on this runner"

@@ -5,21 +5,70 @@ import CmuxNextWorkspaceNaming
 @testable import CmuxNextDaemon
 import Testing
 @testable import CmuxNextBridge
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextSidebar
 
 /// Agent rows prefer a readable chat title and never manufacture a raw prompt subtitle.
 @MainActor @Suite(.serialized)
 struct SidebarAgentRowPresentationTests {
+    private static let laneSession = "0192f4c0-7e36-7a12-9d21-2c58f40a0001"
+    private static let otherSession = "0192f4c0-7e36-7a12-9d21-2c58f40a0002"
+
+    @Test func sessionNamesTravelThroughPageChangeReconnectAndPurge() throws {
+        let turns = AgentTurnStateStore()
+        let host = "install:sidebar-name-feed-fixture"
+        turns.localHost = host
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent-sidebar-fixture", turns: turns, lanes: AgentLaneStore())
+        let ref = AgentSessionRef(host: host, session: Self.laneSession, harness: "claude")
+        func handle(_ object: [String: Any]) throws {
+            let message = try #require(AgentTurnStateFeed.Message(line: JSONSerialization.data(withJSONObject: object)))
+            feed.handle(message)
+        }
+        try handle(["id": 2, "result": ["sessions": [["sessionId": Self.laneSession, "name": "demo-lane", "titleSource": "named"]]]])
+        #expect(turns.sessionName(for: ref) == "demo-lane")
+        turns.clearLive()
+        #expect(turns.sessionName(for: ref) == "demo-lane")
+        try handle(["method": "_acpmux/session_changed", "params": ["sessionId": Self.laneSession,
+            "session": ["sessionId": Self.laneSession, "name": "Renamed chat", "titleSource": "named"]]])
+        #expect(turns.sessionName(for: ref) == "Renamed chat")
+        try handle(["method": "_acpmux/session_changed", "params": ["sessionId": Self.laneSession, "kind": "purged"]])
+        #expect(turns.sessionName(for: ref) == nil)
+        let generatedNames: [[String: Any]] = [
+            ["name": "claude-2", "harness": "claude"], ["name": "codex-fork-3", "family": "codex"],
+            ["name": "optchat-sub-demo"], ["lastPrompt": "Implement the adapter"]
+        ]
+        for summary in generatedNames { #expect(AgentTurnStates.sessionName(summary) == nil) }
+    }
+
     @Test func aNamedChatTitleWinsOverItsSessionName() {
-        let named: [String: Any] = ["sessionId": "lane-1", "name": "lane-1", "title": "Review the release", "titleSource": "generated"]
+        let named: [String: Any] = ["sessionId": Self.laneSession, "name": "lane-1", "title": "Review the release", "titleSource": "generated"]
         #expect(AgentTurnStates.title(named, includingPrompt: false) == "Review the release")
         #expect(SidebarMapping.agentRowTitle(workspaceTitle: "lane-1", sessionName: "lane-1", chatTitle: "Review the release", taskSummary: nil) == "Review the release")
     }
 
     @Test func aPromptWithoutAReadableTitleIsNotAStableTitle() {
-        let promptOnly: [String: Any] = ["sessionId": "lane-1", "name": "lane-1", "lastPrompt": "Implement the adapter"]
+        let promptOnly: [String: Any] = ["sessionId": Self.laneSession, "name": "lane-1", "lastPrompt": "Implement the adapter"]
         #expect(AgentTurnStates.title(promptOnly, includingPrompt: false) == nil)
         #expect(SidebarMapping.agentRowTitle(workspaceTitle: "lane-1", sessionName: "lane-1", chatTitle: nil, taskSummary: "Implement the adapter") == "Implement the adapter")
+    }
+
+    @Test func aLauncherNamedWorkspaceUsesItsSessionNameBeforeItsDefault() throws {
+        let workspace = try fixture(name: "workspace-7", nameSource: .auto, freeFormPrompt: true)
+        let turns = turnStore(title: "demo-lane", generatedTitle: nil, sessionName: "demo-lane")
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
+    }
+
+    @Test func aLauncherNamedLaneUsesItsHeaderWithAUUIDSessionID() throws {
+        let workspace = try fixture(name: "demo-lane", nameSource: .user, nameRevision: 0)
+        let turns = turnStore(title: "demo-lane", generatedTitle: nil)
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
+                    allowsLegacyDefaults: false).title == "Review the release")
+    }
+
+    @Test func aRenamedLauncherNameWithRevisionKeepsItsName() throws {
+        let workspace = try fixture(name: "demo-lane", nameSource: .user, nameRevision: 1)
+        let turns = turnStore(title: "Title: Readable task", generatedTitle: nil, sessionName: "demo-lane")
+        #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns).title == "demo-lane")
     }
 
     @Test func aRestoredLegacyWorkspaceUsesItsSessionIdentity() throws {
@@ -50,9 +99,19 @@ struct SidebarAgentRowPresentationTests {
     @Test func aNamedChatTitleAlwaysWins() throws {
         let workspace = try fixture(nameSource: .auto)
         let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
-        for name in ["  My chat  ", "demo-lane"] {
+        for name in ["  My chat  ", "demo-lane\ncontinued", String(repeating: "x", count: 120)] {
             tab.name = name
-            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true).title == name)
+            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true).title == NewWorkspaceName.clean(name)!)
+        }
+    }
+
+    @MainActor
+    @Test func legacyDefaultLookingUserNamesRespectDaemonCompatibility() throws {
+        for legacy in [false, true] {
+            let workspace = try fixture(name: "workspace-7", nameSource: .user, nameRevision: 0)
+            let turns = turnStore(title: nil, generatedTitle: nil)
+            #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, turns: turns,
+                        allowsLegacyDefaults: legacy).title == (legacy ? "Review the release" : "workspace-7"))
         }
     }
 
@@ -145,7 +204,6 @@ struct SidebarAgentRowPresentationTests {
         // An empty terminal title is idle; its cwd still supplies the name.
         terminal.title = "zsh"
         terminal.titleText = "zsh"
-        terminal.titleText = "zsh"
         let chat = try #require(tabs.first(where: { $0.agentSession != nil }))
         #expect(row(workspace, machine: .local, autoNamesWorkspaces: true, newTabPages: [chat.id]).title == "tmp")
     }
@@ -165,7 +223,7 @@ struct SidebarAgentRowPresentationTests {
             let content = options.rowContent(mapped, machine: nil)
             #expect(content.now == "Running the test suite")
             #expect(content.detail == "Running the test suite")
-            #expect(mapped.title == "workspace-7")
+            #expect(mapped.title == (enabled ? "demo-lane" : "workspace-7"))
         }
     }
 
@@ -191,10 +249,10 @@ struct SidebarAgentRowPresentationTests {
         }
     }
 
-    private func turnStore(title: String?, generatedTitle: String?) -> AgentTurnStateStore {
+    private func turnStore(title: String?, generatedTitle: String?, sessionName: String? = "demo-lane") -> AgentTurnStateStore {
         let turns = AgentTurnStateStore()
         turns.localHost = "install:sidebar-title-fixture"
-        turns.apply(session: "demo-lane", state: nil, lastMessage: nil, muted: false,
+        turns.apply(session: Self.laneSession, sessionName: sessionName, state: nil, lastMessage: nil, muted: false,
                     title: title, generatedTitle: generatedTitle, detail: nil)
         return turns
     }
@@ -202,7 +260,7 @@ struct SidebarAgentRowPresentationTests {
     private func chatSnapshot() -> TabSnapshot {
         var chat = TabSnapshot(surface: 1, kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(
-            host: "install:sidebar-title-fixture", session: "demo-lane", harness: "custom-fixture-harness"))
+            host: "install:sidebar-title-fixture", session: Self.laneSession, harness: "custom-fixture-harness"))
         return chat
     }
 
@@ -210,11 +268,13 @@ struct SidebarAgentRowPresentationTests {
     /// identical face/New Tab selection used by the titlebar and palette.
     private func row(_ workspace: WorkspaceModel, machine: MachineID,
                      selectedTab: @escaping (PaneModel) -> String? = { _ in nil }, autoNamesWorkspaces: Bool,
-                     turns: AgentTurnStateStore? = nil, newTabPages: Set<String> = []) -> SidebarWorkspace {
+                     turns: AgentTurnStateStore? = nil, newTabPages: Set<String> = [],
+                     allowsLegacyDefaults: Bool = true) -> SidebarWorkspace {
         let names = WorkspaceAutoNameReader(enabled: { autoNamesWorkspaces }, isNewTabPage: { newTabPages.contains($0.id) },
             livePage: { _ in nil }, incognitoTitle: { _ in nil },
             terminal: { .init(kind: .terminal, userName: $0.name, title: $0.titleText, pageTitle: nil, url: nil, cwd: $0.cwd) },
-            turns: turns ?? AgentTurnStateStore(), hold: WorkspaceAutoNameHold())
+            turns: turns ?? turnStore(title: "demo-lane", generatedTitle: nil), hold: WorkspaceAutoNameHold(),
+            allowsLegacyDefaults: { _ in allowsLegacyDefaults })
         let mapped = SidebarMapping.shared.row(workspace, machine: machine, selectedTab: selectedTab, newTabPages: newTabPages,
             pageFace: { workspace, tab, work in .init(title: names.label(workspace, front: tab, work: work)) })
         #expect(mapped.title == names.titlebarName(workspace, selectedTab: selectedTab))
@@ -227,7 +287,7 @@ struct SidebarAgentRowPresentationTests {
                          terminalFront: Bool = false, freeFormPrompt: Bool = false) throws -> WorkspaceModel {
         var chat = TabSnapshot(surface: 1, kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(
-            host: "install:sidebar-title-fixture", session: "demo-lane", harness: "custom-fixture-harness"))
+            host: "install:sidebar-title-fixture", session: Self.laneSession, harness: "custom-fixture-harness"))
         var chats = [chat]
         if terminalFront {
             var terminal = TabSnapshot(surface: 99, kind: .pty, cwd: "/tmp")
@@ -237,7 +297,7 @@ struct SidebarAgentRowPresentationTests {
         if secondAgent {
             var other = TabSnapshot(surface: 2, kind: .conversation, cwd: nil)
             other.conversation = ConversationTabRef(agentSession: AgentSessionRef(
-                host: "install:sidebar-title-fixture", session: "demo-other", harness: "claude"))
+                host: "install:sidebar-title-fixture", session: Self.otherSession, harness: "claude"))
             chats.append(other)
         }
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: chats)])
@@ -253,7 +313,7 @@ struct SidebarAgentRowPresentationTests {
         }
         let firstChat = try #require(tabs.first(where: { $0.agentSession != nil }))
         firstChat.agent = AgentStatus(surface: 1, state: .idle, agent: "custom-fixture-harness",
-                                   lastPrompt: freeFormPrompt ? "Implement the adapter and report the result." : "Your task:\nTitle: Review the release\nCheck the build and report failures.")
+                                   lastPrompt: freeFormPrompt ? "Implement the adapter and report the result." : "Your task:\nTitle: Review the release\nCheck the build and report failures with enough detail to validate the sidebar presentation and repository facts.")
         if secondAgent {
             let secondChat = try #require(tabs.last(where: { $0.agentSession != nil }))
             secondChat.agent = AgentStatus(surface: 2, state: .working, agent: "claude",

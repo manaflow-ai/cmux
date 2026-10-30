@@ -70,9 +70,14 @@ public struct WorkspaceAutoNameReader {
         // chat supplies naming facts; never promote a background chat or a raw prompt.
         let face = tab.kind == .browser ? (work ?? tab) : tab
         if let session = face.agentSession, !isNewTabPage(face) {
-            let mayName = (workspace.title ?? "").isEmpty &&
-                (workspace.nameSource == .auto || (workspace.nameRevision == 0 &&
-                    (WorkspaceModel.isDefaultName(workspace.name) || workspace.name == session.session)))
+            let allowsLegacyDefaults = self.allowsLegacyDefaults(workspace)
+            let protectedName = WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title,
+                                                               nameSource: workspace.nameSource,
+                                                               nameRevision: workspace.nameRevision,
+                                                               allowsLegacyDefaults: allowsLegacyDefaults)
+            let sessionName = turns.sessionName(for: session)
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil && workspace.name == sessionName
+            let mayName = (workspace.title ?? "").isEmpty && (!protectedName || launcherNamed)
             guard rule.enabled, mayName else { hold.forget(workspace: workspace.id); return nil }
             let task = (turns.detail(for: session)?.prompt ?? face.agent?.lastPrompt)
                 .flatMap { AgentTurnStates.promptGist($0, requiringTitleHeader: true) }
@@ -81,11 +86,11 @@ public struct WorkspaceAutoNameReader {
             let candidate = SidebarMapping.agentRowTitle(
                 workspaceTitle: "", workspaceName: workspace.name,
                 workspaceNameSource: workspace.nameSource, workspaceNameRevision: workspace.nameRevision,
-                explicitWorkspaceTitle: workspace.title, sessionName: session.session,
+                explicitWorkspaceTitle: workspace.title, sessionName: sessionName,
                 chatTitle: NewWorkspaceName.clean(turns.generatedTitle(for: session)),
-                explicitChatTitle: face.name, taskSummary: task)
+                explicitChatTitle: NewWorkspaceName.clean(face.name), taskSummary: task)
             return hold.settle(workspace: workspace.id, namer: Self.namer(face, work: nil),
-                               label: candidate.isEmpty ? nil : candidate)
+                               label: candidate.isEmpty ? nil : candidate) ?? NewWorkspaceName.clean(sessionName)
         }
         let legacyDefaults = self.allowsLegacyDefaults(workspace)
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) },
