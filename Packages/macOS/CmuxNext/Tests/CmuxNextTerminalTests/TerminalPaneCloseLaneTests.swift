@@ -11,7 +11,8 @@ import Testing
 /// `surfaceMessageWriter` in ghostty src/termio/stream_handler.zig) that only the main thread's
 /// `ghostty_app_tick` empties. A close that waits on the main thread for that lane never returns:
 /// the main thread waits for the lane and the lane waits for the main thread.
-@MainActor @Suite(.serialized) struct TerminalPaneCloseLaneTests {
+/// The time limit fails the test, not the run, if the free's post on `mainWork` never reaches the main thread.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct TerminalPaneCloseLaneTests {
     @Test func closingAPaneReturnsWhileItsLaneWaitsForTheMainThread() async throws {
         GhosttyRuntime.startedForTests()
         let io = ScriptedTerminalIO()

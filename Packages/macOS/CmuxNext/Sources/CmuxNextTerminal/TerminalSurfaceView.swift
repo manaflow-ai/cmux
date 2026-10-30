@@ -15,7 +15,9 @@ import QuartzCore
 /// Ghostty's Metal renderer installs its own `IOSurfaceLayer` as this view's
 /// layer (ghostty/src/renderer/Metal.zig); never replace the layer. The
 /// surface is created in `init`, like Ghostty.app does, so output that
-/// arrives before the view joins a window is not lost, and freed in `deinit`.
+/// arrives before the view joins a window is not lost. `deinit` hands it to
+/// ``TerminalSurfaceTeardown``, which frees it on the main thread once the
+/// output lane's chunk in flight returns (``TerminalOutputLane/close(then:)``).
 ///
 /// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
 /// not this view directly.
@@ -30,8 +32,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     var colorSchemeIsDark = false
     /// When this view was made (`CLOCK_UPTIME_RAW` nanoseconds): a late key's log says how new its terminal was.
     public let createdNanos: UInt64 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-    /// SAFETY: +1 from `init` until `deinit` releases it after ghostty_surface_free, so the
-    /// userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object for every callback.
+    /// SAFETY: +1 from `init` until ``TerminalSurfaceTeardown`` (handed it by `deinit`) releases it after
+    /// ghostty_surface_free, so the userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object
+    /// for every callback, also those between the view's deinit and the free.
     @safe let bridge: Unmanaged<SurfaceBridge>
     /// The bridge, kept alive by the view's retain (`bridge`).
     var bridgeObject: SurfaceBridge {
@@ -212,7 +215,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
                                    keySlots: echoStages, cursor: cursorLayer?.presenter)
-        // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
+        // SAFETY: balanced by the one release in ``TerminalSurfaceTeardown/run()`` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
@@ -279,9 +282,12 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         let signpost = timings.surfaceCreateBegan()
         defer { timings.surfaceCreated(signpost) }
         guard let app = GhosttyRuntime.shared.app else { return }
-        // SAFETY: the bridge outlives the surface (`bridge`'s note), and the view, whose address
-        // Ghostty keeps as its NSView, frees the surface in its own deinit. Ghostty copies the
-        // config during ghostty_surface_new; the callback has the signature ghostty.h declares.
+        // SAFETY: the bridge outlives the surface (`bridge`'s note). Ghostty reads the view's address
+        // (its NSView) only in ghostty_surface_new, where the Metal renderer installs its layer
+        // (renderer/Metal.zig); Metal's deinit and ghostty_surface_free never touch it, and every
+        // callback reaches the view through the bridge's weak target. So the free, which
+        // ``TerminalSurfaceTeardown`` runs after the view's deinit, reads no freed view. Ghostty
+        // copies the config during ghostty_surface_new; the callback has the signature ghostty.h declares.
         let userdata = unsafe bridge.toOpaque()
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -315,7 +321,8 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
             return
         }
         split?.ended(.surfaceNew)
-        // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
+        // SAFETY: the new surface, owned by this view until deinit hands it to ``TerminalSurfaceTeardown``,
+        // which frees it once (`surface`'s note).
         self.surface = unsafe surface
         // SAFETY: as above; deinit closes the pacer before the free.
         if vsyncSource != nil { unsafe vsync.attach(surface: surface) }
