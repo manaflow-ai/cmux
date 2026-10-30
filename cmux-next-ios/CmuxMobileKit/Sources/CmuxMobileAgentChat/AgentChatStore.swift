@@ -210,6 +210,8 @@ public final class AgentChatStore {
     @ObservationIgnored private var sentOrder: [String] = []
     /// The last returned prompt still waiting for a resend: what it held and its id.
     private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
+    /// Whether the last failed prompt can be sent again from the composer.
+    public var canRetryPrompt: Bool { resendable != nil }
     /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
     /// a prompt that never went out).
     private var seenPromptIDs: Set<String> = []
@@ -369,6 +371,15 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+
+    /// The user bubble's Edit and Resend: returns the text the composer gets to edit. It
+    /// sends nothing; the message goes when the person sends it from the composer. Only an
+    /// empty composer (whitespace counts as empty) takes it: a draft there is never replaced,
+    /// so this returns nil (the bubble then asks before replacing it).
+    public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return turn.prompt
+    }
 
     /// The queued row's X: takes the prompt back into the composer, returning the text the
     /// composer gets. Only an empty composer (whitespace counts as empty) takes it: a draft
