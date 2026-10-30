@@ -57,16 +57,20 @@ VERDICTS = frozenset({"success", "failure"})
 # for the job stays bounded.
 BASE_RUNS_PAGE = 100
 BASE_JOB_READS = 40
-# A job no feat-cmux-next push runs gets its base verdict from main's tip suite dispatcher
-# (cmux-next-tip-swift-suite-dispatch.yml): a workflow_dispatch run named `<title><tested sha>`. Base
-# pushes land every minute or two, so the window above can miss the newest tip suite run (2026-10-30:
-# no daemon-test verdict on the base for hours, #27692). When it does, the base's newest tip suite runs
-# for that job are read too, at most TIP_SUITE_JOB_READS of them.
+# A job no feat-cmux-next push runs gets its base verdict from a dispatch: main's tip suite dispatcher
+# (cmux-next-tip-swift-suite-dispatch.yml, a run named `<title><tested sha>`) or a hand dispatch. Base
+# pushes land every minute or two, so the window above can miss them (2026-10-30: no daemon-test verdict
+# on the base for hours, #27692). When it does, the base's newest completed dispatches are read too,
+# newest first, and the first with a verdict for the job decides, a green one included: an older red never
+# stands over a newer green. DEV daily runs and the other job's tip suite never run the job, so they are
+# skipped unread. At most TIP_SUITE_JOB_READS job lists; none of them with a verdict refuses as before.
 TIP_SUITES = {
     "cmux-next swift test": "cmux-next tip Swift suite · ",
     "cmux-next daemon tests": "cmux-next tip daemon suite · ",
 }
 TIP_SUITE_JOB_READS = 6
+# cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
+DISPATCHES_WITHOUT_TESTS = ("cmux NEXT DEV daily",)
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -224,12 +228,13 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
 def tip_suite_verdict(repo: str, base: str, workflow, name: str, github,
                       base_jobs: dict[int, list[dict]]) -> tuple[dict | None, dict | None]:
     """The newest completed tip suite run of BASE with a verdict for job NAME, and that job."""
-    title = TIP_SUITES[name]
+    others = tuple(title for job, title in TIP_SUITES.items() if job != name) + DISPATCHES_WITHOUT_TESTS
     listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&event=workflow_dispatch"
                          f"&status=completed&per_page={BASE_RUNS_PAGE}")
-    suites = [run for run in listed.get("workflow_runs") or []
-              if re.fullmatch(re.escape(title) + r"[0-9a-f]{40}", run.get("display_title") or "")]
-    for run in suites[:TIP_SUITE_JOB_READS]:
+    candidates = [run for run in listed.get("workflow_runs") or []
+                  if run.get("conclusion") != "skipped"
+                  and not (run.get("display_title") or "").startswith(others)]
+    for run in candidates[:TIP_SUITE_JOB_READS]:
         if run["id"] not in base_jobs:
             base_jobs[run["id"]] = [found for page in github.json(
                 f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100", paginate=True)

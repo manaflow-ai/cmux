@@ -238,6 +238,26 @@ class Excusing(unittest.TestCase):
         # Only the tip suite run's jobs are read past the window, never the DEV daily's.
         self.assertNotIn(f"repos/{REPO}/actions/runs/41/jobs?filter=latest&per_page=100", self.gh.routes)
 
+    def test_a_newer_green_dispatch_stands_over_an_older_red_tip_suite(self):
+        # Review of #28283: a newer ordinary dispatch that ran daemon-test green must not be skipped for
+        # an older red tip suite run, or a regression since would be excused.
+        self.tip_daemon_setup()
+        daemon = "cmux-next daemon tests"
+        newer = {"id": 42, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "display_title": "cmux-next · " + "c" * 40}
+        self.gh.jobs[5] = dict(failed_job(5, 42, BASE_SHA, name=daemon), conclusion="success")
+        listed = self.gh.json
+
+        def json(route, *, paginate=False):
+            answer = listed(route, paginate=paginate)
+            if "event=workflow_dispatch" in route:
+                answer["workflow_runs"].insert(0, copy.deepcopy(newer))
+            return answer
+
+        self.gh.json = json
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 42"):
+            self.judge()
+
     def test_a_tip_daemon_suite_green_on_the_base_still_blocks(self):
         self.tip_daemon_setup(verdict="success")
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 40"):
