@@ -134,7 +134,7 @@ extension WorkspaceRowView {
         // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays. A row with nothing to
         // disclose (`.empty`) never shows it and keeps no slot, so its hover menu takes the next slot, not a gap
         // (Lawrence 2026-10-20: "no empty slots").
-        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
+        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(revealsHoverControls || isSelected)), fades: fades)
         if disclosure != nil, disclosure != .empty {
             disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -162,8 +162,8 @@ extension WorkspaceRowView {
         // nothing moves. Marks under them hide while they show. An unread
         // badge keeps its slot at rest, and the action that lands there on
         // hover hides it.
-        let showClose = isHovered && !isShowingPlaceholder && isClosable
-        let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
+        let showClose = revealsHoverControls && !isShowingPlaceholder && isClosable
+        let showMore = !isPlaceholderRow && onMore != nil && revealsHoverControls && !renaming
         setHoverShown(closeButton, showClose, fades: controlFades)
         setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
         // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
