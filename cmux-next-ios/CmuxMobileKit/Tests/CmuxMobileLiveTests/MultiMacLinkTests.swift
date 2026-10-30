@@ -314,6 +314,8 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
             return
         }
         let generation = link.dialGeneration
+        // Exercise Retry before the asynchronous phase observer publishes a banner.
+        live.banner = nil
         live.retryConnection()
         #expect(link.dialGeneration > generation)
         guard case .connecting = link.phase else {
@@ -344,7 +346,10 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
             Issue.record("expected retry backoff")
             return
         }
-        #expect(live.banner?.identity == "m1")
+        // Publish the waiting phase synchronously: link observation otherwise
+        // runs after this MainActor test yields, which would test the fallback.
+        live.phaseChanged(first)
+        try #require(live.banner?.identity == "m1")
         // The displayed banner still belongs to m1 when focus moves to m2.
         live.focusedMacID = "m2"
         let firstGeneration = link.dialGeneration

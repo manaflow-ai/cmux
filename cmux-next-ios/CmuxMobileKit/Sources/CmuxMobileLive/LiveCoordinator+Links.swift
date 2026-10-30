@@ -349,7 +349,10 @@ extension LiveCoordinator {
 
     /// Retry the Mac represented by the global connection banner.
     public func retryConnection() {
-        guard !store.isOffline, let macID = banner?.identity else { retry(); return }
+        // Phase observation can lag a Retry tap. Prefer the banner's owner,
+        // but keep the focused link retryable before its banner is published.
+        let macID = banner?.identity ?? focusedMacID
+        guard !store.isOffline, let macID else { retry(); return }
         // An offline Mac needs refreshed discovery, not a dial of stale presence.
         if sessions[macID]?.link.phase == .macOffline { retry(); return }
         retry(macID: macID)
