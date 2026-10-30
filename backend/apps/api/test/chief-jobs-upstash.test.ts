@@ -267,7 +267,7 @@ describe("Chief jobs on Upstash Workflow", { timeout: 120_000 }, () => {
 
     expect(seen.badCron.status).toBe(400)
     expect(seen.badEvent.status).toBe(400)
-    expect(seen.longEvent).toMatchObject({ status: 400, json: { code: "trigger.invalid" } })
+    expect(seen.longEvent).toMatchObject({ status: 400, body: { code: "trigger.invalid" } })
     expect(seen.down.status).toBe(502)
     expect(seen.down.body.code).toBe("jobs.unavailable")
     expect(seen.downList.body.jobs).toEqual([])
