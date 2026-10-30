@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextTestSupport
-import CmuxNextWakeups
 import Testing
 
 /// POLISH (no flash): a window dialog and its scrim appeared in one frame, so the whole window
@@ -88,11 +87,18 @@ import Testing
     }
 
     /// Waits until two main run-loop passes have committed, so any after-commit work the
-    /// dismissal or present scheduled has run (the same `AfterFrameCommit` signal the host uses).
+    /// dismissal or present scheduled has run: the signal `AfterFrameCommit` uses, a one-shot
+    /// before-waiting observer after every other observer of the pass (Core Animation's commit runs
+    /// before it), then a wakeup so the next pass runs.
     private static func nextTurns() async {
         for _ in 0..<2 {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                AfterFrameCommit().run { done.resume() }
+                let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                                  false, CFIndex.max) { _, _ in
+                    done.resume()
+                    CFRunLoopWakeUp(CFRunLoopGetMain())
+                }
+                CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
             }
         }
     }
