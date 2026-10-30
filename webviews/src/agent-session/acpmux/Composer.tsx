@@ -606,6 +606,7 @@ export function Composer({
   const {
     attachments,
     setAttachments,
+    movePending,
     pending,
     loading,
     unsettled,
@@ -644,10 +645,8 @@ export function Composer({
         .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
         .catch(() => {});
     },
-    carries: () =>
-      carryPrompt.current ||
-      Boolean(switching) ||
-      (!!draftTransfer.current && draftTransfer.current.target === sessionId),
+    carries: () => carryPrompt.current || Boolean(switching),
+    holdPending: () => !!draftTransfer.current,
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -738,6 +737,7 @@ export function Composer({
             // Keep that destination's durable copy; no cancellation sends or replays a prompt.
           },
           commit: () => {
+            movePending(source, target);
             transfer.committed = true;
             if (persistedSession.current === source) {
               transfer.sourceChanged ||=
@@ -837,11 +837,7 @@ export function Composer({
         }
       },
     }),
-<<<<<<< HEAD
-    [setAttachments, attachLater],
-=======
-    [setAttachments, keptAttachments],
->>>>>>> 7a9078624fb87 (Persist destination before clearing recovery source)
+    [setAttachments, attachLater, keptAttachments, movePending],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
