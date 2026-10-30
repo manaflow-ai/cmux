@@ -437,6 +437,45 @@ class RobustnessTests(unittest.TestCase):
             (failed / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"}]}))
             self.assertEqual(run_gate(bad_png, failed).returncode, 1)
 
+    def test_a_malformed_result_json_is_unjudged_never_a_pass(self):
+        # result.json's schema is the capture's contract: no `steps`, a step with no or an unknown
+        # status, or `errors` that is not a list leave the state unjudged (`error`, exit 3), never a pass.
+        for result in ({"window_points": [60, 40]},
+                       {"steps": {"title": "a", "status": "ok"}, "window_points": [60, 40]},
+                       {"steps": [{"title": "a"}], "window_points": [60, 40]},
+                       {"steps": [{"title": "a", "status": "passed"}], "window_points": [60, 40]},
+                       {"steps": [{"title": "a", "status": "ok"}], "errors": "boom", "window_points": [60, 40]}):
+            with tempfile.TemporaryDirectory() as tmp:
+                state = good_capture(Path(tmp) / "a")
+                (state / "result.json").write_text(json.dumps(result))
+                report = gate.judge(state)
+                self.assertEqual(report["verdict"], "error", (result, report))
+                self.assertEqual(run_gate(state).returncode, 3, result)
+        # A failed step or a capture error still fails beside a malformed step.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = good_capture(Path(tmp) / "a")
+            (state / "result.json").write_text(json.dumps({"steps": [{"title": "a", "status": "failed"},
+                                                                     {"title": "b", "status": "?"}]}))
+            self.assertEqual(gate.judge(state)["verdict"], "fail")
+            (state / "result.json").write_text(json.dumps({"steps": [], "errors": ["launch failed"]}))
+            self.assertEqual(gate.judge(state)["verdict"], "fail")
+        # No result.json at all still fails (the capture never finished).
+        with tempfile.TemporaryDirectory() as tmp:
+            state = good_capture(Path(tmp) / "a")
+            (state / "result.json").unlink()
+            self.assertEqual(gate.judge(state)["verdict"], "fail")
+
+    def test_stills_of_different_sizes_are_unjudged_never_a_pass(self):
+        # Light and dark of different sizes cannot be compared: a malformed capture, so the state is
+        # `error` (exit 3, unavailable), never a pass enforce mode would publish as checked.
+        with tempfile.TemporaryDirectory() as tmp:
+            state = good_capture(Path(tmp) / "a")
+            (state / "dark.png").write_bytes(png(100, 80, dark_ui))
+            report = gate.judge(state)
+            self.assertEqual(report["verdict"], "error", report)
+            self.assertIn("not compared", " ".join(f["message"] for f in report["findings"]))
+            self.assertEqual(run_gate(state).returncode, 3)
+
     def test_a_crash_is_exit_2_not_a_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             good = good_capture(Path(tmp) / "good")
@@ -1022,7 +1061,12 @@ class WiringTests(unittest.TestCase):
         self.assertIn("issues: read", find)
         self.assertIn("nightly_next_canary_mode.py verdicts --issue-title \"nightly-next visual gate\"", find)
         self.assertIn("visual_gate_verdicts: ${{ steps.visual-gate.outputs.verdicts }}", find)
-        recover = self.job("recover-nightly-next-notarization")
+        job = self.job("recover-nightly-next-notarization")
+        self.assertIn("run: bash scripts/ci/nightly-steps/recover-continue-pending-notarization.sh", job)
+        self.assertIn("VISUAL_GATE_MODE: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_mode }}", job)
+        self.assertIn("VISUAL_GATE_VERDICTS: ${{ needs.find-nightly-next-recovery.outputs.visual_gate_verdicts }}", job)
+        # The step's shell lives in its script (nightly.yml's size limit).
+        recover = (ROOT / "scripts/ci/nightly-steps/recover-continue-pending-notarization.sh").read_text()
         admit = recover.index("nightly_next_canary_mode.py admit")
         # After the manifest names the build, before anything is notarized or stapled.
         self.assertLess(recover.index('source "$dir/manifest.env"'), admit)

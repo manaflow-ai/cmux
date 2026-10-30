@@ -19,8 +19,11 @@ is not a pass.
 Checks (docs/ci/nightly-next-visual-gate.md says why each one exists):
 
   steps        a required step failed, the capture reported an error, a still is missing, or
-               (with --states) the state was never captured                             -> fail
-  appearance   light.png and dark.png are the same picture. Before blaming the build it reads
+               (with --states) the state was never captured                             -> fail;
+               result.json without a `steps` list, or with a step whose status is not ok,
+               failed or unavailable                                                  -> error
+  appearance   light.png and dark.png differ in size (not comparable)                  -> error;
+               light.png and dark.png are the same picture. Before blaming the build it reads
                what the app reported (result.json "appearance", debug.appearance after each
                switch): the build's fault (the app stayed dark, its bundle has no themes, the
                terminal stayed dark on the app's own settings, or the theme switched and the
@@ -99,6 +102,9 @@ STACKED_MIN_GARBLE = 6
 STACKED_MIN_GARBLED_WORDS = 2
 KNOWN_WORDS = {"cmux", "acpmux", "glaeda", "webview", "webviews", "showcase", "codex", "worktree", "worktrees",
                "repo", "repos", "localhost", "chromium", "proration", "changelog", "async", "tooltip", "ghostty"}
+
+
+STEP_STATUSES = {"ok", "failed", "unavailable"}
 
 
 class BadInput(Exception):
@@ -205,7 +211,17 @@ def finding(check: str, level: str, message: str, **where: Any) -> dict[str, Any
 def check_steps(result: dict[str, Any], stills: dict[str, bool]) -> list[dict[str, Any]]:
     """A failed required step, a capture error or a missing still fails; an optional one is noted."""
     found = []
-    for step in result.get("steps") or []:
+    steps, errors = result.get("steps"), result.get("errors", [])
+    # result.json's schema is the capture's contract. One the gate cannot trust leaves the
+    # state unjudged (`error`, so a run with no `fail` is `unavailable`), never a silent pass;
+    # a failed step or a capture error beside it still fails.
+    if not isinstance(errors, list):
+        found.append(finding("steps", "error", f"result.json `errors` is not a list: {errors!r}; steps not checked"))
+        errors = []
+    if not isinstance(steps, list):
+        found.append(finding("steps", "error", "result.json has no `steps` list; steps not checked"))
+        steps = []
+    for step in steps:
         if not isinstance(step, dict):
             raise BadInput(f"result.json holds a step that is not an object: {step!r}")
         status = step.get("status")
@@ -215,7 +231,10 @@ def check_steps(result: dict[str, Any], stills: dict[str, bool]) -> list[dict[st
             found.append(finding("steps", "fail", f"step failed: {title}{detail}"))
         elif status == "unavailable":
             found.append(finding("steps", "info", f"optional step unavailable: {title}{detail}"))
-    for error in result.get("errors") or []:
+        elif status != "ok":
+            found.append(finding("steps", "error", f"step {title} has status {status!r}, not one of "
+                                                   f"{sorted(STEP_STATUSES)}; not checked"))
+    for error in errors:
         found.append(finding("steps", "fail", f"capture error: {error}"))
     for name, present in sorted(stills.items()):
         if not present:
@@ -273,8 +292,9 @@ def same_picture_cause(result: dict[str, Any]) -> tuple[str, str]:
 
 def check_appearance(light: Image, dark: Image, result: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if (light.width, light.height) != (dark.width, dark.height):
-        return [finding("appearance", "warn", f"light is {light.width}x{light.height}, dark is "
-                                              f"{dark.width}x{dark.height}; not compared")]
+        # Stills that cannot be compared are a malformed capture: unjudged, never a pass.
+        return [finding("appearance", "error", f"light is {light.width}x{light.height}, dark is "
+                                               f"{dark.width}x{dark.height}; not compared")]
     changed, mean_delta = appearance_difference(light.luminance(), dark.luminance())
     facts = {"changed": round(changed, 4), "mean_delta": round(mean_delta, 1)}
     if changed < APPEARANCE_MIN_CHANGED and abs(mean_delta) < APPEARANCE_MIN_MEAN_DELTA:
@@ -545,7 +565,7 @@ def gate_capture(directory: Path, *, require_2x: bool = False) -> dict[str, Any]
     result_path = directory / "result.json"
     # No result.json: the capture of the state never finished, which fails it. One the gate
     # cannot read is the capture tool's fault, not the build's: BadInput, and judge() keeps it.
-    result: Any = read_json(result_path) if result_path.is_file() else {"errors": ["no result.json"]}
+    result: Any = read_json(result_path) if result_path.is_file() else {"steps": [], "errors": ["no result.json"]}
     if not isinstance(result, dict):
         raise BadInput("result.json is not an object")
     stills = {name: (directory / name).is_file() for name in ("light.png", "dark.png")}
