@@ -110,7 +110,11 @@ pub(super) fn resource(
     let mut reader = BufReader::new(stream);
     // Agent chat tabs read as chats, with their session (#27934).
     if wire::reads_tabs(&plan) && wire::declare_tab_kinds(&mut reader).is_err() {
-        return Err(fail(NotRun, "session.busy", "the session refused the connection at its limit".into()));
+        return Err(fail(
+            NotRun,
+            "session.busy",
+            "the session refused the connection at its limit".into(),
+        ));
     }
     if !prefixes.is_empty() {
         let params = plan.params.as_object_mut().expect("validated params object");

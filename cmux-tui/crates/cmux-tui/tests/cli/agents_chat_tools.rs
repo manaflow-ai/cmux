@@ -14,14 +14,15 @@ use serde_json::{Value, json};
 use super::*;
 
 /// An acpmux config with the test agent as `fake` (the default) and, when
-/// `doomed`, as `doomed` too.
+/// `doomed`, as `doomed` too. Its mode `strict` asks before it acts, so an agent may set it.
 fn acpmux_config(doomed: bool) -> Value {
     let harness = json!({"argv": ["python3", FAKE_AGENT], "family": "fake"});
     let mut harnesses = json!({"fake": harness});
     if doomed {
         harnesses["doomed"] = harness;
     }
-    json!({"harnesses": harnesses, "defaultHarness": "fake"})
+    let asking = json!({"fake": ["strict"]});
+    json!({"harnesses": harnesses, "defaultHarness": "fake", "webAskingModes": asking})
 }
 
 /// A machine whose acpmux runs the test agent, its work folder trusted.
@@ -703,16 +704,16 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
 
     // Its mode, as the chat's mode picker sets it; `state` reads it back. A mode that does not
     // ask before it acts stays the person's: acpmux refuses it to an agent.
-    let (code, refused) = chat_json(as_caller(), &["set", &started, "--mode", "strict"]);
-    assert_eq!(code, Some(3), "{refused}");
-    assert_eq!(error_of(&refused)["code"], "chat.set_refused", "{refused}");
-    let (code, set) = chat_json(as_caller(), &["set", &started, "--mode", "normal"]);
+    let (code, set) = chat_json(as_caller(), &["set", &started, "--mode", "strict"]);
     assert_eq!(code, Some(0), "{set}");
     assert_eq!(set["action"], "chat.set", "{set}");
-    assert_eq!(set["result"]["mode"], "normal", "{set}");
+    assert_eq!(set["result"]["mode"], "strict", "{set}");
     let (code, state) = chat_json(as_caller(), &["state", &started]);
     assert_eq!(code, Some(0), "{state}");
-    assert_eq!(state["result"]["mode"], "normal", "{state}");
+    assert_eq!(state["result"]["mode"], "strict", "{state}");
+    let (code, refused) = chat_json(as_caller(), &["set", &started, "--mode", "normal"]);
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["code"], "chat.set_refused", "{refused}");
     let (code, nothing) = chat_json(as_caller(), &["set", &started]);
     assert_eq!(code, Some(2), "a set that names nothing: {nothing}");
 
