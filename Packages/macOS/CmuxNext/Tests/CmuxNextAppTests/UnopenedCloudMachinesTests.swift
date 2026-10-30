@@ -58,6 +58,22 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-shared") == "w-person")
     }
 
+    /// The machine list can arrive in either order; persisted provenance keeps a clone from
+    /// claiming a shared key when the opened machine was recorded before reconnect.
+    @Test func sharedKeyUsesPersistedMachineProvenanceWhenCloneArrivesFirst() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-agent-copy", workspaces: ["ws-shared", "ws-agent-own"])
+        Self.machine(services, id: "vm-mine", workspaces: ["ws-shared"])
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-person", workspaceIDs: ["ws-shared"]) }
+        services.windows.seenMachine["ws-shared"] = "vm-mine"
+
+        services.windows.reconcileMembership()
+
+        #expect(services.windows.registry.value.owner(of: "ws-agent-own") == nil)
+        #expect(services.windows.registry.value.owner(of: "ws-shared") == "w-person")
+    }
+
     /// An ephemeral workspace on a machine nobody opened here opens no incognito window, and is
     /// not the person opening that machine: its other workspaces stay out too.
     @Test func anUnopenedMachinesEphemeralWorkspaceOpensNoWindow() throws {
