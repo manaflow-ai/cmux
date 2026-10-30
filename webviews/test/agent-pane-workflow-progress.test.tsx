@@ -70,10 +70,11 @@ const agents: Subagent[] = ["workflow-a", "workflow-b"].map((id) => ({
   id, name: id, parent: null, state: "running", kind: "workflow", startedAt: Date.now(),
   tokens: 1000, agents: { started: 3, done: 0 },
 }));
-const snapshot = (items: Subagent[], changed: readonly Subagent[] = []) => fixtures.chat([
+const snapshot = (items: Subagent[], changed: readonly Subagent[] = [], sessionId = fixtures.SESSION_ID) => fixtures.chat([
   fixtures.user("Review both modules", 2),
   fixtures.row("subagents", 1, { subagents: items }),
 ], {
+  sessionId,
   isWorking: true,
   ...(changed.length > 0
     ? {
@@ -150,6 +151,27 @@ for (const producer of [false, true]) test(`App delivers usage-only snapshots to
         "acpmux-agent-line__chevron",
       ]);
     }
+  } finally { await act(async () => root.unmount()); }
+});
+
+test("bridge repopulates progress when switching sessions", async () => {
+  configureSubagentTray(true);
+  (dom.window as unknown as { webkit: unknown }).webkit = {
+    messageHandlers: { agentSession: { postMessage(message: { method?: string }) {
+      if (message.method === "ready") return Promise.resolve({ ok: true,
+        value: { protocolVersion: 1, transport: "preview", machineName: "Mac" } });
+      return Promise.resolve({ ok: true, value: null });
+    } } },
+  };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    const first = { ...agents[0]!, tokens: 42_000 };
+    const second = { ...agents[0]!, id: "workflow-session-b", tokens: 84_000 };
+    await act(async () => root.render(<AcpmuxApp />));
+    await act(async () => receive(snapshot([first], [], "gallery-session-a")));
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("42K tokens");
+    await act(async () => receive(snapshot([second], [], "gallery-session-b")));
+    expect(dom.window.document.querySelector(".acpmux-agent-line__progress")?.textContent).toContain("84K tokens");
   } finally { await act(async () => root.unmount()); }
 });
 

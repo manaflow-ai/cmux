@@ -6612,11 +6612,13 @@ function AcpmuxPane() {
   // Direct snapshots carry only changed progress values from the event fold. The bridge store
   // applies those ids without rebuilding a row list or joining every agent on usage updates.
   const bridgeProgress = useMemo(() => new AgentProgressStore(), [shownSessionId]);
-  const bridgeInitialized = useRef(false);
+  // Each session gets a fresh store. Track initialization by store identity so switching
+  // sessions cannot leave the new store empty because a ref from the prior session was set.
+  const bridgeInitialized = useRef<AgentProgressStore | undefined>(undefined);
   useLayoutEffect(() => {
     if (producerProgress) return;
-    if (!bridgeInitialized.current) {
-      bridgeInitialized.current = true;
+    if (bridgeInitialized.current !== bridgeProgress) {
+      bridgeInitialized.current = bridgeProgress;
       bridgeProgress.update(freshAgents);
       return;
     }

@@ -17,7 +17,7 @@ export class AgentProgressStore {
   private changedProgress = new Map<string, AgentProgress>();
   constructor(agents: readonly Subagent[] = []) { this.update(agents); }
   has(id: string): boolean { return this.structures.has(id); }
-  get(id: string): Progress { return this.values.get(id) ?? EMPTY; }
+  get(id: string): AgentProgress { return this.values.get(id) ?? EMPTY; }
   subscribe(id: string, notify: () => void): () => void {
     let listeners = this.listeners.get(id);
     if (!listeners) this.listeners.set(id, listeners = new Set());
