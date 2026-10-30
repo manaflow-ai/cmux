@@ -113,6 +113,16 @@ struct SwitchToColdTabTypeAheadTests {
             lines.append("firstResponder \(String(describing: window.firstResponder)) focus \(controller.focus.state.resolved) tab \(String(describing: pane.currentTabKey)) ids \(pane.orderedIDs.map(\.rawValue))")
             lines.append("lastInterception \(String(describing: router.lastInterception))")
             Issue.record("DIAG \(lines.joined(separator: " | "))")
+            // Did the key reach the shell by another path (by terminal id, which the journal does not count)?
+            Self.type("x", in: window, router: router)
+            try? await Task.sleep(for: .seconds(2))
+            if let connection = services.daemon.connection, let surface = pane.pane.tabs.first(where: { $0.id == pane.currentTabKey })?.surface {
+                let text = (try? await connection.request(ReadScreenRequest(surface: surface), timeout: .seconds(5)))?.text ?? "unreadable"
+                Issue.record("DIAGSCREEN surface \(surface.rawValue) standIn \(ProvisionalTab.isProvisional(surface: surface)) screen \(text.suffix(160).debugDescription)")
+            } else { Issue.record("DIAGSCREEN no connection or surface") }
+            if let view = window.firstResponder as? TerminalSurfaceView {
+                Issue.record("DIAGVIEW surfaceReady \(view.surface != nil) attached \(String(describing: view.window != nil))")
+            }
             for entry in InputJournal.shared.entries() where entry.seq > seq {
                 switch entry.kind {
                 case .attach(let a): Issue.record("DIAGJ \(entry.seq) attach \(a.surface) \(a.event) \(a.phase) bytes \(a.bytes) dropped \(a.droppedBytes)")
