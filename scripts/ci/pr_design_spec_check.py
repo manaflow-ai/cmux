@@ -37,6 +37,8 @@ def load_map(path: Path) -> dict[str, dict]:
     for name, s in surfaces.items():
         if not isinstance(s, dict) or not isinstance(s.get("spec"), str) or not isinstance(s.get("paths"), list):
             raise ValueError(f"{path}: surface {name!r} needs a `spec` string and a `paths` list")
+        if not all(isinstance(p, str) for p in s["paths"]):
+            raise ValueError(f"{path}: surface {name!r} has a path that is not a string")
     return surfaces
 
 

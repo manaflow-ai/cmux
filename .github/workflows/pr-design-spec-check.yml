@@ -72,4 +72,5 @@ jobs:
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
           python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/body.md" \
             --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
-            --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" || true
+            --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
+            || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"

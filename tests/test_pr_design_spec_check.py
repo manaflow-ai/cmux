@@ -83,7 +83,8 @@ class Check(unittest.TestCase):
             body.write_text("no spec here")
             paths.write_text(QMM + "\n")
             shrunk = {"surfaces": {"model-picker": {"spec": "x/model-picker.md", "paths": []}}}
-            for pr_map in ("{}", json.dumps(shrunk), None):
+            bad = {"surfaces": {"model-picker": {"spec": "x/model-picker.md", "paths": [None, 3]}}}
+            for pr_map in ("{}", json.dumps(shrunk), None, json.dumps(bad)):
                 args = ["--body-file", str(body), "--paths-file", str(paths), "--map", str(base),
                         "--pr-map", str(Path(d, "pr.json"))]
                 if pr_map is None:
@@ -94,7 +95,7 @@ class Check(unittest.TestCase):
                 with redirect_stdout(out):
                     self.assertEqual(check.main(args), 0)
                 self.assertIn("model-picker surface", out.getvalue(), pr_map)
-                if pr_map in ("{}", None):
+                if pr_map in ("{}", None, json.dumps(bad)):
                     self.assertIn("using the base branch's map", out.getvalue())
 
     def test_maps_join_by_surface(self):
@@ -107,7 +108,7 @@ class Check(unittest.TestCase):
         wf = (ROOT / ".github" / "workflows" / "pr-design-spec-check.yml").read_text()
         self.assertIn("continue-on-error: true", wf)
         self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
-        self.assertIn("|| true", wf)
+        self.assertIn("|| echo \"::warning title=Design spec::the design spec check could not run", wf)
         self.assertIn("--map .github/design-surfaces.json --pr-map", wf)
         sparse = wf.split("sparse-checkout: |", 1)[1].split("sparse-checkout-cone-mode", 1)[0]
         self.assertIn(".github/design-surfaces.json", sparse, "the base's own map is checked out")
