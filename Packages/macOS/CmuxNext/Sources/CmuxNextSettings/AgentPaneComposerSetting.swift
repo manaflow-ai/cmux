@@ -165,6 +165,7 @@ nonisolated enum AgentPaneComposerSettingsSchema {
         Set([AgentPaneComposerSetting.showContextUsagePath,
              AgentPaneComposerSetting.showDictationPath,
              AgentPaneComposerSetting.spellCheckingPath,
-             AgentPaneComposerSetting.attachmentViewPath].map { $0.joined(separator: ".") })
+             AgentPaneComposerSetting.attachmentViewPath,
+             AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
     }
 }
