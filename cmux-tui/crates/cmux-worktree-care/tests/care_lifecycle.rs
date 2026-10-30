@@ -68,10 +68,16 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
     (base, main)
 }
 
+/// Scans with a memo in the test's own folder, so its merge-tree lock is the
+/// test's and not the host's: the other tests of this file run in other
+/// processes at the same time, and a scan that finds the lock busy has no
+/// finished answer.
 fn scan(main: &Path) -> Repo {
     let common =
         PathBuf::from(git(main, &["rev-parse", "--path-format=absolute", "--git-common-dir"]));
-    inventory::scan(&common, &[]).unwrap()
+    let state = main.parent().expect("the test folder").join("care-state");
+    let memo = inventory::FinishedMemo::load(state.join("finished-answers.json"));
+    inventory::scan_with_memo(&common, &[], std::sync::Arc::new(memo)).unwrap()
 }
 
 fn facts_of<'a>(repo: &'a Repo, path: &Path) -> (&'a inventory::Worktree, &'a Facts) {
