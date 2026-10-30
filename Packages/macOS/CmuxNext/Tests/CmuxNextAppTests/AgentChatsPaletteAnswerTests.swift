@@ -9,11 +9,10 @@ import Testing
 /// query, an empty one too (the page then shows its empty state, not a spinner forever).
 @MainActor @Suite struct AgentChatsPaletteAnswerTests {
     @Test func aQueryStreamEndsAfterAcpmuxAnswersIt() async throws {
-        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_NO_ACTIVATE": "1"]))
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
         windows.connected { _, params in sent.append(params) }
-        let stream = AgentChatsPalettePage.answers("nothing matches", windows: windows, services: services)
+        let stream = AgentChatsPalettePage.answers("nothing matches", windows: windows, open: { _ in })
         let generation = try #require(sent.last?["gen"] as? UInt64)
         windows.apply(.init(window: AgentChatsPalettePage.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
         var answers: [[PaletteItem]] = []
@@ -25,11 +24,10 @@ import Testing
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
     /// more match than the page holds, the page says so in a last row that runs nothing.
     @Test func morePastThePageIsShownAsANoticeRow() async throws {
-        let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_NO_ACTIVATE": "1"]))
         let windows = AcpmuxChatWindows()
         var sent: [[String: any Sendable]] = []
         windows.connected { _, params in sent.append(params) }
-        let stream = AgentChatsPalettePage.answers("codex", windows: windows, services: services)
+        let stream = AgentChatsPalettePage.answers("codex", windows: windows, open: { _ in })
         let params = try #require(sent.last)
         #expect(params["untitled"] as? String == AgentChatsPaletteStrings.untitled, "acpmux finds an untitled chat by the page's word")
         let generation = try #require(params["gen"] as? UInt64)

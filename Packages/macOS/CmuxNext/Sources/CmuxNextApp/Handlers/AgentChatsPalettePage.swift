@@ -23,14 +23,17 @@ struct AgentChatsPalettePage {
         return PalettePageSpec(id: "agentChats", title: AgentChatsPaletteStrings.title, placeholder: AgentChatsPaletteStrings.placeholder,
                                symbol: "bubble.left.and.bubble.right", providers: [],
                                onCancel: { windows?.close(Self.window) },
-                               queryResults: { [services] query in Self.answers(query, windows: windows, services: services) },
+                               queryResults: { [services] query in
+                                   Self.answers(query, windows: windows) { [weak services] key in services?.chatsOpener.open(key) }
+                               },
                                filtersByQuery: false)
     }
 
     /// The window's rows for `query`: acpmux's first answer to its spec, then the stream ends (the
     /// palette's spinner runs until it ends, and an empty answer shows the empty state). An edit
     /// opens the next query's spec; the window stays open until the page closes.
-    static func answers(_ query: String, windows: AcpmuxChatWindows?, services: AppServices) -> AsyncStream<[PaletteItem]> {
+    /// - Parameter open: Opens a chat by key (the app's Open Chat path).
+    static func answers(_ query: String, windows: AcpmuxChatWindows?, open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
         guard let windows else {
             continuation.yield([])
@@ -43,7 +46,7 @@ struct AgentChatsPalettePage {
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
         let answer = { (rows: [AcpmuxChat]) in
-            var shown = items(rows, windows: windows, services: services)
+            var shown = items(rows, windows: windows, open: open)
             // acpmux ranked more chats than one page holds: say so, and how to see the rest.
             if let total = windows.window(window).total, total > rows.count {
                 shown.append(moreNotice(shown: rows.count, total: total))
@@ -70,7 +73,7 @@ struct AgentChatsPalettePage {
     /// Owns one query's follower (released with its stream).
     final class FollowToken: Sendable {}
 
-    static func items(_ chats: [AcpmuxChat], windows: AcpmuxChatWindows, services: AppServices) -> [PaletteItem] {
+    static func items(_ chats: [AcpmuxChat], windows: AcpmuxChatWindows, open: @escaping @MainActor (String) -> Void) -> [PaletteItem] {
         let formatter = RelativeDateTimeFormatter()
         return chats.map { chat in
             PaletteItem(
@@ -80,10 +83,10 @@ struct AgentChatsPalettePage {
                 symbol: "bubble.left", brand: chat.brand ?? AgentBrandCatalog.brand(for: chat.harness)?.rawValue,
                 keywords: [chat.harness] + (chat.cwd.map { [$0] } ?? []),
                 primary: PaletteCommand(id: "open", title: AgentChatsPaletteStrings.open, symbol: "return",
-                                        effect: .perform { [services] in
+                                        effect: .perform { in
                                             // The page closes with this command: its window too.
                                             windows.close(window)
-                                            services.chatsOpener.open(chat.id)
+                                            open(chat.id)
                                         }))
         }
     }
