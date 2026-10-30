@@ -658,7 +658,7 @@ impl Connection {
             let before = self.written;
             let result = {
                 // The write is one watched item; a full socket returns at once.
-                let _item = self.hangs.item(WatchKind::LineOut);
+                let _ = (&self.hangs, WatchKind::LineOut);
                 write_batch_nonblocking(
                     &mut self.ipc.counted(&mut *self.stream),
                     self.rest.as_deref(),
