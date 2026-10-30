@@ -195,9 +195,15 @@ fn watch_survives_a_host_restart_and_the_old_host_kills_its_process() {
     };
     // The host stops.
     let Harness {
-        dir, owner, brain, ..
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
     } = h;
     drop(brain);
+    chat.shutdown();
+    drop(chat);
     let deadline = Instant::now() + Duration::from_secs(5);
     while unsafe { libc::kill(pid, 0) } == 0 {
         assert!(
