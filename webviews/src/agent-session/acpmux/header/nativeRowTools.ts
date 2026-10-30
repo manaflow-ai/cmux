@@ -4,7 +4,7 @@ import {
   needsYouModeCapabilities,
   type NeedsYouActions,
   type NeedsYouMode,
-} from "../needsYou/NeedsYou";
+} from "../needsYou/ask";
 import type { NeedsYouItem } from "../needsYou/model";
 import { translate, type Translate } from "../i18n";
 import { HEADER_SYMBOLS } from "./headerSymbols";
