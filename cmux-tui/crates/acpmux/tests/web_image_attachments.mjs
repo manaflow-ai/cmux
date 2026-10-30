@@ -187,6 +187,27 @@ test('a queued event before acceptance leaves one row, which the prompt start re
   assert.equal(rows[0].queued, undefined, 'a row stays queued forever');
 });
 
+test('two queued sends with the same text keep two rows whatever order their events arrive in', async () => {
+  const h = eventHarness();
+  h.run("state.transcripts.get('peer/session-1').status = 'running'");
+  const ids = [];
+  // A: accepted first, its queued event later. B: queued event first, then accepted.
+  h.onPrompt(params => {
+    const id = params._meta.acpmux.promptId; ids.push(id);
+    h.context.acceptedId = id;
+    if (ids.length === 1) { h.run('promptAccepts.get(acceptedId)()'); }
+    else { h.event('queued', { text: 'keep this draft', promptId: id }); h.run('promptAccepts.get(acceptedId)()'); }
+  });
+  h.input.value = 'keep this draft';
+  await h.run('send(false)');
+  h.input.value = 'keep this draft';
+  await h.run('send(false)');
+  h.event('queued', { text: 'keep this draft', promptId: ids[0] });
+  const rows = h.rows();
+  assert.equal(rows.length, 2, 'two prompts collapsed into one row');
+  assert.deepEqual(rows.map(r => r.promptId).sort(), [...ids].sort());
+});
+
 test('a user_message before acceptance keeps the submitted image previews', async () => {
   const h = eventHarness();
   h.context.file = file(Buffer.from('image'));
