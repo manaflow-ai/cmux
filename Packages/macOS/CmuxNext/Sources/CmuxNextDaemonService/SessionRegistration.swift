@@ -63,6 +63,11 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
 
     /// Forgets the sessions not in `sessions` (gone from the machine list) and their pending retries.
     public func retain(sessions: Set<String>) {
+        // A gone session's notice is taken back or dropped, so it is owed again if the session
+        // comes back (SSH forget and undo, server sign-out and sign-in) and is refused again.
+        for session in Set(pendingNotices.keys).union(shownNotices) where !sessions.contains(session) {
+            ledger.forgetShownRefusal(session: session)
+        }
         ledger.retain(sessions: sessions)
         pendingNotices = pendingNotices.filter { sessions.contains($0.key) }
         for (session, timer) in retries where !sessions.contains(session) {

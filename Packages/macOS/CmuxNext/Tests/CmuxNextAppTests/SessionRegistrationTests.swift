@@ -121,4 +121,31 @@ import Testing
         #expect(notices.shown.count == 1)
         #expect(notices.shown.first?.contains("bad request") == false, "the notice shows the daemon's raw text: \(notices.shown)")
     }
+
+    /// Review 5: a notice dropped by a new send before any window showed it is still owed: the
+    /// same refusal on the new send shows it.
+    @Test func aRefusalDroppedBeforeItShowedShowsWhenTheResendIsRefused() async {
+        let notices = Notices()
+        notices.windowShows = false
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 2) { throw refusal }?.value
+        notices.windowShows = true
+        registration.showPendingNotices()
+        #expect(notices.shown.count == 1, "the refusal of the resend is not shown: \(notices.shown)")
+    }
+
+    /// Review 5: a session that leaves and comes back (SSH forget and undo, server sign-out and in)
+    /// had its notice taken back; the same refusal shows again.
+    @Test func aSessionThatComesBackShowsItsRefusalAgain() async {
+        let notices = Notices()
+        let registration = registration(notices)
+        let refusal = refusal
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        registration.retain(sessions: [])
+        #expect(notices.withdrawn == ["remote-1"])
+        await registration.submit(session: "remote-1", record: "a", machine: "build-box", epoch: 1) { throw refusal }?.value
+        #expect(notices.shown.count == 2, "the refusal of a session that came back is not shown again")
+    }
 }
