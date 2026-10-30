@@ -69,6 +69,13 @@ export function SubagentTranscript({
     setSeeded(true);
     setRange(windowRange(rows, anchor));
   }
+  // Rows replaced by fewer (a workflow agent's transcript read again from a fresh page after its file
+  // was cut or replaced): the window is taken again from the new rows, never left past their end.
+  const [count, setCount] = useState(rows.length);
+  if (rows.length !== count) {
+    setCount(rows.length);
+    if (rows.length < count) setRange(windowRange(rows));
+  }
   const atBottom = useRef(anchor === undefined);
   // The scroll height and mounted row count before rows were added above: once the count moves, the
   // offset is moved by the added height (a render in between, a loading flag, changes nothing).
