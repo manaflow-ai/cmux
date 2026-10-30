@@ -88,7 +88,14 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     // underline and nothing in the bubble's left gutter.
     const pending = sendNow!.closest(".cv-user__pending")!;
     expect(pending.classList.contains("cv-user__pending--beside")).toBe(false);
-    expect(pending.querySelector("svg")).toBeNull();
+    // No clock: Send now is text alone. The row's only glyphs are its own icon buttons, Copy
+    // (Leo, 2026-10-29: "i feel like im frequently missing the copy/whatever buttons on these
+    // steers"; #27313, inside the row since #27256).
+    const sendNowButton = pending.querySelector(".cv-user__send-now")!;
+    expect(sendNowButton.querySelector("svg")).toBeNull();
+    const glyphs = [...pending.querySelectorAll("svg")];
+    expect(glyphs.length).toBeGreaterThan(0);
+    expect(glyphs.every((svg) => svg.closest("button.cv-iconbtn") !== null)).toBe(true);
     const actions = pending.parentElement!;
     expect(actions.classList.contains("cv-user__actions")).toBe(true);
     const bubble = actions.previousElementSibling!;
