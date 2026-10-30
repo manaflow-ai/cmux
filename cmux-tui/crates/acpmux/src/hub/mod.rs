@@ -36,6 +36,8 @@ mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
+#[cfg(test)]
+mod first_work_tests;
 mod fork;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -49,6 +51,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
+pub use idle_census::Sidecar;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -319,7 +324,7 @@ pub struct TurnInfo {
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
     /// What the turn does right now: its latest tool call's title and its
-    /// plan's step in progress, raw and masked (`activity.rs`).
+    /// plan's step in progress, masked (`activity.rs`).
     pub doing: activity::TurnActivity,
 }
 
@@ -587,6 +592,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
+    #[cfg(test)]
+    pub(super) first_work_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -621,8 +629,6 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
-    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
-    pub(super) auto_resumes: auto_resume::Pending,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -784,6 +790,8 @@ impl Hub {
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            first_work_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -801,7 +809,6 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
-            auto_resumes: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -1087,6 +1094,8 @@ impl Hub {
             caught_up: AtomicBool::new(true),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
+            auto_resume_restored: AtomicBool::new(false),
+            auto_resume: Default::default(),
             turn_lock: Mutex::new(()),
             input_handoff: std::sync::Arc::new(Mutex::new(())),
             turn: StdMutex::new(None),

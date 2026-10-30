@@ -460,7 +460,15 @@ const prune = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceRe
   }
   for (const l of ctx.rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 100 }) ?? []) {
     // Abandoned rows stay: the orphan report keeps flagging their recorded name for a person.
-    if (l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key] && l.row.updated_at <= d.value.now - LEDGER_KEEP_MS) writes.push({ table: TABLE_LEDGER, op: "delete", key: l.key })
+    if (l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key] && l.row.updated_at <= d.value.now - LEDGER_KEEP_MS) {
+      // Older platform snapshots predate the private row marker. Preserve their creation evidence
+      // on the snapshot in the same transaction that retires the ledger, never from machine ownership.
+      const snap = l.row.op === "snapshot" && l.row.snapshot ? ctx.rows?.get<SnapshotRow>(TABLE_SNAPSHOT, l.row.snapshot) : undefined
+      if (snap && !snap.row.platform && snap.row.creator && l.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${snap.row.creator}|platform-env:snapshot:`)) {
+        writes.push({ table: TABLE_SNAPSHOT, op: "upsert", key: snap.key, n: snap.n, row: { ...snap.row, platform: true } })
+      }
+      writes.push({ table: TABLE_LEDGER, op: "delete", key: l.key })
+    }
   }
   if (writes.length === 0) return noChange(state, { pruned: 0 })
   return { ok: true, state: next(state, {}), value: { pruned: writes.length }, writes }

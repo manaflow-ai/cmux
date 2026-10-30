@@ -376,6 +376,8 @@ type Props = {
   blockSend?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
+  /// Keeps auth refusal blocking sends when its text is represented by another notice.
+  authBlocked?: boolean;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -447,6 +449,7 @@ export function Composer({
   blocked,
   blockSend = false,
   authBlock,
+  authBlocked = false,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -1175,7 +1178,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (authBlock || blockSend || (blocked?.reason && !force)) return false;
+    if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -2326,7 +2329,7 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={Boolean(authBlock || blockSend || blocked?.reason) && !shell}
+              disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
               className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
