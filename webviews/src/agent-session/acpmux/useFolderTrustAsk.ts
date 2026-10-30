@@ -231,6 +231,8 @@ export function useFolderTrustAsk(
   const [trusted, setTrusted] = useState(false);
   const [scope, setScope] = useState<TrustScope>();
   const [justTrusted, setJustTrusted] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const bumpRevision = useCallback(() => setRevision((value) => value + 1), []);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [reading, setReading] = useState(false);
   /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
@@ -440,6 +442,7 @@ export function useFolderTrustAsk(
   const save = useCallback(
     async (level: TrustLevel, folder?: string) => {
       if ((!ask && !cwd) || saving.current || !mounted.current || !sameAuthority() || !sameVisit()) return;
+      bumpRevision();
       saving.current = true;
       const asked = { sessionId, cwd: ask?.cwd ?? cwd! };
       // The chat the answer was made in: the asked folder can be another spelling of its folder
@@ -598,6 +601,7 @@ export function useFolderTrustAsk(
 
   return {
     ask,
+    revision,
     /// The trust question or Don't trust holds the chat's other asks (permission, secret, tool
     /// cards): one question at a time. A read in flight asks nothing, so it holds nothing; the asks
     /// keep their place while it reads (a chat switch). The daemon authorizes any prompt sent meanwhile.
@@ -633,6 +637,7 @@ export function useFolderTrustAsk(
     refused: useCallback(
       (error: unknown, again?: () => void): boolean => {
         if (!mounted.current || !sameAuthority() || !sameVisit()) return false;
+        bumpRevision();
         const said = trustRefusal(error);
         if (!said) return false;
         const named = said.cwd;

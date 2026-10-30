@@ -83,14 +83,14 @@ async function fixture() {
       return { held: chips.map((c) => c.id) };
     },
   };
-  const draw = (id: string) =>
+  const draw = (id: string | undefined) =>
     act(async () =>
       root.render(
         <Composer
           sessionId={id}
           snapshot={noChat([], {
             sessionId: id,
-            summary: { sessionId: id, harness: "claude", cwd: "/project", turnCount: 0 },
+            ...(id ? { summary: { sessionId: id, harness: "claude", cwd: "/project", turnCount: 0 } } : {}),
           })}
           chips={() => null}
           onSend={(text) => {
@@ -129,6 +129,15 @@ test("text-only recovery suppresses normal attachment carry into the destination
   expect(f.handle.current!.wakeState().attachments).toEqual([]);
   await f.draw("source");
   expect(f.stored.get("source")).toEqual([attachment]);
+  expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
+});
+test("text-only recovery suppresses unbound attachment scopes from a fresh chat", async () => {
+  const f = await fixture();
+  await act(async () => f.handle.current!.restore("held draft", [attachment]));
+  f.handle.current!.suppressAttachmentCarryFor(undefined);
+  await f.draw("destination");
+  expect(f.handle.current!.wakeState().attachments).toEqual([]);
+  await f.draw(undefined);
   expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
 });
 test("failed selection leaves the source unchanged without restoring twice", async () => {

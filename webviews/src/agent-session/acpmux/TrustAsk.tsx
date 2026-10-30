@@ -104,11 +104,21 @@ export function TrustAsk({
           </span>
           <span className="acpmux-trust-ask-actions">
             {!answers ? null : retrustsRepo ? (
-              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrustRepo}>
+              <button
+                type="button"
+                className="acpmux-trust-ask-action acpmux-trust-ask-primary"
+                disabled={continuing}
+                onClick={onTrustRepo}
+              >
                 {t("trust.trustRepo")}
               </button>
             ) : (
-              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
+              <button
+                type="button"
+                className="acpmux-trust-ask-action acpmux-trust-ask-primary"
+                disabled={continuing}
+                onClick={onTrust}
+              >
                 {owned ? t("trust.trust") : t("trust.trustFolder")}
               </button>
             )}
@@ -136,7 +146,7 @@ export function TrustAsk({
                     {t("trust.continueWithoutFolderLabel")}
                   </button>
                 )}
-                <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
+                <button type="button" className="acpmux-trust-ask-action" disabled={continuing} onClick={onUndo}>
                   {t("trust.undo")}
                 </button>
               </>

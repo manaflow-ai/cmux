@@ -637,6 +637,10 @@ export function Composer({
         .catch(() => {});
     },
     carries: () => !suppressedAttachmentCarry.current && (carryPrompt.current || Boolean(switching)),
+    suppressCarry: (from) => {
+      const suppressed = suppressedAttachmentCarry.current;
+      return Boolean(suppressed && suppressed.from === from);
+    },
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;

@@ -5271,6 +5271,11 @@ function AcpmuxPane() {
     healthLocal && snapshot.origin !== "remote" && snapshot.origin !== "peer",
     blockSend,
   );
+  // A no-folder recovery must not win over a trust answer made while its session switch is in
+  // flight. The revision is advanced by Trust/Undo and by trust refusals, and read through a ref
+  // because the host action handler outlives the render that installed it.
+  const trustRevision = useRef(trustAsk.revision);
+  trustRevision.current = trustAsk.revision;
   const trustRoute = trustAsk.refused;
   trustRefused.current = trustRoute;
   // The connection's action table outlives renders; Retry must read the current folder/auth gate.
@@ -8434,18 +8439,23 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
             if (noProject === true && continueWithoutFolder === true) {
               const generation = client.trustGeneration;
+              const trustGeneration = trustRevision.current;
               const projectGeneration = continuationProjectGeneration.current;
               const holder = composerHandle.current;
               const summary = snapshotRef.current?.summary;
               const intent = switchViewRef.current.intent;
               const selectedHarness = intent?.harness ?? summary?.harness;
               const selectedModel = intent?.config.model ?? summary?.model;
+              // A pending harness switch may still hold prompts behind this folder's trust gate.
+              // Recovery is a different start, so retire that intent before taking the draft.
+              harnessSwitch.cancel();
               return folderContinuation.run({
                 start: () =>
                   client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
                 current: () =>
                   directClient.current === client &&
                   client.trustGeneration === generation &&
+                  trustRevision.current === trustGeneration &&
                   composerHandle.current === holder,
                 copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
                 clearFolder: () => setProjectDraft(undefined),

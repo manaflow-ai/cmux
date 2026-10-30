@@ -52,3 +52,16 @@ test("a blank deferred Return can leave New Tab while HarnessSwitch holds trust"
     shown: false,
   });
 });
+
+test("cancel drops a trust-waiting intent before folder-free recovery starts", async () => {
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(trustRefusingPort());
+  const restored: string[] = [];
+  harnessSwitch.setHandlers({ restore: (text) => restored.push(text) });
+  void harnessSwitch.switchTo("claude", "/work/untrusted");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(harnessSwitch.view().intent?.phase).toBe("trust");
+  harnessSwitch.cancel();
+  expect(harnessSwitch.view().intent).toBeUndefined();
+});
