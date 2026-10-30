@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The image viewer fits the image to the pane on every open, the first one too (#27955: the first
 // open of a chat image showed it far zoomed in, cropped by the stage; a second open fitted it).
-// ImageViewer.tsx draws the image at its fitted size and zooms with a transform from there.
+// A double click on the thumbnail opened the viewer on its first click, and its second click
+// landed on the new stage as a double click, which zooms. ImageViewer.tsx zooms only on a double
+// click whose first press was on the stage; a double click there still zooms.
 //
 // The pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts), with a reply that shows a screenshot-sized PNG. Real Chromium and
@@ -119,8 +121,10 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
   /// Opens the viewer on the reply's image and reads, after every painted frame until the image
   /// has held its box for 10 frames, the image's box against the stage's content box. Returns the
   /// frames where the image (shown, fitted, not zoomed) spilled out of the stage.
-  async function openAndRead(page: Page) {
-    await page.getByRole("button", { name: "Screenshot" }).click();
+  async function openAndRead(page: Page, how: "click" | "dblclick") {
+    const thumbnail = page.getByRole("button", { name: "Screenshot" });
+    if (how === "dblclick") await thumbnail.dblclick();
+    else await thumbnail.click();
     return page.evaluate(async () => {
       const frames: string[] = [];
       const spills: string[] = [];
@@ -163,11 +167,11 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
 
   for (const [name] of engines)
     describe(name, () => {
-      test("the first open fits the image to the stage, as every later open does", async () => {
+      test("a double click on the thumbnail opens the image fitted, as a click does", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         try {
-          const first = await openAndRead(page);
+          const first = await openAndRead(page, "dblclick");
           console.log(`${name} first open:\n${first.frames.join("\n")}`);
           expect(first.frames.length).toBeGreaterThan(0);
           expect({ open: "first", spills: first.spills, last: first.frames.at(-1) }).toEqual({
@@ -177,7 +181,7 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
           });
           await page.keyboard.press("Escape");
           await page.locator(".acpmux-image-viewer").waitFor({ state: "detached" });
-          const second = await openAndRead(page);
+          const second = await openAndRead(page, "click");
           console.log(`${name} second open:\n${second.frames.join("\n")}`);
           expect({ open: "second", spills: second.spills }).toEqual({ open: "second", spills: [] });
           // Fitted, it is the largest the stage holds at the image's own shape.
@@ -191,6 +195,9 @@ await requireBrowserLane("image-viewer-first-open-fit.test.ts", async () => {
           const fit = Math.min(stageWidth / WIDTH, stageHeight / HEIGHT);
           expect(Math.abs(width - WIDTH * fit)).toBeLessThanOrEqual(2);
           expect(Math.abs(height - HEIGHT * fit)).toBeLessThanOrEqual(2);
+          // A double click on the open image still zooms it.
+          await page.locator(".acpmux-image-viewer-image").dblclick();
+          await page.locator(".acpmux-image-viewer-stage.is-zoomed").waitFor();
         } finally {
           await page.close();
         }
