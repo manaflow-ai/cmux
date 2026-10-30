@@ -148,8 +148,13 @@ async function deadClicks(container: HTMLElement, calls: string[]): Promise<{ de
   // Everything but what closes, round by round as folds and lists open; then what closes them.
   for (let round = 0; round < 10; round += 1) {
     const last = round === 9;
+    // A section's six-dot handle drags (or moves with Up and Down Arrow); a click is not its use, and
+    // inspector-section-order.test.tsx covers it.
     const fresh = [...container.querySelectorAll<HTMLElement>(CLICKABLE)].filter(
-      (element) => !tried.has(describe(element)) && (last || !closes(element)),
+      (element) =>
+        !element.matches(".acpmux-chat-inspector-section__handle") &&
+        !tried.has(describe(element)) &&
+        (last || !closes(element)),
     );
     if (fresh.length === 0 && !last) {
       round = 8;

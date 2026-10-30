@@ -15,6 +15,7 @@ name = "cmux-host"
 path = "src/main.rs"
 
 [dependencies]
+cmux-json.workspace = true
 # Roles (the store update check and later app servers) come from
 # cmux-server; dependency direction is cmux-host -> cmux-server ->
 # cmux-server-core, never the reverse.

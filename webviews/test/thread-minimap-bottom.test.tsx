@@ -54,7 +54,7 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 let viewport = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
-// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
 /// The rail's list clamps its offset as a browser does: rows are 10 px, the list as tall as the rail.
@@ -390,11 +390,11 @@ test("the rail keeps clear of the transcript's widest fades (the model reads the
   expect(fades.top).toBeGreaterThan(0);
   expect(fades.bottom).toBeGreaterThan(0);
   expect(TRANSCRIPT_FADE_TOP).toBeGreaterThanOrEqual(fades.top);
-  expect(TRANSCRIPT_FADE_BOTTOM).toBeGreaterThanOrEqual(fades.jump);
+  expect(TRANSCRIPT_FADE_BOTTOM).toBe(fades.jump);
 });
 
 // The rail is inside the transcript, so the transcript's mask fades it too: 18 px under the top once
-// scrolled from the start, and 18 px (56 px with Jump to latest) above the foot while more lies below.
+// scrolled from the start, and 18 px above the foot while more lies below, including with Jump to latest.
 // In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
 // in those fades at every offset short of the chat's two ends.
 test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {

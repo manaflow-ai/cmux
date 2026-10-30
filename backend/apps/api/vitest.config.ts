@@ -127,6 +127,8 @@ export default defineConfig({
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
+          // PlatformMachines answers (test/platform-machines.test.ts); development only among the deployments.
+          PLATFORM_MACHINES: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",

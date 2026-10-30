@@ -11,6 +11,7 @@ exports:
                        '_SecCertificateCopySubjectSummary',
                        '_SecCertificateCreateWithData',
                        '_SecCodeCheckValidity',
+                       '_SecCodeCopyDesignatedRequirement',
                        '_SecCodeCopyGuestWithAttributes',
                        '_SecCodeCopySelf',
                        '_SecCodeCopySigningInformation',
