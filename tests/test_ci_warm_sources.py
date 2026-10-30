@@ -25,6 +25,7 @@ from its steps (sources found wired, or a stub exemption to fill in), so a new j
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import unittest
@@ -45,20 +46,40 @@ SCHEMA = "warm-sources/v1"
 # scarce resource, so every Mac job says what warm state it uses or why it needs none.
 # Interpreter-only checks (python3 tests/test_*.py, shellcheck, actionlint) are not compiles.
 # ---------------------------------------------------------------------------------------------
+def _names(*names: str) -> str:
+    """Script file names as whole names: owned_spm_scratch.py, never test_ci_owned_spm_scratch.py."""
+    return r"(?<![\w-])(?:" + "|".join(re.escape(name) for name in names) + r")(?![\w-])"
+
+
 COMPILE_COMMANDS: dict[str, re.Pattern] = {
     "xcodebuild": re.compile(r"\bxcodebuild\b"),
     "swift": re.compile(r"\bswift\s+(?:build|test)\b"),
     "cargo": re.compile(r"\bcargo\s+(?:\+\S+\s+)?(?:build|test|clippy|check|nextest|zigbuild|install|run|bench)\b"),
     "zig": re.compile(r"\bzig\s+build\b"),
-    "go": re.compile(r"\bgo\s+(?:build|test|vet|install)\b"),
+    "go": re.compile(r"\bgo\s+(?:-C\s+\S+\s+)?(?:build|test|vet|install)\b"),
     "js": re.compile(
         r"\b(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(?:build|test|typecheck|tsc|check)\b"
         r"|\bbunx?\s+(?:--bun\s+)?(?:tsc|vitest|playwright\s+test)\b|\bnpx\s+(?:tsc|vitest|playwright\s+test)\b"
     ),
     "gradle": re.compile(r"\bgradlew?\s+\S*(?:build|test|assemble)"),
-    "script": re.compile(r"(?:^|[\s/\"'])(?:compile|build)[-_][\w.-]*\.(?:sh|py)\b"),
+    # A repository shell script whose name says it compiles or builds
+    # (compile-dev-release.sh, check-release-compile.sh, build-web-bundles.sh, testflight-build.sh),
+    # or reload.sh. Not a script's own test (*.test.sh, test_*.sh), and not a name in a path list
+    # (`case` patterns and change filters: "scripts/ci/compile-app-host-test-product.sh|...").
+    "script": re.compile(
+        r"(?<![\w.-])(?!test_)[\w.-]*(?:compile|build)[\w.-]*(?<!\.test)\.sh\b(?![|\w.-])"
+        r"|(?<![\w.-])reload\.sh\b(?![|\w.-])"
+    ),
+    # Compile drivers whose names do not say so: the Swift package lane, the Linux-to-macOS cross
+    # build, the export regenerators (swift build, then swift test) and the nightly web-bundle inputs.
+    "driver": re.compile(_names("package-test-lane.sh", "run-swift-testing-suites.sh", "macos-cross.sh",
+                                "inputs-web-bundles.sh") + r"|(?<![\w-])regenerate-[\w-]+-exports\.sh\b"),
+    # A compile handed to the build fleet's controller (cmux-ci run, build or compile-check).
+    "fleet": re.compile(r"(?:\bcmux-ci|\"?\$\{?client\}?\"?)\s+(?:run|build|compile-check)\s"),
 }
 MAC_RUNS_ON = re.compile(r"macos|glaeda", re.IGNORECASE)
+# A job that selects Xcode runs on a Mac whatever label a picker gave it (runs-on: needs.route.outputs.runs_on).
+XCODE_STEP = re.compile(r"select-ci-xcode\.sh|\bxcode-select\s+-s\b|\bxcrun\b")
 
 
 def step_text(step: dict) -> str:
@@ -88,7 +109,7 @@ def compile_reasons(job: dict) -> list[str]:
         return []
     text = job_steps_text(job)
     reasons = [name for name, pattern in COMPILE_COMMANDS.items() if pattern.search(text)]
-    if MAC_RUNS_ON.search(runs_on_text(job)):
+    if MAC_RUNS_ON.search(runs_on_text(job)) or XCODE_STEP.search(text):
         reasons.append("mac-runner")
     return reasons
 
@@ -100,31 +121,54 @@ def compile_reasons(job: dict) -> list[str]:
 # ---------------------------------------------------------------------------------------------
 WIRING: dict[str, re.Pattern] = {
     # Kept DerivedData: the owned Mac's admission state, the nightly seed, the e2e warm copy, the
-    # scheme compile's kept tree, or a build handed to the controller's warm slots.
+    # scheme and Release compiles' worker-local tree, or a build handed to the controller's warm slots.
     "deriveddata-reuse": re.compile(
-        r"owned_build_state\.py|seed_derived_data\.py|e2e_warm_derived_data\.py"
-        r"|CMUX_COMPILE_ADMISSION_DERIVED_DATA|cmux_next_cas_fresh_tree|CMUX_NEXT_KEEP_DERIVED_DATA"
-        r"|\"\$client\"\s+(?:run|build)\b|\$client\s+(?:run|build)\b"
+        _names("owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh")
+        + r"|\bCMUX_COMPILE_ADMISSION_DERIVED_DATA\b|\bcmux_next_cas_fresh_tree\b"
+        # A tour or visual-gate build in its claimed warm slot's DerivedData, and the Chief's per-runner target.
+        + r"|" + _names("media_tag_lock.py", "prune_media_derived_data.py") + r"|\bCMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR=\"?\$HOME/"
+        + r"|\"?\$\{?client\}?\"?\s+(?:run|build)\s"
     ),
+    # The per-mini SwiftPM scratch: package .build directories kept outside the cleaned workspace.
+    "spm-shared": re.compile(_names("owned_spm_scratch.py") + r"|\bCMUX_OWNED_PACKAGE_STORE\b"),
     # The fleet compiler-CAS node glaeda installs on owned minis.
-    "ssd-cas": re.compile(r"fleet-cas"),
+    "ssd-cas": re.compile(r"\bfleet-cas\b"),
     # The DEV CAS seed store.
-    "dev-cas": re.compile(r"CMUX_NEXT_DEV_CAS_URL|dev_cas_seed\.py"),
+    "dev-cas": re.compile(r"\bCMUX_NEXT_DEV_CAS_URL\b|" + _names("dev_cas_seed.py")),
     # actions/cache (Blacksmith serves it on its runners) and the actions built on it.
     "actions-cache": re.compile(
-        r"\bactions/cache(?:/restore|/save)?@|\./\.github/actions/(?:cache-restore|cache-save|playwright-apt-cache|ghostty-zig-packages)\b"
-        r"|\bSwatinem/rust-cache@|\buseblacksmith/stickydisk@|\buseblacksmith/cache@"
+        r"(?m)^\s*(?:-\s+)?(?:uses:\s*)?(?:actions/cache(?:/restore|/save)?@|\./\.github/actions/(?:cache-restore|cache-save|playwright-apt-cache|ghostty-zig-packages)\b"
+        r"|Swatinem/rust-cache@|useblacksmith/stickydisk@|useblacksmith/cache@)"
     ),
     # The controller's warm Linux lanes.
-    "linux-pool-warm": re.compile(r"compile-check\b[^\n]*--app|cmux-next-swift-check|swift-check\b"),
+    "linux-pool-warm": re.compile(r"\bcompile-check\b[^\n]*--app\b|\bcmux-next-swift-check\b"),
     # A green product or pass for the same tree, reused instead of compiled again.
     "product-reuse": re.compile(
-        r"reuse_app_host_products\.py|nightly_release_product_reuse\.py|dev_release_product_reuse\.py"
-        r"|reuse_release_product\.py|job_reuse\.py|\./\.github/actions/download-test-product\b"
+        _names("reuse_app_host_products.py", "nightly_release_product_reuse.py", "dev_release_product_reuse.py",
+               "reuse_release_product.py", "job_reuse.py", "media_app_cache.py")
+        + r"|\./\.github/actions/download-test-product\b"
     ),
 }
-SCRIPT_DEPTH = 2
-SCRIPT_REF = re.compile(r"(?<![\w.-])((?:\./)?(?:scripts|\.github/actions)/[\w./-]+?)(?=[\s\"');|&`]|$)")
+SCRIPT_DEPTH = 3
+# A path into the repository's scripts or composite actions, or a bare script file name (a script
+# that runs "$here/lib/compilation-cache.sh"), resolved through SCRIPT_DIRS when the name is unique.
+SCRIPT_REF = re.compile(r"(?<![\w.-])((?:\./)?(?:scripts|\.github/actions|cmux-next-ios/scripts)/[\w./-]+?)(?=[\s\"');|&`]|$)")
+SCRIPT_NAME = re.compile(r"(?<![\w-])([\w-][\w.-]*\.(?:sh|py))\b(?![|\w.-])")
+SCRIPT_DIRS = ("scripts", ".github/actions", "cmux-next-ios/scripts")
+
+
+@lru_cache(maxsize=None)
+def script_index(root: Path) -> dict[str, str]:
+    """Unique script file names under SCRIPT_DIRS, to their repository paths."""
+    seen: dict[str, list[str]] = {}
+    for directory in SCRIPT_DIRS:
+        base = root / directory
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.suffix in (".sh", ".py") and path.is_file():
+                seen.setdefault(path.name, []).append(path.relative_to(root).as_posix())
+    return {name: paths[0] for name, paths in seen.items() if len(paths) == 1}
 
 
 @lru_cache(maxsize=None)
@@ -144,6 +188,22 @@ def file_text(root: Path, rel: str) -> str:
     return ""
 
 
+def script_refs(root: Path, text: str) -> list[str]:
+    """The shell scripts and composite actions a text runs. A Python script is matched by its own
+    name (the markers name them) and never opened: its docstrings name every script it knows of."""
+    refs = [ref.removeprefix("./").rstrip(".") for ref in SCRIPT_REF.findall(text)]
+    index = script_index(root)
+    refs.extend(index[name] for name in SCRIPT_NAME.findall(text) if name in index)
+    return [ref for ref in refs
+            if (ref.endswith(".sh") or ref.startswith(".github/actions/")) and not ref.endswith(".test.sh") and "/tests/" not in ref]
+
+
+def uncommented(text: str) -> str:
+    """Text without its comment lines, so a script's notes about another source never wire it."""
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+@lru_cache(maxsize=None)
 def expanded_text(root: Path, text: str, depth: int = SCRIPT_DEPTH) -> str:
     """A job's text plus the repository scripts and composite actions it calls, depth levels down."""
     seen: set[str] = set()
@@ -152,12 +212,11 @@ def expanded_text(root: Path, text: str, depth: int = SCRIPT_DEPTH) -> str:
     for _ in range(depth):
         nxt = []
         for chunk in frontier:
-            for ref in SCRIPT_REF.findall(chunk):
-                ref = ref.removeprefix("./").rstrip(".")
+            for ref in script_refs(root, chunk):
                 if ref in seen:
                     continue
                 seen.add(ref)
-                body = file_text(root, ref)
+                body = uncommented(file_text(root, ref))
                 if body:
                     out.append(body)
                     nxt.append(body)
@@ -165,19 +224,45 @@ def expanded_text(root: Path, text: str, depth: int = SCRIPT_DEPTH) -> str:
     return "\n".join(out)
 
 
+# actions/setup-go caches the module and build caches unless told not to; setup-node, setup-python
+# and setup-java cache only when given a `cache` input.
+SETUP_CACHE = re.compile(r"^actions/setup-(go|node|python|java)@")
+
+
+def setup_action_cache(job: dict) -> bool:
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        match = SETUP_CACHE.match(str(step.get("uses") or ""))
+        if not match:
+            continue
+        cache = str((step.get("with") or {}).get("cache", "") if isinstance(step.get("with"), dict) else "").strip().lower()
+        if (match.group(1) == "go" and cache != "false") or (match.group(1) != "go" and cache not in ("", "false")):
+            return True
+    return False
+
+
 def wired_sources(root: Path, job: dict) -> list[str]:
-    text = expanded_text(root, job_steps_text(job))
-    return [source for source, pattern in WIRING.items() if pattern.search(text)]
+    text = expanded_text(root, uncommented(job_steps_text(job)))
+    wired = [source for source, pattern in WIRING.items() if pattern.search(text)]
+    if "actions-cache" not in wired and setup_action_cache(job):
+        wired.append("actions-cache")
+    return wired
 
 
 # ---------------------------------------------------------------------------------------------
 # The table.
 # ---------------------------------------------------------------------------------------------
 # An exemption names why the job has nothing to warm. These say only that it is missing.
+# An exemption that starts "cold:" is a known gap: the job compiles but no warm source is wired
+# yet. The test lists them (a warning in CI) and fails once the job wires a source, so the entry
+# moves to "warm" the day its cache lands.
+COLD = "cold:"
 EMPTY_REASON = re.compile(r"^\s*(?:|n/?a|none|todo|tbd|exempt|-|\?|cold|no reason)\s*\.?\s*$", re.IGNORECASE)
 MIN_REASON = 12
 
 
+@lru_cache(maxsize=None)
 def workflow_jobs(root: Path) -> dict[str, dict]:
     jobs: dict[str, dict] = {}
     for path in sorted([*(root / ".github" / "workflows").glob("*.yml"), *(root / ".github" / "workflows").glob("*.yaml")]):
@@ -227,21 +312,28 @@ def problems(root: Path, table: dict) -> list[str]:
                 errors.append(f"(b) {key} lists no warm source and no exemption with a reason")
         elif exempt is not None:
             errors.append(f"{key}: an exemption is only for a job with no warm source; drop 'exempt' or 'warm'")
+        wired = wired_sources(root, jobs[key])
+        if not warm and wired:
+            errors.append(f"(b) {key} is exempt but its steps wire {wired}; list them under 'warm' instead")
         unknown = [source for source in warm if source not in sources]
         if unknown:
             errors.append(f"{key}: unknown source ids {unknown}; declare them under 'sources'")
-        wired = set(wired_sources(root, jobs[key]))
         for source in warm:
             if source in WIRING and source not in wired:
                 errors.append(f"(c) {key} lists {source} but its steps never wire it (no match for {WIRING[source].pattern[:60]}...)")
     return errors
 
 
+def cold_jobs(table: dict) -> list[str]:
+    return sorted(key for key, entry in (table.get("jobs") or {}).items()
+                  if isinstance(entry, dict) and str(entry.get("exempt") or "").startswith(COLD))
+
+
 def suggestion(root: Path, job: dict) -> dict:
     wired = wired_sources(root, job)
     if wired:
         return {"class": "?", "warm": wired}
-    return {"class": "?", "warm": [], "exempt": "<why this job needs no warm state>"}
+    return {"class": "?", "warm": [], "exempt": "<why it needs no warm state, or cold: <what compiles cold>>"}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -264,12 +356,19 @@ class Detector(unittest.TestCase):
             ("cargo nextest run", "cargo"),
             ("zig build -Doptimize=ReleaseFast", "zig"),
             ("go test ./...", "go"),
+            ("go -C daemon/remote test -race ./...", "go"),
             ("bun run build", "js"),
             ("bun test", "js"),
             ("bunx tsc --noEmit", "js"),
             ("npx playwright test", "js"),
             ("./scripts/cmux-next/compile-dev-release.sh", "script"),
             ("bash scripts/build-web-bundles.sh", "script"),
+            ("scripts/cmux-next/check-release-compile.sh \"$dd\"", "script"),
+            ("./scripts/reload.sh --tag x", "script"),
+            ("bash scripts/ci/package-test-lane.sh suite Packages/x all", "driver"),
+            ("bash scripts/cmux-next/regenerate-swift-exports.sh", "driver"),
+            ('"$client" run --class light --script scripts/ci/package-test-lane.sh', "fleet"),
+            ("cmux-ci build cmux --ref $SHA", "fleet"),
         ):
             with self.subTest(command=command):
                 self.assertIn(reason, compile_reasons(job(command)))
@@ -278,11 +377,15 @@ class Detector(unittest.TestCase):
         self.assertEqual(compile_reasons(job("echo sign", runs_on="glaeda-mini-xcode-26.3")), ["mac-runner"])
         self.assertEqual(compile_reasons(job("echo", runs_on="${{ needs.pick.outputs.runner || 'blacksmith-6vcpu-macos-26' }}")), ["mac-runner"])
         self.assertEqual(compile_reasons(job("echo", runs_on=["self-hosted", "macOS"])), ["mac-runner"])
+        self.assertEqual(compile_reasons(job("./scripts/select-ci-xcode.sh", runs_on="${{ needs.route.outputs.runs_on }}")), ["mac-runner"])
 
     def test_interpreter_only_checks_do_not_count(self) -> None:
         for command in ("python3 tests/test_ci_runs_on_fallback.py", "shellcheck scripts/*.sh", "actionlint",
                         "swift --version", "cargo --version", "go version", "bun install --frozen-lockfile",
-                        "echo build-something", "gh run list"):
+                        "echo build-something", "gh run list", "bash tests/test_build_names.sh",
+                        "bash scripts/cmux-next/tests/release-compile-derived-data.test.sh",
+                        "case $f in scripts/ci/compile-app-host-test-product.sh|scripts/x.sh) ;; esac",
+                        "python3 scripts/ci/build_input_fingerprint.py"):
             with self.subTest(command=command):
                 self.assertEqual(compile_reasons(job(command)), [])
 
@@ -298,6 +401,22 @@ class Wiring(unittest.TestCase):
         self.assertEqual(wired_sources(ROOT, job("python3 scripts/ci/reuse_app_host_products.py lookup")), ["product-reuse"])
         self.assertEqual(wired_sources(ROOT, job('"$client" compile-check --ref "$SHA" --app')), ["linux-pool-warm"])
         self.assertEqual(wired_sources(ROOT, job("cargo build")), [])
+        self.assertEqual(wired_sources(ROOT, job("python3 scripts/ci/owned_spm_scratch.py link .")), ["spm-shared"])
+        # A test of a source's script is not the source.
+        self.assertEqual(wired_sources(ROOT, job("python3 tests/test_ci_owned_spm_scratch.py")), [])
+        # A tour claims a kept DerivedData slot; the Chief's cargo target counts only when set to a kept path.
+        self.assertEqual(wired_sources(ROOT, job("python3 scripts/ci/media_tag_lock.py claim")), ["deriveddata-reuse"])
+        kept = 'export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/x"'
+        self.assertEqual(wired_sources(ROOT, job(kept)), ["deriveddata-reuse"])
+        self.assertEqual(wired_sources(ROOT, job('echo "${CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:-target}"')), [])
+        # A comment naming a source does not wire it.
+        self.assertEqual(wired_sources(ROOT, job("# restore with actions/cache@v5 later\ncargo build")), [])
+
+    def test_setup_actions_cache_by_their_own_rules(self) -> None:
+        self.assertEqual(wired_sources(ROOT, {"steps": [{"uses": "actions/setup-go@v5"}]}), ["actions-cache"])
+        self.assertEqual(wired_sources(ROOT, {"steps": [{"uses": "actions/setup-go@v5", "with": {"cache": "false"}}]}), [])
+        self.assertEqual(wired_sources(ROOT, {"steps": [{"uses": "actions/setup-node@v4"}]}), [])
+        self.assertEqual(wired_sources(ROOT, {"steps": [{"uses": "actions/setup-node@v4", "with": {"cache": "npm"}}]}), ["actions-cache"])
 
     def test_markers_in_called_scripts(self) -> None:
         # compile-app-host-test-product.sh takes the fleet-cas node itself; a job that calls it is wired.
@@ -349,6 +468,11 @@ class Table(unittest.TestCase):
                                             "w.yml:gone": {"class": "linux", "warm": [], "exempt": "lint only, no compile"}}))
         self.assertEqual(errors, ["(d) w.yml:gone is in .github/warm-sources.json but no workflow has that job"])
 
+        # A cold exemption fails once the job wires a source.
+        errors = problems(root, self.table({"w.yml:cold": {"class": "linux", "warm": [], "exempt": "cold: cargo from an empty target"},
+                                            "w.yml:cached": {"class": "linux", "warm": [], "exempt": "cold: cargo from an empty target"}}))
+        self.assertEqual(errors, ["(b) w.yml:cached is exempt but its steps wire ['actions-cache']; list them under 'warm' instead"])
+
     def test_without_the_table_this_tree_fails(self) -> None:
         errors = problems(ROOT, {"schema": SCHEMA, "sources": {}, "jobs": {}})
         self.assertTrue(any(e.startswith("(a) ") for e in errors))
@@ -356,8 +480,13 @@ class Table(unittest.TestCase):
 
 class ThisTree(unittest.TestCase):
     def test_every_compile_job_names_its_warm_sources(self) -> None:
-        errors = problems(ROOT, load_table(TABLE))
+        table = load_table(TABLE)
+        errors = problems(ROOT, table)
         self.assertEqual(errors, [], "\n" + "\n".join(errors))
+        cold = cold_jobs(table)
+        if cold:
+            note = f"{len(cold)} compile jobs still start cold (.github/warm-sources.json 'cold:' entries): {', '.join(cold)}"
+            print(f"::warning title=Cold compile jobs::{note}" if os.environ.get("GITHUB_ACTIONS") else note, file=sys.stderr)
 
     def test_sources_are_the_shared_set(self) -> None:
         self.assertEqual(set(load_table(TABLE)["sources"]), {
