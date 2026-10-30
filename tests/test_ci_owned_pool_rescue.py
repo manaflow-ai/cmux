@@ -1966,6 +1966,29 @@ class Sweeper(unittest.TestCase):
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
 
+    def test_pull_recovery_failure_does_not_stop_other_watches_and_retries(self):
+        api = SweepAPI([listed(1, path=rescue.CMUX_NEXT_WORKFLOW_PATH, pull_requests=[]), listed(2)], picker=[1, 2])
+        recover = rescue.recover_cmux_next_pull
+        attempts = []
+
+        def recovery(client, run, sleep, log):
+            if run["id"] == 1:
+                attempts.append(1)
+                if len(attempts) == 1:
+                    raise urllib.error.URLError("unavailable")
+                return {**run, "pull_requests": [{"number": 42}]}
+            return recover(client, run, sleep, log)
+
+        with unittest.mock.patch.object(rescue, "recover_cmux_next_pull", side_effect=recovery):
+            watched, outcomes = self.sweep(api)
+        self.assertEqual(watched, [(1, 1, False), (2, 1, False)])
+        self.assertEqual(len(attempts), 2)
+
+    def test_snapshot_download_failure_is_unavailable_health(self):
+        api = rescue.GitHub("test-token", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(api._snapshot_client, "snapshot", side_effect=RuntimeError("artifact download failed (410)")):
+            self.assertIsNone(api.pool_snapshot(START))
+
     def test_watches_each_marked_run_once(self):
         runs = [listed(1),
                 listed(2, path=".github/workflows/iroh-release-gate.yml", event="workflow_dispatch", pull_requests=[]),

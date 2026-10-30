@@ -696,7 +696,7 @@ class GitHub:
                 self._snapshot_at = now
                 try:
                     self._snapshot = self._snapshot_client.snapshot(now=now)
-                except READ_ERRORS:
+                except (*READ_ERRORS, RuntimeError):
                     self._snapshot = None
             return self._snapshot
 
@@ -1330,7 +1330,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     else:
         with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
             event = json.load(handle)
-    event = {**event, "workflow_run": recover_cmux_next_pull(client, event.get("workflow_run") or {}, sleep, log)}
+    try:
+        event = {**event, "workflow_run": recover_cmux_next_pull(client, event.get("workflow_run") or {}, sleep, log)}
+    except READ_ERRORS as error:
+        finish(f"could not recover the pull request: {error}")
+        return 1
     target = target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
@@ -1563,7 +1567,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
             full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
                              and not carried(job, attempt_started) for job in jobs)
-        run = recover_cmux_next_pull(client, run, wait, log)
+        try:
+            run = recover_cmux_next_pull(client, run, wait, log)
+        except READ_ERRORS as error:
+            seen.discard(run_id)
+            rerun_seen.discard((run_id, int(run.get("run_attempt") or 0)))
+            log(f"[run {run_id}] could not recover its pull request ({error}); next tick")
+            return
         target = sweep_target(run, repository, late=late, full_rerun=full_rerun, since=since)
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")

@@ -137,6 +137,26 @@ class Counts(unittest.TestCase):
                                "as_of": "2026-10-19T21:59:00Z"}
         self.assertFalse(cascade.owned_label_full(shot, GUI, NOW))
 
+    def test_blacksmith_label_outage_over_thirty_minutes_is_dead(self):
+        shot = snapshot(minutes_old=1, large=2)
+        shot["bs_health"] = {"label_outages": [{"pool": LARGE, "queued": 2,
+                                                    "oldest_wait_s": 120,
+                                                    "last_start_s": 1900}]}
+        self.assertTrue(cascade.label_full_or_dead(LARGE, shot, live=0, queued=2, now=NOW))
+
+    def test_blacksmith_label_at_cap_with_backlog_is_full(self):
+        shot = snapshot(minutes_old=1, small=1)
+        shot["pools"][SMALL]["cap"] = 5
+        shot["pools"][SMALL]["running"] = 5
+        self.assertTrue(cascade.label_full_or_dead(SMALL, shot, live=0, queued=1, now=NOW))
+
+    def test_blacksmith_recent_start_is_not_dead(self):
+        shot = snapshot(minutes_old=1, large=2)
+        shot["bs_health"] = {"label_outages": [{"pool": LARGE, "queued": 2,
+                                                    "oldest_wait_s": 2400,
+                                                    "last_start_s": 120}]}
+        self.assertFalse(cascade.label_full_or_dead(LARGE, shot, live=0, queued=2, now=NOW))
+
     def test_the_pools_other_labels_count_from_the_snapshot(self):
         shot = snapshot(large=1, small=2)
         shot["pools"][MACOS_15] = {"queued": 4, "running": 3}
@@ -227,6 +247,39 @@ class Cascade(unittest.TestCase):
         self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0}, (LARGE,)), SMALL)
         self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, (LARGE, SMALL)), "")
 
+
+class FleetGateway(unittest.TestCase):
+    def test_all_full_routes_reserve_only_requested_fleet_jobs(self):
+        shot = snapshot(minutes_old=1, large=1, small=1)
+        for label in (LARGE, SMALL, SIDE):
+            shot["pools"][label] = {"cap": 1, "running": 1, "queued": 1,
+                                     "listening": 0, "held_offline": {"units": 1, "cpu": 0, "livelock": 0},
+                                     "oldest_queued_s": 240, "as_of": "2026-10-19T21:59:00Z"}
+        result = cascade.place(env(FLEET_CLIENT_JOBS="fast-tier"), (),
+                               {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW), saturated=True)
+        self.assertEqual(result.fleet_jobs, ("fast-tier",))
+
+    def test_gateway_routes_require_current_attempt_matching_tier_and_runner(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        wiring = Wiring()
+        for tier in (*CASCADED, *GUI_JOBS):
+            context = wiring.context()
+            outputs = context["needs"]["macos-placement"]["outputs"]
+            outputs.update(fleet_jobs=f" {tier} ", gateway_runner="gateway-test", placed_attempt="1")
+            self.assertEqual(evaluate(jobs[tier]["runs-on"], context), "gateway-test", tier)
+            for changes in ({"placed_attempt": "0"}, {"fleet_jobs": f" {tier}-other "}, {"gateway_runner": ""}):
+                original = dict(outputs)
+                outputs.update(changes)
+                self.assertNotEqual(evaluate(jobs[tier]["runs-on"], context), "gateway-test", (tier, changes))
+                outputs.clear()
+                outputs.update(original)
+            context["github"]["event"]["pull_request"]["head"]["repo"]["full_name"] = "fork/cmux"
+            self.assertEqual(evaluate(jobs[tier]["runs-on"], context), SMALL, tier)
+
+    def test_gateway_reservation_is_empty_without_requested_jobs(self):
+        shot = snapshot(minutes_old=1)
+        result = cascade.place(env(), (), {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW), saturated=True)
+        self.assertEqual(result.fleet_jobs, ())
 
 class Place(unittest.TestCase):
     def test_bot_rerun_can_place_after_a_refusal_but_a_person_rerun_stays_owned(self):

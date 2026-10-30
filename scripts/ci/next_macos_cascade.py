@@ -246,17 +246,22 @@ def label_full_or_dead(label: str, snapshot: Mapping[str, Any] | None,
             continue
         try:
             last = outage.get("last_start_s")
-            if (int(outage.get("queued", 0)) > 0 and float(outage.get("oldest_wait_s", 0)) > 1800
-                    and (last is None or float(last) > 1800)):
+            if (int(outage.get("queued", 0)) > 0 and last is not None and float(last) > 1800):
                 return True
         except (TypeError, ValueError):
             continue
     pools = snapshot.get("pools") or {}
     entry = pools.get(label) if isinstance(pools, Mapping) else None
     entry = entry if isinstance(entry, Mapping) else {}
+    # A legacy pool record without a declared cap is not a health assertion; keep
+    # the old cascade until the janitor exports the contract fields.
+    if not ("cap" in entry or "capacity" in entry):
+        return False
     try:
-        cap = int(entry.get("cap", entry.get("capacity", CAPACITY.get(label, 0))))
-        return cap > 0 and queued > 0 and live >= cap
+        cap = int(entry.get("cap", entry.get("capacity", 0)))
+        observed_queued = max(int(queued), int(entry.get("queued", 0)))
+        observed_running = max(int(live), int(entry.get("running", 0)))
+        return cap > 0 and observed_queued > 0 and observed_running >= cap
     except (TypeError, ValueError):
         return False
 
@@ -661,6 +666,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                                  "the rest stay on the minis' queue", fresh_stall)
         return Placement(empty, "", f"{why}; no job leaves the minis' queue", fresh_stall)
     stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
+    # Controller-declared outages and at-capacity backlog cannot be made live
+    # by the older shorter-queue exception below.
+    unavailable = tuple(label for label in LABELS if seen is not None and label_full_or_dead(
+        label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0)))
+    stall = tuple(dict.fromkeys((*stall, *unavailable)))
     jobs = candidates(env, owned, promote_busy)
     # Freshness first across runs too: while a nightly's build or signing job is queued for a Blacksmith
     # label (2026-10-26: nightly-next's build-sign-notarize-nightly from 19:38Z behind 68 PR jobs on
@@ -675,13 +685,17 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     unplaced = [job for job in jobs if not any(job in names for names in placed.values())]
     blocked = saturated and dead_end(route_wait, live, waiting, seen)
     spilled = (overflow(unplaced, waiting, stall=stall, reserved=reserved, fresh=fresh, fresh_stall=fresh_stall,
-                        already=len(placed[SMALL]), dead_end=blocked) if saturated else ())
+                        already=len(placed[SMALL]), dead_end=blocked)
+               if saturated and SMALL not in unavailable else ())
     if spilled:
         placed = {**placed, SMALL: (*placed[SMALL], *spilled)}
     # If every route is full/dead, reserve the tier for the thin cmux-ci gateway.
-    fleet_jobs = tuple(unplaced) if env.get("FLEET_CLIENT_JOBS") and not owned and seen is not None and all(
+    requested_fleet = set((env.get("FLEET_CLIENT_JOBS") or "").split())
+    route_labels = tuple(label for label in (*LABELS, (env.get("SIDE_LABEL") or "").strip()) if label)
+    all_routes_blocked = bool(requested_fleet) and seen is not None and bool(route_labels) and all(
         label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0))
-        for label in (*LABELS, (env.get("SIDE_LABEL") or "").strip()) if label) else ()
+        for label in route_labels)
+    fleet_jobs = tuple(job for job in unplaced if job in requested_fleet) if all_routes_blocked else ()
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
@@ -717,6 +731,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     if reserved:
         why += (f"; freshness work is queued for {', '.join(f'`{label}`' for label in reserved)}, "
                 "so only a feed's compile takes it")
+    if fleet_jobs:
+        why += f"; {', '.join(fleet_jobs)} reserved for the fleet gateway"
+    left = [job for job in left if job not in fleet_jobs]
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
     if bot_rerun(env):
