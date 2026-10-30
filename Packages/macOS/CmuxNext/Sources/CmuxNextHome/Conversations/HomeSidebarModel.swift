@@ -184,13 +184,19 @@ extension HomeSidebarItem {
             id: row.id, title: title,
             avatars: others.prefix(row.kind == .group ? 3 : 1).map { HomeAvatar(initials: $0.initials, seed: $0.id.rawValue) },
             isGroup: row.kind == .group, badge: row.kind == .group ? others.first?.initials : nil,
-            preview: preview.text, isReply: preview.isReply, time: time, lastAt: row.timestamp,
+            preview: Self.shownPreview(preview.text, isChief: row.kind == .chief), isReply: preview.isReply, time: time, lastAt: row.timestamp,
             people: others.map { HomeSidebarPerson(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) }, unread: unread > 0, unreadCount: unread,
             mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief, chiefAvatar: nil, backendBadge: nil,
             accessibilityLabel: Self.accessibility(title: title, row: row, unread: unread, preview: preview.text, time: time))
     }
 
     /// The title, unread and mention state, the time, then the preview.
+    /// The row's preview line: a Chief with no message yet says what it is for, as classic cmux's
+    /// list does, so its name and that line sit beside its avatar as every other row's do.
+    static func shownPreview(_ text: String, isChief: Bool) -> String {
+        text.isEmpty && isChief ? HomeConversationStrings.chiefEmptyPreview : text
+    }
+
     static func accessibility(title: String, row: InboxRow, unread: Int, preview: String, time: String) -> String {
         var parts = [title]
         if unread > 0 { parts.append(HomeConversationStrings.unread(unread)) }

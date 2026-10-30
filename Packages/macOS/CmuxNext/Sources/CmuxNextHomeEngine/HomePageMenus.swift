@@ -10,9 +10,10 @@ import CmuxNextHome
 @MainActor
 public enum HomePageMenus {
     /// The menu around the conversations: New Message, New Chief, Invite and Invite to Team,
-    /// each its catalog action (the toolbar's compose button runs New Message), then, when the
-    /// account has more than one team, Switch Active Team with each team (the active one checked):
-    /// Home lists one team's people at a time, and this switches which.
+    /// each its catalog action (the toolbar's compose button runs New Message, the button beside it
+    /// makes a new Chief), then, when the account has more than one team, Switch Active Team with
+    /// each team (the active one checked): Home lists one team's people at a time, and this
+    /// switches which.
     public static func backgroundMenu(registry: ActionRegistry) -> NSMenu {
         let menu = NSMenu()
         for (id, symbol): (ActionID, String) in [("home.newMessage", "square.and.pencil"), ("home.newChief", "sparkles"), ("home.invite", "envelope"),

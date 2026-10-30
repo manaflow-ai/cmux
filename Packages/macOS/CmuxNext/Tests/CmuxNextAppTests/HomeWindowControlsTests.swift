@@ -141,6 +141,10 @@ struct HomeWindowControlsTests {
         #expect(h.search.width == width - 2 * HomeSidebarHeaderLayout.inset)
         #expect(h.listTop == h.search.maxY + HomeSidebarHeaderLayout.rowGap)
         #expect(!h.filter.intersects(h.search))
+        // New Chief after the toggle on the lights' line, at the row's right end.
+        #expect(h.newChief.midY == Self.lightsFrame.midY && h.newChief.size == h.filter.size)
+        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX)
+        #expect(h.newChief.maxX == width - HomeSidebarHeaderLayout.inset)
     }
 
     /// Lights with a wide accessory after them (the incognito badge) leave no room for the toggle
@@ -151,6 +155,7 @@ struct HomeWindowControlsTests {
         #expect(!h.filter.intersects(controls) && !h.search.intersects(controls))
         #expect(h.filter.midY == h.search.midY)
         #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
+        #expect(h.filter.maxX + HomeSidebarHeaderLayout.gap == h.newChief.minX && h.newChief.maxX <= 200)
     }
 
     /// The avatar-only list keeps its band under the lights; an open search sits under them.

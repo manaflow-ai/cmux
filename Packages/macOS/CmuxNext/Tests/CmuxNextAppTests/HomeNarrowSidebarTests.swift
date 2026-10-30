@@ -60,6 +60,7 @@ struct HomeNarrowSidebarTests {
         let home = p.home
         #expect(home.compose.isHidden, "compose shows in the \(width) pt list")
         #expect(home.unreadToggle.isHidden, "the Unread filter shows in the \(width) pt list")
+        #expect(home.newChief.isHidden, "New Chief shows in the \(width) pt list")
         #expect(home.searchCapsule.isHidden, "the search capsule shows in the \(width) pt list")
         #expect(home.list.searchField.alphaValue == 0 || home.list.searchField.frame.width == 0,
                 "the search field shows in the \(width) pt list")

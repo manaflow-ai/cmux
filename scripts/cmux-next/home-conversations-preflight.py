@@ -224,13 +224,13 @@ try:
     shot("04-group-created")
     # Someone the account cannot reach: the owner refuses (not_reachable), the caller hears why.
     run("home.newMessage", to="user_hmdmnobody000000000000000")
-    # New Chief twice: the first Chief is the default, which the owner never archives.
+    # New Chief twice, on this Mac's Chief owner: each shows as its DM row.
     run("home.newChief", name=f"Scratch {STAMP}")
     run("home.newChief", name=f"Research {STAMP}")
-    wait(lambda: any(c.get("name") == f"Research {STAMP}" for c in page().get("chiefs", [])), 30)
     wait(lambda: any(r.get("title") == f"Research {STAMP}" for r in rows()), 60)
     time.sleep(2)
     shot("05-new-chief")
+    # Archive Chief is the cloud Chiefs' (chief.archive): only a cloud Chief of that name is archived.
     chief = next((c for c in page().get("chiefs", []) if c.get("name") == f"Research {STAMP}"), None)
     if chief:
         run("home.archiveChief", chief=chief["id"])

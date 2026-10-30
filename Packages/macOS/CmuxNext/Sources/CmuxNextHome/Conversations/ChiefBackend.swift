@@ -8,23 +8,15 @@ public import Foundation
 public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
     /// The acpmux harness id (`claude`, `codex`, `unii`).
     public let id: String
-    /// Where New Chief makes a Chief on this engine: false, the signed-in
-    /// account's cloud Chief (`chief.create`); true, a Chief of this Mac's Chief
-    /// owner (`chief.profile.create` with `harness`). UniiChat's sign-in
-    /// (`unii login`) lives on this Mac, so its Chiefs are this Mac's. A cloud
-    /// Chief's brain is not placed when it is made, so a Codex Chief is made
-    /// on this Mac too, where its engine is set in the same request.
-    public let createsOnThisMac: Bool
-
     /// Claude: the brain's default engine, and New Chief's first choice.
-    public static let claude = ChiefBackend(id: "claude", createsOnThisMac: false)
+    public static let claude = ChiefBackend(harness: "claude")
     /// Codex.
-    public static let codex = ChiefBackend(id: "codex", createsOnThisMac: true)
+    public static let codex = ChiefBackend(harness: "codex")
     /// Muse Code (Meta) through the cmux-muse-acp adapter (acpmux harness `muse`), on this
     /// Mac's Muse sign-in (`muse login`).
-    public static let muse = ChiefBackend(id: "muse", createsOnThisMac: true)
+    public static let muse = ChiefBackend(harness: "muse")
     /// UniiChat: acpmux's built-in `unii` harness (`acpmux uniichat-agent`), on the person's UniiChat account.
-    public static let unii = ChiefBackend(id: "unii", createsOnThisMac: true)
+    public static let unii = ChiefBackend(harness: "unii")
     /// Every official engine, in the order the pickers offer them.
     public static let official: [ChiefBackend] = [.claude, .codex, .muse, .unii]
 
@@ -34,9 +26,8 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
         self = backend
     }
 
-    private init(id: String, createsOnThisMac: Bool) {
+    private init(harness id: String) {
         self.id = id
-        self.createsOnThisMac = createsOnThisMac
     }
 
     /// Whether this is the engine a Chief runs on when nothing else is chosen (Claude).

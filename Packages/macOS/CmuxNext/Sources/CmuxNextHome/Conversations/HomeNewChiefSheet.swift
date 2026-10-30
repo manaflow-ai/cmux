@@ -4,7 +4,7 @@ import CmuxNextDesign
 
 /// "New Chief…": a name for another Chief and the engine it runs on (Claude, Codex or
 /// UniiChat, ``ChiefBackend``); the Chief gets its own conversation. The host's `onCreate`
-/// makes it where the engine needs it (``ChiefBackend/createsOnThisMac``).
+/// makes it on this Mac's Chief owner.
 public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     public var onCreate: (String, ChiefBackend) async -> HomeComposeOutcome = { _, _ in .offline }
     let name = HomeSheetController.field(placeholder: HomeConversationStrings.chiefName, identifier: "cmux.home.chief.name")

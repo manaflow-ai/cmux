@@ -3,8 +3,8 @@ public import CmuxNextDaemon
 public import CmuxNextHome
 public import Foundation
 
-/// New Chief on this Mac's Chief owner, for an engine whose Chiefs are this Mac's
-/// (``ChiefBackend/createsOnThisMac``: UniiChat, whose `unii login` lives here, and Codex):
+/// New Chief on this Mac's Chief owner, for every engine (Claude, Codex, and UniiChat, whose
+/// `unii login` lives here), as `cmux chief new` does:
 /// `chief.profile.create` with the name and the engine's `harness` (the record's engine is the
 /// brain's starting engine, cmux-tui chief_brains.rs `record_engine_env`), then the person's
 /// direct message with the new Chief (`conversation-create`, ``HomeChiefDirectMessages/request(me:chief:name:)``), as the home-channels page does.

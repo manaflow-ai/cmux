@@ -3,6 +3,7 @@ import CmuxHomeCore
 import CmuxNextDaemon
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+@testable import CmuxNextApp
 import Foundation
 import Testing
 
@@ -13,11 +14,6 @@ import Testing
     @Test func theOfficialBackendsAreClaudeCodexAndUniiChatInThatOrder() {
         #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "muse", "unii"])
         #expect(ChiefBackend.official.filter(\.isDefault) == [.claude])
-        // Claude stays on the cloud path; UniiChat's sign-in is this Mac's, so its Chiefs are too.
-        #expect(!ChiefBackend.claude.createsOnThisMac)
-        #expect(ChiefBackend.unii.createsOnThisMac)
-        #expect(ChiefBackend.codex.createsOnThisMac)
-        #expect(ChiefBackend.muse.createsOnThisMac)
     }
 
     /// An id that is not an official engine reads as a name, never as the raw id (#89).
@@ -112,6 +108,109 @@ import Testing
         #expect(dm.participants.last?.kind == .agent)
         #expect(dm.participants.last?.agentClass == "mux")
         #expect(dm.idempotencyKey != sent.key)
+    }
+
+    /// New Chief on the default engine (Claude) went to the signed-in account's cloud `chief.create`:
+    /// signed out it answered "You're offline", while `cmux chief new` made the Chief on this Mac.
+    /// Every engine's Chief is made on this Mac's Chief owner, the registry Home lists Chiefs from.
+    @MainActor @Test func aNewChiefOnTheDefaultEngineIsMadeOnThisMacsChiefOwner() async throws {
+        let calls = Calls()
+        let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.localChiefCreator = {
+            HomeLocalChiefCreator(me: me, send: { operation, params, key in
+                await calls.sent(operation, params, key)
+                return .object(["value": .object(["id": .string("agent_scout01"), "display_name": .string("Scout")])])
+            }, open: { request in
+                await calls.opened(request)
+                return "conv_scout"
+            })
+        }
+        let outcome = await services.home.createChief(named: "Scout")
+        #expect(outcome == .opened(ConversationID("conv_scout")))
+        let sent = try #require(await calls.sends.first)
+        #expect(sent.operation == "chief.profile.create")
+        #expect(sent.params == ["display_name": .string("Scout")])
+        #expect(await calls.opens.count == 1)
+        #expect(services.home.pendingSelection == ConversationID("conv_scout"))
+    }
+
+    /// Home's New Chief button (beside compose, which stays New Message) works as classic cmux's
+    /// Chief list (ChiefConversationListView, #21063): one click makes another Chief at once, with
+    /// no sheet to fill first, so the person can ask it something right away.
+    @MainActor @Test(.timeLimit(.minutes(1))) func homesNewChiefButtonStartsANewChiefInOneClick() async throws {
+        let calls = Calls()
+        let (opened, open) = AsyncStream<Void>.makeStream()
+        let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.localChiefCreator = {
+            HomeLocalChiefCreator(me: me, send: { operation, params, key in
+                await calls.sent(operation, params, key)
+                return .object(["value": .object(["id": .string("agent_compose01"), "display_name": params["display_name"] ?? .null])])
+            }, open: { request in
+                await calls.opened(request)
+                open.yield()
+                return "conv_compose"
+            })
+        }
+        let page = TopHomePageView(services: services, windowKey: { "compose-new-chief" })
+        #expect(page.list.newChief.accessibilityLabel() == HomeConversationStrings.chiefTitle)
+        #expect(page.list.compose.accessibilityLabel() == HomeConversationStrings.newMessage)
+        page.list.newChief.performClick(nil)
+        var iterator = opened.makeAsyncIterator()
+        _ = await iterator.next()
+        let sent = try #require(await calls.sends.first)
+        #expect(sent.operation == "chief.profile.create")
+        // No Chief is listed in this page yet, so the name is the Chief's own.
+        #expect(sent.params == ["display_name": .string(HomeStrings.chiefName)])
+        #expect(await calls.opens.count == 1)
+    }
+
+    /// The button counts the names the list shows (records and renames being saved), not only the
+    /// rows' conversation titles: a name only the list shows is not given to the new Chief.
+    @MainActor @Test(.timeLimit(.minutes(1))) func theNewChiefButtonSkipsANameTheListShows() async throws {
+        let calls = Calls()
+        let (opened, open) = AsyncStream<Void>.makeStream()
+        let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.home.localChiefCreator = {
+            HomeLocalChiefCreator(me: me, send: { operation, params, key in
+                await calls.sent(operation, params, key)
+                return .object(["value": .object(["id": .string("agent_named02"), "display_name": params["display_name"] ?? .null])])
+            }, open: { request in
+                await calls.opened(request)
+                open.yield()
+                return "conv_named02"
+            })
+        }
+        // A Chief the list shows as "Chief" (a rename being saved) while no row is titled so.
+        services.home.chiefRenames.rename(ConversationID("conv_renamed"), to: HomeStrings.chiefName, record: nil)
+        #expect(services.home.chiefNames[ConversationID("conv_renamed")] == HomeStrings.chiefName)
+        let page = TopHomePageView(services: services, windowKey: { "new-chief-shown-names" })
+        page.list.newChief.performClick(nil)
+        var iterator = opened.makeAsyncIterator()
+        _ = await iterator.next()
+        let sent = try #require(await calls.sends.first)
+        #expect(sent.params == ["display_name": .string("\(HomeStrings.chiefName) 2")])
+    }
+
+    /// Each click's Chief gets the next free name ("Chief 2", "Chief 3"), never a second "Chief":
+    /// identical rows could not be told apart, and `cmux chief` could not pick one of them by name.
+    @Test func aNewChiefTakesTheNextFreeName() {
+        let base = HomeStrings.chiefName
+        #expect(HomeChiefName.next(taken: []) == base)
+        #expect(HomeChiefName.next(taken: [base]) == "\(base) 2")
+        #expect(HomeChiefName.next(taken: [base, "\(base) 2", "Scout"]) == "\(base) 3")
+        #expect(HomeChiefName.next(taken: [base, "\(base) 3"]) == "\(base) 2")
+    }
+
+    /// A Chief with no message yet says what it is for, as classic cmux's list does ("Ask Chief
+    /// anything"), so its name and that line sit beside its avatar as every other row's do.
+    @Test func aChiefRowWithNoMessageYetSaysWhatItIsFor() {
+        #expect(HomeSidebarItem.shownPreview("", isChief: true) == HomeConversationStrings.chiefEmptyPreview)
+        #expect(HomeSidebarItem.shownPreview("Hi", isChief: true) == "Hi")
+        #expect(HomeSidebarItem.shownPreview("", isChief: false).isEmpty)
+        #expect(HomeConversationStrings.chiefEmptyPreview == "Ask Chief anything")
     }
 
     @Test func theDefaultEngineIsNotNamedInALocalCreate() {
