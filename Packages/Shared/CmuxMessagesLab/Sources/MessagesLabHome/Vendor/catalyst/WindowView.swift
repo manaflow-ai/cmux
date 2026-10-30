@@ -2485,6 +2485,23 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return nil
     }
 
+    /// cmux: the key of the transcript row under `p` (a visible cell), or nil.
+    func rowKey(at p: CGPoint) -> String? {
+        for case let cell as RowCell in collection.visibleCells where cell.convert(cell.bounds, to: self).contains(p) {
+            return cell.spec?.key
+        }
+        return nil
+    }
+
+    /// cmux: where the transcript row `key` is in this view (a visible cell, under an open thread view's
+    /// blur too), or nil when it is not on screen.
+    func rowFrame(key: String) -> CGRect? {
+        for case let cell as RowCell in collection.visibleCells where cell.spec?.key == key {
+            return cell.convert(cell.bounds, to: self)
+        }
+        return nil
+    }
+
     func threadContentContains(_ p: CGPoint) -> Bool {
         threadViews.contains { $0.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) }
             || threadHeaderView?.frame.contains(p) == true
