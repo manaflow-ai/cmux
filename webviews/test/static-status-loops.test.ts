@@ -135,6 +135,17 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
   test("a hidden page has no running infinite CSS loops", async () => {
     const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
     try {
+      await p.addStyleTag({
+        content: `
+          @keyframes cmux-root-loop { from { opacity: 1; } to { opacity: 0.9; } }
+          :root::before { content: ""; animation: cmux-root-loop 1s infinite; }
+        `,
+      });
+      await p.evaluate(() => {
+        document.documentElement.style.animation = "cmux-root-loop 1s infinite";
+      });
+      await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect((await loops(p)).some((loop) => loop.endsWith("cmux-root-loop"))).toBe(true);
       await p.addScriptTag({ content: diagnosticScript });
       const report = () =>
         p.evaluate(() => (window as unknown as { cmuxDebug: { loops(): PageLoops } }).cmuxDebug.loops());

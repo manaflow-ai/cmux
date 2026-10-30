@@ -657,7 +657,10 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   }
 }
 /* Hidden pages own no running animation loop; visible styles are unchanged. */
+:root[data-cmux-page-hidden],
 :root[data-cmux-page-hidden] *,
+:root[data-cmux-page-hidden]::before,
+:root[data-cmux-page-hidden]::after,
 :root[data-cmux-page-hidden] *::before,
 :root[data-cmux-page-hidden] *::after {
   animation-play-state: paused !important;
