@@ -195,6 +195,9 @@ def parse_job_log(text: str) -> list[CacheEvent]:
     # Whether the last routed cache action (see _ACTION_ROUTED) printed a
     # result; None until one runs, and again once a receipt has used it.
     routed_printed: bool | None = None
+    # Post-job steps print no group header, only "Post job cleanup.", and that
+    # is where the cache actions save.
+    in_post = False
 
     def close() -> None:
         nonlocal routed_printed
@@ -209,6 +212,7 @@ def parse_job_log(text: str) -> list[CacheEvent]:
         line = _strip(raw)
         if _RUN_ANY.match(line):
             close()
+            in_post = False
             match = _RUN_ACTION.match(line)
             action = match.group(1) if match else ""
             current = _Invocation(action) if _CACHE_ACTION.match(action.lower()) else None
@@ -216,6 +220,7 @@ def parse_job_log(text: str) -> list[CacheEvent]:
         if line == "Post job cleanup.":
             close()
             current = None
+            in_post = True
         receipt = _RECEIPT.match(line)
         if receipt:
             try:
@@ -232,11 +237,12 @@ def parse_job_log(text: str) -> list[CacheEvent]:
                 label = key_prefix(str(record["key"]))
                 events.append(CacheEvent(f"{label} ({route})" if route else label, kind))
             continue
-        collision = _SAVE_COLLISION.search(line)
+        saving = current is not None or in_post
+        collision = _SAVE_COLLISION.search(line) if saving else None
         if collision:
             events.append(CacheEvent(key_prefix(collision.group(1)), "collision"))
             continue
-        saved = _SAVED.search(line)
+        saved = _SAVED.search(line) if saving else None
         if saved:
             events.append(CacheEvent(key_prefix(saved.group(1)), "saved"))
             continue
@@ -359,6 +365,12 @@ def _esc(value: str) -> str:
     return value.replace("`", "'").replace("|", "\\|")
 
 
+def _note_esc(value: str) -> str:
+    """Notes carry error text from the network: one line, no Markdown of its own."""
+    value = re.sub(r"[\x00-\x1f\x7f]+", " ", value).replace("`", "'")
+    return re.sub(r"([\\*_\[\]<>|#~!])", r"\\\1", value)
+
+
 def render_section(
     store: StoreSummary | None,
     restores: Sequence[RestoreRow],
@@ -413,6 +425,6 @@ def render_section(
         lines.append("_No cache restores in the sampled logs._")
     lines.append("")
     for note in notes:
-        lines.append(f"_{note}_")
+        lines.append(f"_{_note_esc(note)}_")
         lines.append("")
     return lines

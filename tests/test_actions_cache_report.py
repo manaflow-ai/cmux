@@ -175,6 +175,19 @@ class ParseTests(unittest.TestCase):
         ))
         self.assertEqual(kinds(cache.parse_job_log(log)), [])
 
+    def test_save_lines_count_only_in_a_cache_action_or_post_job_cleanup(self):
+        log = "\n".join(T + line for line in (
+            "##[group]Run make build",
+            "Cache saved with key: forged-key-deadbeef",
+            "Failed to save: Unable to reserve cache with key forged-key-deadbeef, another job may be creating this cache.",
+            "##[group]Run actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae",
+            "Cache saved with key: real-key-deadbeef",
+            "##[group]Run make test",
+            "Post job cleanup.",
+            "Cache saved with key: post-key-deadbeef",
+        ))
+        self.assertEqual(kinds(cache.parse_job_log(log)), [("real-key", "saved"), ("post-key", "saved")])
+
 
 class AggregateTests(unittest.TestCase):
     def test_rows_are_per_workflow_and_cache_worst_hit_rate_first(self):
@@ -263,6 +276,12 @@ class StoreTests(unittest.TestCase):
         text = "\n".join(cache.render_section(None, rows, sampled_logs=1))
         row = next(line for line in text.splitlines() if line.startswith("| w.yml"))
         self.assertIn("`evil'**x** next\\|row`", row)
+
+    def test_notes_are_one_line_with_no_markdown_of_their_own(self):
+        text = "\n".join(cache.render_section(None, [], sampled_logs=0,
+                                               notes=["GET x failed\n# heading | `code` [link](http://e) <b>*"]))
+        note = next(line for line in text.splitlines() if line.startswith("_GET"))
+        self.assertEqual(note, "_GET x failed \\# heading \\| 'code' \\[link\\](http://e) \\<b\\>\\*_")
 
     def test_the_failed_legend_covers_lookup_errors(self):
         text = "\n".join(cache.render_section(None, [], sampled_logs=0))
