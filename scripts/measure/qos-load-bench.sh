@@ -37,7 +37,8 @@ load() {
   for _ in 1 2; do start $1 /bin/sh -c 'while :; do cat "$1"/loadtree/f* | shasum >/dev/null; done' sh "$D"; done
 }
 stop() {
-  for g in "${pgids[@]}"; do kill -TERM -- "-$g" 2>/dev/null; done
+  # bash 3.2 (macOS) with set -u treats an empty "${a[@]}" as unbound.
+  for g in ${pgids[@]+"${pgids[@]}"}; do kill -TERM -- "-$g" 2>/dev/null; done
   wait 2>/dev/null; pgids=(); rm -f "$RUN"/w*; sleep 8
 }
 trap 'stop; rmdir "$RUN" 2>/dev/null' EXIT
