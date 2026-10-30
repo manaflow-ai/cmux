@@ -3072,6 +3072,7 @@ class ConversationRunAppendResult:
 class ConversationRunsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-runs/request'
     conversation: str
+    answers: Union[List[str], None, MissingType] = field(default=MISSING)
     before_started_at: Union[int, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
     turns: Union[List[str], None, MissingType] = field(default=MISSING)

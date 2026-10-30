@@ -118,11 +118,40 @@ import Testing
         let harness = Self.sidebar(clock: ManualClock())
         defer { harness.tearDown() }
         let row = try #require(harness.pinnedRow)
-        let onScreen = harness.window.convertToScreen(row.convert(row.bounds, to: nil))
+        let onScreen = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
         let anchor = try #require(harness.list.hoverCardAnchor(for: Self.pinnedID), "a pinned row has no card anchor")
-        #expect(abs(anchor.minY - onScreen.minY) < 0.5 && abs(anchor.maxY - onScreen.maxY) < 0.5, "\(anchor) vs \(onScreen)")
+        #expect(anchor == onScreen, "placement must anchor on the drawn pill: \(anchor) vs \(onScreen)")
         let band = try #require(harness.list.hoverCardBand(for: Self.pinnedID))
         #expect(abs(band.maxY - onScreen.maxY) < 0.5)
+        let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
+        #expect(band == pill, "a pinned preview must touch its fill rather than its layout cell")
+        let target = WorkspaceHoverCardController.targetID(Self.pinnedID)
+        #expect(harness.list.hoverCard.hoverCardTargetFrame(for: target) == band,
+                "placement and pointer escape must use the same pinned fill")
+    }
+
+    /// Check the panel itself when shown and after its pill moves, rather than only the source's hit band.
+    @Test func thePanelFollowsThePinnedPill() throws {
+        let harness = Self.sidebar(clock: ManualClock())
+        defer { harness.tearDown() }
+        let row = try #require(harness.pinnedRow)
+        let cell = harness.window.convertToScreen(row.convert(row.bounds, to: nil))
+        let pill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
+        try #require(pill.maxX < cell.maxX, "the fixture needs a pill narrower than its layout cell")
+        try #require(harness.list.showHoverCard(for: Self.pinnedID))
+        let panel = try #require(harness.coordinator.panel)
+        let pixel = 1 / max(harness.window.backingScaleFactor, 1)
+        #expect(panel.cardFrame.minX <= pill.maxX + 0.001)
+        #expect(pill.maxX - panel.cardFrame.minX < pixel + 0.001)
+        #expect(panel.escapeGeometry?.anchor == pill)
+
+        row.pill.frame = row.pill.frame.offsetBy(dx: -12, dy: 8)
+        let movedPill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
+        harness.coordinator.pointerLocation = { CGPoint(x: panel.cardFrame.midX, y: panel.cardFrame.midY) }
+        harness.coordinator.geometryChanged(in: harness.window)
+        #expect(panel.cardFrame.minX <= movedPill.maxX + 0.001)
+        #expect(movedPill.maxX - panel.cardFrame.minX < pixel + 0.001)
+        #expect(panel.escapeGeometry?.anchor == movedPill)
     }
 
     /// The list row of the other workspace still opens its own card (the pinned lookup takes nothing from it).

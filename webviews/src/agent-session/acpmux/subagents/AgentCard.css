@@ -83,6 +83,7 @@
   white-space: nowrap;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+
 /* A run's command behind Raw (AgentRunCard.tsx): the code font, wrapped, at most a few lines tall. */
 .cv-agent-run__command {
   margin: 4px 0 0 24px;

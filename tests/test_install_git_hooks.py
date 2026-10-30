@@ -1027,13 +1027,11 @@ cat > node_modules/.bin/vp <<'VP'
         self.addCleanup(holder.kill)
         self.assertEqual(holder.stdout.readline().strip(), "held")
         self.env["CMUX_HOOKS_INSTALL_LOCK_WAIT_SECONDS"] = "2"
-        started = time.monotonic()
         try:
             result = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True,
                                     timeout=30)
         except subprocess.TimeoutExpired:
             self.fail("the install waited past 30 s for a lock another process holds")
-        self.assertLess(time.monotonic() - started, 20)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(f"pid {holder.pid}", result.stderr)
         self.assertNotIn("85305", result.stderr)

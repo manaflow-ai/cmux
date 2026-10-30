@@ -4,8 +4,6 @@
 // "increase or decrease subagent amounts ad hoc".
 import type { SubsessionLimits, SubsessionLimitSource } from "./model";
 import type { StartedSession } from "./started/startedSessions";
-import type { SubsessionRow } from "./subagents/subsessions";
-import { sessionRetry } from "./subagents/retryState";
 
 /// The range acpmux takes for `maxRunning`.
 export const MAX_RUNNING = { min: 1, max: 1000 } as const;
@@ -42,22 +40,13 @@ export function subsessionLimits(value: unknown): SubsessionLimits | undefined {
 export function slotCounts(
   limits: SubsessionLimits,
   sessions: readonly StartedSession[],
-  subsessions: readonly SubsessionRow[] = [],
 ): { running: number; queued: number } {
+  if (sessions.length === 0) return { running: limits.running ?? 0, queued: limits.queued ?? 0 };
   let running = 0;
   let queued = 0;
   for (const child of sessions) {
     if (child.waitsForSlot) queued += 1;
     else if (child.state === "running" || child.state === "waiting") running += 1;
   }
-  for (const child of subsessions) {
-    // Descendants occupy their own parent's slots, not this chat's.
-    if (child.depth !== 0) continue;
-    if (child.slot) queued += 1;
-    else if (sessionRetry(child).kind === "retrying" || child.state === "working" || child.state === "input")
-      running += 1;
-  }
-  if (sessions.length === 0 && subsessions.length === 0)
-    return { running: limits.running ?? 0, queued: limits.queued ?? 0 };
   return { running, queued };
 }
