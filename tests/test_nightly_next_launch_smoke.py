@@ -15,13 +15,17 @@ acts only after the fact:
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import json
+import os
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -347,9 +351,24 @@ class InFlightTests(unittest.TestCase):
         self.assertIn("nightly_next_launch_smoke.py in-flight", steps["in-flight"]["run"])
         self.assertEqual(jobs["pick"]["outputs"]["in_flight"], "${{ steps.in-flight.outputs.in_flight }}")
         self.assertIn("(github.event_name != 'schedule' || needs.pick.outputs.in_flight == '')", jobs["smoke"]["if"])
+        self.assertIn("(github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')",
+                      steps["place"]["if"])
         # The job name is what in_flight() matches.
         self.assertEqual(jobs["smoke"]["name"], "smoke ${{ needs.pick.outputs.build }}")
         self.assertEqual(smoke.smoke_job(200), "smoke 200")
+
+    def test_a_failed_read_is_unknown_and_warns_durably(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "summary.md"
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(smoke, "read_in_flight", side_effect=TimeoutError("API timeout")), \
+                 mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_STEP_SUMMARY": str(summary)}, clear=False), \
+                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                self.assertEqual(smoke.main(["in-flight", "--build", "200"]), 0)
+            self.assertEqual(stdout.getvalue().strip(), "in_flight=unknown")
+            self.assertIn("::warning", stderr.getvalue())
+            self.assertIn("in-flight state unknown", summary.read_text(encoding="utf-8"))
+            self.assertIn("next scheduled tick", summary.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

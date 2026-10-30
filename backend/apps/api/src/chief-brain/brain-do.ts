@@ -528,10 +528,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /**
    * The Chief's sandboxes (chief-brain-cc/sandbox.ts), on its `<agent>/sandboxes` object only: one `chief-vm` call.
-   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once).
+   * `legacy`: sandboxes a conversation brain kept before they moved here (adopted once). `owner`: the Chief's owner,
+   * the Freestyle customer of the VMs it makes.
    */
-  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = []): Promise<{ status: number; json: unknown }> {
-    return ccSandbox(this, agent, req, legacy)
+  async ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<{ id: string; name: string; created_at: number }> = [], owner: string | null = null): Promise<{ status: number; json: unknown }> {
+    return ccSandbox(this, agent, req, legacy, owner)
   }
 
   /** The Chief was archived: its sandboxes pause and its Freestyle identity goes, with every token and grant. */
