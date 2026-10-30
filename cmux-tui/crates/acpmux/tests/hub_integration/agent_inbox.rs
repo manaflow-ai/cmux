@@ -366,3 +366,32 @@ async fn an_inbox_message_is_unsent_until_a_notice_carries_it_then_retracted_in_
     tokio::time::sleep(Duration::from_millis(2_500)).await;
     assert_eq!(notices(&hub, &id).len(), 1, "a retraction is no turn: {:?}", prompts(&hub, &id));
 }
+
+/// A chat that closes answers the senders its inbox still holds with the closing error and keeps
+/// its threads readable: no sender waits forever on a closed chat.
+#[tokio::test]
+async fn a_closed_chat_answers_and_refuses_senders_and_keeps_its_threads() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "coord").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello", None)).await.unwrap();
+    // An action from a lane that neither started the chat nor gave it work: it waits.
+    let msg = from_agent(&id, "a-1", "lane-b", "merged #5", json!({}));
+    let waiting = c.send(method::SESSION_PROMPT, msg).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "a-1").await;
+    c.request(method::SESSION_CLOSE, json!({"sessionId": id})).await.unwrap();
+    let line = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let line = c.rx.recv().await.expect("connection closed");
+            if let Message::Response { id: rid, error, .. } = Message::parse(&line).unwrap()
+                && rid.as_i64() == Some(waiting)
+            {
+                return error;
+            }
+        }
+    })
+    .await
+    .expect("the waiting sender was never answered");
+    assert!(line.is_some(), "a closed chat answers its waiting sender with an error");
+    let threads = c.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(threads["threads"][0]["threadId"], "from:lane-b/pr:5", "{threads}");
+}

@@ -797,11 +797,12 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
+        // chat's threads stay readable.
+        self.restore_inbox(session);
         if session.meta().status == SessionStatus::Closed {
             return;
         }
-        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`).
-        self.restore_inbox(session);
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
@@ -1114,7 +1115,7 @@ pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>)
 }
 
 /// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
-fn closing(session: &Session) -> bool {
+pub(super) fn closing(session: &Session) -> bool {
     session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
 }
 

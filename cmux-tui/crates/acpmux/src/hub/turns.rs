@@ -291,6 +291,7 @@ impl Hub {
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         if let Some(inbox) = self.inbox_route(
+            session,
             &blocks,
             control,
             opts.send_now,
@@ -450,8 +451,8 @@ impl Hub {
             return Err(e);
         }
         self.arm_turn_cap(session, &turn_id);
-        // The inbox's notice this turn is went in (`inbox.rs`); what is new steers in once its
-        // prompt is written (below).
+        // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
+        // (below), and what is new steers in then.
         self.inbox_turn_started(session, &prompt_id);
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
@@ -690,8 +691,9 @@ impl Hub {
                     self.mark_team_work(session, &team_prompt_ids);
                 }
                 self.watch_stalled_turn(session, None);
-                // Written: what is new in the inbox may steer in behind it (`inbox.rs`).
-                self.inbox_review(session);
+                // Written: a notice this is went in, and what is new in the inbox may steer in
+                // behind it (`inbox.rs`).
+                self.inbox_prompt_written(session, &prompt_id);
                 self.title_after_prompt(session)
             },
         )
@@ -838,7 +840,7 @@ impl Hub {
                                                 self.mark_team_work(session, &team_prompt_ids);
                                             }
                                             self.watch_stalled_turn(session, None);
-                                            self.inbox_review(session);
+                                            self.inbox_prompt_written(session, &prompt_id);
                                         },
                                     )
                                     .await

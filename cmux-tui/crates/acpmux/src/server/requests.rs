@@ -1873,6 +1873,8 @@ async fn dispatch_request(
                 )
                 .with_data(json!({"reason": "inbox.other_session"})));
             }
+            // Its inbox is restored from its log (`restore_queue`): read once that load is done.
+            hub.session_log(&s).await;
             let text_of = |k: &str| params.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
             let thread = || {
                 text_of("threadId").ok_or_else(|| RpcError::invalid_params("threadId is required"))
