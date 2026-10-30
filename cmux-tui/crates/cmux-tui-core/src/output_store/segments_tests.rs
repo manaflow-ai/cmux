@@ -85,7 +85,7 @@ fn the_stored_stream_end_is_read_from_frame_headers() {
     append(&segments, &directory, 0, b"abc");
     append(&segments, &directory, 3, b"defg");
     let ends = all_stream_ends(&directory);
-    assert_eq!(ends.get(&(terminal(), key_of("g1"))), Some(&7));
+    assert_eq!(ends.get(&(terminal(), generation_key("g1"))), Some(&7));
     assert_eq!(ends.len(), 1);
     fs::remove_dir_all(&directory).unwrap();
 }
