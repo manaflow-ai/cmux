@@ -1,6 +1,6 @@
 // Leo 2026-10-18: the model chip opens a short Claude Code style menu: a rail of harnesses (Starred,
-// Claude, Codex, others) beside numbered models, then Effort, More models and Provider beside their
-// rows. Provider lists the acpmux routes that serve the chat and switches the chat's route. Since
+// Claude, Codex, others) beside numbered models, then Effort, More models and Account beside their
+// rows. Account lists the acpmux routes that serve the chat and switches the chat's route. Since
 // Leo 2026-10-20 it is every composer's one model button ("Opus 5.5  Medium"): no effort chip, no
 // bolt, and Fast mode is the menu's last row, a checkbox. The real composer, catalog and menu, in
 // JSDOM.
@@ -243,15 +243,20 @@ const modelRows = (popup: HTMLElement) => [
 ];
 const modelNames = (popup: HTMLElement) =>
   modelRows(popup).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
-const currentEffortSegments = (popup: HTMLElement) => {
+/// The running model's effort levels: its effort item opens them beside the row as a side dropdown
+/// (a submenu of their own), one per line.
+const currentEffortSegments = async (popup: HTMLElement) => {
   const row = modelRows(popup).find((item) => item.querySelector(".acpmux-menu-label")?.textContent === "Opus 5.5");
-  return row
-    ? [
-        ...row
-          .closest<HTMLElement>(".acpmux-quick-model-effort")!
-          .querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment"),
-      ]
-    : [];
+  const trigger = row
+    ?.closest<HTMLElement>(".acpmux-quick-model-effort")
+    ?.querySelector<HTMLElement>(".acpmux-quick-effort-trigger");
+  if (!trigger) return [];
+  if (!trigger.hasAttribute("data-popup-open")) {
+    await act(async () => trigger.click());
+    await settle();
+  }
+  const dropdown = doc().querySelector<HTMLElement>(".acpmux-quick-effort-menu");
+  return [...(dropdown?.querySelectorAll<HTMLElement>(".acpmux-quick-effort-segment") ?? [])];
 };
 const railTabs = () => [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")];
 const key = (value: string) =>
@@ -303,16 +308,20 @@ test("the compact chip names the model and its effort, and a click opens the sho
   expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
-  const segments = currentEffortSegments(menu()!);
-  expect(segments.map((segment) => segment.textContent?.replace(/^✓/, "").trim())).toEqual(["Low", "Medium", "High"]);
+  const segments = await currentEffortSegments(menu()!);
+  expect(
+    segments.map((segment) =>
+      (segment.querySelector(".acpmux-menu-label")?.textContent ?? segment.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
-  expect(rows.some((row) => row?.startsWith("Provider"))).toBe(true);
-  // Claude Code's order: the models (with inline effort), More models, then Provider last.
+  expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
+  // Claude Code's order: the models (with inline effort), More models, then Account last.
   expect(
     rows
-      .filter((row) => /^(More models|Provider)/.test(row ?? ""))
-      .map((row) => row?.match(/^(More models|Provider)/)?.[0]),
-  ).toEqual(["More models", "Provider"]);
+      .filter((row) => /^(More models|Account)/.test(row ?? ""))
+      .map((row) => row?.match(/^(More models|Account)/)?.[0]),
+  ).toEqual(["More models", "Account"]);
 });
 
 test("the optional reasoning slider replaces Effort's levels only when enabled", async () => {
@@ -347,18 +356,21 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const effort = menu()!;
-  expect(currentEffortSegments(effort).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
-  const high = currentEffortSegments(effort).find((item) => item.textContent?.replace(/^✓/, "").trim() === "High")!;
+  expect(
+    (await currentEffortSegments(effort)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
+  const high = (await currentEffortSegments(effort)).find(
+    (item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim() === "High",
+  )!;
   await act(async () => high.click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
 });
 
-test("Provider lists the routes that serve this chat and switches to one", async () => {
+test("Account lists the routes that serve this chat and switches to one", async () => {
   const { sent, asked } = await mount({
     routes: [
       { id: "work", name: "Work Max", kind: "direct-subscription", serves: true },
@@ -370,8 +382,8 @@ test("Provider lists the routes that serve this chat and switches to one", async
   });
   await open();
   expect(asked).toEqual(["s1"]);
-  expect(itemsOf(menu()!).some((row) => row === "ProviderSubrouter")).toBe(true);
-  const account = await openSub("Provider");
+  expect(itemsOf(menu()!).some((row) => row === "AccountSubrouter")).toBe(true);
+  const account = await openSub("Account");
   expect(itemsOf(account)).toEqual(["CLI login", "Work Max", "Subrouter"]);
   const checked = account.querySelector('[role="menuitemradio"][aria-checked="true"]');
   expect(checked?.textContent?.replace("✓", "").trim()).toBe("Subrouter");
@@ -383,7 +395,7 @@ test("Provider lists the routes that serve this chat and switches to one", async
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
-test("Provider offers Cmux for this harness and switches the route without switching harness", async () => {
+test("Account offers Cmux for this harness and switches the route without switching harness", async () => {
   const { sent } = await mount({
     routes: [
       { id: "cmux", name: "Cmux", kind: "cmux-router", serves: true },
@@ -392,7 +404,7 @@ test("Provider offers Cmux for this harness and switches the route without switc
     family: "claude",
   });
   await open();
-  const provider = await openSub("Provider");
+  const provider = await openSub("Account");
   expect(itemsOf(provider)).toEqual(["CLI login", "Cmux"]);
   const choice = [...provider.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
     (item) => item.textContent?.trim() === "Cmux",
@@ -402,7 +414,7 @@ test("Provider offers Cmux for this harness and switches the route without switc
   expect(sent).toEqual([{ method: "route", value: "cmux" }]);
 });
 
-test("Provider lists this harness's direct accounts and Cmux providers without unrelated transport variants", async () => {
+test("Account lists this harness's direct accounts and Cmux providers without unrelated transport variants", async () => {
   const { sent } = await mount({
     routes: [
       { id: "work", name: "Work Max", kind: "direct-subscription", serves: true },
@@ -416,7 +428,7 @@ test("Provider lists this harness's direct accounts and Cmux providers without u
     family: "claude",
   });
   await open();
-  const account = await openSub("Provider");
+  const account = await openSub("Account");
   expect(itemsOf(account)).toEqual(["CLI login", "Work Max", "Work API key", "local-coderouter", "cmux-router"]);
   const key = [...account.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
     (item) => item.textContent?.trim() === "Work API key",
@@ -426,7 +438,7 @@ test("Provider lists this harness's direct accounts and Cmux providers without u
   expect(sent).toEqual([{ method: "route", value: "key" }]);
 });
 
-test("Provider preserves the selected legacy route while hiding other unknown routes", async () => {
+test("Account preserves the selected legacy route while hiding other unknown routes", async () => {
   await mount({
     routes: [
       { id: "bound", name: "Selected account", serves: true },
@@ -436,18 +448,47 @@ test("Provider preserves the selected legacy route while hiding other unknown ro
     active: { routeId: "bound", scope: "chat" },
   });
   await open();
-  expect(itemsOf(menu()!)).toContain("ProviderSelected account");
-  const account = await openSub("Provider");
+  expect(itemsOf(menu()!)).toContain("AccountSelected account");
+  const account = await openSub("Account");
   expect(itemsOf(account)).toEqual(["CLI login", "Selected account"]);
   expect(account.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain(
     "Selected account",
   );
 });
 
-test("with no routes, Provider offers the CLI login and says how to add one", async () => {
+// Leo 2026-10-29: "Why the fuck did you remove the fucking account switcher?" #27151 renamed the
+// composer's Account row to Provider. The row is Account again; Cmux routers stay inside it under a
+// Provider heading, so Leo's "change provider to cmux" still reads as a provider choice.
+test("the composer keeps its Account switcher, with Cmux routers under a Provider heading", async () => {
+  const { sent } = await mount({
+    routes: [
+      { id: "work", name: "Work Max", kind: "direct-subscription", serves: true },
+      { id: "cmux", name: "Cmux", kind: "cmux-router", serves: true },
+    ],
+    family: "claude",
+  });
+  await open();
+  const rows = itemsOf(menu()!);
+  expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
+  expect(rows.some((row) => row?.startsWith("Provider"))).toBe(false);
+  const account = await openSub("Account");
+  expect(itemsOf(account)).toEqual(["CLI login", "Work Max", "Cmux"]);
+  const heading = account.querySelector(".ui-menu-group-label");
+  expect(heading?.textContent).toBe("Provider");
+  expect(heading?.closest(".ui-menu-group")?.textContent).toContain("Cmux");
+  expect(heading?.closest(".ui-menu-group")?.textContent).not.toContain("Work Max");
+  const work = [...account.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent?.trim() === "Work Max",
+  )!;
+  await act(async () => work.click());
+  await settle();
+  expect(sent).toEqual([{ method: "route", value: "work" }]);
+});
+
+test("with no routes, Account offers the CLI login and says how to add one", async () => {
   await mount({ routes: [] });
   await open();
-  const account = await openSub("Provider");
+  const account = await openSub("Account");
   // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
   expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
   expect(account.textContent).not.toContain("cmux route");
@@ -473,8 +514,8 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   const names = modelNames(menu()!);
   expect(names.length).toBeGreaterThan(0);
   expect(names.every((name) => !/opus|sonnet|haiku/i.test(name))).toBe(true);
-  // Effort and Provider are the chat's: another harness's tab shows neither.
-  expect(itemsOf(menu()!).some((row) => row?.startsWith("Provider") || row?.startsWith("Effort"))).toBe(false);
+  // Effort and Account are the chat's: another harness's tab shows neither.
+  expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
 });
 
 test("without a starred model the rail starts at the harnesses", async () => {
@@ -698,24 +739,24 @@ test("the rail's tabs are not rows of the menu", async () => {
   expect(railTabs().findIndex((tab) => tab.getAttribute("aria-pressed") === "true")).toBe(1);
 });
 
-// Leo 2026-10-20: Fast mode lives in one place, a checkbox row after Provider, never a radio group
+// Leo 2026-10-20: Fast mode lives in one place, a checkbox row after Account, never a radio group
 // inside Effort › and never a bolt in the composer.
-test("Fast mode is a checkbox row after Provider, checked from the session, and a click toggles it", async () => {
+test("Fast mode is a checkbox row after Account, checked from the session, and a click toggles it", async () => {
   const { sent } = await mount({ routes: [] }, { fast: true });
   expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   const rows = itemsOf(menu()!);
   // The switch shows its state; the accessible checkbox carries the same value.
   expect(rows.at(-1)).toBe("Fast mode");
-  expect(rows.findIndex((row) => row?.startsWith("Provider"))).toBeLessThan(rows.length - 1);
+  expect(rows.findIndex((row) => row?.startsWith("Account"))).toBeLessThan(rows.length - 1);
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
   expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect(currentEffortSegments(menu()!).map((item) => item.textContent?.replace(/^✓/, "").trim())).toEqual([
-    "Low",
-    "Medium",
-    "High",
-  ]);
+  expect(
+    (await currentEffortSegments(menu()!)).map((item) =>
+      (item.querySelector(".acpmux-menu-label")?.textContent ?? item.textContent)?.replace(/^✓/, "").trim(),
+    ),
+  ).toEqual(["Low", "Medium", "High"]);
   await act(async () => fast().click());
   await settle();
   expect(sent).toEqual([{ method: "effort", value: "on" }]);
@@ -750,7 +791,7 @@ test("a raw model id is named as people say it, and an unresolved effort draws n
   expect(host.querySelector(".acpmux-model-detail")).toBeNull();
 });
 
-test("a switch acpmux refuses is named on the Provider row", async () => {
+test("a switch acpmux refuses is named on the Account row", async () => {
   const { sent } = await mount(
     {
       routes: [{ id: "work", name: "Work Max", kind: "direct-subscription", serves: true }],
@@ -759,7 +800,7 @@ test("a switch acpmux refuses is named on the Provider row", async () => {
     { refuse: true },
   );
   await open();
-  const account = await openSub("Provider");
+  const account = await openSub("Account");
   const work = [...account.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
     (item) => item.textContent?.trim() === "Work Max",
   )!;
@@ -767,7 +808,7 @@ test("a switch acpmux refuses is named on the Provider row", async () => {
   await settle();
   expect(sent).toEqual([{ method: "route", value: "work" }]);
   await open();
-  expect(itemsOf(menu()!).some((row) => row === "ProviderCouldn’t switch account")).toBe(true);
+  expect(itemsOf(menu()!).some((row) => row === "AccountCouldn’t switch account")).toBe(true);
 });
 
 test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", async () => {

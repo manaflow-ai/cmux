@@ -168,7 +168,7 @@ extension AppActionContext {
     /// The daemon tabs Move Tab to New Workspace or Window takes for `tab`: on one of several
     /// selected tabs, every selected tab that may move, in strip order (`tab` among them); else `tab`.
     func movingTabs(_ invocation: ActionInvocation, _ tab: TabModel) -> [TabModel] {
-        guard let pane = services.locateTab(tab.id).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
+        guard let pane = services.locateTab(model: tab).flatMap({ services.paneController(for: $0.1) }) else { return [tab] }
         return actingTabs(invocation, pane, StripTabID(tab.id)).compactMap { pane.tab($0) }.filter { $0.id == tab.id || TabPromotion.refusal(tab: $0.id, services: services) == nil }
     }
 
