@@ -400,7 +400,7 @@
           "title": "Browser Toolbar Position",
           "help": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.",
           "kind": "choice",
-          "default": "top",
+          "default": "afterCurrent",
           "group": "Tabs",
           "values": [
             "top",
@@ -1027,7 +1027,7 @@
           "title": "Tab Bar Position",
           "help": "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane.",
           "kind": "choice",
-          "default": "top",
+          "default": "afterCurrent",
           "group": "Tabs",
           "values": [
             "top",
@@ -1461,13 +1461,12 @@
         },
         {
           "key": "workspaces.newPlacement",
-          "title": "New Workspace Position",
-          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
+          "title": "New workspaces go to",
+          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. The default keeps it next to the current workspace; a workspace made in a group stays in that group.",
           "kind": "choice",
           "default": "top",
           "group": "Sidebar",
           "values": [
-            "top",
             "afterCurrent",
             "bottom"
           ]

@@ -65,7 +65,7 @@ nonisolated enum WorkspaceListSettingsSchema {
                                         "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. The default keeps it next to the current workspace; a workspace made in a group stays in that group."),
                 kind: .choice([
                     SettingChoice(NewWorkspacePlacement.afterCurrent.rawValue,
-                                  SettingsText.keyed("settings.choice.nextToCurrent", "Next to current")),
+                                  SettingsText.keyed("settings.choice.afterCurrentWorkspace", "Next to current")),
                     SettingChoice(NewWorkspacePlacement.bottom.rawValue,
                                   SettingsText.keyed("settings.choice.bottomChromeStyle", "Bottom (Chrome-style)")),
                 ]),

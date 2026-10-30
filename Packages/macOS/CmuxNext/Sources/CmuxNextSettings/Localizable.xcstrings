@@ -45533,6 +45533,17 @@
         }
       }
     },
+    "settings.choice.bottomChromeStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom (Chrome-style)"
+          }
+        }
+      }
+    },
     "settings.choice.bottom": {
       "extractionState": "manual",
       "localizations": {
@@ -85072,7 +85083,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace Position"
+            "value": "New workspaces go to"
           }
         },
         "ar": {
@@ -85203,7 +85214,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
+            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. The default keeps it next to the current workspace; a workspace made in a group stays in that group."
           }
         },
         "ar": {
@@ -85334,7 +85345,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After Current Workspace"
+            "value": "Next to current"
           }
         },
         "ar": {

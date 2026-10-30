@@ -14873,7 +14873,6 @@
     },
     {
       "accepts" : [
-        "top",
         "afterCurrent",
         "bottom"
       ],
@@ -14882,22 +14881,15 @@
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.top",
-            "text" : "Top"
-          },
-          "value" : "top"
-        },
-        {
-          "title" : {
             "key" : "settings.choice.afterCurrentWorkspace",
-            "text" : "After Current Workspace"
+            "text" : "Next to current"
           },
           "value" : "afterCurrent"
         },
         {
           "title" : {
-            "key" : "settings.choice.bottom",
-            "text" : "Bottom"
+            "key" : "settings.choice.bottomChromeStyle",
+            "text" : "Bottom (Chrome-style)"
           },
           "value" : "bottom"
         }
@@ -14905,7 +14897,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -14923,9 +14915,9 @@
         "cmd-n",
         "position",
         "order",
-        "top",
+        "next",
+        "current",
         "bottom",
-        "after",
         "sidebar",
         "placement"
       ],
