@@ -46,7 +46,7 @@ fn a_worker_without_vm_kind_answers_team() {
 }
 
 #[test]
-fn the_answer_belongs_to_its_link_generation_and_a_new_link_reads_it_fresh() {
+fn every_connect_reads_the_answer_fresh_never_from_an_earlier_link_or_sign_in() {
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(
         FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
@@ -54,15 +54,49 @@ fn the_answer_belongs_to_its_link_generation_and_a_new_link_reads_it_fresh() {
     );
     let first = connect(&mut s, "c-1");
     assert_eq!(first["vm_kind"], "owner");
-    // The Worker's answer changes (another sign-in) while the link is up.
+    // The Worker's answer changes (another sign-in or team) while the link
+    // is up: a connect over the same link answers what the Worker says now.
     s.control_plane_mut().set_vm_kind(Some("team"));
     let same = connect(&mut s, "c-2");
     assert_eq!(same["generation"], first["generation"], "the same link: {same}");
-    assert_eq!(same["vm_kind"], "owner", "the answer of the link it goes over");
-    // The link ends; the reconnect comes before any link event is drained,
-    // so the old link's cached connect_info is still there.
+    assert_eq!(same["vm_kind"], "team", "never a cached answer: {same}");
+    // The link ends; the reconnect comes before any link event is drained.
+    s.control_plane_mut().set_vm_kind(Some("owner"));
     spawner.exit("vm-alpha01", 1);
     let next = connect(&mut s, "c-3");
     assert_ne!(next["generation"], first["generation"], "a new link: {next}");
-    assert_eq!(next["vm_kind"], "team", "a new link never keeps an old link's answer");
+    assert_eq!(next["vm_kind"], "owner");
+}
+
+#[test]
+fn access_that_ended_fails_the_connect_and_revokes_the_up_link() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
+    s.control_plane_mut().fail_connect_info("cloud.machine.not_found");
+    let request =
+        Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
+    let refused = s.handle(&request).expect_err("no carrier once access ended");
+    assert_eq!(refused.code, "cmux.cloud.not_found", "{refused:?}");
+    let again = s.handle(&request.clone().key("c-3")).expect_err("the link stays revoked");
+    assert_ne!(again.code, "", "{again:?}");
+}
+
+#[test]
+fn a_sign_out_fails_the_connect_of_an_up_link_and_ends_it() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    assert_eq!(connect(&mut s, "c-1")["vm_kind"], "owner");
+    s.control_plane_mut().wire.signed_in = false;
+    let request =
+        Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" })).key("c-2");
+    let refused = s.handle(&request).expect_err("no carrier after a sign-out");
+    assert_eq!(refused.code, "cmux.cloud.auth_required", "{refused:?}");
+    assert!(!spawner.log().terminated.is_empty(), "the link ended with the sign-in");
 }

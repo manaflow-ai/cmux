@@ -37,6 +37,8 @@ pub struct FakeControlPlane {
     /// `connect-info-owner` / `connect-info-team`: the caller's `vm_kind` in
     /// every `connect_info` answer (none: a Worker that predates it).
     vm_kind: Option<&'static str>,
+    /// `connect_info` answers this error code instead (access ended).
+    connect_info_error: Option<&'static str>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
 }
@@ -72,6 +74,7 @@ impl FakeControlPlane {
             get_unbound: false,
             connect_info: None,
             vm_kind: None,
+            connect_info_error: None,
             started: Vec::new(),
         };
         for name in names {
@@ -96,6 +99,12 @@ impl FakeControlPlane {
         self.vm_kind = kind;
     }
 
+    /// Later `connect_info` answers fail with `code` (`cloud.machine.not_found`:
+    /// the caller's access to the machine ended).
+    pub fn fail_connect_info(&mut self, code: &'static str) {
+        self.connect_info_error = Some(code);
+    }
+
     /// True when nothing reached the backend.
     pub fn no_calls(&self) -> bool {
         self.wire.calls.is_empty()
@@ -116,6 +125,14 @@ impl FakeControlPlane {
         let link_names = self.get_any || self.list_two || self.get_unbound;
         let value = match (call.op.as_str(), machine) {
             ("cloud.machine.get", Some(id)) if self.get_unbound => link_machine(id, "provisioning"),
+            ("cloud.machine.connect_info", Some(_)) if self.connect_info_error.is_some() => {
+                return Some(WireReply::Error(WireError {
+                    code: self.connect_info_error.unwrap_or_default().into(),
+                    message: "no such machine in this team".into(),
+                    details: None,
+                    retryable: false,
+                }));
+            }
             ("cloud.machine.connect_info", Some(_)) if self.get_unbound => {
                 return Some(WireReply::Error(WireError {
                     code: "cloud.machine.not_bound".into(),
