@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from mac_compile_classifier import requires_mac_compile  # noqa: E402
 from select_package_tests import input_prefixes, package_dirs, under  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -164,6 +165,7 @@ def mac_release_input(path: str) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in MAC_RELEASE_INPUTS)
 
 
+# Mac app admission is shared with the legacy CI area router.
 # The path classes of the original routing: these never need a Mac.
 WEB_ONLY = (
     "web/*", "workers/*", "config/vite-plus/*", "docs/*", "design/*", "plans/*",
@@ -372,6 +374,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
     mac_inputs = [path for path in changed or [] if mac_release_input(path)]
     if mac_inputs:
         result.mac_release = True
+        # These are inputs consumed only by the Mac Release compiler. Keep the
+        # Mac route admitted even though the shared classifier marks scripts
+        # as non-app paths; the release job itself is the signal.
+        result.native = True
         more = f" and {len(mac_inputs) - 3} more" if len(mac_inputs) > 3 else ""
         result.reasons.append(f"{', '.join(mac_inputs[:3])}{more} only the Mac Release compile sees: it runs")
     # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
@@ -423,9 +429,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
             result.webview = True
         elif any(fnmatch.fnmatch(path, pattern) for pattern in WEB_ONLY) and not path.startswith(PACKAGE):
             pass
-        elif not path.startswith("Packages/"):
-            # App host, Xcode project, CLI, resources and build scripts: only
-            # the app scheme compiles them.
+        elif not path.startswith("Packages/") and requires_mac_compile(path) is not False:
+            # App host, Xcode project, CLI and bundled resources: only the app
+            # scheme compiles them. Unknown roots fail open; known CI/docs/web
+            # paths are handled by their dedicated Linux checks.
             result.native = result.scheme = True
         if any(matches(path, prefix) for prefix in GENERATED_INPUTS):
             result.generated = True

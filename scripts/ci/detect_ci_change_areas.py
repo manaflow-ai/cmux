@@ -14,6 +14,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+from mac_compile_classifier import requires_mac_compile
+
 
 @dataclass(frozen=True)
 class ChangeAreas:
@@ -1459,8 +1464,15 @@ def is_macos_change(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
 ) -> bool:
+    # Agent-session sources feed the embedded pane bundle and retain their
+    # focused native asset check even though other webviews are web-only.
     if path.startswith("webviews/src/agent-session/"):
         return True
+    # Shared classifier: known non-app paths never admit a Mac compile.
+    # Unknown paths retain the conservative routing below.
+    shared = requires_mac_compile(path)
+    if shared is False:
+        return False
     if path in {"package.json", "bun.lock", "biome.json"}:
         return True
     return not is_macos_neutral(path, macos_ios_packages)

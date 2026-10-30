@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from cmux_next_push_attribution import MAX_COMMENTED_PRS, failed_jobs, last_green, never_passed, should_comment  # noqa: E402
-from cmux_next_route import outputs, route  # noqa: E402
+from cmux_next_route import outputs, requires_mac_compile, route  # noqa: E402
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -232,6 +232,12 @@ class MacReleaseInputs(unittest.TestCase):
             with self.subTest(changed=changed):
                 self.assertEqual(outputs(route(ROOT, "pull_request", changed, set()))["mac_release"], "false")
 
+    def test_release_only_input_keeps_the_mac_route_admitted(self):
+        result = outputs(route(ROOT, "pull_request", ["scripts/cmux-next/check-release-compile.sh"], set()))
+        self.assertEqual(result["mac_release"], "true")
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["macos"], "true")
+
     def test_inputs_only_xcodebuild_sees_need_the_mac(self):
         for changed in ([f"{PACKAGE}/Package.swift"], [f"{PACKAGE}/Package.resolved"],
                         ["Packages/Shared/CmuxTheme/Package.swift"], [f"{PACKAGE}/Sources/CmuxNextApp/Info.plist"],
@@ -371,6 +377,27 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers(PR_17470, labels=frozenset({"dev-build"}))
         self.assertEqual(result["scheme"], "true")
         self.assertEqual(result["daemon"], "false")
+
+    def test_mac_app_compile_classifier_covers_app_inputs_and_common_non_inputs(self):
+        for path in (
+            "App/main.swift", "CLI/cmux.swift", "Packages/Shared/CmuxTheme/Package.swift",
+            "cmux.xcodeproj/project.pbxproj", "ghostty-next", "Resources/InfoPlist.xcstrings",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(requires_mac_compile(path) is True)
+        for path in (
+            "docs/ci.md", ".github/workflows/ci.yml", "scripts/tools/check.py",
+            "webviews/src/diff/App.tsx", "web/app/page.tsx",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(requires_mac_compile(path) is True)
+
+    def test_scripts_only_changes_do_not_start_mac_tiers(self):
+        for changed in (["scripts/tools/check.py"], ["scripts/ci/new-linux-guard.py"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
 
     def test_web_and_docs_need_no_mac(self):
         result = tiers(["web/app/page.tsx", "docs/cmux-next.md"])
@@ -558,7 +585,7 @@ class LinuxLaneTests(unittest.TestCase):
                 self.assertIn("native", mac_tiers(tiers([path])))
 
     def test_a_linux_guard_test_with_another_file_still_compiles(self):
-        for other in ("scripts/cmux-next/new-step.sh", "Resources/new.json",
+        for other in ("newdir/new-step.sh", "Resources/new.json",
                       f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
             with self.subTest(other=other):
                 self.assertIn("native", mac_tiers(tiers([self.sample, other])))
