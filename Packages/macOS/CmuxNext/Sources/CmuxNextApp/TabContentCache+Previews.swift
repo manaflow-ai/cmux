@@ -88,9 +88,9 @@ extension TabContentCache {
                                    accepts: @escaping () -> Bool) async -> CGImage? {
         defer { pageCapturesInFlight.remove(key) }
         let budget = pageCaptureDeadline
-        guard let image = try? await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in
-            try await request.image()
-        }) else { return nil }
+        guard let image = await pageThumbnails.captured({
+            try await ControlDeadline.shared.run(method: "preview.capture", deadline: .now + budget, { @MainActor in try await request.image() })
+        }, isRefusal: { $0 as? BrowserTabError == .snapshotUnavailable }) else { return nil }
         let fitted = await TabPreviewFitting.fit(image, TabPreviewFitting.cachedPixelSize)
         let picture = await pageThumbnails.picture(of: fitted)
         guard accepts() else { return nil }

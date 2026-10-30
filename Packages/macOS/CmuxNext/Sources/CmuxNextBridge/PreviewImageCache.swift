@@ -85,6 +85,32 @@ public final class PreviewImageCache {
 
     public var count: Int { images.count }
 
+    /// Captures for this cache that the engine refused (``captured(_:isRefusal:)``: Chromium never pictures a page
+    /// hidden or closing before its call's turn, 223988ec101) and that failed otherwise (a timeout, a closed page).
+    /// The owner then keeps its last picture, or its placeholder; the counts make that loss visible.
+    public private(set) var refusedCaptures = 0
+    public private(set) var failedCaptures = 0
+
+    /// The cache's numbers for a debug report: its pictures, their bytes, and the refused and failed captures.
+    public var debugCounts: [String: Double] {
+        ["count": Double(count), "bytes": Double(totalBytes), "refused": Double(refusedCaptures), "failed": Double(failedCaptures)]
+    }
+
+    /// Runs one engine capture for this cache, counting a refused or failed one (``refusedCaptures``, ``failedCaptures``).
+    ///
+    /// - Parameters:
+    ///   - capture: The capture.
+    ///   - isRefusal: Whether an error the capture threw is the engine's refusal.
+    /// - Returns: The picture, or nil when the capture threw.
+    public func captured(_ capture: () async throws -> CGImage, isRefusal: (any Error) -> Bool) async -> CGImage? {
+        do {
+            return try await capture()
+        } catch {
+            if isRefusal(error) { refusedCaptures += 1 } else { failedCaptures += 1 }
+            return nil
+        }
+    }
+
     /// Registers with the app's memory coordinator (once; a later call replaces the registration).
     ///
     /// - Parameters:
