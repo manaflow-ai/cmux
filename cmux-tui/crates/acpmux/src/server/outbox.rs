@@ -302,7 +302,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             Err((error, next)) => {
                 let delay = delays.next().filter(|_| matches!(next, Next::Retry | Next::Unsent));
                 hub.outbox.update(id, |d| {
-                    d.never_sent &= link_unsent;
+                    d.never_sent = delivery.never_sent && link_unsent;
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
                         (_, Some(_)) => State::Queued,
@@ -350,9 +350,15 @@ async fn relay_attempt(
 }
 
 /// What delivery `d` is saved as while its attempt `attempt` runs: the record a restart resumes.
+/// An attempt on the peer's link may put the frame on the wire before a crash, so it is saved as
+/// maybe sent (`never_sent` false) and marked never sent again only once the link refuses it as
+/// not sent. A relay-only attempt never touches the link and leaves it.
 fn start_attempt(d: &mut Delivery, attempt: u32) {
     d.state = State::Delivering;
     d.attempts = attempt;
+    if d.relay_post.is_none() {
+        d.never_sent = false;
+    }
 }
 
 /// Deletes a settled delivery's kept attachments.
