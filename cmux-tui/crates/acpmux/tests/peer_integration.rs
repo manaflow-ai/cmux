@@ -90,11 +90,13 @@ impl C {
     }
 
     async fn wait(&mut self, m: &str, pred: impl Fn(&Value) -> bool) -> Value {
+        let mut seen: Vec<String> = Vec::new();
         loop {
-            let line = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
-                .await
-                .expect("timeout")
-                .expect("closed");
+            let line = match tokio::time::timeout(Duration::from_secs(20), self.rx.recv()).await {
+                Ok(l) => l.expect("closed"),
+                Err(_) => panic!("DIAG timeout waiting for {m}; seen: {seen:#?}"),
+            };
+            seen.push(line.chars().take(600).collect());
             if let Message::Notification { method: got, params } = Message::parse(&line).unwrap() {
                 let p = params.unwrap_or(Value::Null);
                 if got == m && pred(&p) {
@@ -1390,6 +1392,7 @@ async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenro
         })
         .await
     };
+    eprintln!("DIAG step 1");
     let pending = ask(&mut app, "ask: rm", None).await;
     let perm = pending["permissionId"].as_str().unwrap().to_owned();
     let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
@@ -1416,6 +1419,7 @@ async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenro
     let good =
         mac_signature(&mac, &instance, "mac-1", &remote_id, &perm, &tool_call, "yes", &nonce, exp);
     app.call(method::MUX_PERMISSION_RESPOND, respond(&perm, &nonce, &good)).await.unwrap();
+    eprintln!("DIAG step 2");
     let decided = app
         .wait(method::MUX_EVENT, |p| {
             p["kind"] == "permission_decision" && p["sessionId"] == remote_id
@@ -1424,6 +1428,7 @@ async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenro
     assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
 
     // Replayed on the next prompt: refused (its nonce and permission are spent).
+    eprintln!("DIAG step 3");
     let next = ask(&mut app, "ask: again", Some(&perm)).await;
     let perm2 = next["permissionId"].as_str().unwrap().to_owned();
     let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
@@ -1432,6 +1437,7 @@ async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenro
 
     // Unenrolled (`host approvals rm`: the file, then the reload): a fresh,
     // valid signature counts nothing; a deny from a client that is no person does.
+    eprintln!("DIAG step 4");
     write(json!([]));
     b.person.macs.view(&json!({"reload": true}));
     let fresh = mac_signature(
@@ -1439,6 +1445,7 @@ async fn a_peer_counts_an_enrolled_macs_signed_one_time_allow_until_it_is_unenro
     );
     let e = app.call(method::MUX_PERMISSION_RESPOND, respond(&perm2, &nonce2, &fresh)).await;
     assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    eprintln!("DIAG step 5");
     relay
         .call(
             method::MUX_PERMISSION_RESPOND,
