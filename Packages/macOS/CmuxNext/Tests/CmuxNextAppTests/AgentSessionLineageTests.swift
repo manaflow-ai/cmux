@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextSidebar
@@ -17,7 +18,7 @@ import Testing
     private static let opened = WorkspaceID("ws-opened")
     private static let spawner = WorkspaceID("ws-spawner")
 
-    private static func identity(_ host: String = localHost, _ session: String) -> AgentSessionParents.Identity {
+    private static func identity(_ session: String, host: String = localHost) -> AgentSessionParents.Identity {
         AgentSessionParents.identity(host: host, session: session)
     }
 
@@ -45,8 +46,8 @@ import Testing
         #expect(local.state.parents == [Self.opened: Self.caller])
         // A remote daemon that lists none either uses its own host-qualified records.
         let remoteParents = AgentSessionParents(defaults: nil)
-        AgentSessionWorkspace.recordParent(Self.identity("registry:vm", "s-caller"),
-                                           of: Self.identity("registry:vm", "s-opened"), in: remoteParents)
+        AgentSessionWorkspace.recordParent(Self.identity("s-caller", host: "registry:vm"),
+                                           of: Self.identity("s-opened", host: "registry:vm"), in: remoteParents)
         let remote = SidebarSessionTreeFeed.pass(Self.chats(host: "registry:vm"), lanes: [:],
                                                  recordedParents: remoteParents.parents,
                                                  localHost: Self.localHost, pullRequests: [:])
@@ -56,7 +57,7 @@ import Testing
     @Test func thePersonsOpenRecordsNothing() {
         let parents = AgentSessionParents(defaults: nil)
         AgentSessionWorkspace.recordParent(nil, of: Self.identity("s-opened"), in: parents)
-        AgentSessionWorkspace.recordParent(Self.identity("", "  "), of: Self.identity("s-opened"), in: parents)
+        AgentSessionWorkspace.recordParent(Self.identity("  ", host: ""), of: Self.identity("s-opened"), in: parents)
         AgentSessionWorkspace.recordParent(Self.identity("s-opened"), of: Self.identity("s-opened"), in: parents)
         #expect(parents.parents.isEmpty)
         let pass = SidebarSessionTreeFeed.pass(Self.chats(), lanes: [:], recordedParents: parents.parents,
@@ -128,8 +129,8 @@ import Testing
 
     @Test func sameSessionIDOnDifferentHostsResolvesRecordedParentsByHost() {
         let parents = AgentSessionParents(defaults: nil)
-        parents.record(Self.identity("registry:a", "same-parent"), of: Self.identity("registry:a", "same-child"))
-        parents.record(Self.identity("registry:b", "same-parent"), of: Self.identity("registry:b", "same-child"))
+        parents.record(Self.identity("same-parent", host: "registry:a"), of: Self.identity("same-child", host: "registry:a"))
+        parents.record(Self.identity("same-parent", host: "registry:b"), of: Self.identity("same-child", host: "registry:b"))
         let aParent = WorkspaceID("ws-a-parent"), aChild = WorkspaceID("ws-a-child")
         let bParent = WorkspaceID("ws-b-parent"), bChild = WorkspaceID("ws-b-child")
         let chats: [(WorkspaceID, [AgentSessionRef])] = [
@@ -200,7 +201,7 @@ import Testing
     @Test func duplicateTabsShareAnIdentityOnlyWhenTheirHostMatches() {
         let sameHost = [AgentSessionRef(host: "registry:a", session: "same"),
                         AgentSessionRef(host: "registry:a", session: "same")]
-        #expect(AgentSessionWorkspace.callerIdentity("same", in: sameHost) == Self.identity("registry:a", "same"))
+        #expect(AgentSessionWorkspace.callerIdentity("same", in: sameHost) == Self.identity("same", host: "registry:a"))
         let twoHosts = sameHost + [AgentSessionRef(host: "registry:b", session: "same")]
         #expect(AgentSessionWorkspace.callerIdentity("same", in: twoHosts) == nil)
     }
