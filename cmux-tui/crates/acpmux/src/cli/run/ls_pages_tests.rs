@@ -1,0 +1,191 @@
+//! `acpmux ls` reads a list of any size in pages, against the hub's own paging
+//! (`hub/session_pages.rs`) as a fake daemon.
+
+use std::cell::{Cell, RefCell};
+
+use serde_json::{Value, json};
+
+use super::*;
+use crate::client::DaemonError;
+use crate::hub::session_pages::{session_list_reply, sort_session_summaries};
+use crate::rpc::RpcError;
+
+/// `n` sessions, newest first, each with a title `pad` bytes long; every third on a peer.
+fn sessions(n: u64, pad: usize) -> Vec<Value> {
+    let mut rows: Vec<Value> = (0..n)
+        .map(|i| {
+            let mut row = json!({"sessionId": format!("s{i:05}"), "updatedAt": 10_000 + i,
+                "status": if i % 2 == 0 { "closed" } else { "idle" }, "title": "t".repeat(pad)});
+            if i % 3 == 0 {
+                row["peer"] = json!("cosmic-gray");
+            }
+            row
+        })
+        .collect();
+    sort_session_summaries(&mut rows);
+    rows
+}
+
+/// A daemon over `list` that refuses, as `rpc.rs` does, a reply longer than `cap` bytes.
+fn daemon(
+    list: &RefCell<Vec<Value>>,
+    cap: usize,
+) -> impl FnMut(Value) -> std::future::Ready<Result<Value>> + '_ {
+    sized(list, cap, None)
+}
+
+/// [`daemon`], noting in `largest` the longest reply it sent.
+fn sized<'a>(
+    list: &'a RefCell<Vec<Value>>,
+    cap: usize,
+    largest: Option<&'a Cell<usize>>,
+) -> impl FnMut(Value) -> std::future::Ready<Result<Value>> + 'a {
+    move |params| {
+        let reply = session_list_reply(list.borrow().clone(), &params)
+            .map_err(|e| anyhow::Error::from(DaemonError(e)));
+        std::future::ready(reply.and_then(|reply| {
+            let bytes = reply.to_string().len();
+            if bytes > cap {
+                return Err(DaemonError(RpcError::too_large(bytes)).into());
+            }
+            if let Some(largest) = largest {
+                largest.set(largest.get().max(bytes));
+            }
+            Ok(reply)
+        }))
+    }
+}
+
+fn plan(size: u64) -> Plan {
+    Plan { size, want: None, one: false, exact: true }
+}
+
+fn ids(rows: &[Value]) -> Vec<&str> {
+    rows.iter().map(|r| r["sessionId"].as_str().unwrap()).collect()
+}
+
+fn keep(_: &Value) -> Step {
+    Step::Keep
+}
+
+async fn read_all(list: &RefCell<Vec<Value>>, plan: Plan, cap: usize) -> Result<Pages> {
+    read(json!({}), None, plan, keep, daemon(list, cap)).await
+}
+
+#[tokio::test]
+async fn a_list_larger_than_a_page_is_read_whole_each_row_once() {
+    let list = RefCell::new(sessions(2_503, 10));
+    let got = read_all(&list, plan(PAGE_ROWS), usize::MAX).await.unwrap();
+    assert_eq!(ids(&got.rows), ids(&list.borrow()));
+    assert_eq!(got.requests, 3);
+    assert_eq!(got.next, Some(Value::Null));
+}
+
+/// cosmic-gray, 2026-10-30: 3,700 sessions of about 4 KB came to 15.7 MB, past the 15 MiB a
+/// reply may hold. Its pages hold a quarter of that each.
+#[tokio::test]
+async fn cosmic_grays_list_goes_in_pages_under_the_message_limit() {
+    let list = RefCell::new(sessions(3_700, 4_300));
+    let whole = json!({"sessions": *list.borrow()}).to_string().len();
+    assert!(whole > crate::rpc::MAX_MESSAGE_BYTES, "{whole}");
+    let largest = Cell::new(0);
+    let fetch = sized(&list, crate::rpc::MAX_MESSAGE_BYTES, Some(&largest));
+    let got = read(json!({}), None, plan(PAGE_ROWS), keep, fetch).await.unwrap();
+    assert_eq!(got.rows.len(), 3_700);
+    assert_eq!(got.requests, 4);
+    assert!(largest.get() < crate::rpc::MAX_MESSAGE_BYTES / 3, "{}", largest.get());
+}
+
+#[tokio::test]
+async fn a_page_too_large_to_send_is_asked_again_at_half_the_rows() {
+    let list = RefCell::new(sessions(300, 1_000));
+    let got = read_all(&list, plan(PAGE_ROWS), 40_000).await.unwrap();
+    assert_eq!(ids(&got.rows), ids(&list.borrow()));
+    // 1000, 500, 250, 125 and 62 refused (every page over 40 KB), then pages of 31.
+    assert_eq!(got.requests, 5 + 10);
+}
+
+#[tokio::test]
+async fn one_row_too_large_to_send_names_the_fix() {
+    let list = RefCell::new(sessions(5, 50_000));
+    let e = read_all(&list, plan(8), 10_000).await.unwrap_err();
+    let text = e.to_string();
+    assert!(text.contains("acpmux session info") && text.contains("MiB"), "{text}");
+}
+
+/// A row that comes again (its cursor's row left, so the next page starts at the first row no
+/// newer than it: rows of that same millisecond repeat) is kept once.
+#[tokio::test]
+async fn a_row_a_later_page_repeats_is_kept_once() {
+    let mut rows = sessions(6, 1);
+    for row in &mut rows {
+        row["updatedAt"] = json!(7);
+    }
+    sort_session_summaries(&mut rows);
+    let list = RefCell::new(rows.clone());
+    let calls = Cell::new(0);
+    let mut fake = daemon(&list, usize::MAX);
+    let fetch = |params| {
+        let reply = fake(params);
+        if calls.replace(calls.get() + 1) == 0 {
+            // The second row, which the first page ends on, leaves.
+            list.borrow_mut().remove(1);
+        }
+        reply
+    };
+    let got = read(json!({}), None, plan(2), keep, fetch).await.unwrap();
+    assert_eq!(ids(&got.rows), ids(&rows));
+}
+
+#[tokio::test]
+async fn a_limit_ends_on_a_page_and_its_cursor_starts_the_next_rows() {
+    let list = RefCell::new(sessions(400, 1));
+    let first = read_all(&list, Plan { want: Some(150), ..plan(100) }, usize::MAX).await.unwrap();
+    assert_eq!(ids(&first.rows), ids(&list.borrow()[..150]));
+    let Some(Value::String(next)) = first.next else { panic!("{:?}", first.next) };
+    let one = Plan { one: true, ..plan(100) };
+    let second = read(json!({}), Some(next), one, keep, daemon(&list, usize::MAX)).await.unwrap();
+    assert_eq!(ids(&second.rows), ids(&list.borrow()[150..250]));
+    assert!(matches!(second.next, Some(Value::String(_))));
+}
+
+/// The daemon drops what its filters leave out before it pages; `step` drops it again for one
+/// too old for them, and a `--since` row ends the read.
+#[tokio::test]
+async fn filters_go_to_the_daemon_and_since_ends_the_read() {
+    let list = RefCell::new(sessions(100, 1));
+    let params = json!({"excludeStatus": ["closed"], "localOnly": true});
+    let got = read(params, None, plan(10), keep, daemon(&list, usize::MAX)).await.unwrap();
+    assert!(got.rows.iter().all(|r| r["status"] == "idle" && r.get("peer").is_none()));
+    assert_eq!(got.rows.len(), 33);
+    let newest = |row: &Value| {
+        if row["updatedAt"].as_u64().unwrap() < 10_090 { Step::Stop } else { Step::Keep }
+    };
+    let got = read(json!({}), None, plan(4), newest, daemon(&list, usize::MAX)).await.unwrap();
+    assert_eq!(got.rows.len(), 10);
+    assert_eq!(got.requests, 3);
+    assert_eq!(got.next, Some(Value::Null));
+}
+
+/// A daemon too old for `limit` sends every row at once, with no cursor: that is the list. A
+/// limit that stops in it has no cursor to hand on.
+#[tokio::test]
+async fn a_daemon_too_old_for_pages_sends_the_whole_list() {
+    let rows = sessions(30, 1);
+    let old = |_: Value| std::future::ready(Ok(json!({"sessions": rows.clone()})));
+    let got = read(json!({}), None, plan(10), keep, old).await.unwrap();
+    assert_eq!(got.rows.len(), 30);
+    assert_eq!(got.next, Some(Value::Null));
+    let got = read(json!({}), None, Plan { want: Some(5), ..plan(10) }, keep, old).await.unwrap();
+    assert_eq!(got.rows.len(), 5);
+    assert_eq!(got.next, None);
+}
+
+#[tokio::test]
+async fn a_cursor_that_comes_twice_is_an_error_not_a_loop() {
+    let looping = |_: Value| {
+        std::future::ready(Ok(json!({"sessions": [{"sessionId": "a"}], "nextCursor": "k1.1"})))
+    };
+    let e = read(json!({}), None, plan(1), keep, looping).await.unwrap_err();
+    assert!(e.to_string().contains("twice"), "{e}");
+}

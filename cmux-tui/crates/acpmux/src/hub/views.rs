@@ -14,6 +14,21 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     summary
 }
 
+/// The most of a chat's title a summary shows. A harness may title a chat with its whole first
+/// prompt: cosmic-gray's list rows came to 4 KB each with them, and its list of 3,700 to more than
+/// one message holds (2026-10-30). Every summary cuts the same, so a list and the changes after it
+/// never show one chat under two titles; the prompt itself stays in the chat's history.
+const TITLE_CHARS: usize = 200;
+
+/// `title`, or for a longer one its first [`TITLE_CHARS`], folded and cut as `lastPrompt` is.
+fn summary_title(title: &str) -> String {
+    if title.chars().nth(TITLE_CHARS).is_none() {
+        title.to_owned()
+    } else {
+        short_text(title, TITLE_CHARS)
+    }
+}
+
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 
@@ -360,7 +375,7 @@ impl Hub {
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
-            title: m.title.clone(),
+            title: m.title.as_deref().map(summary_title),
             title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),

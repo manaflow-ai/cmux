@@ -135,3 +135,18 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     done["subagentsWorkingSince"] = Value::Null;
     assert_eq!(status_indicator(&done), Some("done"));
 }
+
+/// A harness title that is a whole prompt shows as its first 200 characters in every summary; a
+/// shorter one is untouched, its spacing too.
+#[test]
+fn a_summary_title_is_at_most_200_characters() {
+    use super::{TITLE_CHARS, summary_title};
+    let short = "Fix  the\nsidebar";
+    assert_eq!(summary_title(short), short);
+    let edge = "é".repeat(TITLE_CHARS);
+    assert_eq!(summary_title(&edge), edge);
+    let prompt = "You are a fix helper. ".repeat(400);
+    let cut = summary_title(&prompt);
+    assert_eq!(cut.chars().count(), TITLE_CHARS + 1, "{cut}");
+    assert!(cut.ends_with('…') && prompt.starts_with(cut.trim_end_matches('…').trim_end()));
+}

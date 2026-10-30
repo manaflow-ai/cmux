@@ -1,0 +1,170 @@
+//! How `acpmux ls` reads the session list: in pages (`limit` and `cursor`,
+//! `hub/session_pages.rs`), never as one reply. cosmic-gray's whole list was 15.7 MB with 3,700
+//! sessions on 2026-10-30, past the 15 MiB message limit, and its daemon refused it with
+//! `message.too_large`; a daemon that pages by `limit` (every one since the keyset pages) answers
+//! these pages whatever its size, and one too old for `limit` sends the whole list as before.
+//!
+//! The daemon lists newest first and its `nextCursor` names the last row it sent, so a read that
+//! stops at the end of a page hands that cursor on exactly. A read that wants N rows asks for no
+//! more than it still wants when every filter is one the daemon applies (or one an old daemon
+//! ignores, which only thins a page): it then ends on a page's last row. A page too large to send
+//! is asked for again at half the rows.
+
+use std::collections::HashSet;
+use std::future::Future;
+
+use anyhow::Result;
+use cmux_json::JsonSet as _;
+use serde_json::Value;
+
+use crate::cli::errors::{AppError, Code};
+
+/// Rows per page: about 4 MB at the 3 to 4 KB a row takes on a busy host, a quarter of the
+/// message limit, and four requests for 3,700 sessions.
+pub(super) const PAGE_ROWS: u64 = 1000;
+
+/// What a read does with a row.
+pub(super) enum Step {
+    Keep,
+    Skip,
+    /// This row and every later one are left out (`--since`: the list is newest first).
+    Stop,
+}
+
+/// How a read pages.
+pub(super) struct Plan {
+    /// Rows asked for per page.
+    pub(super) size: u64,
+    /// Stop once this many rows are kept (`--limit`).
+    pub(super) want: Option<usize>,
+    /// Read one page only (`--cursor`).
+    pub(super) one: bool,
+    /// Every row the daemon sends is kept unless a filter it also applies drops it: a page asks
+    /// for at most the rows still wanted, so the read ends on a page's last row.
+    pub(super) exact: bool,
+}
+
+/// What a read gives.
+#[derive(Debug)]
+pub(super) struct Pages {
+    pub(super) rows: Vec<Value>,
+    /// The cursor of the rows after these (a string), `null` when none is left, or `None` when
+    /// the read stopped in the middle of a page, where no cursor of the daemon's starts.
+    pub(super) next: Option<Value>,
+    /// Requests sent, a page refused as too large included.
+    pub(super) requests: usize,
+}
+
+/// Reads `params`' rows page by page from `cursor` with `fetch` (one `_acpmux/sessions`
+/// request), each row through `step`. A row that comes twice (one session id on one host, moved
+/// to the top between pages) is kept once; a cursor that comes twice is an error, never a loop.
+pub(super) async fn read<F, Fut>(
+    params: Value,
+    cursor: Option<String>,
+    plan: Plan,
+    mut step: impl FnMut(&Value) -> Step,
+    mut fetch: F,
+) -> Result<Pages>
+where
+    F: FnMut(Value) -> Fut,
+    Fut: Future<Output = Result<Value>>,
+{
+    let (mut size, mut cursor, mut requests) = (plan.size.max(1), cursor, 0);
+    let (mut rows, mut seen, mut cursors) = (Vec::new(), HashSet::new(), HashSet::new());
+    loop {
+        let left = plan.want.map(|want| want.saturating_sub(rows.len()));
+        let ask = match left {
+            Some(left) if plan.exact => size.min(u64::try_from(left).unwrap_or(u64::MAX)).max(1),
+            _ => size,
+        };
+        let mut page_params = params.clone();
+        page_params.set("limit", Value::from(ask));
+        if let Some(cursor) = &cursor {
+            page_params.set("cursor", Value::String(cursor.clone()));
+        }
+        requests += 1;
+        let mut reply = match fetch(page_params).await {
+            Ok(reply) => reply,
+            Err(e) => match too_large(&e) {
+                Some(_) if ask > 1 => {
+                    size = ask / 2;
+                    continue;
+                }
+                Some(bytes) => return Err(one_row_too_large(bytes).into()),
+                None => return Err(e),
+            },
+        };
+        let page = match reply.get_mut("sessions").map(Value::take) {
+            Some(Value::Array(page)) => page,
+            _ => anyhow::bail!("the daemon's session page lists no sessions"),
+        };
+        let (count, mut used) = (page.len(), 0);
+        let (mut stopped, mut full) = (false, false);
+        for row in page {
+            used += 1;
+            if !seen.insert(row_key(&row)) {
+                continue;
+            }
+            match step(&row) {
+                Step::Keep => rows.push(row),
+                Step::Skip => {}
+                Step::Stop => {
+                    stopped = true;
+                    break;
+                }
+            }
+            if plan.want.is_some_and(|want| rows.len() >= want) {
+                full = true;
+                break;
+            }
+        }
+        if stopped {
+            return Ok(Pages { rows, next: Some(Value::Null), requests });
+        }
+        let next = match reply.get_mut("nextCursor").map(Value::take) {
+            Some(Value::String(next)) => next,
+            // The last page, or a daemon too old for pages that sent every row.
+            _ if used == count => return Ok(Pages { rows, next: Some(Value::Null), requests }),
+            _ => return Ok(Pages { rows, next: None, requests }),
+        };
+        if full || plan.one {
+            let next = (used == count).then_some(Value::String(next));
+            return Ok(Pages { rows, next, requests });
+        }
+        if !cursors.insert(next.clone()) {
+            anyhow::bail!("the daemon gave the session page cursor {next:?} twice");
+        }
+        cursor = Some(next);
+    }
+}
+
+/// One session on one host: a chat's copies on peers are different rows.
+fn row_key(row: &Value) -> (Option<String>, Option<String>) {
+    let text = |k: &str| row.get(k).and_then(Value::as_str).map(str::to_owned);
+    (text("sessionId"), text("peer"))
+}
+
+/// The size of a reply refused as too large to send (`RpcError::too_large`), if `e` is one.
+fn too_large(e: &anyhow::Error) -> Option<u64> {
+    let data = e.downcast_ref::<crate::client::DaemonError>()?.0.data.as_ref()?;
+    (data.get("reason").and_then(Value::as_str) == Some("message.too_large"))
+        .then(|| data.get("bytes").and_then(Value::as_u64).unwrap_or(0))
+}
+
+fn one_row_too_large(bytes: u64) -> AppError {
+    let message = format!(
+        "one session's row is {:.1} MiB, past the {} MiB a daemon reply may hold: read the \
+         sessions one by one with `acpmux session info SESSION`",
+        mib(bytes),
+        crate::rpc::MAX_MESSAGE_BYTES >> 20
+    );
+    AppError::new(Code::Runtime, "message.too_large", message)
+}
+
+fn mib(bytes: u64) -> f64 {
+    bytes as f64 / f64::from(1u32 << 20)
+}
+
+#[cfg(test)]
+#[path = "ls_pages_tests.rs"]
+mod tests;
