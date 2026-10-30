@@ -27,7 +27,6 @@ use super::*;
 use std::ops::Range;
 use std::time::Duration;
 // Tokio's clock, so a paused test clock moves the pace and the windows too.
-use cmux_json::JsonSet as _;
 use tokio::time::Instant;
 
 /// A build runs at most once per `PACE` times its own cost: about 3% of a core.
@@ -92,8 +91,8 @@ pub(crate) struct Snapshot {
     keys: Vec<Value>,
     /// Other results made from it, once each (masked for a peer, ACP's `session/list`).
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
-    /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
-    /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
+    /// Full rows are built lazily for trusted internal consumers (peer bootstrap and ACP).
+    /// Ordinary list replies use the compact snapshot so retained bytes stay small.
     full: StdMutex<Option<Arc<String>>>,
 }
 
@@ -114,7 +113,7 @@ impl Snapshot {
         rows.finish()
     }
 
-    /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
+    /// Lazily serialize the full rows needed by trusted internal consumers.
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
@@ -148,9 +147,7 @@ impl Snapshot {
                 text.push(',');
             }
             let at = key["at"].as_u64().unwrap_or_default() as usize;
-            text.push_str(
-                self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
-            );
+            text.push_str(self.spans.get(at).map_or("null", |span| &self.whole[span.clone()]));
         }
         text.push_str("]}");
         Ok(text)
@@ -158,8 +155,7 @@ impl Snapshot {
 
     /// Every summary, parsed back.
     pub(crate) fn values(&self) -> Vec<Value> {
-        let parse =
-            |span: &Range<usize>| serde_json::from_str(self.whole.get(span.clone()).unwrap_or(""));
+        let parse = |span: &Range<usize>| serde_json::from_str(&self.whole[span.clone()]);
         self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
     }
 
@@ -202,7 +198,7 @@ impl Rows {
     fn push(&mut self, row: &Value) {
         let start = self.text.len();
         // A Value always serializes, and Vec's writer cannot fail.
-        let _ = serde_json::to_writer(&mut self.text, row);
+        serde_json::to_writer(&mut self.text, row).expect("serialize session summary");
         self.spans.push(start..self.text.len());
         self.keys.push(RowKey {
             at: self.keys.len(),
@@ -233,31 +229,26 @@ impl Rows {
             }
             let source = key.at;
             let start = whole.len();
-            whole.extend_from_slice(
-                self.spans
-                    .get(source)
-                    .and_then(|span| self.text.get(span.clone()))
-                    .unwrap_or_default(),
-            );
+            whole.extend_from_slice(&self.text[self.spans[source].clone()]);
             spans.push(start..whole.len());
             let mut value = json!({"at": at});
             if let Some(session_id) = key.session_id {
-                value.set("sessionId", Value::String(session_id));
+                value["sessionId"] = Value::String(session_id);
             }
             if key.updated_at != 0 {
-                value.set("updatedAt", Value::from(key.updated_at));
+                value["updatedAt"] = Value::from(key.updated_at);
             }
             if let Some(peer) = key.peer {
-                value.set("peer", Value::String(peer));
+                value["peer"] = Value::String(peer);
             }
             if let Some(status) = key.status {
-                value.set("status", Value::String(status));
+                value["status"] = Value::String(status);
             }
             keys.push(value);
         }
         whole.extend_from_slice(b"]}");
         // serde_json writes UTF-8, and rows are copied only at their boundaries.
-        (String::from_utf8(whole).unwrap_or_default(), spans, keys)
+        (String::from_utf8(whole).expect("JSON is UTF-8"), spans, keys)
     }
 }
 
@@ -305,8 +296,6 @@ impl ListGuard {
         }
         pace.spend(now + wait, window.mul_f64(share));
         replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
-        tracing::debug!(target: "acpmux::list_cost", window_us = window.as_micros(),
-            wait_us = (wait + more).as_micros(), share, "list_reply_reservation");
         Ok(wait + more)
     }
 
@@ -330,11 +319,7 @@ impl ListGuard {
         let serial = self.begun.fetch_add(1, Ordering::SeqCst) + 1;
         let (started, key) = (Instant::now(), key(hub));
         let built = Snapshot::build(hub);
-        let elapsed = started.elapsed();
-        let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
-        tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
-            build_us = elapsed.as_micros(), window_us = window.as_micros(),
-            builder_wait_us = wait.as_micros(), "list_snapshot_build");
+        let window = started.elapsed().saturating_mul(PACE).min(MAX_WINDOW);
         state.pace.spend(started, window);
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);

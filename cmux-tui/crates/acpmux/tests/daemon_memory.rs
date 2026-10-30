@@ -30,28 +30,16 @@ impl Rpc {
     }
 
     fn call(&mut self, method: &str, params: Value) -> Value {
-        self.call_timed(method, params).0
-    }
-
-    /// Reply wait includes server work/pacing and transport; decoding is measured separately.
-    fn call_timed(&mut self, method: &str, params: Value) -> (Value, u128, u128) {
-        let started = std::time::Instant::now();
         self.next += 1;
         let line = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
         self.writer.write_all(format!("{line}\n").as_bytes()).unwrap();
         loop {
             let mut text = String::new();
             assert!(self.reader.read_line(&mut text).unwrap() > 0, "daemon closed the socket");
-            let received = std::time::Instant::now();
             let v: Value = serde_json::from_str(&text).unwrap();
             if v.get("id") == Some(&json!(self.next)) {
                 assert!(v.get("error").is_none(), "{method} failed: {v}");
-                let result = v["result"].clone();
-                return (
-                    result,
-                    received.duration_since(started).as_micros(),
-                    received.elapsed().as_micros(),
-                );
+                return v["result"].clone();
             }
         }
     }
@@ -64,19 +52,14 @@ struct Daemon {
 
 impl Daemon {
     fn start(scratch: &Path, home: &Path) -> Self {
-        Self::start_logged(scratch, home, None)
-    }
-
-    fn start_logged(scratch: &Path, home: &Path, log: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
-        let level = if log.is_some() { "warn,acpmux::list_cost=debug" } else { "warn" };
         let mut child = daemon_env::acpmux(scratch)
-            .args(["daemon", "run", "--ready-fd", "1", "--log", level])
+            .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(log.map_or_else(Stdio::null, |p| std::fs::File::create(p).unwrap().into()))
+            .stderr(Stdio::null())
             .spawn()
             .unwrap();
         let stdout = child.stdout.take().unwrap();
@@ -458,8 +441,7 @@ fn retained_session_list_allocation_benchmark() {
                 &meta.to_string(),
             );
         }
-        let log = dir.join("list-cost.log");
-        let daemon = Daemon::start_logged(&dir, &home, Some(&log));
+        let daemon = Daemon::start(&dir, &home);
         let pid = daemon.child.id();
         let mut rpc = Rpc::connect(&daemon.socket);
         let (ready_rss_kb, startup_peak_kb) = memory(pid);
@@ -476,7 +458,6 @@ fn retained_session_list_allocation_benchmark() {
         let started = std::time::Instant::now();
         let mut samples = Vec::new();
         for request in 0..3 {
-            let tag_started = std::time::Instant::now();
             if request > 0 && chats > 0 {
                 // Invalidate the shared snapshot, without omitting any inventory fields.
                 rpc.call(
@@ -484,9 +465,7 @@ fn retained_session_list_allocation_benchmark() {
                     json!({"sessionId": id(0), "set": {"bench": request.to_string()}}),
                 );
             }
-            let tag_us = tag_started.elapsed().as_micros();
-            let (list, reply_us, decode_us) = rpc.call_timed("_acpmux/sessions", json!({}));
-            let validate_started = std::time::Instant::now();
+            let list = rpc.call("_acpmux/sessions", json!({}));
             let rows = list["sessions"].as_array().unwrap();
             assert_eq!(rows.len() as u64, chats);
             let mut seen = std::collections::BTreeSet::new();
@@ -496,7 +475,7 @@ fn retained_session_list_allocation_benchmark() {
                 assert!(seen.insert(sid.to_owned()), "duplicate {sid}");
                 let i: u64 = sid.rsplit('-').next().unwrap().parse().unwrap();
                 assert!(i < chats && sid == id(i), "unexpected session {sid}");
-                let expected = if i.is_multiple_of(3) { "idle" } else { "closed" };
+                let expected = if i % 3 == 0 { "idle" } else { "closed" };
                 assert_eq!(row["status"], expected, "status of {sid}");
                 closed += u64::from(expected == "closed");
                 assert_eq!(row["tools"].as_array().unwrap().len(), 24, "tools of {sid}");
@@ -504,12 +483,9 @@ fn retained_session_list_allocation_benchmark() {
                 assert_eq!(row["lastPrompt"], "retained prompt ".repeat(64));
             }
             assert_eq!(closed, chats - chats.div_ceil(3));
-            let result_json_bytes = list.to_string().len();
-            let validate_us = validate_started.elapsed().as_micros();
             let (rss_kb, peak_kb) = memory(pid);
             samples.push(json!({"request": request, "rss_kb": rss_kb, "peak_kb": peak_kb,
-                "cpu_ms": cpu_ms(pid).saturating_sub(cpu0), "result_json_bytes": result_json_bytes,
-                "tag_us": tag_us, "reply_us": reply_us, "decode_us": decode_us, "validate_us": validate_us}));
+                "cpu_ms": cpu_ms(pid).saturating_sub(cpu0), "result_json_bytes": list.to_string().len()}));
         }
         let list_cpu_ms = cpu_ms(pid).saturating_sub(cpu0);
         let list_wall_ms = started.elapsed().as_millis();
@@ -532,11 +508,6 @@ fn retained_session_list_allocation_benchmark() {
         );
         drop(rpc);
         drop(daemon);
-        for line in std::fs::read_to_string(&log).unwrap().lines() {
-            if line.contains("list_snapshot_build") || line.contains("list_reply_reservation") {
-                println!("acpmux-list-cost chats={chats}: {line}");
-            }
-        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
