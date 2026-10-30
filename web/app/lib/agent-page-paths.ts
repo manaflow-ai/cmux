@@ -262,6 +262,7 @@ export const agentReadablePages = [
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
+  { path: "/rc", title: "Release Candidate" },
   { path: "/assets", title: "Brand Assets" },
   { path: "/art", title: "Art" },
   { path: "/guides", title: "Guides" },
