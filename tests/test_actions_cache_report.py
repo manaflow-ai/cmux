@@ -161,6 +161,20 @@ class ParseTests(unittest.TestCase):
         ))
         self.assertEqual(kinds(cache.parse_job_log(log)), [("ghostty-zig-packages-v1-Linux-zig0.16.0", "exact")])
 
+    def test_cache_phrases_in_a_build_or_local_action_step_are_not_restores(self):
+        log = "\n".join(T + line for line in (
+            "##[group]Run ./scripts/build@main",
+            "##[endgroup]",
+            "Failed to restore terminal state",
+            "Cache not found for input keys: whatever-1",
+            "##[group]Run make test",
+            "Cache hit for: some-test-fixture",
+            "##[group]Run someone/other-action@v1",
+            "  key: other-key-deadbeef",
+            "Cache hit for: other-key-deadbeef",
+        ))
+        self.assertEqual(kinds(cache.parse_job_log(log)), [])
+
 
 class AggregateTests(unittest.TestCase):
     def test_rows_are_per_workflow_and_cache_worst_hit_rate_first(self):

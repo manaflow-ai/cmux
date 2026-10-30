@@ -42,6 +42,13 @@ MAX_STORE_PAGES = 5
 _STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[0-9:.]+Z ")
 _RUN_ACTION = re.compile(r"^##\[group\]Run (\S+@\S+|\./\S+)\s*$")
 _RUN_ANY = re.compile(r"^##\[group\]Run ")
+# The actions whose restore lines are read. Any other step (a build, a test,
+# a local composite action whose own cache steps log their own groups) can
+# print the same phrases, so its output never counts as a restore.
+_CACHE_ACTION = re.compile(
+    r"^(?:actions/cache(?:/restore|/save)?|warpbuilds/cache(?:/restore|/save)?|swatinem/rust-cache"
+    r"|actions/setup-(?:node|go|python|java|dotnet)|mlugg/setup-zig|oven-sh/setup-bun)@"
+)
 _INPUT_KEY = re.compile(r"^  (key|primary-key): (\S+)")
 _HEX = re.compile(r"^[0-9a-f]{8,}$")
 
@@ -203,7 +210,8 @@ def parse_job_log(text: str) -> list[CacheEvent]:
         if _RUN_ANY.match(line):
             close()
             match = _RUN_ACTION.match(line)
-            current = _Invocation(match.group(1)) if match else None
+            action = match.group(1) if match else ""
+            current = _Invocation(action) if _CACHE_ACTION.match(action.lower()) else None
             continue
         if line == "Post job cleanup.":
             close()

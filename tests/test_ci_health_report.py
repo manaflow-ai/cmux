@@ -796,6 +796,30 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(github.job_log(8, max_bytes=1000), "short")
         self.assertEqual(github.truncated_logs, set())
 
+    def test_the_job_log_redirect_is_fetched_without_the_token(self):
+        import email.message
+        import io
+        import urllib.error
+        from unittest import mock
+
+        headers = email.message.Message()
+        headers["Location"] = "https://blob.example/log?sig=1"
+        redirect = urllib.error.HTTPError("https://api.github.com/x", 302, "Found", headers, None)
+        fetched = []
+
+        def blob(request, timeout):
+            fetched.append(request)
+            body = io.BytesIO(b"log text")
+            return body
+
+        github = report.GitHub("secret-token", REPO)
+        with mock.patch("urllib.request.OpenerDirector.open", side_effect=redirect), \
+                mock.patch("urllib.request.urlopen", side_effect=blob):
+            self.assertEqual(github.job_log(9), "log text")
+        self.assertEqual(fetched[0].full_url, "https://blob.example/log?sig=1")
+        self.assertFalse(any("secret-token" in str(value) for value in fetched[0].header_items()))
+        self.assertIsNone(fetched[0].get_header("Authorization"))
+
     def test_fork_runs_are_not_sampled_for_cache_logs(self):
         self.assertFalse(report.cache_log_candidate({"head_repository": {"full_name": "someone/cmux"}}, REPO))
         self.assertTrue(report.cache_log_candidate({"head_repository": {"full_name": REPO}}, REPO))
