@@ -18,7 +18,7 @@ export const isAgentGatewayPrincipal = (p: Principal) => p.kind === "agent" && !
 export const resolveConnectionPrincipal = async (env: Env, p: Principal): Promise<Principal | { refused: string } | undefined> => {
   if (!isAgentGatewayPrincipal(p)) return principalForOwner(env, "cloud:ConnectionDO", p)
   if (!agentGatewayOn(env)) return undefined
-  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
+  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
   const role = await team.memberRole(p.team!, p.user!)
   if (!roleHas(role ?? undefined, "team.resources")) return undefined
   return agentGatewayPrincipal(p.user!, p.team!, p.agent!)

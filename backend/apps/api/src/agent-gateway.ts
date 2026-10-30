@@ -5,7 +5,7 @@ import type { ExternalReply } from "./connection-do.ts"
 import type { Env } from "./env.ts"
 import { agentGatewayOn, agentGatewayPrincipal, resolveConnectionPrincipal } from "./agent-gateway-principal.ts"
 import { authenticate } from "./auth.ts"
-import { selectTeam } from "./team-select.ts"
+import { selectTeam, type TeamPrincipal } from "./team-select.ts"
 
 export interface AgentIssueCommentRequest {
   /** The platform forwards the caller's bearer; this binding verifies it, never trusts body identity. */
@@ -40,12 +40,13 @@ export class AgentGateway extends WorkerEntrypoint<Env> {
     if (![input.mcpSessionId, input.requestId, input.toolInvocationId].every((v) => matches(ID, v))) return refused("validation.invalid")
     const bearer = /^Bearer\s+([^\s]+)$/i.exec(input.authorization)?.[1]
     const authenticated = await authenticate(this.env, bearer)
-    if (!authenticated?.user || authenticated.user !== input.user || authenticated.team !== input.team) return refused("auth.forbidden")
-    const selected = await selectTeam(this.env, authenticated, input.team)
+    if (!authenticated?.user || !authenticated.team || authenticated.user !== input.user || authenticated.team !== input.team) return refused("auth.forbidden")
+    const selected = await selectTeam(this.env, authenticated as TeamPrincipal, input.team)
     if (!selected.ok || selected.principal.user !== input.user || selected.principal.team !== input.team) return refused("auth.forbidden")
     const principal = agentGatewayPrincipal(selected.principal.user, selected.principal.team, input.mcpSessionId)
     try {
-      if (!await resolveConnectionPrincipal(this.env, principal)) return refused("auth.forbidden")
+      const resolved = await resolveConnectionPrincipal(this.env, principal)
+      if (!resolved || "refused" in resolved) return refused("auth.forbidden")
       const stub = this.env.CONNECTION_DO.get(this.env.CONNECTION_DO.idFromName(input.team))
       return await stub.external(input.team, principal, {
         op: "github.issue.comment",
