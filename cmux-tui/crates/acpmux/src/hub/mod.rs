@@ -26,7 +26,7 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
-mod cancel;
+pub(crate) mod cancel;
 mod catalog_reload;
 mod complete;
 pub mod composers;
@@ -137,9 +137,9 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod key_route;
 pub mod mac_approvers;
 mod own_host;
-pub(crate) mod key_route;
 mod peer_cache;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
@@ -181,6 +181,8 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+#[cfg(test)]
+mod stop_settles_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;

@@ -9,7 +9,10 @@ mod composer;
 mod events;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
+pub(super) mod person_stop;
 mod presets;
+mod successor;
+mod turn_opener;
 #[path = "watches.rs"]
 mod watches;
 
@@ -153,13 +156,9 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
-                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`).
-                    let stopped = if conn.is_person() {
-                        hub.person_stop(&s).await
-                    } else {
-                        hub.cancel(&s).await
-                    };
-                    if let Err(e) = stopped {
+                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
+                    // a peer's person's too (`person_stop.rs`).
+                    if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
@@ -170,6 +169,7 @@ pub(super) async fn handle_notification(
                         &params,
                         &mut forwarded,
                     );
+                    person_stop::mark(conn, &params, &peer, &mut forwarded);
                     let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
                 }
             }
@@ -816,7 +816,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE], "trustGate": true}}
             });
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
@@ -1011,21 +1011,7 @@ async fn dispatch_request(
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }
                 let mut p = params.clone();
-                if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
-                    m.remove("peer");
-                    // A family lives on one daemon: this daemon's caller is no session there.
-                    m.remove(crate::hub::lineage::PARENT_FIELD);
-                    m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
-                    // The peer would tie it to this daemon's long-lived connection, never to the
-                    // client's: the client's own kill purges it (`ephemeral.rs`).
-                    m.remove("ephemeral");
-                    // Retry hints use the original params here; the peer does not need the
-                    // CLI argv or a second copy of the prompt file to create the session.
-                    m.remove("argv");
-                    m.remove("promptFileText");
-                    // Only this daemon decides the VM boundary, never its caller.
-                    m.remove(crate::hub::vm_boundary::FIELD);
-                }
+                super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`).
@@ -1109,16 +1095,19 @@ async fn dispatch_request(
                 Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
+            // The session this one takes over from: its harness is kept (`requests/successor.rs`).
+            let succ = successor::find(hub, conn, &params, lineage.as_ref(), adopting).await?;
+            let copy = succ.as_ref().and_then(|s| s.copy.clone()).unwrap_or_default();
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
-                harness: pick("harness"),
-                preset: pick("preset"),
+                harness: copy.harness.or_else(|| pick("harness")),
+                preset: copy.preset.or_else(|| pick("preset")),
                 name: pick("name"),
                 cwd,
                 policy,
-                model: pick("model"),
-                effort: pick("effort"),
+                model: copy.model.or_else(|| pick("model")),
+                effort: copy.effort.or_else(|| pick("effort")),
                 adopt,
                 workspace_id: crate::session_env::workspace_id(meta, &env)?,
                 env,
@@ -1186,6 +1175,7 @@ async fn dispatch_request(
             if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
                 summary.set("admission", w);
             }
+            successor::warn(hub, succ.as_ref(), &s, &mut summary).await;
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
@@ -1450,9 +1440,7 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            let stopped =
-                if conn.is_person() { hub.person_stop(&s).await } else { hub.cancel(&s).await };
-            if let Err(e) = stopped {
+            if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
             Ok(json!({}))
@@ -2032,11 +2020,13 @@ async fn dispatch_request(
             } else {
                 events::newest_seq(&page.events)
             };
+            // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
+            let opener = turn_opener::turn_opener(hub, &s.id, &page);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence}),
+                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener}),
             )
         }
         method::MUX_DETACH => {
