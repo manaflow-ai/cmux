@@ -89,9 +89,9 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     let url: URL
     let now: @Sendable () -> Date
     private let state = Mutex(State())
-    /// The newest generation written, and whether that write reached the disk; a write of an
-    /// older one is skipped (it would put back what a newer change took out).
-    private let written = Mutex((generation: 0, onDisk: true))
+    /// The newest generation written (a write of an older one is skipped: it would put back what a
+    /// newer change took out), and the newest that reached the disk (it holds every older change).
+    private let written = Mutex((attempted: 0, onDisk: 0))
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
     /// Runs after a record's failed write, before it is taken back (tests: a disconnect in between).
     let afterFailedWrite = Mutex<(@Sendable () -> Void)?>(nil)
@@ -300,24 +300,24 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
     }
 
-    /// Writes generation `generation` of the entries. True when it reached the disk; an older
-    /// one than the newest written is skipped, and is on disk only as far as that newer write is
-    /// (which holds this one's change).
+    /// Writes generation `generation` of the entries. True when it is on disk: written now, or
+    /// skipped as older than the newest written while a write as new as it reached the disk
+    /// (which holds its change), whatever became of the writes after that one.
     @discardableResult
     private func write(_ entries: [Entry], generation: Int) -> Bool {
         written.withLock { last in
-            guard generation > last.generation else { return last.onDisk }
-            last.generation = generation
+            guard generation > last.attempted else { return last.onDisk >= generation }
+            last.attempted = generation
             do {
                 let data = try Self.encoder.encode(Document(entries: entries))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try data.write(to: url, options: [.atomic])
-                last.onDisk = true
+                last.onDisk = generation
+                return true
             } catch {
                 Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
-                last.onDisk = false
+                return false
             }
-            return last.onDisk
         }
     }
 
