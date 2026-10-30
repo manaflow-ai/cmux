@@ -34,15 +34,11 @@ public struct NewRowCommand: Sendable {
         let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
         // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
         let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
-        let send = daemon.intendNowReporting("new-row", intent, transaction: transaction) { connection in
+        let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
             try await RowCommands(connection).newRow(below: try await target(), height: height, options: sent)
         }
         return {
-            let answer = await send()
-            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
-            // (or answered by a capturing caller), never the generic failure on top of it.
-            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
-            guard case .success(let created) = answer else { throw PaneSplitFailure() }
+            guard let created = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             await daemon.store.applied(transaction, connection: daemon.connection)

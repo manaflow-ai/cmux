@@ -18,7 +18,6 @@ extension ActionWorkFailure {
         // person's language; here the English text.
         if let notReady = error as? PaneNotReady {
             self.init(refusal: .unavailable, reason: notReady.reason)
-            shown = notReady.shown
             return
         }
         let daemonError = error as? DaemonError

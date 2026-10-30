@@ -52,7 +52,7 @@ extension AgentHandlers {
         let capturedByCaller = context.registry.isCapturingWork
         let task = Task { @MainActor () -> Result<[String: ActionResultValue], ActionWorkFailure> in
             let result = await createOnHost(wanted, invocation: invocation, destinations: destinations, context: context)
-            if !capturedByCaller, case .failure(let failure) = result, !failure.shown { context.registry.refuse(failure.message) }
+            if !capturedByCaller, case .failure(let failure) = result { context.registry.refuse(failure.message) }
             return result
         }
         context.registry.track(result: task)

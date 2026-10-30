@@ -412,7 +412,7 @@ public final class DaemonService {
             return .unknown
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            _ = await ended(error, ticket: ticket, label: label)
+            await closeTicket(ticket, label: label, error: error)
             if case DaemonError.command(_, _, let code, _, _) = error { return .failed(code: code) }
             return .failed(code: nil)
         }
@@ -425,7 +425,14 @@ public final class DaemonService {
         // The ticket opens now, so an action that awaits its scope waits
         // for this command even before the task starts.
         let ticket = openTicket(label)
-        let task = Task { await failure(label, ticket: ticket, body) }
+        let task = Task {
+            let (failed, notReady) = await outcome(label, ticket: ticket, body)
+            // A pane verb on a pane still opening (``PaneNotReady``): a fire-and-forget `send` that no action.run scope
+            // captures (a key, the menu) shows nothing for its failure, so it says why here, once (rule a). A capturing
+            // caller answers the typed refusal; effect paths show it through the registry.
+            if notReady, ticket == nil, let failed { onPaneNotReady?(failed.message) }
+            return failed
+        }
         workTracker?(task)
     }
 
@@ -449,35 +456,45 @@ public final class DaemonService {
 
     func failure(_ label: String, ticket: CommandTicket?,
                          _ body: DaemonCommandBody) async -> ActionWorkFailure? {
+        await outcome(label, ticket: ticket, body).failure
+    }
+
+    /// ``failure(_:ticket:_:)`` and whether it was a ``PaneNotReady`` (refused before it was sent).
+    private func outcome(_ label: String, ticket: CommandTicket?,
+                         _ body: DaemonCommandBody) async -> (failure: ActionWorkFailure?, notReady: Bool) {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
+            return (ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"), false)
         }
+        // One return after the do/catch (an awaiting do and its catch must not each return a tuple: swiftlang/swift#92698).
+        var failure: ActionWorkFailure?
+        var notReady = false
         do {
             try await body(connection)
             await closeTicket(ticket, label: label, error: nil, replying: connection)
-            return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            return workFailure(label, await ended(error, ticket: ticket, label: label))
+            await closeTicket(ticket, label: label, error: error)
+            failure = workFailure(label, error)
+            notReady = error is PaneNotReady
         }
+        return (failure, notReady)
     }
 
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
-    /// Shows a command refused because its pane is still opening (``PaneNotReady``) when no caller captures the run
-    /// (`ended(_:ticket:label:)`); the app sets it (the refusal path: log + HUD). Gets the localized reason.
+    /// Shows a pane verb refused because its pane is still opening (``PaneNotReady``) when no caller captures the run;
+    /// the app sets it (the refusal HUD). Gets the localized reason.
     @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
     /// ``PaneNotReady``'s text in the app's language (the app sets it; its string catalog). Nil: the English text.
     @ObservationIgnored public var paneNotReadyText: (() -> String)?
 
     /// The failure of command `label` as the person reads it: ``PaneNotReady`` as a typed refusal in the app's language.
     public func workFailure(_ label: String, _ error: any Error) -> ActionWorkFailure {
-        var failure = ActionWorkFailure(label, error)
-        if error is PaneNotReady, let text = paneNotReadyText?() { failure.message = text }
-        return failure
+        guard error is PaneNotReady, let text = paneNotReadyText?() else { return ActionWorkFailure(label, error) }
+        return ActionWorkFailure(refusal: .unavailable, reason: text)
     }
 
     public func shutdownConnection() {

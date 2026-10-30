@@ -60,7 +60,7 @@ extension ActionRegistry {
             let title = title(for: id) ?? id.rawValue
             track(result: Task { [weak self] in
                 let answer = await result()
-                if case .failure(let failure) = answer, !reported, !failure.shown {
+                if case .failure(let failure) = answer, !reported {
                     self?.remoteFailureObserver?(id, failedText(title, failure))
                 }
                 return answer
@@ -83,7 +83,7 @@ extension ActionRegistry {
         // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
         track(Task { [weak self] in
             guard let failure = await work.value else { return nil }
-            if !reported, !failure.shown { self?.remoteFailureObserver?(id, failedText(title, failure)) }
+            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure)) }
             return failure
         })
     }
@@ -97,7 +97,7 @@ extension ActionRegistry {
         let task: ActionWork = Task { [weak self] in
             guard let failure = await send() else { return nil }
             rollback?(failure)
-            if !reported, !failure.shown { self?.remoteFailureObserver?(id, failedText(title, failure)) }
+            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure)) }
             return failure
         }
         track(task)

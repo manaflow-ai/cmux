@@ -52,7 +52,8 @@ extension DaemonService {
             Self.checkStandInRollback(intent, error: error, label: label)
             store.rejectIntent(transaction)
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
-            return .failure(await ended(error, ticket: ticket, label: label))
+            await closeTicket(ticket, label: label, error: error)
+            return .failure(error)
         } }
     }
 
@@ -95,7 +96,7 @@ extension DaemonService {
             return value
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            _ = await ended(error, ticket: ticket, label: label)
+            await closeTicket(ticket, label: label, error: error)
             return nil
         }
     }
@@ -113,7 +114,8 @@ extension DaemonService {
             await closeTicket(ticket, label: label, error: nil, replying: connection)
             return value
         } catch {
-            throw await ended(error, ticket: ticket, label: label)
+            await closeTicket(ticket, label: label, error: error)
+            throw error
         }
     }
 }
