@@ -357,8 +357,16 @@ impl SubagentTree {
                         .and_then(|s| s.get(id))
                         .and_then(|s| s.get("status"))
                         .and_then(Value::as_str);
+                    // A sender this tree knows (the root or a child) decides the parent. An unseen
+                    // one decides nothing yet: the child keeps any parent it has, and moves under the
+                    // sender once that sender's own spawn arrives (`resolve_pending`).
+                    let resolved = sender.is_some_and(|sender| {
+                        self.root_thread.as_deref() == Some(sender)
+                            || self.parents.contains_key(sender)
+                    });
                     let (parent, authoritative) = match sender {
-                        Some(sender) => (self.authoritative_parent(sender), true),
+                        Some(sender) if resolved => (self.authoritative_parent(sender), true),
+                        Some(_) => (None, false),
                         None => (owner.map(str::to_owned), false),
                     };
                     if let Some(sender) = sender {
@@ -998,6 +1006,30 @@ mod codex_tests {
                      "senderThreadId": "unseen-child", "receiverThreadIds": ["grandchild"]}}}}),
         );
         assert_eq!(child[0]["parent"], Value::Null);
+    }
+
+    #[test]
+    fn an_unseen_sender_keeps_the_childs_parent() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        tree.set_root(root);
+        let spawn = |tree: &mut SubagentTree, sender: &str, child: &str| {
+            subagents_for(
+                tree,
+                "acp-root",
+                json!({"sessionUpdate": "tool_call", "toolCallId": format!("spawn-{child}"),
+                       "rawInput": {"prompt": "Work", "agentsStates": {}},
+                       "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                         "senderThreadId": sender, "receiverThreadIds": [child]}}}}),
+            )
+        };
+        spawn(&mut tree, root, "child");
+        spawn(&mut tree, "child", "grandchild");
+        assert_eq!(tree.parents.get("grandchild"), Some(&Some("child".to_owned())));
+        // A later update names a sender whose spawn is outside the retained history.
+        let again = spawn(&mut tree, "outside-history", "grandchild");
+        assert_eq!(again[0]["parent"], "child");
+        assert_eq!(tree.parents.get("grandchild"), Some(&Some("child".to_owned())));
     }
 
     #[test]
