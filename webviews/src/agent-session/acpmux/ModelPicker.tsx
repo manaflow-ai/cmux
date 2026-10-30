@@ -30,6 +30,7 @@ import { relevantModelSections } from "./relevantModels";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
+import { graphemePrefix } from "../../ui/initials";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import {
@@ -1416,7 +1417,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     ) : (
                       // A harness without a mark: its initial, never an empty tab.
                       <span aria-hidden="true" className="text-control font-semibold">
-                        {entry.name.trim().charAt(0).toUpperCase()}
+                        {graphemePrefix(entry.name.trim(), 1).toUpperCase()}
                       </span>
                     )}
                     <span className="sr-only">{entry.name}</span>
