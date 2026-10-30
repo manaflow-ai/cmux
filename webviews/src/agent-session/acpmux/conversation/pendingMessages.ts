@@ -10,8 +10,9 @@
 // stays open or closed as the person left it. Opened, its messages are grouped by the session that
 // sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
 // Once the agent reads a message it leaves the group and draws where it was read.
-// The same message is shown once (Leo: "nx-sidebar #27128 own red fixed..." twice): by its prompt
-// id, else by its sender and text (a relay retried under a new id) when it carries no images.
+// The same delivery is shown once by its prompt id (or its row id when the prompt id is absent).
+// Preview text is not identity: after a reload the queue may hold only the first 200 characters,
+// and distinct messages from the same sender can have identical previews.
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
@@ -27,26 +28,17 @@ export const isWaitingMessage = (row: AcpmuxRow) =>
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
 
-/// The key a sender's message is the same under: its sender and its words. A message with images
-/// has none: two "See attached" with different images are two messages, only one prompt id is one.
-function contentKey(row: AcpmuxRow): string | undefined {
-  if (row.incoming?.kind !== "message" || row.images?.length) return undefined;
-  const { name, sessionId, text } = row.incoming.message;
-  return `${sessionId ?? name}\u0000${text.trim()}`;
-}
-
-/// `rows` with each message once: the first of those with one prompt id, or one sender and text.
+/// `rows` with each stable delivery id once. Separate prompt ids remain separate messages,
+/// even when their sender, preview and attachments match. Keep row ids in a separate namespace.
 export function dedupeMessages(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
   if (rows.length < 2) return rows;
   const ids = new Set<string>();
-  const texts = new Set<string>();
   let out: AcpmuxRow[] | undefined;
   rows.forEach((row, index) => {
-    const id = promptIdOf(row);
-    const text = contentKey(row);
-    const seen = (id !== undefined && ids.has(id)) || (text !== undefined && texts.has(text));
-    if (id !== undefined) ids.add(id);
-    if (text !== undefined) texts.add(text);
+    const promptId = promptIdOf(row);
+    const id = promptId ? `prompt:${promptId}` : `row:${row.id}`;
+    const seen = ids.has(id);
+    ids.add(id);
     if (seen) out ??= rows.slice(0, index);
     else out?.push(row);
   });
