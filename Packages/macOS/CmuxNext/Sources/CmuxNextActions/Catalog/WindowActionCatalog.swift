@@ -75,11 +75,9 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
                 surfaces: [.palette], cliName: "app minimize-window"
             ),
-            // A PNG of the window as on screen, never focusing or raising it
-            // (agents read the app without Screen Recording; ScreenshotHandlers). An
-            // automation run's image has every web page the app does not own painted
-            // over (ScreenshotPrivacyMask): the browser host's guarded capture is the
-            // only way automation sees a page's pixels.
+            // A PNG of the window as on screen, never focusing or raising it (a person copies
+            // it without Screen Recording; ScreenshotHandlers). An agent's or a script's
+            // capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "window.screenshot",
                 title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
