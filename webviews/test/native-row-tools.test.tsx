@@ -133,7 +133,7 @@ test("native and DOM PR labels retain aggregate failure and pending state withou
         );
         const status = translate(state === "failing" ? "rail.checksFailing" : "rail.checksPending");
         expect(h.tool("pullRequest").label).toContain(status);
-        await h.render({ nativeRowTools: { enabled: false } });
+        await h.render({ nativeRowTools: { enabled: false, callNative: async () => {} } });
         expect(h.container.querySelector(".acpmux-header-pr")?.getAttribute("aria-label")).toContain(status);
         await h.render();
       }
