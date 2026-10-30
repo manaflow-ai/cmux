@@ -202,4 +202,10 @@ final class OutboundTab {
     static func count(in pane: PaneController) -> Int {
         open[ObjectIdentifier(pane)]?.count { $0.pane === pane } ?? 0
     }
+
+    /// Cancels a creator's most recently prepared outbound hold when creation
+    /// is refused before its placement callback can name a surface.
+    static func cancelLatest(in pane: PaneController) {
+        open[ObjectIdentifier(pane)]?.last?.finish(moved: false)
+    }
 }

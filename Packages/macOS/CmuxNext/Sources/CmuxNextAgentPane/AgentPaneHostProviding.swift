@@ -7,6 +7,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// Starts the daemon before a page is visible. Callers may treat this as
     /// best effort because the normal page handshake still reports failures.
     func prewarm() async throws
+    /// The peers listed by the same daemon the composer Environment picker reads.
+    func chatPeers() async throws -> [AgentChatPeer]
     /// The handshake for a page that lost its daemon. Starts one only after a
     /// crash, so a daemon the user stopped stays stopped.
     func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
@@ -45,6 +47,8 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have nothing to prewarm.
     public func prewarm() async throws {}
+
+    public func chatPeers() async throws -> [AgentChatPeer] { [] }
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }

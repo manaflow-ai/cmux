@@ -69,6 +69,9 @@ impl Hub {
         // The log retention worker sees the shutdown begun and ends (`retention.rs`).
         self.retention_wake.notify_one();
         let sessions = self.sessions();
+        // Startup may have been cancelled before adoption reached these hosts. Keep their
+        // state and router on an ordinary restart, even when no child link exists yet.
+        let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
         // Sessions whose agent host must end without its link: no child
@@ -91,6 +94,10 @@ impl Hub {
                 }
                 continue;
             };
+            if !ends && slot.is_none() && live.as_ref().is_none_or(|live| live.contains(&s.id)) {
+                unreached += 1;
+                continue;
+            }
             let is_hosted = slot.as_ref().is_some_and(|c| c.host_record().is_some());
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
@@ -125,6 +132,9 @@ impl Hub {
             futures::future::join_all(host_fallback.iter().map(|s| self.end_unadopted_host(s)));
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
+        }
+        for s in &sessions {
+            let _ = self.store_deferred(s);
         }
         self.flush();
         hosted.len() + unreached

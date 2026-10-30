@@ -225,6 +225,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public func endLaunchSessions(waitForShutdown: Bool) async -> AcpmuxQuit.EndResult {
         guard startsDaemons, let environment, !environment.isAttached else { return .noDaemon }
         return await launchWarm.end(environment: environment, waitForShutdown: waitForShutdown)
+
+    public func chatPeers() async throws -> [AgentChatPeer] {
+        // Validate the app's daemon/home just as a composer handshake does. Listing never
+        // starts another daemon; the tab store already prewarms its own host.
+        _ = try await endpoint(startsDaemon: false)
+        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
+        return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
@@ -300,6 +307,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let endpoint = try await task.value
         await daemonReady(daemonSocket)
         return endpoint
+    }
+
+    /// Whether the enroll after a launch may hand the daemon off. Only a daemon this launch
+    /// started: a launch that lost the lock race got the winner's readiness (`lockHeld`), and the
+    /// winner is another client's daemon, which a handoff would shut down under that client and
+    /// leave this one holding a dead endpoint. Such a daemon is enrolled like the one the
+    /// exited-before-ready branch finds (`mayHandOff: false`).
+    static func mayHandOff(after launched: AcpmuxDaemonLauncher.Launched) -> Bool {
+        launched.startedHere
     }
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
@@ -386,7 +402,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
         let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
         return .daemonRefused(holder: holder, socketPath: environment.socketPath,
-                              reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
+                              reason: "\(AgentPaneHostError.foreignHomeReason)\(status.home ?? ""), not \(environment.home.path)",
                               executable: environment.executable.path)
     }
 
@@ -506,14 +522,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         do {
             try Task.checkCancellation()
-            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
+            let launched = try await AcpmuxDaemonLauncher.launchReporting(environment)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment)
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment,
+                                                 mayHandOff: Self.mayHandOff(after: launched))
                 await AcpmuxComputerUse.enroll(environment)
                 AcpmuxMacApprover.register(environment)
             }
-            return endpoint
+            return launched.endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser exits because the
