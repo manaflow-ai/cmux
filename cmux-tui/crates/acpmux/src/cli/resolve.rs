@@ -16,7 +16,9 @@ pub(crate) async fn control_id(client: &crate::client::Client, key: &str) -> Res
     let reply =
         client.request(method::MUX_RESOLVE, json!({"query": query})).await.map_err(|e| {
             if e.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| e.0.code == -32002) {
-                AppError::new(Code::NoSession, "no_session", e.to_string()).into()
+                let mut app = AppError::new(Code::NoSession, "no_session", e.to_string());
+                app.data = AppError::no_session_from(&query, &e).data;
+                app.into()
             } else {
                 e
             }
