@@ -1538,7 +1538,15 @@ async fn dispatch_request(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
-        method::MUX_SESSIONS => super::list_reply::sessions(hub, conn, &params).await,
+        method::MUX_SESSIONS => {
+            // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
+            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
+            if params.get("usage") == Some(&Value::Bool(true)) {
+                let read = hub.refresh_usage_stats();
+                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+            }
+            super::list_reply::sessions(hub, conn, &params).await
+        }
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {

@@ -40,6 +40,7 @@ export type PlatformCall =
   | { readonly op: "exec"; readonly machine: string; readonly command: string; readonly stdin: string | null; readonly timeoutMs: number }
   | { readonly op: "snapshot"; readonly machine: string; readonly name: string }
   | { readonly op: "destroy"; readonly machine: string }
+  | { readonly op: "deleteSnapshot"; readonly snapshot: string }
 
 /** `retryable`: the same call later may succeed (a provider call still running, a machine still binding). */
 export type PlatformReply<T = unknown> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: string; readonly message: string; readonly retryable: boolean }
@@ -60,6 +61,8 @@ export interface PlatformHost {
   resources(row: MachineRow): Promise<PlatformShape | null>
   ledger(key: string): LedgerRow | undefined
   snapshot(id: string): SnapshotRow | undefined
+  /** Legacy fallback for platform snapshots created before the row marker was introduced. */
+  platformSnapshot(user: string, id: string): boolean
   tombstoned(machine: string): boolean
   /** One command on the machine's VM as root; null when the provider did not answer. */
   exec(row: MachineRow, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult | null>
@@ -67,7 +70,7 @@ export interface PlatformHost {
 }
 
 export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
-const key = (kind: "boot" | "snapshot" | "destroy", name: string) => `platform-env:${kind}:${name}`
+const key = (kind: "boot" | "snapshot" | "destroy" | "deleteSnapshot", name: string) => `platform-env:${kind}:${name}`
 const machineKey = (kind: "pause" | "resume", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
 const ok = <T>(value: T): PlatformReply<T> => ({ ok: true, value })
 export const refused = (code: string, message: string, retryable: boolean): PlatformReply<never> => ({ ok: false, code, message, retryable })
@@ -106,7 +109,7 @@ export const platformMetadata = (m: MachineRow): PlatformReply<PlatformMachine> 
 export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> => {
   // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
   // after the user lost access to the team, so a setup's cleanup always deletes its builder.
-  const cleanup = call.op === "find" || call.op === "destroy" || call.op === "providerInfo"
+  const cleanup = call.op === "find" || call.op === "destroy" || call.op === "providerInfo" || call.op === "deleteSnapshot"
   if ((call.op === "create" || call.op === "fork") && (recoveryOnly || !host.providerInfo().available)) return host.operations.recover(host, user, call)
   if (!cleanup && !(await host.mayUse(user).catch(() => false))) {
     if (call.op === "create" || call.op === "fork") return host.operations.recover(host, user, call)
@@ -211,6 +214,19 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (host.tombstoned(m.id) || !host.machine(m.id)) return ok({ deleted: true })
       if (r?.t === "result") return deleting
       return r?.t === "reject" ? refused(r.code, r.message, true) : fromReject(r)
+    }
+    case "deleteSnapshot": {
+      const snap = host.snapshot(call.snapshot)
+      // Absence also covers a successful prior delete, even after its ledger is pruned.
+      // cmux-platform treats cloud.snapshot.not_found as successful cleanup.
+      if (!snap || snap.creator !== user || (snap.platform !== true && !host.platformSnapshot(user, snap.id))) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+      const deleting = refused("mutation.indeterminate", "the snapshot is still being deleted; retry", true)
+      if (snap.status === "deleting") return deleting
+      // Like destroy, a terminal failure restores the row at a new revision. The next request
+      // starts a new intent, while concurrent requests for this revision share the same one.
+      const r = await submit("cloud.snapshot.delete", { snapshot: snap.id }, key("deleteSnapshot", `${snap.id}:${snap.revision}`))
+      if (!host.snapshot(snap.id)) return ok({ deleted: true })
+      return r?.t === "result" ? deleting : r?.t === "reject" ? refused(r.code, r.message, true) : fromReject(r)
     }
   }
 }

@@ -75,6 +75,11 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
     return this.call(caller, { op: "destroy", machine }) as Promise<PlatformReply<{ deleted: true }>>
   }
 
+  deleteSnapshot(caller: PlatformCaller, snapshot: string): Promise<PlatformReply<{ deleted: true }>> {
+    if (!matches(SNAPSHOT, snapshot)) return invalid("snapshot")
+    return this.call(caller, { op: "deleteSnapshot", snapshot }) as Promise<PlatformReply<{ deleted: true }>>
+  }
+
   private async call(caller: PlatformCaller, call: PlatformCall): Promise<PlatformReply> {
     const development = this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test"
     const cleanup = call.op === "find" || call.op === "destroy" || call.op === "create" || call.op === "fork" || call.op === "providerInfo"
@@ -83,6 +88,7 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
     if (typeof team !== "string" || !TEAM.test(team) || typeof user !== "string" || !USER.test(user)) return refused("validation.invalid", "invalid caller", false)
     if ("name" in call && !matches(NAME, call.name)) return refused("validation.invalid", "invalid name", false)
     if ("machine" in call && !matches(MACHINE, call.machine)) return refused("validation.invalid", "invalid machine", false)
+    if ("snapshot" in call && !matches(SNAPSHOT, call.snapshot)) return refused("validation.invalid", "invalid snapshot", false)
     const stub = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(team)) as unknown as { platformMachine(e: string, u: string, c: PlatformCall, recoveryOnly?: boolean): Promise<PlatformReply> }
     try {
       return await stub.platformMachine(team, user, call, this.env.PLATFORM_MACHINES !== "on")

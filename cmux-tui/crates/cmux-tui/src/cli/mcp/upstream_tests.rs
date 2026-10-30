@@ -37,13 +37,17 @@ for line in sys.stdin:
 "#;
 
 fn upstream_server(name: &str) -> upstream::Upstream {
-    let dir = std::env::temp_dir().join(format!("cmux-mcp-upstream-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let script = dir.join("server.py");
-    // Written once: a stored list keys the script, so rewriting it would be a new server.
-    if std::fs::read(&script).ok().as_deref() != Some(UPSTREAM_SERVER.as_bytes()) {
+    // Written once per process: a stored list keys the script by its modification
+    // time, and tests run in parallel, so two writing it at once made a stored list
+    // miss in one of them (a_stored_list_answers_…: 1 run in 3 on rbx, 2026-10-30).
+    static SCRIPT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    let script = SCRIPT.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("cmux-mcp-upstream-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("server.py");
         std::fs::write(&script, UPSTREAM_SERVER).unwrap();
-    }
+        script
+    });
     let specs = upstream::specs(Some(
         json!([{"name": name, "command": "python3", "args": [script], "env": {}}])
             .to_string()
