@@ -134,3 +134,50 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     out.set("_meta", json!({"acpmux": mux}));
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::session_identity::SessionReceipt;
+
+    /// A hub with no chat of its own, and peer hb listing a working chat.
+    fn hub_with_a_peer_chat() -> Arc<Hub> {
+        let mut config: Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let row = crate::hub::RemoteSession {
+            peer: "hb".into(),
+            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"}),
+            receipt: SessionReceipt {
+                host_id: "hb".into(),
+                mux_session_id: "peer-chat-1".into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.lock().unwrap().insert("hb/peer-chat-1".into(), row);
+        hub
+    }
+
+    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
+    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
+    #[tokio::test]
+    async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
+        let hub = hub_with_a_peer_chat();
+        let live = to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "live": true}))
+            .await
+            .unwrap_err();
+        assert_eq!(live.message, "forking a chat on another computer is not supported yet");
+        let through =
+            to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}))
+                .await
+                .unwrap_err();
+        assert_eq!(
+            through.message,
+            "forking a chat on another computer through a turn is not supported yet"
+        );
+    }
+}
