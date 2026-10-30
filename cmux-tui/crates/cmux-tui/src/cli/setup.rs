@@ -118,11 +118,27 @@ fn local(args: &[String]) -> Result<Outcome, Refusal> {
         return Err(Refusal::Usage(format!("cmux: setup local: unknown option {arg:?}")));
     }
 
-    let trust = trust::run(args)?;
-    let harness = harness::run(args)?;
-    let mcp = mcp::run(args)?;
-    let failed = trust.failed || harness.failed || mcp.failed;
-    let reports = vec![trust.report, harness.report, mcp.report];
+    // Every child runs and reports, even when an earlier one is refused, so a
+    // trust change already made still comes back with its undo.
+    let children = [
+        ("trust", trust::run(args)),
+        ("harness", harness::run(args)),
+        ("mcp", mcp::run(args)),
+    ];
+    let mut failed = false;
+    let mut reports = Vec::with_capacity(children.len());
+    for (task, result) in children {
+        match result {
+            Ok(outcome) => {
+                failed |= outcome.failed;
+                reports.push(outcome.report);
+            }
+            Err(Refusal::Usage(error) | Refusal::Failed(error)) => {
+                failed = true;
+                reports.push(json!({"task": task, "state": "failed", "error": error}));
+            }
+        }
+    }
 
     let state = if failed {
         "failed"

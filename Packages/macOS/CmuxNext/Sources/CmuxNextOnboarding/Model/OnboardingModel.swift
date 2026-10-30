@@ -133,12 +133,14 @@ public final class OnboardingModel {
         guard !ended else { return }
         ended = true
         computerUse.stop()
+        importer.stopDetecting()
     }
 
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
         computerUse.stop()
+        importer.stopDetecting()
         onEnd?(completed)
     }
 }

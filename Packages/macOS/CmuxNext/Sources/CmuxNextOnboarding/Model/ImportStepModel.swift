@@ -206,6 +206,16 @@ public final class ImportStepModel {
         redetect()
     }
 
+    /// The window ended while browsers were still being looked for: stop
+    /// the scan so it neither keeps probing nor updates a closed step. A
+    /// running import is left alone (it finishes after the window moves on).
+    public func stopDetecting() {
+        guard phase == .detecting else { return }
+        task?.cancel()
+        task = nil
+        phase = .idle
+    }
+
     public func redetect() {
         // Never under a running import: its rows and summary would be lost.
         guard !isImporting else { return }
