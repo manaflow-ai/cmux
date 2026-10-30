@@ -346,6 +346,10 @@ cat > "$TMP/stuck.out" <<'EOF2'
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
 ◇ Test eachFails(n:) started.
+◇ Test case passing 1 argument n → 1 to eachFails(n:) started.
+✘ Test case passing 1 argument n → 1 to eachFails(n:) failed after 0.001 seconds with 1 issue.
+◇ Test case passing 1 argument n → 2 to eachFails(n:) started.
+✘ Test case passing 1 argument n → 2 to eachFails(n:) failed after 0.001 seconds with 1 issue.
 ✘ Test eachFails(n:) with 2 test cases failed after 0.002 seconds with 2 issues.
 ◇ Test stuckHere() started.
 EOF2

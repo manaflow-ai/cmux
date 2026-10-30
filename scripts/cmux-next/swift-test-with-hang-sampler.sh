@@ -535,6 +535,9 @@ cut_short_summary() {
       return out
     }
     /^[^ ]+ Test run with / { next }
+    # A parameterized test can report each case on its own line before its own result line; only
+    # the test counts, as is_start counts it.
+    /^[^ ]+ Test case passing [0-9]+ arguments? / { next }
     /^➜ Test .* skipped/ || /^➜ Test .* was cancelled after / { skipped++; next }
     /^✔ Test / { passed++; next }
     /^(✘|━) Test .* passed after / { passed++; next }
