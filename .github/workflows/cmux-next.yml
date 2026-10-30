@@ -3517,9 +3517,19 @@ jobs:
         if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
+          # failure when the action checks fail with fresh exports too (judge-action-exports.sh): not stale.
+          CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
         run: |
-          if [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            verdict=catalog
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
             verdict=stale
             {
               echo "### Generated cmux-next files are stale"
@@ -3898,9 +3908,19 @@ jobs:
         if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
         env:
           ACTIONS: ${{ steps.actions.outcome }}
+          # failure when the action checks fail with fresh exports too (judge-action-exports.sh): not stale.
+          CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
         run: |
-          if [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            verdict=catalog
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [[ "$ACTIONS" == failure || "$SETTINGS" == failure ]]; then
             verdict=stale
             {
               echo "### Generated cmux-next files are stale"
@@ -4271,12 +4291,26 @@ jobs:
 
       - name: Fail on stale generated files
         if: ${{ (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
+        env:
+          ACTIONS: ${{ steps.actions.outcome }}
+          CATALOG: ${{ steps.actions.outputs.catalog }}
+          SETTINGS: ${{ steps.settings.outcome }}
         run: |
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::The action catalog checks fail with fresh exports too: a catalog failure, not stale files."
+            exit 1
+          fi
           {
             echo "### Generated cmux-next files are stale"
             echo
-            [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
+            [[ "$ACTIONS" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
+            [[ "$SETTINGS" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
@@ -4340,6 +4374,9 @@ jobs:
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
             stale)
               echo "::error::Generated cmux-next files are stale. $HOST's step summary says how to regenerate them; its cmux-next-generated-patch artifact holds the regenerated files."
+              exit 1 ;;
+            catalog)
+              echo "::error::The action catalog checks fail on $HOST with fresh exports too: a catalog failure, not stale files. Regenerating changes nothing; $HOST's step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               exit 1 ;;
             *)
               echo "::error::$HOST ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."
