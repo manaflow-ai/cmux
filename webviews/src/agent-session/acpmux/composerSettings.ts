@@ -130,6 +130,8 @@ export function useComposerSettings(): ComposerSettings {
       return () => listeners.delete(listener);
     },
     () => current,
+    // A static render (a sent bubble's markup, renderToStaticMarkup) reads the same page value.
+    () => current,
   );
 }
 

@@ -40,7 +40,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
     /// Streamed browser tabs while linked to a Mac.
-    @ObservationIgnored private let streamed = StreamedBrowserDirectory.shared
+    @ObservationIgnored let streamed: StreamedBrowserDirectory
+    /// Browser tabs this iPhone shows itself instead of the Mac's page (Open on iPhone).
+    @ObservationIgnored let native: NativeBrowserTabs
     /// The chrome insets the pages were last laid out with, for cards.
     @ObservationIgnored private var lastInsets = EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)
     @ObservationIgnored var pageHeight: CGFloat = 874
@@ -50,8 +52,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored private(set) var focusOnOpen = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil) {
+                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared) {
         self.store = store
+        self.native = native
+        self.streamed = streamed
         self.creator = creator
         self.workspaceID = workspaceID
         self.terminal = terminal
@@ -196,7 +201,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         case .browser:
-            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
+            let model: (any BrowserTabState)? = native.model(tab: tab.id, macID: workspace.macID)
+                ?? streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
             // A new tab's about:blank is no address: the field reads "Search or enter website",
             // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
             let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
@@ -313,6 +319,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         surfaces[id] = nil
         browsers[id] = nil
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
+        native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
@@ -593,9 +600,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         sessions.store(workspace: workspace, tab: tab, macName: macName)
     }
 
-    /// The tab's page: streamed from the Mac while linked, else a local web view.
+    /// The tab's page: this iPhone's own when the person opened it here, else
+    /// streamed from the Mac while linked, else a local web view.
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
-        if let model = streamed.model(tab: tab.id, url: tab.url, macID: store.workspace(id: workspaceID)?.macID) { return model }
+        let macID = store.workspace(id: workspaceID)?.macID
+        if let model = native.model(tab: tab.id, macID: macID) { return model }
+        if let model = streamed.model(tab: tab.id, url: tab.url, macID: macID) { return model }
         return localBrowser(tab)
     }
 
@@ -948,6 +958,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             surfaces[id] = nil
             browsers[id] = nil
             streamed.drop(tab: id)
+            native.drop(tab: id, macID: workspace?.macID)
         }
         if workspaceTab(selectedTabID ?? "") == nil { selectedTabID = workspace?.tabs.first?.id }
         if workspace?.tabs.isEmpty ?? true { exit() }
@@ -1349,11 +1360,22 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
+            // Linked: the page is the Mac's, mirrored; Open on iPhone loads it here instead.
+            let placement: [TabsKitMenuItem] = nativeBrowser(tab) != nil
+                ? !canMirror(tab) ? [] : [TabsKitMenuItem(id: "browser.mirrorFromMac", title: "Mirror from \(macName)", systemImage: "macbook") { [weak self] in
+                    self?.mirrorFromMac(tab.id)
+                }]
+                : canOpenOnPhone(tab)
+                ? [TabsKitMenuItem(id: "browser.openOnPhone", title: "Open on iPhone", systemImage: "iphone") { [weak self] in
+                    self?.openOnPhone(tab.id)
+                }]
+                : []
             return [
                 [
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ],
+                placement,
                 chatsItems,
                 layoutPages,
                 edit,
@@ -1428,7 +1450,12 @@ struct WorkspaceTabPage: View {
                     }
                 }
         case .browser:
-            if let model = source.browser(tab) as? StreamedBrowserModel {
+            if let model = source.nativeBrowser(tab) {
+                NativeBrowserPage(model: model, macName: source.macName, insets: insets,
+                                  isZoomGestureActive: context.isZoomGestureActive,
+                                  reportScroll: { context.reportScroll(fingerDelta: $0) },
+                                  canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
+            } else if let model = source.browser(tab) as? StreamedBrowserModel {
                 StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
@@ -1549,7 +1576,9 @@ struct WorkspaceTabCard: View {
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
-                if let model = source.browser(tab) as? StreamedBrowserModel {
+                if let model = source.nativeBrowser(tab) {
+                    BrowserCard(model: model, insets: insets)
+                } else if let model = source.browser(tab) as? StreamedBrowserModel {
                     StreamedBrowserCard(model: model)
                 } else {
                     BrowserCard(model: source.localBrowser(tab), insets: insets)

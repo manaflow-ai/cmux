@@ -159,7 +159,21 @@ extension AgentPaneTransport {
     /// main-actor state, the re-encode and the send. It stops at the first frame that needs the main
     /// actor (the gesture record, the sheets, the pane's sessions), which gets only small facts.
     func drain() async {
-        while let entry = pending.first {
+        while !pending.isEmpty || !pendingHost.isEmpty || (sentFirst && hasPendingTrust) {
+            if sentFirst, let socket, !socket.isClosed, let ids = requestIds {
+                flushPendingTrust()
+                if !pendingHost.isEmpty {
+                    let host = pendingHost.removeFirst()
+                    guard host.connection == current else {
+                        host.reply?.resume(returning: .staleConnection)
+                        continue
+                    }
+                    // A trust write must be acknowledged before any queued chat can start.
+                    await sendHost(host, socket: socket, ids: ids)
+                    continue
+                }
+            }
+            guard let entry = pending.first else { break }
             guard !entry.frames.isEmpty else {
                 finishFirst()
                 continue
@@ -197,7 +211,9 @@ extension AgentPaneTransport {
             if wasFirst, sentFirst {
                 let relay = promptRelay
                 await provePerson(socket: socket, ids: ids)
-                if self.socket === socket { await relay?.resend(socket: socket, ids: ids) }
+                // Journal replay bypasses the page send line, so it needs the same trust barrier.
+                await finishTrustBeforeReplay(socket: socket, ids: ids)
+                if self.socket === socket, !socket.isClosed { await relay?.resend(socket: socket, ids: ids) }
             }
         }
         draining = false
@@ -238,12 +254,20 @@ extension AgentPaneTransport {
             Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
             return
         }
-        let frame: [String: Any] = ["jsonrpc": "2.0", "id": ids.hostID(), "method": "_acpmux/person_prove",
+        let id = ids.hostID()
+        personProofID = id
+        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
                                     "params": ["proof": proof]]
         guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
-        if let error = socket.send(text) {
-            Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            ids.whenAnswered(id) { continuation.resume() }
+            if let error = socket.send(text) {
+                ids.cancel(id)
+                continuation.resume()
+                Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+            }
         }
+        if self.socket === socket, personProofID == id { personProofID = nil }
     }
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).
@@ -353,7 +377,9 @@ extension AgentPaneTransport {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
-                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
+                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
+                    && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
