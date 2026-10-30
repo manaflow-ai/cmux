@@ -145,7 +145,11 @@ public struct PersonInputCheck: Sendable {
 
     /// One event the monitor saw: a gesture type is recorded; any other queues its poster's read.
     public func observe(_ event: NSEvent) { // perf-hot: 2us key-dispatch (every key and mouse event of the app, mouse moves included)
-        if Self.types.contains(NSEvent.EventTypeMask(type: event.type)) { record(event) }
+        if Self.types.contains(NSEvent.EventTypeMask(type: event.type)) {
+            record(event)
+        } else if let sources, let pid = AgentPanePersonInput.postingPID(event) {
+            sources.prime(pid)
+        }
     }
 
     public func record(_ event: NSEvent) {

@@ -105,7 +105,9 @@ public nonisolated final class EventSourceProcesses: Sendable {
 
     /// Queues a read of process `pid` when the table does not hold it, and returns at once (no system
     /// call): any event a process posts (a mouse move, a scroll) fills the table before its first click.
-    func prime(_ pid: pid_t) {}
+    func prime(_ pid: pid_t) { // perf-hot: 1us key-dispatch (every mouse move, scroll and modifier change a process posts)
+        _ = path(of: pid)
+    }
 
     /// Returns once every read and exit queued before the call has been applied (tests).
     func settled() async {
@@ -120,7 +122,10 @@ public nonisolated final class EventSourceProcesses: Sendable {
             state.nextWatch &+= 1
             return state.nextWatch
         }
-        let cancel = watchExit(pid, queue, { [weak self] in self?.exited(pid, watch: watch) }) ?? {}
+        guard let cancel = watchExit(pid, queue, { [weak self] in self?.exited(pid, watch: watch) }) else {
+            state.withLock { _ = $0.entries.removeValue(forKey: pid) }
+            return
+        }
         guard let process = resolve(pid) else {
             // No process: nothing kept, so a later event from this pid reads again.
             state.withLock { _ = $0.entries.removeValue(forKey: pid) }
