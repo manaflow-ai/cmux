@@ -238,6 +238,56 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
+  it("keeps GitHub's rate limit wait and its refusals on repository listing instead of a generic 503", async () => {
+    const a = await signedInWithInstall("gh-token-repo-limits", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      const answer = (status: number, headers: Record<string, string>) => (gh.routes["https://api.github.com/installation/repositories"] = () => new Response(JSON.stringify({ message: "x" }), { status, headers }))
+      answer(403, { "x-ratelimit-remaining": "0", "retry-after": "30" })
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 429, code: "rate_limited", retry_after: 30 })
+      answer(429, { "retry-after": "7" })
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 429, code: "rate_limited", retry_after: 7 })
+      answer(403, {})
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 403, code: "policy.denied" })
+      answer(502, {})
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+    })
+  })
+
+  it("gives no repository names to an install revoked while GitHub was answering", async () => {
+    const a = await signedInWithInstall("gh-token-repo-revoked", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      let revoked = false
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState, installActive: async () => !revoked }
+      const p: Principal = { identity: `install:${a.install}`, kind: "install", install_kind: "cli", install: a.install, user: a.user, team: a.team, grant_classes: ["read"] }
+      gh.routes["https://api.github.com/installation/repositories"] = () => {
+        revoked = true
+        return ok({ total_count: 1, repositories: [{ full_name: "acme/web", private: true }] })
+      }
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 401, code: "auth.required" })
+      revoked = false
+      gh.routes["https://api.github.com/installation/repositories"] = () => ok({ total_count: 1, repositories: [{ full_name: "acme/web", private: true }] })
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: true, value: { repos: [{ full_name: "acme/web", private: true }] } })
+      expect(await githubRepos({ ...h, installActive: async () => { throw new Error("unreachable") } }, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+    })
+    // The DO's own hook asks UserDO: live before the install is revoked, not after; no grant is never live.
+    let grant = ""
+    await inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(a.user)), async (users) => void (grant = users.existing().currentState.installs[a.install].grant))
+    const p: Principal = { identity: `install:${a.install}`, kind: "install", install_kind: "cli", install: a.install, user: a.user, team: a.team, grant }
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      expect(await instance.ledgerHost(a.team).installActive(p)).toBe(true)
+      const { grant: _grant, ...grantless } = p
+      expect(await instance.ledgerHost(a.team).installActive(grantless)).toBe(false)
+    })
+    expect((await op(a.session, "install.revoke", { install: a.install })).body.ok).toBe(true)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      expect(await instance.ledgerHost(a.team).installActive(p)).toBe(false)
+    })
+  })
+
   it.each([
     [401, "Bad credentials"],
     [404, "Not Found"],
