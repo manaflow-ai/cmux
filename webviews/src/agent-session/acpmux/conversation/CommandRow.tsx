@@ -24,7 +24,8 @@ import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailure
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const tool = item.tool!;
-  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
+  // The Verbose transcript view opens the command to its output.
+  const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
   // Find in Chat counts matches in the whole output, so a command it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(

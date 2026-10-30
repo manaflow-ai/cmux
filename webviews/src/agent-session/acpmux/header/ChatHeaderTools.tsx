@@ -7,13 +7,22 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { useEffect, useRef, useState, type ReactNode, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type MouseEvent, type PointerEvent } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
-import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+import {
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  Submenu,
+} from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
@@ -63,6 +72,9 @@ export type ChatMenuItem =
       icon: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
+      /// The letter that picks the row while the menu is open, as Claude Code desktop's chat menu
+      /// (R Rename, F Fork, A Archive); the row shows it when it has no app shortcut.
+      mnemonic?: string;
       disabled?: boolean;
       onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
       children?: ChatMenuChild[];
@@ -82,8 +94,18 @@ function previewAddress(url: string): string {
   }
 }
 
-/// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
-export type ChatMenuChild = { key: string; label: string; shortcutAction?: string; onSelect: () => void };
+/// A submenu row: its label, and the keycap of `shortcutAction` when it has one. A row with `checked`
+/// is one of a choice (the rows next to it with `checked` too), drawn with a check on the picked one;
+/// `separatorBefore` draws a line above the row.
+export type ChatMenuChild = {
+  key: string;
+  label: string;
+  shortcutAction?: string;
+  checked?: boolean;
+  disabled?: boolean;
+  separatorBefore?: boolean;
+  onSelect: () => void;
+};
 
 export function ChatHeaderTools({
   onTerminal,
@@ -591,14 +613,26 @@ function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
+  // A row's letter picks it (Claude Code desktop's R, F, A); only in this menu, not in its submenus.
+  const pickByLetter = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (children || event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
+    if (!event.currentTarget.contains(event.target as Node)) return;
+    const letter = event.key.toUpperCase();
+    const row = rows.find((each) => each !== "separator" && !each.disabled && each.mnemonic === letter);
+    if (!row || row === "separator" || !row.onSelect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenChange(false);
+    row.onSelect();
+  };
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
         <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />
       </MenuButton>
-      <MenuPopup className="acpmux-chat-menu-popover" align="end">
+      <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={pickByLetter}>
         {children
-          ? children.map((child) => <ChatMenuChildRow key={child.key} child={child} />)
+          ? childRows(children)
           : rows.map((row, index) =>
               row === "separator" ? (
                 // oxlint-disable-next-line react/no-array-index-key
@@ -616,9 +650,7 @@ function ChatMenu({
                     </>
                   }
                 >
-                  {row.children.map((child) => (
-                    <ChatMenuChildRow key={child.key} child={child} />
-                  ))}
+                  {childRows(row.children)}
                 </Submenu>
               ) : (
                 <ChatMenuRow key={row.key} item={row} />
@@ -630,7 +662,7 @@ function ChatMenu({
 }
 
 function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
-  const shortcut = useShortcut(item.shortcutAction ?? "");
+  const shortcut = useShortcut(item.shortcutAction ?? "") || item.mnemonic;
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
       <Icon name={item.icon} size={15} />
@@ -640,10 +672,46 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   );
 }
 
+/// A submenu's rows: each run of rows with `checked` is one radio group (Transcript view's Normal,
+/// Thinking, Verbose), the others plain rows, with a line above each `separatorBefore`.
+function childRows(children: readonly ChatMenuChild[]): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  for (let index = 0; index < children.length; ) {
+    const child = children[index]!;
+    if (child.separatorBefore && index > 0) nodes.push(<MenuSeparator key={`separator-${child.key}`} />);
+    if (child.checked === undefined) {
+      nodes.push(<ChatMenuChildRow key={child.key} child={child} />);
+      index += 1;
+      continue;
+    }
+    const group = [child];
+    for (index += 1; index < children.length; index += 1) {
+      const next = children[index]!;
+      if (next.separatorBefore || next.checked === undefined) break;
+      group.push(next);
+    }
+    nodes.push(<ChatMenuChoice key={`choice-${child.key}`} rows={group} />);
+  }
+  return nodes;
+}
+
+function ChatMenuChoice({ rows }: { rows: readonly ChatMenuChild[] }) {
+  const picked = rows.find((row) => row.checked)?.key ?? "";
+  return (
+    <MenuRadioGroup value={picked} onValueChange={(key) => rows.find((row) => row.key === key)?.onSelect()}>
+      {rows.map((row) => (
+        <MenuRadioItem key={row.key} value={row.key} className="acpmux-chat-menu-item" disabled={row.disabled} closeOnClick>
+          <span className="acpmux-chat-menu-label">{row.label}</span>
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+}
+
 function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   const shortcut = useShortcut(child.shortcutAction ?? "");
   return (
-    <MenuItem className="acpmux-chat-menu-item" onSelect={child.onSelect}>
+    <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>

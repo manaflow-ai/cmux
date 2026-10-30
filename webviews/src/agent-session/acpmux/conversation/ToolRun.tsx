@@ -41,7 +41,8 @@ export function ToolRun({
 }) {
   const t = useT();
   const look = useToolRunLook();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the run to its calls.
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();

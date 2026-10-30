@@ -1,6 +1,666 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.display.transcriptView": {
+      "comment": "Settings > Agent Chat > Transcript View: how much of each turn a chat shows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض السجل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaz transkripta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transskriptvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkriptansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista de la transcripción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affichage de la transcription"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vista trascrizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "トランスクリプト表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទិដ្ឋភាពប្រតិចារិក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 기록 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transkripsjonsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Widok transkrypcji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualização da transcrição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вид стенограммы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มุมมองบันทึกการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döküm görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вигляд стенограми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ xem bản ghi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话记录视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話記錄檢視"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.transcriptView.help": {
+      "comment": "Settings > Agent Chat > Transcript View help",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مقدار ما تعرضه المحادثة من كل دور. يطوي «عادي» التفكير ومخرجات الأدوات؛ ويفتح «التفكير» التفكير؛ ويفتح «مفصّل» مخرجات الأدوات أيضًا. تغيّر قائمة ··· في المحادثة عرضها الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koliko svakog koraka razgovor prikazuje. Normalno skuplja razmišljanje i izlaz alata; Razmišljanje otvara razmišljanje; Detaljno otvara i izlaz alata. Meni ··· razgovora mijenja njegov vlastiti prikaz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor meget af hver tur en chat viser. Normal folder tænkning og værktøjsoutput sammen; Tænkning åbner tænkning; Detaljeret åbner også værktøjsoutput. En chats ···-menu ændrer dens egen visning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie viel ein Chat von jedem Schritt zeigt. Normal klappt Denken und Werkzeugausgaben ein; Denken öffnet das Denken; Ausführlich öffnet auch Werkzeugausgaben. Das ···-Menü eines Chats ändert seine eigene Ansicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuánto muestra un chat de cada turno. Normal pliega el razonamiento y la salida de las herramientas; Razonamiento abre el razonamiento; Detallado también abre la salida de las herramientas. El menú ··· de un chat cambia su propia vista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quantité de chaque tour affichée par une discussion. Normal replie la réflexion et la sortie des outils ; Réflexion ouvre la réflexion ; Détaillé ouvre aussi la sortie des outils. Le menu ··· d'une discussion change son propre affichage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quanto di ogni turno mostra una chat. Normale comprime il ragionamento e l'output degli strumenti; Ragionamento apre il ragionamento; Dettagliato apre anche l'output degli strumenti. Il menu ··· di una chat cambia la sua vista."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットが各ターンをどこまで表示するか。標準は思考とツール出力を折りたたみ、思考は思考を開き、詳細はツール出力も開きます。チャットの ··· メニューでそのチャットの表示を変更できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំនួននៃវេននីមួយៗដែលការជជែកបង្ហាញ។ ធម្មតាបត់ការគិត និងលទ្ធផលឧបករណ៍; ការគិតបើកការគិត; លម្អិតបើកលទ្ធផលឧបករណ៍ផងដែរ។ ម៉ឺនុយ ··· នៃការជជែកប្ដូរទិដ្ឋភាពរបស់វាផ្ទាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅이 각 턴을 얼마나 보여 줄지 정합니다. 보통은 생각과 도구 출력을 접고, 생각은 생각을 펼치며, 자세히는 도구 출력도 펼칩니다. 채팅의 ··· 메뉴에서 해당 채팅의 보기를 바꿀 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor mye av hver tur en chat viser. Normal folder sammen tenkning og verktøyutdata; Tenkning åpner tenkning; Detaljert åpner også verktøyutdata. En chats ···-meny endrer dens egen visning."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ile z każdej tury pokazuje czat. Normalny zwija myślenie i wyniki narzędzi; Myślenie rozwija myślenie; Szczegółowy rozwija także wyniki narzędzi. Menu ··· czatu zmienia jego własny widok."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quanto de cada turno um chat mostra. Normal recolhe o raciocínio e a saída das ferramentas; Raciocínio abre o raciocínio; Detalhado também abre a saída das ferramentas. O menu ··· de um chat muda a visualização dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сколько каждого хода показывает чат. «Обычный» сворачивает размышления и вывод инструментов; «Размышления» раскрывает размышления; «Подробный» раскрывает и вывод инструментов. Меню ··· чата меняет его собственный вид."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปริมาณที่แชทแสดงในแต่ละรอบ ปกติจะพับการคิดและผลลัพธ์ของเครื่องมือ การคิดจะเปิดการคิด แบบละเอียดจะเปิดผลลัพธ์ของเครื่องมือด้วย เมนู ··· ของแชทเปลี่ยนมุมมองของแชทนั้นเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sohbetin her turdan ne kadarını gösterdiği. Normal düşünmeyi ve araç çıktısını katlar; Düşünme düşünmeyi açar; Ayrıntılı araç çıktısını da açar. Bir sohbetin ··· menüsü kendi görünümünü değiştirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скільки кожного ходу показує чат. «Звичайний» згортає міркування й вивід інструментів; «Міркування» розгортає міркування; «Детальний» розгортає також вивід інструментів. Меню ··· чату змінює його власний вигляд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mức độ cuộc trò chuyện hiển thị mỗi lượt. Bình thường thu gọn phần suy nghĩ và đầu ra công cụ; Suy nghĩ mở phần suy nghĩ; Chi tiết mở cả đầu ra công cụ. Menu ··· của cuộc trò chuyện thay đổi chế độ xem của riêng nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天显示每一轮的多少内容。标准会折叠思考和工具输出；思考会展开思考；详细还会展开工具输出。聊天的 ··· 菜单可更改它自己的视图。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天顯示每一輪的多少內容。標準會摺疊思考和工具輸出；思考會展開思考；詳細還會展開工具輸出。聊天的 ··· 選單可更改它自己的檢視。"
+          }
+        }
+      }
+    },
+    "settings.choice.transcriptViewNormal": {
+      "comment": "Settings > Agent Chat > Transcript View choice: thinking and tool output folded",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عادي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Normal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធម្មតា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보통"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обычный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปกติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Normal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Звичайний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bình thường"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.choice.transcriptViewThinking": {
+      "comment": "Settings > Agent Chat > Transcript View choice: thinking open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التفكير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razmišljanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tænkning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razonamiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réflexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ragionamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "생각"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tenkning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Myślenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raciocínio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Размышления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düşünme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Міркування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suy nghĩ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "思考"
+          }
+        }
+      }
+    },
+    "settings.choice.transcriptViewVerbose": {
+      "comment": "Settings > Agent Chat > Transcript View choice: thinking and tool output open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفصّل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausführlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbose"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detallado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détaillé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dettagliato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자세히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detaljert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szczegółowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Detalhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подробный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrıntılı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Детальний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "详细"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "詳細"
+          }
+        }
+      }
+    },
     "settings.labs.machineJoin.help": {
       "extractionState": "manual",
       "localizations": {

@@ -95,7 +95,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const time = useTicking(!held && waiting === undefined, now);
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
-  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
+  // The Verbose transcript view opens every group, as ToolGroupRow reads it.
+  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true, true);
   const shown = row.doingGroup && groupOpen ? undefined : row.doing;
   // A send in flight names who it goes to, not its command (acpmuxSends.ts, turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
