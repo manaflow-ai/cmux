@@ -48,7 +48,7 @@ function FileSaveGallery({ result }: Props) {
       }) as unknown as CloudStore,
   );
   return (
-    <section className="cloud-detail-section" data-save-settled={settled}>
+    <section className="cloud-detail-section" data-save-settled={settled} data-gallery-capture="">
       <FilesSection store={store} detail={detail} unavailable={[]} transfers={[]} strings={strings} />
       {pending && result !== "pending" && (
         <button type="button" data-testid="finish-write" onClick={() => finish.current?.()}>
