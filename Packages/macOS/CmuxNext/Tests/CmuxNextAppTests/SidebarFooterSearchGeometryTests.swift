@@ -42,12 +42,12 @@ import AppKit
             _ = NSApplication.shared
             let model = SidebarModel()
             let ids = (0..<itemCount).map { LayoutItemID("footer-\($0)") }
-            let items = ids.map { LayoutItem(id: $0, ref: .workspace($0.rawValue), showsLabel: true) }
+            let items = ids.map { LayoutItem(id: $0, ref: .workspace($0.rawValue), showsLabel: false) }
             model.layout = SidebarLayoutDocument(sections: [
                 LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top),
                 LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, content: .workspaces),
                 LayoutSection(id: SidebarLayoutDocument.bottomSectionID, region: .bottom, look: .builtIn,
-                              arrangement: .inline, items: items),
+                              arrangement: itemCount > 1 ? SectionArrangement(layout: .grid, align: .fill, columns: 1) : .inline, items: items),
             ])
             model.itemInfo = Dictionary(uniqueKeysWithValues: ids.map { id in
                 var info = SidebarItemInfo(title: String(repeating: "Footer item ", count: 2), symbol: "circle")
@@ -103,7 +103,7 @@ import AppKit
             }
             DesignSettings.shared.sidebarSections.noFade = false
             for spaces in [SpacesPosition.bottom, .top] {
-                for (label, count) in [("empty", 0), ("fitting", 1), ("overfull", 12)] {
+                for (label, count) in [("empty", 0), ("fitting", 1), ("overfull", 2)] {
                     let h = FooterHarness(width: Self.width(c.width), itemCount: count, searchEnabled: true, spaces: spaces)
                     defer { h.window.close() }
                     h.settle()
@@ -123,7 +123,7 @@ import AppKit
                                 "\(c)/\(spaces): fitting footer incorrectly reserved a dedicated Search row")
                     }
                 }
-                let disabled = FooterHarness(width: Self.width(c.width), itemCount: 12, searchEnabled: false, spaces: spaces)
+                let disabled = FooterHarness(width: Self.width(c.width), itemCount: 2, searchEnabled: false, spaces: spaces)
                 defer { disabled.window.close() }
                 disabled.settle()
                 try Self.assertSearch(disabled, c, enabled: false)
