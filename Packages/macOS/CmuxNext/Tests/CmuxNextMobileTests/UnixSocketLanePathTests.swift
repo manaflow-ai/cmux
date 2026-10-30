@@ -12,7 +12,13 @@ struct UnixSocketLanePathTests {
         let result = await #expect(processExitsWith: .success, observing: [\.standardErrorContent]) {
             ChildCrashFrames.printOnFatalSignal()
             let path = "/" + String(repeating: "p", count: 200) + "/daemon.sock"
-            if (try? await UnixSocketLane.connect(path: path, deadline: .seconds(2))) != nil { exit(EXIT_FAILURE) }
+            do {
+                _ = try await UnixSocketLane.connect(path: path, deadline: .seconds(2))
+                ChildCrashFrames.fail("the connect succeeded")
+            } catch {
+                // The guard's own refusal, before any connection: not a caught trap, not a timeout.
+                guard (error as? UnixSocketLane.Failure) == .pathTooLong(path: path) else { ChildCrashFrames.fail("refused with \(error)") }
+            }
         }
         ChildCrashFrames.record(result)
     }

@@ -1,8 +1,11 @@
 import Darwin
+import Foundation
 public import Testing
 
 /// The frames of a crash in an exit test's child process, so a test that proves "this traps no more" fails
-/// with its own assertion and the trapping frame, instead of killing the whole test process.
+/// with its own assertion and the trapping frame, instead of killing the whole test process. It only
+/// reports a crash: the handler exits with 128 plus the signal, so a caught trap still fails
+/// `processExitsWith: .success`. The child asserts the exact result it expects (``fail(_:)`` otherwise).
 ///
 /// A trap in the test process ends every test still running (the swift test job then waits on the crashed
 /// process and stops with "no test finished in 300s", issue #28492), and a fleet step prints no Swift
@@ -30,6 +33,12 @@ public nonisolated enum ChildCrashFrames {
             action.sa_flags = 0
             sigaction(signal, &action, nil)
         }
+    }
+
+    /// Ends the child with a failure and says why on standard error: the parent's ``record(_:)`` shows it.
+    public static func fail(_ why: String) -> Never {
+        FileHandle.standardError.write(Data("exit test child failed: \(why)\n".utf8))
+        exit(EXIT_FAILURE)
     }
 
     /// Records the child's standard error as an issue when the child did not exit with success, so the

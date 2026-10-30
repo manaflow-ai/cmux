@@ -1,7 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
-import CmuxNextRemoteLocalhost
+@testable import CmuxNextRemoteLocalhost
 @testable import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import CmuxNextTestSupport
@@ -24,13 +24,14 @@ struct CloudHubLoopbackTests {
             ChildCrashFrames.printOnFatalSignal()
             let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
             guard let opener = HubLoopbackOpener(hub: { .init(socket: socket, token: "t") }, address: "10.0.0.2") else {
-                exit(EXIT_FAILURE)
+                ChildCrashFrames.fail("no opener for 10.0.0.2")
             }
             do {
                 _ = try await opener.openTunnel(host: "127.0.0.1", port: 8080)
-                exit(EXIT_FAILURE)
+                ChildCrashFrames.fail("the tunnel opened")
             } catch {
-                guard error == .unavailable("Cloud tunnel unavailable") else { exit(EXIT_FAILURE) }
+                // The guard's own refusal, before any connection: not a caught trap, not a failed connect.
+                guard error == .unavailable(HubLoopbackOpener.socketPathTooLong) else { ChildCrashFrames.fail("refused with \(error)") }
             }
         }
         ChildCrashFrames.record(result)
