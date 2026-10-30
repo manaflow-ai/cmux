@@ -33,10 +33,12 @@ extension AddDeviceServices {
             enterCode: { [weak services] in _ = services?.registry.perform("server.addServer") },
             // Signed out, New Cloud Machine is refused: sign-in starts instead (the agent pane's same fallback).
             newCloudMachine: { [weak services] in
-                guard let registry = services?.registry, !registry.perform("newCloudMachine") else { return }
-                _ = registry.perform("palette.auth.signIn")
+                _ = services?.registry.perform("newCloudMachine")
             },
             copy: { CloudPresenter.copy($0) },
+            installTailscale: {
+                if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) }
+            },
             // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
             machineJoin: { [weak services] in
                 guard let services, services.settings?.snapshot.machineJoin == true else { return nil }

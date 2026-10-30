@@ -16,7 +16,8 @@ public struct BrowserSourceDetector: Sendable {
     public func detect(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [BrowserSource] {
         var seen = Set<String>()
         return browsers.compactMap { browser in
-            guard var source = detect(browser) else { return nil }
+            // A cancelled scan (the import window closed) stops probing at the next browser.
+            guard !Task.isCancelled, var source = detect(browser) else { return nil }
             source.profiles = source.profiles.filter { seen.insert($0.path.standardizedFileURL.path).inserted }
             return source.profiles.isEmpty ? nil : source
         }
