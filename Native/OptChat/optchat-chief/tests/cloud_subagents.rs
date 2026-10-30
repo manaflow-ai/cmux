@@ -1150,16 +1150,24 @@ fn a_cloud_subagents_workspace_is_named_and_grouped_by_its_task_headers() {
     let a = sp.clone();
     let spawned = run(&mut h, move || {
         a.spawn(
-            vec!["Title: Cloud thing\nGroup: Agents & routing\n\nbuild it".into()],
+            vec![
+                "Title: Cloud thing\nGroup: Chief agents\n\nbuild it".into(),
+                "Title: Other thing\nGroup: Agents & routing\n\nbuild it".into(),
+            ],
             None,
         )
     })
     .unwrap();
     assert!(spawned.contains("Started a1"), "{spawned}");
-    let opened = recorder.opened.lock().unwrap().clone();
+    let mut opened = recorder.opened.lock().unwrap().clone();
+    opened.sort();
+    // #27712: only "Chief agents" is asked for; any other `Group:` value is ignored.
     assert_eq!(
         opened,
-        vec![("Cloud thing".to_owned(), "Agents & routing".to_owned())],
+        vec![
+            ("Cloud thing".to_owned(), "Chief agents".to_owned()),
+            ("Other thing".to_owned(), String::new()),
+        ],
         "{spawned}"
     );
 }

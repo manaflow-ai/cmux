@@ -528,7 +528,14 @@ function cronFakes(
   };
   const repo = {
     // Like the live query: running machines only.
-    idlePauseCandidates: () => Effect.sync(() => rows.filter((r) => r.status === "running")),
+    idlePauseCandidates: ({ limit }: { limit: number }) => Effect.sync(() => rows.filter((r) => r.status === "running")
+      .sort((a, b) => Number(a.providerMetadata?.cmuxIdleProbedAt ?? 0) - Number(b.providerMetadata?.cmuxIdleProbedAt ?? 0))
+      .slice(0, limit)),
+    recordIdleCheck: (input: { id: string; providerVmId: string; probedAt: number }) => Effect.sync(() => {
+      update(input.id, (row) => row.status !== "running" || row.providerVmId !== input.providerVmId ? row : {
+        ...row, providerMetadata: { ...row.providerMetadata, cmuxIdleProbedAt: Math.max(Number(row.providerMetadata?.cmuxIdleProbedAt ?? 0), input.probedAt) },
+      });
+    }),
     recordIdleObservation: (input: { id: string; providerVmId: string; observation: VmIdleObservation | null; probedAt: number }) => Effect.sync(() => {
       recorded.observations.push({ id: input.id, observation: input.observation });
       recorded.probedAt.push({ id: input.id, probedAt: input.probedAt });
@@ -1005,8 +1012,51 @@ describe("pause, resume and the idle stretch", () => {
       const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
       expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1, errors: 0 });
       expect(recorded.paused).toEqual([]);
-      expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+      expect(recorded.observations).toEqual([]);
     }
+  });
+
+  test("an updatedAt-only write refuses the older claim without restarting the timeout", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const rows = [row];
+    const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      reread: (current) => ({ ...current, updatedAt: new Date(current.updatedAt.getTime() + 1) }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1 });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.observations).toEqual([]);
+    expect(rows[0].providerMetadata?.cmuxIdleObservation).toEqual(observation);
+  });
+
+  test("a changed probe address refuses the claim without clearing the idle stretch", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const rows = [row];
+    const { recorded, layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      reread: (current) => ({ ...current, providerMetadata: { ...current.providerMetadata, networkIpv4: "10.192.0.6" } }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1 });
+    expect(recorded.paused).toEqual([]);
+    expect(rows[0].providerMetadata?.cmuxIdleObservation).toEqual(observation);
+    expect(recorded.observations).toEqual([]);
+  });
+
+  test("a refused claim rotates a capped batch while preserving the observation and lifecycle timestamp", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } }), machineRow({ id: "row-2", providerVmId: "fs-2" })];
+    const updatedAt = rows[0].updatedAt;
+    const { layer, recorded } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      reread: (row) => ({ ...row, updatedAt: new Date(row.updatedAt.getTime() + 1) }),
+    });
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0, limit: 1 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata?.cmuxIdleProbedAt).toBe(T0);
+    expect(rows[0].providerMetadata?.cmuxIdleObservation).toEqual(observation);
+    expect(rows[0].updatedAt).toEqual(updatedAt);
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 + MIN, limit: 1 }).pipe(Effect.provide(layer)));
+    expect(recorded.execs.map((e) => e.vmId)).toEqual([VM, "fs-2"]);
   });
 });
 
