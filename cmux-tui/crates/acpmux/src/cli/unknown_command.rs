@@ -47,7 +47,12 @@ pub(crate) fn explain(
     // Words after it name something (a session): only a command that takes them, so
     // `acpmux restart NAME` is `session restart NAME`, never `daemon restart`.
     let takes_words = |c: &clap::Command| c.get_positionals().next().is_some();
-    let named = rest.iter().any(|w| !w.starts_with('-'));
+    // A word is positional when it is no flag, or comes after `--` (or is a lone `-`).
+    let separator = rest.iter().position(|w| w == "--");
+    let named = rest.iter().enumerate().any(|(i, w)| {
+        separator.is_some_and(|s| i > s)
+            || (w.as_str() != "--" && (w == "-" || !w.starts_with('-')))
+    });
     let fitting: Vec<&str> =
         found.iter().filter(|(_, c)| !named || takes_words(c)).map(|(g, _)| *g).collect();
     // None takes them: clap's own error, never a command that would drop the words (a daemon
@@ -212,6 +217,9 @@ mod tests {
         assert_eq!(error(&["wipe", "lane"]), None);
         assert_eq!(error(&["wipe"]), Some(json!("prog daemon wipe")));
         assert_eq!(error(&["stop", "lane"]), Some(json!("prog session stop lane")));
+        // A name after `--` is a word too, even one that looks like a flag.
+        assert_eq!(error(&["wipe", "--", "-n"]), None);
+        assert_eq!(error(&["stop", "--", "-n"]), Some(json!("prog session stop -- -n")));
     }
 
     #[test]
