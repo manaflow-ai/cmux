@@ -119,14 +119,13 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
             })
         })
         .collect();
-    let mut list: Vec<&str> =
-        choices.iter().take(SHOWN).filter_map(|c| c["use"].as_str()).collect();
-    let more = format!("and {} more", many.len().saturating_sub(SHOWN));
+    let choices: Vec<Value> = choices.into_iter().take(SHOWN).collect();
+    let mut list: Vec<String> =
+        choices.iter().filter_map(|c| c["use"].as_str()).map(str::to_owned).collect();
     if many.len() > SHOWN {
-        list.push(&more);
+        list.push(format!("and {} more", many.len() - SHOWN));
     }
     let live = if many.iter().all(|c| c.closed) { "closed" } else { "live" };
-    let choices: Vec<Value> = choices.into_iter().take(SHOWN).collect();
     RpcError::invalid_params(format!(
         "{key:?} names {} {live} sessions: {}; name one of them",
         many.len(),
@@ -169,7 +168,7 @@ mod tests {
         hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
     }
 
-    async fn named(hub: &Hub, name: &str) -> Arc<Session> {
+    async fn named(hub: &Arc<Hub>, name: &str) -> Arc<Session> {
         let start = NewRequest {
             name: Some(name.into()),
             cwd: Some(std::env::temp_dir()),
