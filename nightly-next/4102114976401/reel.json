@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4102114976401",
+  "notes": "notes/4102114976401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27920,
+      "title": "Cloud: exec and file routes on a Cloud machine, in classic /api/vm's shapes (cmux-platform#89 B)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28072,
+      "title": "fix(mux): sweep temporary cursors a killed hook left behind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27922,
+      "title": "cmux NEXT Cloud: owner answer on the app-server link (cmux-platform#89 C1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24836,
+      "title": "[rd-biz-chief] Remove first-chat onboarding waits and setup round trips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25242,
+      "title": "fix(cloud): name failed resources and give safe recovery hints",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27297,
+      "title": "Fix NEXT phone host keep-awake and recovery after Mac wake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28086,
+      "title": "fix(next): EditorAlignedTextField selector-table red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27274,
+      "title": "cmux-next: a feat-cmux-next push with an undeclared local import opens its own fix PR",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27288,
+      "title": "cmux NEXT daemon update: an offline machine or a cut-short run is a quiet retry, not a toast",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27685,
+      "title": "acpmux: Stop really stops an agent that works through the cancel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26696,
+      "title": "Make tool output fully readable inline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27482,
+      "title": "fix(chief): never create a second Cloud VM after a lost reply or concurrent task",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
