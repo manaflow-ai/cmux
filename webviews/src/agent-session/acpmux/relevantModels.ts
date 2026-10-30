@@ -1,6 +1,8 @@
 // The harness owns its default menu. Preserve that list and its order when it reports one;
 // only a harness without a menu report falls back to its newest available model per family.
 // Provider duplicates have already been grouped. Current/recent selections never promote rows.
+import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
+
 type Model = {
   id: string;
   name: string;
@@ -22,6 +24,16 @@ function familyKey(model: Model): string {
     .replace(/^-|-$/g, "");
   return `${vendor}\u0000${model.family ?? inferred}`.toLowerCase();
 }
+
+// This orders known families, never limits their number or pins a reported family's version.
+const familyOrder = new Map(
+  Object.values(currentFamilies)
+    .flat()
+    .flatMap((model, index): [string, number][] => [
+      [familyKey(model), index],
+      [familyKey({ ...model, family: undefined }), index],
+    ]),
+);
 
 const version = (model: Model) =>
   (
@@ -63,7 +75,10 @@ export function relevantModelSections<T extends Model>(
       const previous = families.get(key);
       if (!previous || newer(model, previous)) families.set(key, model);
     }
-    for (const model of families.values()) chosen.add(model);
+    const ordered = [...families.values()].sort(
+      (a, b) => (familyOrder.get(familyKey(a)) ?? Infinity) - (familyOrder.get(familyKey(b)) ?? Infinity),
+    );
+    for (const model of ordered) chosen.add(model);
   }
   return { shown: [...chosen], more: models.filter((model) => !chosen.has(model)) };
 }
