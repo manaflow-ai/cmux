@@ -11,7 +11,7 @@ use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Condvar;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -64,6 +64,9 @@ struct Shared {
     to_host: Mutex<Option<Sender<Option<Value>>>>,
     /// The status every host socket upgrade answers instead of opening, while set.
     refuse_host: Mutex<Option<u16>>,
+    /// A `DELETE` closes the host socket first, as the room does: frames the daemon had not
+    /// sent by then are lost.
+    delete_closes_host: AtomicBool,
 }
 
 struct FakeRoom {
@@ -201,6 +204,12 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
     reader.read_exact(&mut body).unwrap();
     let body = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let is_delete = method == "DELETE";
+    if is_delete
+        && shared.delete_closes_host.load(Ordering::SeqCst)
+        && let Some(host) = shared.to_host.lock().unwrap().take()
+    {
+        let _ = host.send(None);
+    }
     if is_delete {
         let active = shared.delete_active.fetch_add(1, Ordering::SeqCst) + 1;
         shared.delete_peak.fetch_max(active, Ordering::SeqCst);
@@ -293,6 +302,11 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
     loop {
         while let Ok(next) = frames.try_recv() {
             let Some(frame) = next else {
+                // Only the frames that already arrived are read.
+                while let Ok(Message::Text(text)) = socket.read() {
+                    let frame = serde_json::from_str(text.as_str()).unwrap();
+                    let _ = seen.send(Seen::Frame { conn, frame });
+                }
                 let _ = socket.close(None);
                 let _ = socket.flush();
                 return;
@@ -440,6 +454,23 @@ fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes
     assert_eq!((path, bearer), (format!("/v1/chat-shares/{id}"), "host-token-1".to_owned()));
     room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
     assert_eq!(state(&mut owner)["state"], "revoked");
+}
+
+/// The room closes the host socket when it deletes a share: `end` goes out before the `DELETE`,
+/// so the room still has the reason the share ended.
+#[test]
+fn a_revoke_sends_end_before_the_delete_that_closes_the_socket() {
+    let room = FakeRoom::start(&[]);
+    room.shared.delete_closes_host.store(true, Ordering::SeqCst);
+    let (_fake, _mux, surface, mut owner) = bridged("room-end-first", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    room.request("DELETE");
+    // Read back from the frames the socket held when the DELETE closed it.
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "revoked"}));
 }
 
 #[test]

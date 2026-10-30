@@ -22,7 +22,7 @@ use std::time::Duration;
 use cmux_json::JsonSet as _;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -66,8 +66,9 @@ pub(in crate::server) struct Room {
 enum Cmd {
     /// Send `guests` and the pending kicks again (a guest was kicked).
     Reconcile,
-    /// The share ended: send `end` and close.
-    End(&'static str),
+    /// The share ended: send `end` and close, then drop the sender, which lets the queued
+    /// `DELETE` go (the room tears the socket down on it, so `end` must reach it first).
+    End(&'static str, oneshot::Sender<()>),
 }
 
 /// The room configuration, the runtime the sockets and requests run on, and each share's host.
@@ -466,6 +467,17 @@ impl Drop for DeleteGuard {
 /// all (the owner's token, lost to a restart) it stays queued until the share's expiry, when the
 /// room's own alarm has ended it.
 fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
+    delete_after(mux, share_id, held, None);
+}
+
+/// [`delete`], whose first request waits for `after` (the host socket's `end`, at most one
+/// request's time).
+fn delete_after(
+    mux: &Arc<Mux>,
+    share_id: &str,
+    held: Option<Held>,
+    after: Option<oneshot::Receiver<()>>,
+) {
     let link_shares = shares(mux);
     if !link_shares.claim_room_delete(share_id) {
         // A late PUT may carry the only host token while another cleanup worker is in flight.
@@ -491,6 +503,9 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let fallback = bridge.room().map(|room| room.url);
     runtime.spawn(async move {
         let mut guard = DeleteGuard { mux: weak.clone(), share_id: id.clone(), tokenless: false };
+        if let Some(after) = after {
+            let _ = tokio::time::timeout(timing.request, after).await;
+        }
         let op = json!({"op": "delete"});
         let mut wait = timing.backoff_min;
         let mut attempted = false;
@@ -616,9 +631,11 @@ pub(super) fn ended(shares: &LinkShares, ended: &[(String, Option<String>)]) {
             ShareState::Closed => "closed",
             _ => "revoked",
         };
-        shares.bridge.command(share_id, Cmd::End(reason));
+        // The `DELETE` waits for `end`: the room closes the host socket when it deletes.
+        let (sent, after) = oneshot::channel();
+        shares.bridge.command(share_id, Cmd::End(reason, sent));
         if v.delete {
-            delete(&mux, share_id, None);
+            delete_after(&mux, share_id, None, Some(after));
         }
     }
 }
@@ -679,7 +696,7 @@ async fn serve_host(
         }
         tokio::select! {
             () = tokio::time::sleep(wait) => {}
-            command = commands.recv() => if matches!(command, None | Some(Cmd::End(_))) { break },
+            command = commands.recv() => if matches!(command, None | Some(Cmd::End(..))) { break },
         }
         wait = (wait * 2).min(timing.backoff_max);
     }
@@ -772,10 +789,11 @@ async fn session(
                     reconcile(&mux, share_id)
                 }
                 Some(Cmd::Reconcile) => continue,
-                Some(Cmd::End(reason)) => {
+                Some(Cmd::End(reason, sent)) => {
                     let end = json!({"v": 1, "t": "end", "reason": reason}).to_string();
                     let _ = sink.send(Message::text(end)).await;
                     let _ = sink.close().await;
+                    drop(sent);
                     return None;
                 }
                 None => return None,
