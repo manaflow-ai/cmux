@@ -161,9 +161,9 @@ public final class ConversationStore {
     var indexByID: ConversationMessagePositions = [:]
     private var eventTask: Task<Void, Never>?
     private var olderTask: Task<Void, Never>?
-    /// Bumps on each lagged reconnect. An older page asked for before it
-    /// carries what the server had then, below the window recovery refreshes,
-    /// so its reply is dropped and the page is asked for again.
+    /// Bumps on each lagged reconnect. An older page asked for before it (by
+    /// the pager or `loadThrough`) carries what the server had then, below the
+    /// window recovery refreshes, so its reply is dropped and asked for again.
     private var olderGeneration = 0
     private var newestTask: Task<Void, Never>?
     private var typingExpiry: [String: Task<Void, Never>] = [:]
@@ -1456,13 +1456,18 @@ public final class ConversationStore {
             if oldest <= target || older == .exhausted { return true }
             older = .loading
             notify(.older)
+            let generation = olderGeneration
             do {
                 // A few messages of context above the target, as Messages shows.
                 let limit = min(200, max(pageSize, oldest - target + 8))
                 let page = try await backend.history(beforeSeq: oldest, limit: limit)
+                // Asked before a lagged reconnect: stale below the recovered
+                // window. Drop it and ask again from the current window.
+                guard olderGeneration == generation else { continue }
                 applyOlder(page, expectedOldest: oldest)
                 attempt = 0
             } catch {
+                guard olderGeneration == generation else { continue }
                 attempt += 1
                 older = .idle
                 notify(.older)
