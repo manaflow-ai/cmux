@@ -588,9 +588,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
-                // No app is left to adopt its agents: they end with it.
-                _ = dev_orphan => {
-                    let _ = hub.end_agents_at_shutdown(Default::default());
+                // Its build is gone too: nothing is left to adopt its agents, so they end with
+                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
+                executable_gone = dev_orphan => {
+                    if executable_gone {
+                        let _ = hub.end_agents_at_shutdown(Default::default());
+                    }
                 },
             }
         }
@@ -599,9 +602,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
-                // No app is left to adopt its agents: they end with it.
-                _ = dev_orphan => {
-                    let _ = hub.end_agents_at_shutdown(Default::default());
+                // Its build is gone too: nothing is left to adopt its agents, so they end with
+                // it. An app that only quit keeps them, as its Quit does (`daemon/dev_orphan.rs`).
+                executable_gone = dev_orphan => {
+                    if executable_gone {
+                        let _ = hub.end_agents_at_shutdown(Default::default());
+                    }
                 },
             }
         }

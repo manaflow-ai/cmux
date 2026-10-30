@@ -53,10 +53,9 @@ fn bundle(dir: &Path, name: &str, bundle_id: &str) -> PathBuf {
     )
     .unwrap();
     let acpmux = bin.join("acpmux");
+    // A copy, never a hard link: a deleted bundle must leave its binary with no name.
     let source = daemon_env::bin();
-    if std::fs::hard_link(source, &acpmux).is_err() {
-        std::fs::copy(source, &acpmux).unwrap();
-    }
+    std::fs::copy(source, &acpmux).unwrap();
     bundle
 }
 

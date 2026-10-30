@@ -11,8 +11,8 @@
 //! (`CMUX_SOCKET_PATH`, the socket its agents reach the app on), the daemon
 //! stops itself, through its ordinary shutdown, once its app was gone for
 //! [`ORPHAN_EXIT_DELAY`]: connects to that socket fail after the app answered
-//! at least once, or its own executable is no longer the file it started from
-//! (the bundle was deleted, or a rebuild wrote a new binary there),
+//! at least once, or no name links to its own executable any more (the bundle
+//! was deleted, or a rebuild wrote a new binary over it),
 //! whatever the socket says: a same-tag DEV rebuilt elsewhere listens on the
 //! same socket. An app that never listens (socket control off, a socket that
 //! failed to start) never stops a daemon whose executable is unchanged. It
@@ -21,10 +21,12 @@
 //! NIGHTLY and Cloud daemons never start the watcher; neither does any
 //! platform but macOS.
 //!
-//! The shutdown ends the daemon's hosted agents too: no app is left to adopt
-//! them, and a SIGTERM-style handoff would leave them running with nothing to
-//! end them. A Chief's daemon that inherited the app's socket stops the same
-//! way once the DEV app is gone.
+//! When the executable is gone, the shutdown ends the daemon's hosted agents
+//! too: no build of it is left to adopt them. When the app only quit (its
+//! executable is still there), it is the SIGTERM handoff: the agents keep
+//! running, as the app's Quit keeps them, for the next launch to adopt. A
+//! Chief's daemon that inherited the app's socket stops the same way once the
+//! DEV app is gone.
 //!
 //! Test seams, debug builds only: `ACPMUX_TEST_DEV_ORPHAN_DELAY_MS` and
 //! `ACPMUX_TEST_DEV_ORPHAN_RECHECK_MS` replace the two intervals.
@@ -117,55 +119,48 @@ pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing
     }
 }
 
-/// Resolves when this DEV daemon's app has been gone for the delay; never
-/// for any other build. The bundle and the executable are read here, at once
-/// (a deleted bundle has no Info.plist to read later): call it before the
-/// ready line.
-pub(crate) fn watch() -> impl std::future::Future<Output = ()> + Send + 'static {
-    // The executable's identity too, here: read later (the future's first poll is after the
-    // ready line), a bundle deleted or replaced in between would read as the one it started with.
+/// Resolves when this DEV daemon's app has been gone for the delay, with whether its
+/// executable is gone too (then its agents end: see the module doc); never for any other
+/// build. The bundle is read and the executable opened here, at once (a deleted bundle has no
+/// Info.plist to read later, and one deleted before the first poll would be missed): call it
+/// before the ready line.
+pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'static {
     let facts = dev_app_socket()
         .zip(std::env::current_exe().ok())
-        .map(|(socket, executable)| (socket, FileId::of(&executable), executable));
+        .map(|(socket, executable)| (socket, Executable::open(&executable)));
     async move {
         match facts {
-            Some((socket, started, executable)) => watch_app(socket, executable, started).await,
+            Some((socket, executable)) => watch_app(socket, executable).await,
             None => std::future::pending().await,
         }
     }
 }
 
-/// Which file a path names: its device and inode. A rebuild that writes the binary
-/// anew (a new inode, as a build or an app copy does) changes it, and a deleted
-/// file has none. Never its time or size: touching or re-signing a live app's
-/// binary would otherwise stop its daemon and end its agents.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FileId {
-    dev: u64,
-    ino: u64,
-}
+/// This daemon's executable, held open from the start. It is gone once no name links to it
+/// any more: the bundle was deleted, or a rebuild wrote a new binary over its name. Never when
+/// the app is moved or renamed (the file keeps its name elsewhere), touched or re-signed in
+/// place (the same file).
+pub(crate) struct Executable(Option<std::fs::File>);
 
-impl FileId {
-    pub(crate) fn of(path: &Path) -> Option<Self> {
-        let meta = std::fs::metadata(path).ok()?;
+impl Executable {
+    pub(crate) fn open(path: &Path) -> Self {
+        Self(std::fs::File::open(path).ok())
+    }
+
+    /// Whether no name links to the file any more. One that could not be opened at the
+    /// start is never gone.
+    pub(crate) fn gone(&self) -> bool {
         #[cfg(unix)]
-        let (dev, ino) = {
+        {
             use std::os::unix::fs::MetadataExt;
-            (meta.dev(), meta.ino())
-        };
+            self.0.as_ref().and_then(|f| f.metadata().ok()).is_some_and(|m| m.nlink() == 0)
+        }
         #[cfg(not(unix))]
-        let (dev, ino) = (0, 0);
-        Some(Self { dev, ino })
+        false
     }
 }
 
-/// Whether `executable` is still the file this daemon started from. One that
-/// could not be read at the start is never counted as changed.
-fn unchanged(executable: &Path, started: Option<&FileId>) -> bool {
-    started.is_none_or(|started| FileId::of(executable).as_ref() == Some(started))
-}
-
-async fn watch_app(socket: PathBuf, executable: PathBuf, started: Option<FileId>) {
+async fn watch_app(socket: PathBuf, executable: Executable) -> bool {
     let timing = Timing::for_daemon();
     tracing::info!(
         socket = %socket.display(),
@@ -181,7 +176,7 @@ async fn watch_app(socket: PathBuf, executable: PathBuf, started: Option<FileId>
         // A failed task changes nothing.
         if let Ok(reachable) = reachable {
             answered |= reachable;
-            if !gone(reachable, answered, unchanged(&executable, started.as_ref())) {
+            if !gone(reachable, answered, executable.gone()) {
                 absent_since = None;
             } else if absent_since.is_none() {
                 absent_since = Some(now);
@@ -189,13 +184,14 @@ async fn watch_app(socket: PathBuf, executable: PathBuf, started: Option<FileId>
         }
         match decide(absent_since, now, timing) {
             Decision::Exit => {
+                let deleted = executable.gone();
                 tracing::info!(
                     socket = %socket.display(),
-                    executable_unchanged = unchanged(&executable, started.as_ref()),
+                    executable_gone = deleted,
                     "stopping: the app of this DEV build was gone for {:?}",
                     timing.delay
                 );
-                return;
+                return deleted;
             }
             Decision::Wait(after) => tokio::time::sleep(after).await,
         }
@@ -205,8 +201,8 @@ async fn watch_app(socket: PathBuf, executable: PathBuf, started: Option<FileId>
 /// Whether the app counts as gone at one try: this build's executable was
 /// deleted or replaced (whatever the socket says: another build of the same
 /// tag may listen there now), or its socket refuses after it answered once.
-pub(crate) fn gone(reachable: bool, answered: bool, executable_unchanged: bool) -> bool {
-    !executable_unchanged || (!reachable && answered)
+pub(crate) fn gone(reachable: bool, answered: bool, executable_gone: bool) -> bool {
+    executable_gone || (!reachable && answered)
 }
 
 /// The app's control socket when this executable sits in a DEV bundle.
@@ -273,42 +269,47 @@ mod tests {
 
     #[test]
     fn an_app_that_never_listened_is_gone_only_with_its_bundle() {
-        assert!(!gone(true, true, true), "it answers");
-        assert!(!gone(false, false, true), "it never listened: socket control off");
-        assert!(gone(false, true, true), "it answered once, now refuses");
-        assert!(gone(false, false, false), "its bundle was deleted");
+        assert!(!gone(true, true, false), "it answers");
+        assert!(!gone(false, false, false), "it never listened: socket control off");
+        assert!(gone(false, true, false), "it answered once, now refuses");
+        assert!(gone(false, false, true), "its bundle was deleted");
     }
 
     #[test]
-    fn a_changed_executable_is_gone_even_while_the_socket_answers() {
-        assert!(gone(true, true, false), "a same-tag DEV rebuilt elsewhere listens there");
-        assert!(gone(true, false, false));
+    fn a_gone_executable_is_gone_even_while_the_socket_answers() {
+        assert!(gone(true, true, true), "a same-tag DEV rebuilt elsewhere listens there");
+        assert!(gone(true, false, true));
     }
 
+    #[cfg(unix)]
     #[test]
-    fn the_executable_changes_when_deleted_or_replaced_and_never_when_touched() {
+    fn the_executable_is_gone_when_deleted_or_replaced_never_when_moved_or_touched() {
         let dir = std::env::temp_dir().join(format!("amx-orph-id-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let exe = dir.join("acpmux");
         std::fs::write(&exe, b"one").unwrap();
-        let started = FileId::of(&exe);
-        assert!(started.is_some());
-        assert!(unchanged(&exe, started.as_ref()));
-        // Touched or re-signed in place (same inode, new time and size): still the same file.
+        let executable = Executable::open(&exe);
+        assert!(!executable.gone());
+        // Touched or re-signed in place: the same file.
         std::fs::write(&exe, b"one, signed").unwrap();
-        assert!(unchanged(&exe, started.as_ref()), "touched in place");
-        // Replaced by a new file (a new inode).
+        assert!(!executable.gone(), "touched in place");
+        // The app moved: its file keeps a name elsewhere.
+        let moved = dir.join("moved");
+        std::fs::rename(&exe, &moved).unwrap();
+        assert!(!executable.gone(), "moved");
+        // A rebuild writes a new binary over that name.
         let next = dir.join("acpmux.next");
         std::fs::write(&next, b"build two").unwrap();
-        std::fs::rename(&next, &exe).unwrap();
-        assert!(!unchanged(&exe, started.as_ref()), "replaced");
+        std::fs::rename(&next, &moved).unwrap();
+        assert!(executable.gone(), "replaced");
         // Deleted.
-        let replaced = FileId::of(&exe);
+        std::fs::write(&exe, b"three").unwrap();
+        let third = Executable::open(&exe);
         std::fs::remove_file(&exe).unwrap();
-        assert!(!unchanged(&exe, replaced.as_ref()), "deleted");
-        // Unreadable at the start: never counted as changed.
-        assert!(unchanged(&exe, None));
+        assert!(third.gone(), "deleted");
+        // Not opened at the start: never gone.
+        assert!(!Executable::open(&dir.join("missing")).gone());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
