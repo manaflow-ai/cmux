@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4105755594502",
+  "notes": "notes/4105755594502.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27659,
+      "title": "Explain empty subagent conversations",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
