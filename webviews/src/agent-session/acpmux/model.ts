@@ -1179,8 +1179,15 @@ function fallbackRowHeight(
     (row.images?.length ||
       row.retryAttachments?.length ||
       row.inlineParts?.some((part) => part.kind === "file" || part.kind === "image"))
-  )
-    return finish(128 + messageBelow(beforeFooter) + chromeHeight(row, actions));
+  ) {
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (192px) when
+    // estimating columns so a narrow pane never lets a second attachment row overlap the next row.
+    const imageCount = row.images?.length ?? 0;
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 198));
+    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const attachmentHeight = imageRows * 126;
+    return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
+  }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
