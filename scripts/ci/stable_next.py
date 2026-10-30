@@ -15,25 +15,36 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
   window [--now ISO]
       Whether a scheduled tick may start a stable run now: between 21:00 and 06:59 America/Los_Angeles.
       GITHUB_OUTPUT lines: open=true|false, night_start=<ISO UTC of the night's 21:00 local>.
-  pick --feed NEXT.xml [--stable STABLE.xml] [--pulled PULLED.json] [--verdicts DIR|URL] [--build B]
+  pick --feed NEXT.xml [--stable STABLE.xml] [--pulled PULLED.json] [--stable-pulled PULLED.json]
+       [--verdicts DIR|URL] [--build B]
       The build to promote, as GITHUB_OUTPUT lines: build, run_id, short_version, url, length,
       minimum_system_version, and skip=true with skip_reason when the stable feed already serves
       that build or a newer one. The newest item Nightly apps are offered (untagged, cmux-next or
-      cmux-next-stable), or B. Refuses (exit 1) a pulled build and one whose verdict is fail.
+      cmux-next-stable) that was never pulled from the stable feed, or B. Refuses (exit 1) a build
+      pulled from the cmux NEXT feed, a build pulled from the stable feed, and a fail verdict.
   published-tonight --stable STABLE.xml --night-start ISO
       published=true|false: whether the stable feed's newest item was published since night_start.
   test-shards --package Packages/macOS/CmuxNext/Package.swift --shards N
-      matrix=<JSON>: the package's test targets, one `^Target\\.` filter each, dealt round robin
-      into N shards ({"include": [{"shard": 1, "filters": "a,b"}, ...]}).
+      matrix=<JSON>: the package's test targets, by name (package-test-lane.sh suite takes a target
+      name as a filter), dealt round robin into N shards ({"include": [{"shard": 1, "filters": "A,B"}]}).
   merge-feed --new NEW.xml [--live LIVE.xml] --out OUT.xml [--keep N]
       The stable feed after publishing NEW's one item: that item, tagged cmux-next-stable, then the
       live feed's items below its build, newest first, KEEP (3) items in all, so a rollback always
       has earlier stable builds to serve. Refuses when the live feed already has this build or a newer.
-  rollback --live LIVE.xml --out OUT.xml (--bad-build B | --to-build B)
-      The live feed without B and every newer item (or every item above B). Refuses to empty it.
-  write-feed --feed OUT.xml --expect-sha256 HEX|absent
-      Writes the feed to R2 (NIGHTLY_NEXT_R2_BUCKET / NIGHTLY_NEXT_R2_PREFIX, the stable prefix)
-      only while the live object still has the bytes the merge read (compare and swap).
+  rollback --live LIVE.xml --out OUT.xml (--bad-build B | --to-build B) [--allow-empty]
+      The live feed without B and every newer item (or every item above B). Refuses to empty it
+      unless --allow-empty (pulling the only stable build). Prints the pulled builds as JSON.
+  record-pulled --pulled PULLED.json --builds B[,B...] --reason R --out OUT.json
+      The stable pulled.json with these builds added; pick never takes a build listed there again.
+  write-feed --feed OUT --expect-sha256 HEX|absent
+      Writes the file to R2 as <NIGHTLY_NEXT_R2_PREFIX><basename> (only the stable prefix) only
+      while the live object still has the bytes that were read (compare and swap).
+  crash-delta --base-tree DIR --head-tree DIR
+      The crash-class ratchet between two exported trees: the commit the stable feed serves and the
+      candidate's. Each counted (unwaived) hit row of scripts/cmux-next/crash_ratchet.py's scanner
+      may not rise, after proven moves between modules, so a stable build never adds a crash-class
+      hit over the last one. Debt the last stable build already shipped does not block (the
+      whole-tree ratchet is red on feat-cmux-next itself). Exit 1 when a row rose.
   sentry-new-crashes --release R [--project ID] [--org SLUG]
       The unhandled-error issues Sentry first saw in release R (cmux-next@<short>+<build>), from
       SENTRY_AUTH_TOKEN. Exit 0 with none, 1 with any (listed), 2 when Sentry cannot be read.
@@ -142,22 +153,30 @@ def read_verdict(source: str | None, build: int) -> str | None:
     return json.loads(path.read_text()).get("verdict") if path.is_file() else None
 
 
-def pulled_builds(path: str | None) -> set[int]:
-    if not path or not Path(path).is_file():
-        return set()
-    doc = json.loads(Path(path).read_text() or "[]")
+def pulled_builds_text(text: str | None) -> set[int]:
+    doc = json.loads(text) if text and text.strip() else []
     entries = doc if isinstance(doc, list) else [doc]
     return {int(entry["build"]) for entry in entries if str(entry.get("build", "")).isdigit()}
 
 
-def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int | None) -> dict[str, str]:
+def pulled_builds(path: str | None) -> set[int]:
+    if not path or not Path(path).is_file():
+        return set()
+    return pulled_builds_text(Path(path).read_text())
+
+
+def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int | None,
+         stable_pulled: set[int] = frozenset()) -> dict[str, str]:
     offered = [(m, b) for m, b in items(feed) if channel_of(m.group(0)) in NIGHTLY_CHANNELS]
+    if build is not None and build in stable_pulled:
+        raise Refused(f"build {build} was pulled from the stable feed")
+    offered = [(m, b) for m, b in offered if b not in stable_pulled]
     if build is not None:
         offered = [(m, b) for m, b in offered if b == build]
         if not offered:
             raise Refused(f"build {build} is not on the cmux NEXT feed")
     if not offered:
-        raise Refused("the cmux NEXT feed offers Nightly apps no build")
+        raise Refused("the cmux NEXT feed offers Nightly apps no build that was not pulled from stable")
     match, chosen = max(offered, key=lambda entry: entry[1])
     if chosen in pulled:
         raise Refused(f"build {chosen} was pulled from the cmux NEXT feed")
@@ -214,7 +233,7 @@ def test_shards(package: str, shards: int) -> dict:
         raise Refused("--shards must be at least 1")
     groups: list[list[str]] = [[] for _ in range(min(shards, len(targets)))]
     for index, target in enumerate(targets):
-        groups[index % len(groups)].append(f"^{target}\\.")
+        groups[index % len(groups)].append(target)
     return {"include": [{"shard": n + 1, "filters": ",".join(group)} for n, group in enumerate(groups)]}
 
 
@@ -253,7 +272,7 @@ def merge_feed(new: str, live: str | None, keep: int = KEEP) -> str:
     return f"{head.rstrip()}\n{body}\n{tail.lstrip()}"
 
 
-def rollback(live: str, bad: int | None, to: int | None) -> tuple[str, list[int]]:
+def rollback(live: str, bad: int | None, to: int | None, allow_empty: bool = False) -> tuple[str, list[int]]:
     found = items(live)
     if bad is not None:
         drop = {b for _, b in found if b >= bad}
@@ -265,8 +284,8 @@ def rollback(live: str, bad: int | None, to: int | None) -> tuple[str, list[int]
         drop = {b for _, b in found if b > to}
     if not drop:
         raise Refused("nothing to pull")
-    if len(drop) == len(found):
-        raise Refused("the rollback would leave the stable feed empty")
+    if len(drop) == len(found) and not allow_empty:
+        raise Refused("the rollback would leave the stable feed empty (pass --allow-empty to pull the only build)")
     text, cursor, parts = live, 0, []
     for match, build in found:
         parts.append(text[cursor: match.start()])
@@ -275,6 +294,17 @@ def rollback(live: str, bad: int | None, to: int | None) -> tuple[str, list[int]
         cursor = match.end()
     parts.append(text[cursor:])
     return "".join(parts), sorted(drop)
+
+
+def record_pulled(pulled: str | None, builds: list[int], reason: str, when: str) -> str:
+    entries = json.loads(pulled) if pulled and pulled.strip() else []
+    if not isinstance(entries, list):
+        raise Refused("the stable pulled.json is not a list")
+    known = {str(entry.get("build")) for entry in entries}
+    for build in builds:
+        if str(build) not in known:
+            entries.append({"build": str(build), "reason": reason, "pulledAt": when})
+    return json.dumps(entries, indent=2) + "\n"
 
 
 def _r2_module():
@@ -296,10 +326,52 @@ def write_feed(feed: Path, expect: str) -> int:
     if actual != expect:
         raise Refused(f"{key} changed since it was read ({actual} != {expect}); run again")
     mode = ["--write-once"] if live is None else ["--replace-sha256", expect]
-    result = subprocess.run(r2.uploader_args(feed, key, r2.FEED_CACHE, "application/xml") + mode)
+    content_type = "application/json" if feed.suffix == ".json" else "application/xml"
+    result = subprocess.run(r2.uploader_args(feed, key, r2.FEED_CACHE, content_type) + mode)
     if result.returncode == 0:
         print(f"{feed.name}: live at {r2.public_base()}{feed.name}")
     return result.returncode
+
+
+# crash delta ----------------------------------------------------------------------------------------
+
+def _ratchet_module(head_tree: Path):
+    spec = importlib.util.spec_from_file_location("crash_ratchet", head_tree / "scripts/cmux-next/crash_ratchet.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def scan_rows(ratchet, scan) -> dict[tuple, int]:
+    """{(section, lang, class, module): hits} of a scan, in baseline_rows' shape."""
+    data = {}
+    for lang, kinds in scan.counts.items():
+        for kind, modules in kinds.items():
+            data.setdefault(lang, {})[kind] = dict(modules)
+    data[ratchet.WAIVED] = {lang: {kind: dict(m) for kind, m in kinds.items()} for lang, kinds in scan.waived.items()}
+    return ratchet.baseline_rows(data)
+
+
+def crash_delta(base_tree: Path, head_tree: Path) -> list[str]:
+    ratchet = _ratchet_module(head_tree)
+    old, new = ratchet.scan_tree(str(base_tree), True), ratchet.scan_tree(str(head_tree), True)
+    base_rows, head_rows = scan_rows(ratchet, old), scan_rows(ratchet, new)
+    found = []
+    risen = {row: n for row, n in head_rows.items() if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0)}
+    if risen:
+        allowance, _ = ratchet.carry_moves(base_rows, risen, ratchet.proven_moves(old, new))
+        found += [f"{ratchet.row_label(row)}: {base_rows.get(row, 0)} -> {n}"
+                  for row, n in sorted(risen.items()) if n > allowance.get(row, 0)]
+    # Banned classes (force_unwrap and as_bang in CmuxNext, index_subscript in render modules) are
+    # kept per file, not per module; compare each class's total so a renamed file is no new hit.
+    def banned(scan):
+        totals = {}
+        for (kind, _path), hits in scan.banned_files.items():
+            totals[kind] = totals.get(kind, 0) + hits
+        return totals
+    was, now = banned(old), banned(new)
+    found += [f"banned {kind}: {was.get(kind, 0)} -> {n}" for kind, n in sorted(now.items()) if n > was.get(kind, 0)]
+    return found
 
 
 # sentry -------------------------------------------------------------------------------------------
@@ -331,6 +403,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("--feed", required=True)
     p.add_argument("--stable")
     p.add_argument("--pulled")
+    p.add_argument("--stable-pulled")
     p.add_argument("--verdicts")
     p.add_argument("--build", type=int)
     t = sub.add_parser("published-tonight")
@@ -350,9 +423,18 @@ def main(argv: list[str]) -> int:
     group = r.add_mutually_exclusive_group(required=True)
     group.add_argument("--bad-build", type=int)
     group.add_argument("--to-build", type=int)
+    r.add_argument("--allow-empty", action="store_true")
+    rp = sub.add_parser("record-pulled")
+    rp.add_argument("--pulled")
+    rp.add_argument("--builds", required=True)
+    rp.add_argument("--reason", required=True)
+    rp.add_argument("--out", required=True)
     f = sub.add_parser("write-feed")
     f.add_argument("--feed", required=True, type=Path)
     f.add_argument("--expect-sha256", required=True)
+    cd = sub.add_parser("crash-delta")
+    cd.add_argument("--base-tree", required=True, type=Path)
+    cd.add_argument("--head-tree", required=True, type=Path)
     c = sub.add_parser("sentry-new-crashes")
     c.add_argument("--release", required=True)
     c.add_argument("--org", default="manaflow")
@@ -366,7 +448,7 @@ def main(argv: list[str]) -> int:
         elif args.command == "pick":
             feed = Path(args.feed).read_text(encoding="utf-8")
             result = pick(feed, read_optional(args.stable), pulled_builds(args.pulled),
-                          lambda b: read_verdict(args.verdicts, b), args.build)
+                          lambda b: read_verdict(args.verdicts, b), args.build, pulled_builds(args.stable_pulled))
             out(result, github_output)
         elif args.command == "published-tonight":
             start = dt.datetime.fromisoformat(args.night_start.replace("Z", "+00:00"))
@@ -380,11 +462,23 @@ def main(argv: list[str]) -> int:
             Path(args.out).write_text(merged, encoding="utf-8")
             print(f"stable feed: {', '.join(str(b) for _, b in items(merged))}")
         elif args.command == "rollback":
-            text, dropped = rollback(Path(args.live).read_text(encoding="utf-8"), args.bad_build, args.to_build)
+            text, dropped = rollback(Path(args.live).read_text(encoding="utf-8"), args.bad_build, args.to_build,
+                                     args.allow_empty)
             Path(args.out).write_text(text, encoding="utf-8")
-            print(f"pulled {', '.join(map(str, dropped))}; serves {max(b for _, b in items(text))}")
+            left = [b for _, b in items(text)]
+            print(json.dumps({"pulled": dropped, "serves": max(left) if left else None}))
+        elif args.command == "record-pulled":
+            when = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            builds = [int(b) for b in args.builds.split(",") if b.strip()]
+            Path(args.out).write_text(record_pulled(read_optional(args.pulled), builds, args.reason, when), encoding="utf-8")
         elif args.command == "write-feed":
             return write_feed(args.feed, args.expect_sha256)
+        elif args.command == "crash-delta":
+            risen = crash_delta(args.base_tree, args.head_tree)
+            for line in risen:
+                print(f"crash-delta: {line}")
+            print(f"crash-delta: {len(risen)} crash-class row(s) rose over the last stable build")
+            return 1 if risen else 0
         elif args.command == "sentry-new-crashes":
             token = os.environ.get("SENTRY_AUTH_TOKEN", "").strip()
             if not token:

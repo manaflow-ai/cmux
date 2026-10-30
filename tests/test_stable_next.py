@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import json
+import re
 import unittest
 from pathlib import Path
 
@@ -70,6 +72,14 @@ class Pick(unittest.TestCase):
         result = stable_next.pick(feed(item(200)), feed(item(200, "cmux-next-stable")), set(), lambda b: "pass", None)
         self.assertEqual(result["skip"], "true")
 
+    def test_a_build_pulled_from_stable_is_never_picked_again(self):
+        result = stable_next.pick(feed(item(300), item(200)), None, set(), lambda b: None, None, {300})
+        self.assertEqual(result["build"], "200")
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300)), None, set(), lambda b: None, 300, {300})
+        with self.assertRaises(stable_next.Refused):
+            stable_next.pick(feed(item(300)), None, set(), lambda b: None, None, {300})
+
     def test_an_explicit_build_must_be_on_the_feed(self):
         self.assertEqual(stable_next.pick(feed(item(200), item(100)), None, set(), lambda b: None, 100)["build"], "100")
         with self.assertRaises(stable_next.Refused):
@@ -89,15 +99,26 @@ class Shards(unittest.TestCase):
         package = '.testTarget(\n name: "BTests", deps: []),\n.testTarget(name: "ATests"),\n.target(name: "Lib"),\n.testTarget(name: "CTests")'
         matrix = stable_next.test_shards(package, 2)
         filters = ",".join(entry["filters"] for entry in matrix["include"]).split(",")
-        self.assertEqual(sorted(filters), ["^ATests\\.", "^BTests\\.", "^CTests\\."])
+        self.assertEqual(sorted(filters), ["ATests", "BTests", "CTests"])
         self.assertEqual(len(matrix["include"]), 2)
 
     def test_the_real_package_has_its_test_targets(self):
         package = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text()
         matrix = stable_next.test_shards(package, 4)
-        filters = ",".join(entry["filters"] for entry in matrix["include"])
-        self.assertIn("^CmuxNextAppTests\\.", filters)
+        filters = ",".join(entry["filters"] for entry in matrix["include"]).split(",")
+        self.assertIn("CmuxNextAppTests", filters)
         self.assertNotIn("CmuxNextTestSupport", filters)
+        self.assertEqual(len(filters), len(set(filters)))
+
+    def test_every_filter_passes_the_suite_lanes_own_check(self):
+        """package-test-lane.sh suite refuses a filter outside its regex or ending in '.' or '/' (exit 2)."""
+        lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text()
+        pattern = re.search(r'\[\[ "\$suite_filter" =~ (\S+) \]\]', lane).group(1)
+        package = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text()
+        for entry in stable_next.test_shards(package, 4)["include"]:
+            for f in entry["filters"].split(","):
+                self.assertRegex(f, pattern)
+                self.assertFalse(f.endswith((".", "/")), f)
 
 
 class MergeAndRollback(unittest.TestCase):
@@ -127,6 +148,17 @@ class MergeAndRollback(unittest.TestCase):
         self.assertEqual(dropped, [30])
         with self.assertRaises(stable_next.Refused):
             stable_next.rollback(live, 10, None)
+
+    def test_rollback_may_pull_the_only_build_when_asked(self):
+        text, dropped = stable_next.rollback(feed(item(10)), 10, None, allow_empty=True)
+        self.assertEqual(dropped, [10])
+        self.assertEqual(stable_next.items(text), [])
+
+    def test_record_pulled_adds_each_build_once(self):
+        first = stable_next.record_pulled(None, [30, 20], "crash", "2026-10-30T05:00:00Z")
+        again = stable_next.record_pulled(first, [30, 40], "crash", "2026-10-30T06:00:00Z")
+        self.assertEqual([e["build"] for e in json.loads(again)], ["30", "20", "40"])
+        self.assertEqual(stable_next.pulled_builds_text(again), {20, 30, 40})
 
 
 if __name__ == "__main__":

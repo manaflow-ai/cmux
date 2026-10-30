@@ -20,6 +20,8 @@
 #   APPLE_SIGNING_IDENTITY       Developer ID identity (build.keychain), or "-" for an ad-hoc dry run
 #   STABLE_FEED_URL              SUFeedURL of the result
 #   EXPECTED_SPARKLE_PUBLIC_KEY  SUPublicEDKey the NEXT app must carry, unchanged
+#   EXPECTED_COMMIT              the 40-hex commit the stable gates tested; the bundle's CMUXCommit
+#                                must be its prefix, so no gate vouches for another commit
 #   ICON_SOURCE                  optional: the appiconset to build AppIcon.icns from
 #
 # Writes "<out-dir>/cmux NEXT Stable.app", signed and not yet notarized.
@@ -33,7 +35,8 @@ NEXT_DMG="$1"
 BUILD="$2"
 OUT_DIR="$3"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-: "${APPLE_SIGNING_IDENTITY:?}" "${STABLE_FEED_URL:?}" "${EXPECTED_SPARKLE_PUBLIC_KEY:?}"
+: "${APPLE_SIGNING_IDENTITY:?}" "${STABLE_FEED_URL:?}" "${EXPECTED_SPARKLE_PUBLIC_KEY:?}" "${EXPECTED_COMMIT:?}"
+[[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "EXPECTED_COMMIT must be a 40-hex commit: $EXPECTED_COMMIT" >&2; exit 1; }
 ICON_SOURCE="${ICON_SOURCE:-$ROOT_DIR/Assets.xcassets/AppIcon.appiconset}"
 
 NEXT_ID="com.cmuxterm.app.nightly.cmux-next"
@@ -42,6 +45,7 @@ STABLE_NAME="cmux NEXT Stable"
 STABLE_SCHEME="cmux-next-stable"
 STABLE_ICON="AppIcon"
 ENTITLEMENTS="$ROOT_DIR/cmux.next-dev.entitlements"
+TEAM_ID="7WLXT3NR37"
 
 case "$STABLE_FEED_URL" in
   https://*/nightly-next/stable/appcast-arm64.xml) ;;
@@ -62,7 +66,12 @@ plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist"; }
 [[ "$(plist_get "$next_app" CFBundleIdentifier)" == "$NEXT_ID" ]] || { echo "input is not cmux NEXT" >&2; exit 1; }
 [[ "$(plist_get "$next_app" CFBundleVersion)" == "$BUILD" ]] || { echo "input is not build $BUILD" >&2; exit 1; }
 [[ "$(plist_get "$next_app" SUPublicEDKey)" == "$EXPECTED_SPARKLE_PUBLIC_KEY" ]] || { echo "input SUPublicEDKey is not the track key" >&2; exit 1; }
+commit="$(plist_get "$next_app" CMUXCommit)"
+[[ "$commit" =~ ^[0-9a-f]{7,40}$ && "$EXPECTED_COMMIT" == "$commit"* ]] \
+  || { echo "input was built from CMUXCommit '$commit', not the gated commit $EXPECTED_COMMIT" >&2; exit 1; }
 codesign --verify --deep --strict "$next_app"
+team="$(codesign -dv "$next_app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+[[ "$team" == "$TEAM_ID" ]] || { echo "input is signed by team '$team', not $TEAM_ID" >&2; exit 1; }
 
 mkdir -p "$OUT_DIR"
 app="$OUT_DIR/$STABLE_NAME.app"

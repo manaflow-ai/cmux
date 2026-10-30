@@ -2,7 +2,8 @@ name: cmux NEXT Stable rollback
 
 # The undo button for a bad cmux NEXT Stable build. It takes the bad build, and every newer one, off
 # the stable feed (nightly-next/stable/appcast-arm64.xml), so the feed serves the previous stable
-# build again (the feed keeps 3; scripts/ci/stable_next.py rollback never empties it). Sparkle never
+# build again (the feed keeps 3; emptying it takes allow_empty). Each pulled build is recorded in
+# nightly-next/stable/pulled.json, and stable-next.yml never picks it again. Sparkle never
 # offers a lower build: a Mac already on the bad build keeps it until a newer stable build ships, or
 # rolls back to the build it kept (updates.rollback).
 #
@@ -36,13 +37,16 @@ on:
         required: false
         default: false
         type: boolean
+      allow_empty:
+        description: Allow pulling the only stable build (the feed then offers nothing).
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
-concurrency:
-  # Shares the publish run's group, so a rollback and a publish never write the feed at once.
-  group: stable-next-nightly-next
-  cancel-in-progress: false
+# No concurrency group: an undo never waits behind a stable run's gates, and nothing can replace a
+# pending one. A rollback and a publish never both win: each writes the feed by compare-and-swap.
 
 jobs:
   rollback:
@@ -71,6 +75,7 @@ jobs:
           BAD_BUILD: ${{ inputs.bad_build }}
           TO_BUILD: ${{ inputs.to_build }}
           DRY_RUN: ${{ inputs.dry_run }}
+          ALLOW_EMPTY: ${{ inputs.allow_empty }}
         run: |
           set -euo pipefail
           work="$(mktemp -d)"
@@ -94,9 +99,28 @@ jobs:
             fi
             target=(--bad-build "$BAD_BUILD")
           fi
+          [ "$ALLOW_EMPTY" != true ] || target+=(--allow-empty)
           plan="$(python3 -I scripts/ci/stable_next.py rollback --live "$work/live.xml" --out "$work/$STABLE_APPCAST" "${target[@]}")"
           { echo "### cmux NEXT Stable rollback${DRY_RUN:+ (dry run: $DRY_RUN)}"; echo; echo "- reason: $REASON"; echo "- $plan"; } >> "$GITHUB_STEP_SUMMARY"
           echo "$plan"
           if [ "$DRY_RUN" = true ]; then exit 0; fi
-          python3 -I scripts/ci/nightly-next-guard.py appcast "$work/$STABLE_APPCAST"
+          # Record first: a pulled build that is still the newest nightly must never be re-published,
+          # even when the feed write below loses a race and is run again.
+          pulled="$(python3 -c 'import json,sys; print(",".join(map(str, json.loads(sys.argv[1])["pulled"])))' "$plan")"
+          python3 -I - "${NIGHTLY_NEXT_R2_PREFIX}pulled.json" "$work/pulled-live.json" "$work/pulled.sha256" <<'PY'
+          import hashlib, importlib.util, sys
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location("r2", "scripts/ci/publish-nightly-next-r2.py")
+          r2 = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(r2)
+          live = r2.read_live(sys.argv[1])
+          Path(sys.argv[2]).write_bytes(live or b"")
+          Path(sys.argv[3]).write_text("absent" if live is None else hashlib.sha256(live).hexdigest())
+          PY
+          python3 -I scripts/ci/stable_next.py record-pulled --pulled "$work/pulled-live.json" --builds "$pulled" \
+            --reason "$REASON (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" --out "$work/pulled.json"
+          python3 -I scripts/ci/stable_next.py write-feed --feed "$work/pulled.json" --expect-sha256 "$(cat "$work/pulled.sha256")"
+          if grep -q '<enclosure' "$work/$STABLE_APPCAST"; then
+            python3 -I scripts/ci/nightly-next-guard.py appcast "$work/$STABLE_APPCAST"
+          fi
           python3 -I scripts/ci/stable_next.py write-feed --feed "$work/$STABLE_APPCAST" --expect-sha256 "$(cat "$work/live.sha256")"
