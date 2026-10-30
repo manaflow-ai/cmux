@@ -89,7 +89,8 @@ def visual_judgment(body: str) -> bool:
     if not VIEWED_AFTER.search(text) or not verdict:
         return False
     value = verdict.group("verdict").strip()
-    normalized_value = re.sub(r"\s+", " ", value).casefold()
+    normalized_value = re.sub(r"\s+", " ", value).casefold().strip()
+    normalized_value = re.sub(r"\s*([<>])\s*", r"\1", normalized_value)
     normalized_placeholder = re.sub(r"\s+", " ", VERDICT_PLACEHOLDER).casefold()
     if normalized_placeholder in normalized_value:
         return False
