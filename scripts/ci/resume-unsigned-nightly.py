@@ -16,6 +16,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import tarfile
 import tempfile
 import zipfile
 
@@ -136,6 +137,32 @@ def restore(receipt, root):
     return version
 
 
+def bundled_client_commit(root):
+    # The uploaded app artifact contains the precompressed unsigned tarball.
+    # Open it only after the authenticated ZIP extraction and reject traversal
+    # or links before deriving the client provenance used by the marker gate.
+    app_root = root / "app"
+    archives = list(app_root.glob("*.tar.gz"))
+    require(len(archives) == 1, "resumed unsigned app has no unique app archive")
+    with tarfile.open(archives[0], "r:gz") as archive:
+        for entry in archive.getmembers():
+            path = PurePosixPath(entry.name)
+            require(not path.is_absolute() and ".." not in path.parts and "\\" not in entry.name and
+                    not entry.issym() and not entry.islnk(), "unsafe unsigned app tar member")
+        archive.extractall(app_root)
+    versions = list(app_root.glob("**/Contents/Resources/bin/cmux-tui.version"))
+    require(len(versions) == 1, "resumed unsigned app has no unique cmux-tui.version")
+    fields = {}
+    for line in versions[0].read_text().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            fields[key] = value
+    commit = fields.get("commit", "")
+    require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
+            "resumed unsigned app has no valid cmux-tui commit")
+    return commit
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("plan", "restore"))
@@ -149,6 +176,7 @@ def main():
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build_sha", "build")}
     if args.command == "restore":
         outputs["version"] = restore(receipt, args.out)
+        outputs["cmux_tui_commit"] = bundled_client_commit(args.out)
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():

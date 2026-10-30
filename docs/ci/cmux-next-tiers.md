@@ -59,6 +59,22 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. An explicitly requested local gallery matrix can diff the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
+A design note runs no Mac tier either. A test helper such as
+`planURL(_ name:)` builds `"plans/cmux-next/\(name)"`, so the target graph
+records the whole of `plans/cmux-next/` as a read. The router narrows that for
+docs (`.md`, `.html`, images): a doc counts as read only when a string literal in
+the reading target names it (or names the directory itself), or when a generator
+writes it (`scripts/cmux-next/generated_outputs.py`). #28326 changed only
+`plans/cmux-next/sidebar-owner.md` and queued the fast tier and swift test.
+
+The Mac fast tier (`cmux-next fast tier`, the `swift` entries of
+`scripts/cmux-next/fast-tier.json`) builds the CmuxNext package and runs a few
+of its suites, so it runs only when that build or those suites can change: a
+package target or a local package it uses, a file a test reads, a generated
+input, an input of every tier, or the tier's own registry (router output
+`fast_tier`). A cmux-tui-only or app-host-only change keeps its daemon and
+scheme tiers and skips it; `fast-tier-cargo` still runs on Linux.
+
 The Swift canary is the pull-request gate for a small package-only Swift diff.
 It builds only the affected CmuxNext production targets with `swift build
 --configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
