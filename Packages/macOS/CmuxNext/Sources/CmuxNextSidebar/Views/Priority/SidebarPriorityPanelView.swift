@@ -240,8 +240,10 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     func keyEventSeen(_ event: NSEvent) {
-        guard event.keyCode == 53, draggingID != nil, owns(event.window) else { return }
-        cancelDrag()
+        guard event.keyCode == 53, owns(event.window) else { return }
+        // Escape cancels both an active drag and a below-threshold press. The latter may otherwise
+        // receive a stale mouseUp and open its row after the cancellation.
+        endPointerGesture()
     }
 
     private func owns(_ eventWindow: NSWindow?) -> Bool {
@@ -310,7 +312,7 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        if draggingID != nil { cancelDrag() }
+        endPointerGesture()
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

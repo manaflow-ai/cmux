@@ -254,4 +254,21 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions.isEmpty)
         #expect(harness.panel.panel.entries.map(\.id) == Self.entries.map(\.id))
     }
+
+    @Test func escapeCancelsPendingPriorityPressBeforeStaleRelease() throws {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(sidebar: sidebar)
+        defer { harness.close() }
+        let row = try #require(harness.panel.rows["b"])
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "b"))
+        #expect(harness.panel.draggingID == nil)
+
+        // Escape must invalidate the pending press even though it never crossed the drag threshold.
+        try harness.escape(in: harness.window)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "b"))
+        #expect(harness.actions.isEmpty, "Escape must suppress a stale release of a pending press")
+
+        try harness.press("b", moves: [])
+        #expect(harness.actions == [.open("b")], "a fresh click must work after Escape cancellation")
+    }
 }
