@@ -13,7 +13,7 @@
 // 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add the icon
 // when it's in here"). A line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -107,7 +107,13 @@ export function AgentLine({
     <button
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-agent-line__button"
-      style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
+      style={
+        depth > 0
+          ? trayColumns
+            ? ({ "--acpmux-tray-indent": `${Math.min(depth, 3) * 14}px` } as CSSProperties)
+            : { paddingLeft: 8 + Math.min(depth, 3) * 14 }
+          : undefined
+      }
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
