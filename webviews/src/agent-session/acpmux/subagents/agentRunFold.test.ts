@@ -500,3 +500,14 @@ test("a lone run whose requested name the daemon lowercases still pairs with its
     expect(fold.all()[0]).toMatchObject({ session: claimed, child: "child-1" });
   }
 });
+
+test("an explicitly requested -N name with no competing base name pairs with its child", () => {
+  // `-n fix-2` claims `fix-2` itself; the suffix is a daemon rename only when `fix` competes.
+  const { fold, send } = folder();
+  send(call("shell", `acpmux run --parent chat-1 -n fix-2 "Fix the flaky test"`));
+  expect(
+    child(fold, 5, { event: "started", shortName: "fix-2", prompt: "Fix the flaky test", harness: "codex" }),
+  ).toBe("shell");
+  expect(fold.isRun("shell")).toBe(true);
+  expect(fold.all()[0]).toMatchObject({ session: "fix-2", child: "child-1" });
+});
