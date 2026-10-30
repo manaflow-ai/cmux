@@ -17,6 +17,8 @@ sidebar from now on"). Scope: workspace and group rows, nested groups, the group
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
 performance.
 
+- 368c6dbbcd5: Finished, failed, and lost agent chats settle into the existing collapsed Done fold; waiting and CI-failing chats stay visible. Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear."
+
 ## Rule for every sidebar change
 
 ### Group editor opening (2026-10-28)
