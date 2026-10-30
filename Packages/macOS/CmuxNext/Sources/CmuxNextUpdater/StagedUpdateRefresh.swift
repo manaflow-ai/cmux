@@ -78,14 +78,9 @@ final class StagedUpdateRefresh {
     /// `install` runs. A second click while the feed is read joins the first.
     func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
         guard pendingClick == nil else { return }
+        // Every click reads the pulled list, also with no installer this app can cancel: a staged build
+        // pulled since launch is never installed because the list was not read yet.
         guard updater.disabledReason == nil, let staged = updater.stagedBuild(), !staged.isEmpty else { return install() }
-        guard isCancellable(updater) else {
-            // Nothing to cancel, so nothing to swap: a staged build known pulled is still never installed.
-            guard Self.knownPulled(staged, updater: updater) else { return install() }
-            updater.log.append("install click: staged build \(staged) was pulled, and no installer is held to cancel; not installing it")
-            updater.presentUpdateUI?()
-            return
-        }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         clicks += 1
         let click = clicks
@@ -130,7 +125,7 @@ final class StagedUpdateRefresh {
             return install()
         }
         let why = pulled ? "staged build \(staged) was pulled" : "build \(newer ?? "") is newer than staged build \(staged)"
-        guard updater.cancelStaged() else {
+        guard isCancellable(updater), updater.cancelStaged() else {
             guard !pulled else {
                 // A pulled build is never installed: the update sheet says what failed, so the click never ends in silence.
                 updater.log.append("install click: \(why), but no installer was held to cancel; not installing it")

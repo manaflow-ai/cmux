@@ -98,8 +98,10 @@ extension UpdaterService {
         case .checking, .downloading:
             break
         case .hidden:
-            // The staged build's cancel passes through hidden before the check starts.
+            // The staged build's cancel passes through hidden before the check starts. A found build
+            // whose prompt ended (a pulled one, ``dropPulledAvailable()``) ends the fetch too.
             if previous == .checking || previous.isDownloading { newestFetch = nil }
+            if case .available = previous { newestFetch = nil }
         case .ready, .installing, .note:
             newestFetch = nil
         }
