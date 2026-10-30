@@ -65,6 +65,6 @@ public final class AgentUnsentDrafts {
     private func save() {
         guard let store else { return }
         let drafts = drafts
-        store.write { drafts.isEmpty ? nil : try? JSONEncoder().encode(drafts) }
+        store.write { drafts.isEmpty ? nil : try JSONEncoder().encode(drafts) }
     }
 }

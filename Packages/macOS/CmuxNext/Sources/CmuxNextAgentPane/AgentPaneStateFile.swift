@@ -1,7 +1,7 @@
 public import Foundation
 import CmuxNextCompat
 
-/// A small JSON state file beside the launch snapshot, written off the main thread (cmux#27587 follow-up).
+/// A small JSON state file beside the launch snapshot, written off the main thread (cmux#27749).
 ///
 /// Leo (2026-10-29): "well somehow at "100% cpu" usage claude code desktop still seems fast / how
 /// does that work? how can cmux next also do that? let's do that". Under agent disk load (git, rg,
@@ -9,18 +9,24 @@ import CmuxNextCompat
 /// mini, 44% of them over a frame (scripts/measure/qos-load-bench.sh), whatever priority the load
 /// ran at. A save on the main thread, once per settled edit or scroll, is then a hang.
 ///
-/// One serial utility queue per file keeps writes in call order; a write that a newer one replaced
+/// One serial utility queue per file keeps saves in call order; a save that a newer one replaced
 /// before it ran is skipped, so a burst costs one write. The caller hands over a value, and the
-/// encoding runs on the queue too. ``read()`` waits for the writes already queued for the file, so
-/// a store made right after a write reads it back (a relaunch reads a file the last run finished).
-/// At quit ``flushAll(within:)`` waits for queued writes, under the app's blocking allowance.
+/// encoding runs on the queue too; an encoding that throws leaves the file as it was. ``read()``
+/// waits for the saves already queued for the file, so a store made right after a save reads it
+/// back. At quit ``flushAll(within:)`` waits, bounded, for queued saves, under the app's blocking
+/// allowance. A crash or kill between a save's call and its write loses that save: the window is
+/// the queue's backlog (a few milliseconds idle, up to a second under heavy disk load), the price
+/// of never holding the main thread for the disk. The files hold a new chat's unsent text and
+/// where each transcript was scrolled; the next settled edit or scroll saves again.
 public nonisolated final class AgentPaneStateFile: Sendable {
     public let url: URL
     private let queue: DispatchQueue
-    /// The newest write's number; a queued write with an older one does nothing.
+    /// The newest save's number; a queued save with an older one does nothing.
     private let newest = Mutex<UInt64>(0)
 
     private static let files = Mutex<[String: AgentPaneStateFile]>([:])
+    /// Set on every file queue, so a read from inside a save does not wait on itself.
+    private static let onQueue = DispatchSpecificKey<Bool>()
 
     /// The one writer for `url`: two stores of one file (a test's fresh store, a second window)
     /// share its queue and so its order.
@@ -37,37 +43,48 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     private init(url: URL) {
         self.url = url
         queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.state-file", qos: .utility)
+        queue.setSpecific(key: Self.onQueue, value: true)
     }
 
-    /// Writes what `encode` returns, atomically, on the file's queue; nil removes the file.
-    public func write(_ encode: @escaping @Sendable () -> Data?) {
+    /// Saves what `encode` returns, atomically, on the file's queue; nil removes the file, and a
+    /// throw keeps it as it was.
+    public func write(_ encode: @escaping @Sendable () throws -> Data?) {
         let number = newest.withLock { value in
             value += 1
             return value
         }
         queue.async { [self] in
             guard newest.withLock({ $0 == number }) else { return }
-            if let data = encode() {
-                try? data.write(to: url, options: .atomic)
-            } else {
+            let data: Data?
+            do { data = try encode() } catch { return }  // a throw keeps the last good file
+            guard let data else {
                 try? FileManager.default.removeItem(at: url)
+                return
             }
+            try? data.write(to: url, options: .atomic)
         }
     }
 
-    /// The file's bytes once the writes queued before this call have run; nil when there is none.
+    /// The file's bytes once the saves queued before this call have run; nil when there is none.
     public func read() -> Data? {
-        // concurrency-allow: one small local read per store (at its first use), after this file's queued writes
-        queue.sync { try? Data(contentsOf: url) }
+        if DispatchQueue.getSpecific(key: Self.onQueue) == true { return try? Data(contentsOf: url) }
+        // concurrency-allow: one small local read per store (at its first use), after this file's queued saves
+        return queue.sync { try? Data(contentsOf: url) }
     }
 
-    /// Waits for every file's queued writes. App quit only (inside `allowBlocking(.terminate)`).
-    public static func flushAll(within limit: TimeInterval = 2) {
+    /// Waits up to `limit` in all for every file's queued saves. App quit only (inside
+    /// `allowBlocking(.terminate)`); false when some were still queued at the deadline.
+    @discardableResult
+    public static func flushAll(within limit: TimeInterval = 2) -> Bool {
         let all = files.withLock { Array($0.values) }
-        let deadline = Date().addingTimeInterval(limit)
-        for file in all where Date() < deadline {
-            // concurrency-allow: app quit only; each queue holds at most one pending small write
-            file.queue.sync {}
+        // concurrency-allow: app quit only, inside allowBlocking(.terminate); bounded by `limit` for all files together
+        let drained = DispatchSemaphore(value: 0)
+        for file in all { file.queue.async { drained.signal() } }
+        let deadline = DispatchTime.now() + limit
+        for _ in all {
+            // concurrency-allow: app quit only; one shared deadline for every file
+            if drained.wait(timeout: deadline) == .timedOut { return false }
         }
+        return true
     }
 }

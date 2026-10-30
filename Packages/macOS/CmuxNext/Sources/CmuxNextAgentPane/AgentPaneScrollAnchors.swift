@@ -63,6 +63,6 @@ public final class AgentPaneScrollAnchors {
 
     private func save() {
         guard let store, let entries else { return }
-        store.write { entries.isEmpty ? nil : try? JSONEncoder().encode(entries) }
+        store.write { entries.isEmpty ? nil : try JSONEncoder().encode(entries) }
     }
 }
