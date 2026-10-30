@@ -1074,12 +1074,13 @@ impl Hub {
         let mut changes = Vec::new();
         let mut change = |rec: EventRecord| changes.push(rec);
         let tail = self.store.tail_after(&session.id, last_seq, meta_replay::KINDS, &mut change);
+        let mut cleared = false;
         if let Ok((extra, last)) = tail
             && extra > 0
         {
             let mut meta = session.meta.lock_or_recover();
             for rec in &changes {
-                meta_replay::apply(&mut meta, rec);
+                cleared |= meta_replay::apply(&mut meta, rec);
             }
             meta.event_count += extra;
             meta.last_seq = last;
@@ -1089,6 +1090,11 @@ impl Hub {
             meta.available_commands = None;
             meta.git_told = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+        // A grant only the tail held, cleared by its replay: its agent host may still run under
+        // it (`policy_source.rs`). Before `caught_up`, so adoption's check sees it.
+        if cleared {
+            self.clear_replayed_grant_host(session);
         }
         session.caught_up.store(true, Ordering::SeqCst);
         // Kept, so the next start scans only past what this one read.

@@ -53,25 +53,28 @@ pub(super) const KINDS: &[&str] = &["renamed", "titled", "tags", "policy", "rule
 /// load's rule (`settle_grant`): the load may have cleared a grant from the saved record with no
 /// record of its own, so an approve-all with no source in the tail asks, and a clear the load made
 /// (cleared, or cleared with its host still to end) is kept over it. Without this, a saved record
-/// that lagged its log brought a cleared vmHost-era approve-all back.
-fn apply_policy(meta: &mut SessionMeta, msg: &Value) {
+/// that lagged its log brought a cleared vmHost-era approve-all back. Returns whether it cleared
+/// an approve-all itself: its agent host may still run under it (`Hub::catch_up`).
+fn apply_policy(meta: &mut SessionMeta, msg: &Value) -> bool {
     use super::policy_source::{CLEARED, CLEARED_HOST, settle_grant};
     meta.permission_policy = msg.get("policy").and_then(Value::as_str).map(str::to_owned);
     if let Some(source) = msg.get("source").and_then(Value::as_str) {
         meta.policy_source = Some(source.to_owned());
-        return;
+        return false;
     }
     let cleared = matches!(meta.policy_source.as_deref(), Some(CLEARED | CLEARED_HOST));
     let kept = if cleared { meta.policy_source.take() } else { None };
     meta.policy_source = None;
-    settle_grant(meta, true);
+    let cleared_here = settle_grant(meta, true) && kept.is_none();
     if kept.is_some() {
         meta.policy_source = kept;
     }
+    cleared_here
 }
 
-/// Applies `rec`, a record after the saved record's `lastSeq`, to `meta`.
-pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
+/// Applies `rec`, a record after the saved record's `lastSeq`, to `meta`. Returns whether a
+/// `policy` record's fail-closed rule cleared an approve-all ([`apply_policy`]).
+pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) -> bool {
     let msg = &rec.msg;
     match rec.kind.as_str() {
         "renamed" => {
@@ -109,7 +112,7 @@ pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
                     .collect();
             }
         }
-        "policy" => apply_policy(meta, msg),
+        "policy" => return apply_policy(meta, msg),
         "rules" => meta.permission_rules = msg.get("rules").cloned().filter(|r| !r.is_null()),
         // The person's read or unread mark (`seen.rs`); a status record without `read` (a turn's
         // status) changes nothing here.
@@ -120,6 +123,7 @@ pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
         }
         _ => {}
     }
+    false
 }
 
 #[cfg(test)]

@@ -44,6 +44,12 @@
 //! host whose end is not proven (it did not end, or the host records cannot be read) is not
 //! adopted, and the chat is refused until it is. Once it ended, the chat is [`CLEARED`]; a daemon
 //! that died before that ends it at its next start.
+//!
+//! A grant only the log tail held (the saved record lagged it) is cleared by its replay
+//! (`meta_replay.rs`), not by the load, with the same host rule
+//! ([`Hub::clear_replayed_grant_host`]). The tail is replayed when the chat's log is read, which
+//! for a chat the start's index does not list comes after adoption; so the one check that keeps
+//! a host from being adopted or reached ([`Hub::end_cleared_host`]) replays the tail first.
 
 use super::*;
 use std::collections::{HashMap, HashSet};
@@ -199,10 +205,38 @@ impl Hub {
         }
     }
 
+    /// [`Hub::settle_legacy_grants`]'s host rule for a grant only the log tail held, cleared by its
+    /// replay (`catch_up`, under the chat's append lock, before it marks the chat caught up): the
+    /// chat is [`CLEARED_HOST`] when the start's index lists its agent host (`LoadPlan::hosted`)
+    /// or the host records say it may run or cannot be read. Rare: one read of the records.
+    pub(super) fn clear_replayed_grant_host(&self, session: &Session) {
+        let id = &session.id;
+        let indexed = self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(id);
+        if !indexed && Self::read_live_host_sessions().is_some_and(|live| !live.contains(id)) {
+            return;
+        }
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if meta.policy_source.as_deref() == Some(CLEARED) {
+            meta.policy_source = Some(CLEARED_HOST.to_owned());
+        }
+    }
+
     /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called before a
     /// host is adopted and before an agent starts, under the chat's spawn lock. Returns whether the
     /// chat was one: its host has then ended, or is marked unadoptable.
-    pub(super) async fn end_cleared_host(&self, session: &Arc<Session>) -> bool {
+    ///
+    /// The chat's log tail is replayed first (`catch_up`; nothing to read once it is): adoption
+    /// can reach a host before the background pass reads its chat's log (a chat the start's index
+    /// did not list), and a grant only the tail held is `clearedHost` only after its replay
+    /// ([`Hub::clear_replayed_grant_host`]). `catch_up` sets that under the append lock before it
+    /// marks the chat caught up, so this never sees a caught-up chat without it.
+    pub(super) async fn end_cleared_host(self: &Arc<Self>, session: &Arc<Session>) -> bool {
+        if !session.caught_up.load(Ordering::SeqCst) {
+            let (hub, s) = (self.clone(), session.clone());
+            if let Err(e) = cmux_blocking::spawn_blocking(move || hub.catch_up(&s)).await {
+                tracing::warn!(session = %session.id, "replaying the log tail failed: {e}");
+            }
+        }
         if session.meta().policy_source.as_deref() != Some(CLEARED_HOST) {
             return false;
         }
@@ -223,7 +257,11 @@ impl Hub {
     /// [`CLEARED_HOST`] chat's, which is ended, or one MDM's off ends (`end_if_runs_full_access`).
     /// A chat a prompt reaches first is never adopted with it either ([`Hub::refuse_cleared_host`]
     /// runs before `readopt`).
-    pub(super) async fn ends_before_adoption(&self, session: &Arc<Session>, off: bool) -> bool {
+    pub(super) async fn ends_before_adoption(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        off: bool,
+    ) -> bool {
         use super::full_access_bound::FullAccessEnd;
         self.end_cleared_host(session).await
             || self.end_if_runs_full_access(session, off).await != FullAccessEnd::NotInFullAccess
@@ -233,7 +271,10 @@ impl Hub {
     /// host is ended first ([`Hub::end_cleared_host`]), and the chat is refused while its end is
     /// not proven (host records that cannot be read prove nothing). No start runs beside it, and
     /// none leaves the chat `clearedHost`, so a later restart adopts the host it starts.
-    pub(super) async fn refuse_cleared_host(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+    pub(super) async fn refuse_cleared_host(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> Result<(), RpcError> {
         if !self.end_cleared_host(session).await
             || session.meta().policy_source.as_deref() != Some(CLEARED_HOST)
         {
