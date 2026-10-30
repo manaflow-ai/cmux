@@ -620,6 +620,12 @@ impl Hub {
             "kind": KIND, "from": lane, "fromName": report.name, "to": parent,
             "turn": report.turn, "state": report.state,
         });
+        // The lane's id and harness, for the parent's queue list (`prompt_provenance.rs`).
+        let lane_session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(lane).cloned();
+        let sender = lane_session
+            .map(|l| crate::prompt_provenance::BoundSender::of_session(&l.id, &l.meta()));
+        let provenance = crate::prompt_provenance::stamp_sender(provenance, sender.as_ref());
         let (tx, rx) = oneshot::channel();
         let opts = PromptOptions {
             prompt_id: Some(prompt_id),

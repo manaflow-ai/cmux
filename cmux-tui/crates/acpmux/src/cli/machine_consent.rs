@@ -76,9 +76,7 @@ impl Authority {
     }
 
     pub(super) fn retain_own_requirement(&self) -> Result<()> {
-        if exists(&self.legacy.join("machine-credential.json"))?
-            || exists(&self.legacy.join("consent.json"))?
-        {
+        if has_own_requirement(&self.legacy)? {
             self.enroll()?;
         }
         Ok(())
@@ -166,6 +164,12 @@ impl Authority {
     fn lock(&self) -> Result<HeldLock> {
         anyhow::bail!("consent unavailable")
     }
+}
+
+/// Whether this daemon's own state (`legacy`, its `ACPMUX_HOME`) holds a machine join or a
+/// consent record, which the account-wide authority must keep requiring.
+pub(super) fn has_own_requirement(legacy: &Path) -> Result<bool> {
+    Ok(exists(&legacy.join("machine-credential.json"))? || exists(&legacy.join("consent.json"))?)
 }
 
 fn exists(path: &Path) -> Result<bool> {

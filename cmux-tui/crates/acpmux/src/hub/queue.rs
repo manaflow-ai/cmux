@@ -244,34 +244,52 @@ impl Hub {
                 if session.moving().is_some() {
                     return Err(Err(moving_error()));
                 }
-                match self.take_run_slot(session, p.provenance) {
-                    Ok(slot) => {
-                        let run = PromptRun {
-                            blocks: p.blocks.to_vec(),
-                            display_parts: p.display_parts.cloned(),
-                            control: p.control,
-                            trust_gate: p.trust_gate,
-                            provenance: p.provenance.cloned(),
-                            agent: p.agent.map(str::to_owned),
-                            class: p.class,
-                            supersede: p.supersede.map(str::to_owned),
-                            full_access_device: p.full_access_device.map(str::to_owned),
-                        };
-                        return Ok((turn_id, false, TurnGuard::new(guard, slot), Arc::new(run)));
-                    }
-                    // The parent's run slots are all taken: it waits in the queue for one.
-                    Err(parent) => {
-                        drop(guard);
-                        if p.no_queue {
-                            return Err(Err(super::auto_resume::retry_turn::busy()));
+                // A turn whose task takes the lock after it runs (the turn its agent ran on into
+                // as the one before ended, `carried_turn.rs`; one recovered from a host): this
+                // prompt waited for the lock, not that turn, and queues behind it.
+                if session.turn().is_some() {
+                    drop(guard);
+                    let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
+                    let waits = self.enqueue(session, &p, position, &turn_id);
+                    accept(
+                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
+                    );
+                    (waits, None)
+                } else {
+                    match self.take_run_slot(session, p.provenance) {
+                        Ok(slot) => {
+                            let run = PromptRun {
+                                blocks: p.blocks.to_vec(),
+                                display_parts: p.display_parts.cloned(),
+                                control: p.control,
+                                trust_gate: p.trust_gate,
+                                provenance: p.provenance.cloned(),
+                                agent: p.agent.map(str::to_owned),
+                                class: p.class,
+                                supersede: p.supersede.map(str::to_owned),
+                                full_access_device: p.full_access_device.map(str::to_owned),
+                            };
+                            return Ok((
+                                turn_id,
+                                false,
+                                TurnGuard::new(guard, slot),
+                                Arc::new(run),
+                            ));
                         }
-                        let mark = self.mark_waiting_for_slot(&parent, session);
-                        let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-                        let waits = self.enqueue(session, &p, position, &turn_id);
-                        accept(
-                            json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
-                        );
-                        (waits, Some(mark))
+                        // The parent's run slots are all taken: it waits in the queue for one.
+                        Err(parent) => {
+                            drop(guard);
+                            if p.no_queue {
+                                return Err(Err(super::auto_resume::retry_turn::busy()));
+                            }
+                            let mark = self.mark_waiting_for_slot(&parent, session);
+                            let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
+                            let waits = self.enqueue(session, &p, position, &turn_id);
+                            accept(
+                                json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position, "waitsForSlot": true}),
+                            );
+                            (waits, Some(mark))
+                        }
                     }
                 }
             }
@@ -344,6 +362,7 @@ impl Hub {
             class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
+            send_now: true,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -444,7 +463,7 @@ impl Hub {
             queued.set("fromAgent", json!(agent));
         }
         if let Some(class) = p.class {
-            queued["class"] = json!(class);
+            queued.set("class", json!(class));
         }
         if let Some(key) = p.supersede {
             queued.set("supersede", json!(key));
