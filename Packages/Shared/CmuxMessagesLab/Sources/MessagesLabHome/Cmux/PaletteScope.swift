@@ -4,15 +4,31 @@ import os
 /// cmux: one window view's palette (its Home chat's theme and Chat Colors…), with a stable id that keys every
 /// palette-dependent cache. Equal themes share one box (``PaletteScope/box(for:)``), so equal palettes share
 /// their row bitmaps and tiles, and two chats with different colours never read each other's.
-// Immutable and checked Sendable: two `let`s set in init, and FixtureTheme is a Sendable struct of `let`s.
+// Immutable and checked Sendable: three `let`s set in init, and FixtureTheme is a Sendable struct of `let`s.
 final class PaletteBox: Sendable {
     let theme: FixtureTheme
     let id: Int
+    /// The sent bubble's themed gradient, made once for this palette: CoreGraphics does about 10 µs of work the first
+    /// time a gradient object draws, so every bubble of this palette draws the same one (PaletteGradientReuseTests,
+    /// OutgoingGradientDrawCostBench).
+    let outgoingGradient: SharedGradient
 
     fileprivate init(_ theme: FixtureTheme, id: Int) {
         self.theme = theme
         self.id = id
+        outgoingGradient = SharedGradient(theme.active.outgoingGradient)
     }
+}
+
+/// One CGGradient that any thread may draw. The SDK does not mark CGGradient Sendable (Swift 6 probe job
+/// e72b1f95374d27da0c9f8e94), but a CGGradient has no mutating API: Quartz gradients are immutable after creation,
+/// as CGColor and CGPath are, and drawing one only reads it. Owner: cmux-next Performance Lead (#28259); revisit
+/// when the SDK marks CGGradient Sendable, or by 2027-01-30.
+// crash-allow: one `let` of an immutable CGGradient, set in init before the value is shared; no thread can change it.
+final class SharedGradient: @unchecked Sendable {
+    let gradient: CGGradient?
+
+    init(_ gradient: CGGradient?) { self.gradient = gradient }
 }
 
 /// cmux: the palette of the window view whose work runs now on this thread, as `RenderScaleScope` is its scale.
