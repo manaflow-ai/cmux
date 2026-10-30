@@ -163,7 +163,7 @@ extension MobileIrxHost {
         let name = String((metadata?.displayName ?? "").components(separatedBy: .controlCharacters).joined().prefix(64))
         let phone = MobileHostPairRequest(phoneDeviceID: endpoint, name: name.isEmpty ? String(endpoint.prefix(8)) : name,
                                            identityKey: endpoint, approvalKey: "", transport: .iroh)
-        guard await access.admits(phone), run == lifetime else {
+        guard await self.access.admits(phone), run == lifetime else {
             await irx.close(code: .revoked, origin: .local)
             return
         }

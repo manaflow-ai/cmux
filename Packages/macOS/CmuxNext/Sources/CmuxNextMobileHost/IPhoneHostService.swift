@@ -163,7 +163,7 @@ public final class IPhoneHostService {
             // task-owner: one main-actor update per serialized list change
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                paired = pairedStore.current
+                paired = self.pairedStore.current
                 pushPaired()
             }
         }
