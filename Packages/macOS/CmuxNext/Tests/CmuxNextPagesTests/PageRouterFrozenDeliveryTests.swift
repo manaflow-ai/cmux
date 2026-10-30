@@ -89,6 +89,8 @@ struct PageRouterFrozenDeliveryTests {
     }
 
     private func numbers(_ events: [JSONValue]) -> [Double] { events.compactMap { $0["data"]?["n"]?.doubleValue } }
+    /// The events a provider heard dropped: ``StreamProvider`` keeps each event's data (`{n}`), not an envelope.
+    private func dropped(_ provider: StreamProvider) -> [Double] { provider.dropped.compactMap { $0["n"]?.doubleValue } }
     private func seqs(_ events: [JSONValue]) -> [Double] { events.compactMap { $0["seq"]?.doubleValue } }
     private func gaps(_ events: [JSONValue]) -> [Bool] { events.map { $0["gap"] != nil } }
 
@@ -116,7 +118,7 @@ struct PageRouterFrozenDeliveryTests {
         _ = await subscribe(router, "cmux.held.state")
         router.holdDelivery()
         provider.emit("cmux.held.state", 0..<4)
-        #expect(numbers(provider.dropped) == [0, 1, 2])
+        #expect(dropped(provider) == [0, 1, 2])
         router.releaseDelivery()
         #expect(numbers(lifecycle.log.events) == [3])
         #expect(seqs(lifecycle.log.events) == [1])
@@ -136,7 +138,7 @@ struct PageRouterFrozenDeliveryTests {
         #expect(numbers(lifecycle.log.events) == [0, 3])
         #expect(seqs(lifecycle.log.events) == [1, 2])
         #expect(gaps(lifecycle.log.events) == [false, true])
-        #expect(numbers(provider.dropped) == [1, 2])
+        #expect(dropped(provider) == [1, 2])
     }
 
     @Test func queueKeepsTheNewestLimitAndMarksAGap() async {
@@ -145,7 +147,7 @@ struct PageRouterFrozenDeliveryTests {
         _ = await subscribe(router, "cmux.held.feed")
         router.holdDelivery()
         provider.emit("cmux.held.feed", 0..<5)
-        #expect(numbers(provider.dropped) == [0, 1, 2])
+        #expect(dropped(provider) == [0, 1, 2])
         router.releaseDelivery()
         #expect(numbers(lifecycle.log.events) == [3, 4])
         #expect(seqs(lifecycle.log.events) == [1, 2])
@@ -222,7 +224,7 @@ struct PageRouterFrozenDeliveryTests {
         router.holdDelivery()
         provider.emit("cmux.held.feed", 0..<1_000)
         #expect(router.heldEventCount == 64)
-        #expect(numbers(provider.dropped) == (0..<936).map { Double($0) })
+        #expect(dropped(provider) == (0..<936).map { Double($0) })
         router.releaseDelivery()
         #expect(numbers(lifecycle.log.events) == (936..<1_000).map { Double($0) })
         #expect(gaps(lifecycle.log.events) == [true] + Array(repeating: false, count: 63))
@@ -269,7 +271,7 @@ struct PageRouterFrozenDeliveryTests {
         let (router, lifecycle) = makeRouter(provider)
         router.holdDelivery()
         _ = await subscribe(router, "cmux.held.state")
-        #expect(numbers(provider.dropped) == [0, 1])
+        #expect(dropped(provider) == [0, 1])
         router.releaseDelivery()
         #expect(numbers(lifecycle.log.events) == [2])
     }
@@ -283,12 +285,12 @@ struct PageRouterFrozenDeliveryTests {
         router.holdDelivery()
         provider.emit("cmux.held.log", 0..<3)
         router.reset()
-        #expect(numbers(provider.dropped) == [0, 1, 2])
+        #expect(dropped(provider) == [0, 1, 2])
         #expect(lifecycle.log.sent.isEmpty)
         #expect(router.deliveryHeld, "a hidden page that reloads stays held")
         router.releaseDelivery()
         #expect(lifecycle.log.sent.isEmpty)
-        #expect(numbers(provider.dropped) == [0, 1, 2])
+        #expect(dropped(provider) == [0, 1, 2])
     }
 
     /// A pooled router handed to a new claim does not keep the old claim's hold: the new document's
@@ -300,7 +302,7 @@ struct PageRouterFrozenDeliveryTests {
         router.holdDelivery()
         provider.emit("cmux.held.log", 0..<2)
         router.rebind(descriptor: Self.descriptor, routes: [PageRoute(prefix: "cmux.held.", provider: provider)])
-        #expect(numbers(provider.dropped) == [0, 1])
+        #expect(dropped(provider) == [0, 1])
         #expect(!router.deliveryHeld)
         _ = await subscribe(router, "cmux.held.log")
         provider.emit("cmux.held.log", 2..<3)

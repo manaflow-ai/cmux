@@ -27,8 +27,10 @@ app-size: count-swift-code-lines.py's lexer).
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
 your report.
-A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
-it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
+A rule that raises refuses the push (fail closed: a broken rule must not pass every push unjudged) with the rule and
+the error named, and prints a `guardrails` warning with the same text; the other rules still run and refuse.
+CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>" skips a broken rule like any other. A warning check (perf-hot, owner)
+or a context reading that raises is not applied to that push and prints a `guardrails` warning (fail open).
 
 Arch ratchet (one entry, one report): run_push() also runs scripts/cmux-next/arch-ratchet.py, next to this file,
 on a thread (start_ratchet() starts it early so it runs beside prepush-gate's scanners). It holds the counts of
@@ -56,7 +58,7 @@ whole grows (the same total check-app-size.sh --base computes, a split file's ne
 bytes added and the package the code goes to. This is the only App-size
 limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
-`app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type that is not a move
+`app-type`, its own rule (so a fault in its brace scan fails only it, which then refuses alone), refuses a new type that is not a move
 in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any
 depth: top-level, a member of an `extension`, or nested with more than PRIVATE_TYPE_MAX source lines (a type's
 `extension` blocks in its file count toward its size); a small private or nested helper and `// app-type-allow:`
@@ -75,6 +77,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import collections
+import collections.abc
 import concurrent.futures
 import dataclasses
 import functools
@@ -573,7 +576,7 @@ def swift_lexer() -> Callable[[str], list[bool]]:
 
     One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files. Only
     app-size reads it, so it loads inside that rule: a lexer that does not load (CI owns that file) turns off
-    app-size alone through check()'s per-rule fail open, never this module and every rule with it. A failed load
+    app-size alone through check()'s per-rule failure (it refuses), never this module and every rule with it. A failed load
     is not cached; the next push tries again.
     """
     spec = importlib.util.spec_from_file_location("cmux_next_count_swift_code_lines",
@@ -1986,7 +1989,7 @@ RULES = (
 # hit's line or the line directly above it, the same pattern, window and raw line text (comments and strings too,
 # as its `rg -n` reads them) as render-done-checks.py's MQ-sync-layout queue and DC11, so a push that passes this
 # rule never grows that queue. Added lines only, base debt per file as the other line rules; a fault in the rule
-# turns off only it (check()'s fail open per rule).
+# refuses with only it named (measure()'s per-rule fail closed).
 # The block owns its lines from here to `RULES += SYNC_LAYOUT_RULES`.
 SYNC_LAYOUT = re.compile(r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush")
 SYNC_LAYOUT_ALLOW = re.compile(r"//\s*sync-layout:\s*\S")
@@ -2990,7 +2993,7 @@ RULES += TRAP_API_RULES
 # new; the key is the bare id, so `cp/`, backticks or `(fixer)` around it do not make a kept id new.
 # It sees only the files check() diffs (Swift in Packages' Sources and Tests, the shipped crates' src, webviews/src and
 # the CEF shim's and Chromium host's src); comments elsewhere (crate tests/, the host's client/ and tests/, scripts)
-# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule open, not the hook.
+# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule (it refuses), not the hook.
 TASK_ID_SCOPE = ("Packages/", "cmux-tui/", "webviews/", "Native/", "cmux-next-ios/")
 
 
@@ -3076,7 +3079,8 @@ RUST_MEMO = "rust-stability"
 
 
 class RustScanError(RuntimeError):
-    """The pinned ast-grep could not be found, run or read: the Rust rules fail open for this push."""
+    """The pinned ast-grep could not be found, run or read: the Rust rules cannot judge this push, so they refuse it
+    (measure()'s per-rule fail closed; CMUX_GUARDRAILS_SKIP_REASON names them to push anyway)."""
 
 
 def in_rust_stability_scope(path: str) -> bool:
@@ -3367,19 +3371,27 @@ class WakeupHit(Added):
     cause: str = ""
 
 
+WAKEUP_AUDIT_LOAD = threading.Lock()
+
+
 def wakeup_audit():
-    """wakeup-audit.py beside this file, loaded on first use (a load error fails only this rule open)."""
+    """wakeup-audit.py beside this file, loaded on first use (a load error refuses the push: measure()'s rule crash).
+
+    check_own() runs measure() for a merge's ranges on several threads at once, so the load holds a lock: the module
+    is in sys.modules while it runs (its dataclasses resolve their module there), and a second thread that saw it
+    there unlocked got a half-run module (AttributeError: no attribute 'WEB_SKIP_DIRS', so wakeup-ext judged nothing)."""
     name = "cmux_next_wakeup_audit"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            del sys.modules[name]
-            raise
-    return sys.modules[name]
+    with WAKEUP_AUDIT_LOAD:
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                del sys.modules[name]
+                raise
+        return sys.modules[name]
 
 
 class ChecksRoot:
@@ -3780,8 +3792,32 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
-BLOCKING_CONTEXT: dict[str, object] = {}
+class ThreadContext(threading.local, collections.abc.MutableMapping):
+    """A dict of its own on each thread. check_own() runs measure() for a merge's ranges on several threads at once,
+    and each sets the context of its own revision (load_blocking_context); one shared dict let a range's rules read
+    the other range's manifest, actor tree and doc, or raise KeyError between a key's test and its read."""
+
+    def __init__(self):
+        self.values: dict[str, object] = {}
+
+    def __getitem__(self, key: str) -> object:
+        return self.values[key]
+
+    def __setitem__(self, key: str, value: object) -> None:
+        self.values[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.values[key]
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+# HEAD's threading doc and package manifest, and loaded helpers; measure() refreshes them per run, on its own thread.
+BLOCKING_CONTEXT: ThreadContext = ThreadContext()
 
 
 class Prefiltered:
@@ -4942,8 +4978,9 @@ def in_rule_scope(path: str, scope: tuple[str, ...]) -> bool:
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
-    and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
+    """Keeps HEAD's threading doc and package manifest for the rules above, on this thread (a missing doc makes
+    thread-doc raise, so it refuses), and, given REPO, names HEAD's tree for pool-blocking's actor index
+    (repo_actor_index reads it on demand)."""
     for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index", "linked"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
@@ -5167,7 +5204,8 @@ RULES += AWAITED_LOW_PRIORITY_RULES
 # `asyncAfter`) without a justification comment, (b) a `static let/var shared` singleton in package Sources, (c) a
 # sleep in product Sources without a justification comment, (d) a test that reads source or project files
 # (skills/cmux-testing/references/regression-and-quality.md: such a test asserts shape, not behavior) or (e) a new
-# product Swift file with two or more top-level types. Where another check already refuses a pattern before the push
+# product Swift file with two or more top-level types, and (assume-isolated, the same carve-out escape or crash_ratchet's
+# `// main-proof:`) an `assumeIsolated` without a reason. Where another check already refuses a pattern before the push
 # (in CmuxNext's Sources: unchecked-sendable, main-async and check-concurrency.sh's locks, asyncAfter, main.sync and
 # sleeps), this block does not judge it again (CARVE_OUT_OWNED, product_sleep_source).
 #
@@ -5183,16 +5221,19 @@ RULES += AWAITED_LOW_PRIORITY_RULES
 # it was measured on (`guardrails.py --quality-baseline --write`). A hit the base does not have is still no new
 # debt when the baseline lists its text for that file and the base has fewer of it: so a push to
 # origin/feat-cmux-next that brings perf/chrome-parity's old lines (a slice) passes, and a removed old line can come
-# back only as the same line, never as another one. The json comes from the push's base, or, when the base has
-# none (the first push of the file, a slice onto a base without it), from the push's first commit that adds it, never
-# from the head (quality_reference): a json rewritten after new debt lists that debt, and `quality-baseline` refuses
-# a head json with a site its reference lacks, so the baseline only goes down. A reference that does not parse
-# allows nothing, and so does a base without the json when no commit of the push adds it (the base deleted it).
-# Trusted by design: the commit that first adds the json is trusted as written. Its sites are the baseline for the
-# whole push, so debt that this commit, or an earlier commit of the same push, adds and lists passes as old. That
-# trust is what lets a slice of perf/chrome-parity (the json's own branch) onto origin/feat-cmux-next bring its old
-# lines; a reviewer of a push that adds the json checks that the json was measured at the push's base side
-# (`measured_rev`), not after new debt. Local only, like every guardrail.
+# back only as the same line, never as another one. Each rule is judged against its own reference
+# (quality_reference): the base's json when it lists the rule, else the json as the push's first commit that
+# introduces the rule wrote it (a commit whose json lists the rule while its first parent's json does not), never the
+# head's: a json rewritten after new debt lists that debt, and `quality-baseline` refuses a head json with a site its
+# reference lacks, so the baseline only goes down. So a new rule (assume-isolated) brings its baseline once, in the
+# commit that adds it, and a slice onto a base without the json brings each rule's baseline the same way. A base json
+# that does not parse allows nothing, and a rule with no reference allows nothing (a base that deleted the json, with
+# a push that only rewrites it): quality-baseline refuses such a json.
+# Trusted by design: the commit that first introduces a rule's baseline is trusted as written. Its sites are that
+# rule's baseline for the whole push, so debt that this commit, or an earlier commit of the same push, adds and lists
+# passes as old. That trust is what lets a slice of perf/chrome-parity (the json's own branch) onto
+# origin/feat-cmux-next bring its old lines; a reviewer of a push that introduces a rule's baseline checks that the
+# json was measured at the push's base side (`measured_rev`), not after new debt. Local only, like every guardrail.
 # The block owns its lines from here to `RULES += QUALITY_RULES`.
 QUALITY_BASELINE = "plans/cmux-next/quality-ratchet.json"
 QUALITY_MEMO = "quality-baseline"
@@ -5208,6 +5249,11 @@ CARVE_OUT = re.compile(
 # the gate before the push (`// concurrency-allow:`: NSLock, NSConditionLock, os_unfair_lock, asyncAfter, main.sync).
 CARVE_OUT_OWNED = re.compile(r"\bnonisolated\s*\(\s*unsafe\s*\)|@unchecked\s+Sendable\b|\bDispatchQueue\.main\.(?:async|sync)\b"
                              r"|\bNS(?:Recursive)?Lock\(|\bNSConditionLock\(|\bos_unfair_lock|\basyncAfter\(")
+# `MainActor.assumeIsolated` and any actor's `assumeIsolated`: it traps when the caller is off that actor, and the compiler
+# proves nothing behind it. crash_ratchet.py's reviewed escape for it, `// main-proof: <why>`, counts as a justification
+# too, so one comment satisfies both checks.
+ASSUME_ISOLATED = re.compile(r"\bassumeIsolated\b")
+MAIN_PROOF = re.compile(r"//\s*main-proof:\s*\S")
 STATIC_SHARED = re.compile(r"\b(?:static|class)\s+(?:let|var)\s+shared\b")
 # check-concurrency.sh's SLEEP_CALL (Task.sleep, a clock's `.sleep(for:/until:)`, an awaited injected sleeper).
 PRODUCT_SLEEP = re.compile(r"\bTask\.sleep\s*\(|\.sleep\s*\(\s*(?:for|until):|\bclock\.sleep\b"
@@ -5229,6 +5275,20 @@ def product_sleep_source(path: str) -> bool:
     """product_source(PATH) outside CmuxNext's Sources, where check-concurrency.sh already refuses a sleep without
     `// wakeup-allow:` before the push."""
     return product_source(path) and not path.startswith(SOURCES)
+
+
+def assume_isolated_source(path: str) -> bool:
+    """product_source(PATH) outside CmuxNext's Sources, where crash_ratchet.py (`assume_isolated`, escape
+    `// main-proof:`) and the arch ratchet's assume_isolated_outside_adapters row already hold every site."""
+    return product_source(path) and not path.startswith(SOURCES)
+
+
+def assume_isolated_hits(path: str, lines: list[str]) -> list[Added]:
+    """The lines whose code calls `assumeIsolated` with no `// <tag>-allow:` or `// main-proof:` reason in the
+    escape window."""
+    return [Added(path, i + 1, line) for i, line in enumerate(lines)
+            if ASSUME_ISOLATED.search(line) and ASSUME_ISOLATED.search(code_of(line))
+            and not justified(lines, i) and not any(MAIN_PROOF.search(lines[j]) for j in escape_window(lines, i))]
 
 
 def product_source(path: str) -> bool:
@@ -5296,8 +5356,8 @@ def extra_types(path: str, lines: list[str]) -> list[Added]:
     return [Added(path, d.decl + 1, lines[d.decl]) for d in counted[1:] if not justified(lines, d.decl)]
 
 
-# app-type's scan, bound once: a fault there (or a test's stand-in for it) turns off app-type alone, as app-type's
-# own tests require; this rule then fails open on its own.
+# app-type's scan, bound once: a fault there (or a test's stand-in for it) fails app-type alone, as app-type's
+# own tests require; this rule then refuses on its own (measure()'s per-rule fail closed).
 QUALITY_TYPE_SCAN = type_scan
 
 
@@ -5321,6 +5381,7 @@ QUALITY_KINDS = (
     QualityKind("product-sleep", product_sleep_source, code_hits(PRODUCT_SLEEP, escape=True)),
     QualityKind("source-reading-test", package_test, source_test_hits),
     QualityKind("multi-type-file", product_source, extra_types, new_files_only=True),
+    QualityKind("assume-isolated", assume_isolated_source, assume_isolated_hits),
 )
 
 
@@ -5336,34 +5397,54 @@ def quality_baseline_sites(text: str | None) -> dict[str, dict[str, collections.
         return None
 
 
-def quality_reference(memo: tuple[str | None, str | None]) -> str | None:
-    """The baseline text a push is judged against: the base's json, or, when the base has none, the json as the
-    push's first commit that adds it wrote it (quality_origin). Never the head's: a push onto a base without the
-    file that reruns `--write` after adding debt would otherwise list its own new debt as old."""
-    base_text, origin_text = memo
-    return base_text if base_text is not None else origin_text
+def quality_reference(memo: tuple, rule: str) -> dict[str, collections.Counter] | None:
+    """{path: site keys} that RULE's sites are judged against, or None when RULE has no reference.
+
+    The base's json when it lists RULE. Else (the base has no json, or a json from before RULE existed) the json as
+    the push's first commit that introduces RULE wrote it (quality_origins). Never the head's: a json rewritten
+    after new debt lists that debt. A base json that does not parse allows nothing ({}, and quality-baseline names it).
+    """
+    base_text, origins = memo
+    if base_text is not None:
+        base = quality_baseline_sites(base_text)
+        if base is None:
+            return {}
+        if rule in base:
+            return base[rule]
+    origin = (origins or {}).get(rule)
+    if origin is None:
+        return None
+    return (quality_baseline_sites(origin) or {}).get(rule, {})
 
 
 def quality_allowance(changes: list[FileChange], rule: str) -> dict[str, collections.Counter]:
-    """{path: site keys the baseline lists for RULE} (quality_reference). A reference that does not parse allows
-    nothing."""
+    """{path: site keys the baseline lists for RULE} (quality_reference); no reference allows nothing."""
     for change in changes:
-        sites = quality_baseline_sites(quality_reference(change.memo.get(QUALITY_MEMO, (None, None))))
-        return (sites or {}).get(rule, {})
+        return dict(quality_reference(change.memo.get(QUALITY_MEMO, (None, {})), rule) or {})
     return {}
 
 
-def quality_origin(repo: Path, base: str, head: str, head_text: str | None) -> str | None:
-    """The baseline json as the first commit of BASE..HEAD that adds it wrote it. None (nothing old is allowed)
-    when HEAD has none, and when no commit of the range adds it (the base deleted it after the branch was made):
-    the head's own json is never the reference."""
-    if head_text is None:
-        return None
-    added = git(repo, "log", "--diff-filter=A", "--format=%H", "--reverse", f"{base}..{head}", "--",
-                QUALITY_BASELINE, check=False).split()
-    if not added:
-        return None
-    return blobs(repo, [(added[0], QUALITY_BASELINE)]).get((added[0], QUALITY_BASELINE))
+def quality_origins(repo: Path, base: str, head: str) -> dict[str, str]:
+    """{rule: the json text of the first commit of BASE..HEAD that introduces RULE}: a commit whose json lists RULE
+    while its first parent's json does not (or has no json). A commit that only rewrites a json its parent already
+    had introduces nothing, so a branch made before its base deleted the json gets no reference (fail closed)."""
+    commits = git(repo, "log", "--format=%H", "--reverse", f"{base}..{head}", "--", QUALITY_BASELINE,
+                  check=False).split()
+    if not commits:
+        return {}
+    texts = blobs(repo, [(c, QUALITY_BASELINE) for c in commits] + [(f"{c}^1", QUALITY_BASELINE) for c in commits])
+    origins: dict[str, str] = {}
+    for commit in commits:
+        text = texts.get((commit, QUALITY_BASELINE))
+        sites = quality_baseline_sites(text) if text is not None else None
+        if not sites:
+            continue
+        parent = texts.get((f"{commit}^1", QUALITY_BASELINE))
+        before = set(quality_baseline_sites(parent) or {}) if parent is not None else set()
+        for rule in sites:
+            if rule not in before:
+                origins.setdefault(rule, text)
+    return origins
 
 
 def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
@@ -5401,17 +5482,14 @@ def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.C
 
 
 def quality_baseline_raise(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """quality-ratchet.json gains a site over its reference (quality_reference: the base's json, else the one the
-    push's first commit that adds it wrote), or the reference does not parse."""
+    """quality-ratchet.json gains a site over each rule's reference (quality_reference), lists a rule that has no
+    reference in the push, or does not parse (at head, or the base's)."""
     hits = []
     for change in changes:
         if change.path != QUALITY_BASELINE or change.is_deleted:
             continue
-        reference = quality_reference(change.memo.get(QUALITY_MEMO, (None, None)))
-        if reference is None:
-            continue
-        base = quality_baseline_sites(reference)
-        if base is None:
+        memo = change.memo.get(QUALITY_MEMO, (None, {}))
+        if memo[0] is not None and quality_baseline_sites(memo[0]) is None:
             hits.append(Added(change.path, 1, "the base's quality baseline does not parse; fix it in its own push"))
             continue
         head = quality_baseline_sites("\n".join(change.head_lines))
@@ -5419,8 +5497,13 @@ def quality_baseline_raise(changes: list[FileChange], moved: collections.Counter
             hits.append(Added(change.path, 1, "the file does not parse as the quality baseline"))
             continue
         for rule in sorted(head):
+            reference = quality_reference(memo, rule)
+            if reference is None:
+                hits.append(Added(change.path, 1, f"{rule}: no commit of this push introduces its baseline and the "
+                                                  "base lists none (the base deleted the json?)"))
+                continue
             for path in sorted(head[rule]):
-                extra = head[rule][path] - base.get(rule, {}).get(path, collections.Counter())
+                extra = head[rule][path] - reference.get(path, collections.Counter())
                 if extra:
                     hits.append(Added(change.path, 1, f"{rule} {path}: {sum(extra.values())} more site(s)"))
     return hits
@@ -5491,6 +5574,15 @@ QUALITY_RULES = (
          "types (CLAUDE.md; quality audit 2026-10-29: 15.6 % of perf's new files, 9.8 % of trunk's)",
          "put each type in its own file named after it; a small helper can be private beside its user",
          JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[4]), scope=("Packages/",), local_only=True),
+    Rule("assume-isolated", "A new `assumeIsolated` (`MainActor.assumeIsolated` or any actor's) in product package Sources "
+         "outside CmuxNext (crash_ratchet.py holds CmuxNext's) without a justification comment",
+         "it traps at run time when the caller is off the actor, and the compiler proves nothing behind it (the carve-out "
+         "family: an escape from the isolation checker needs a written reason)",
+         "make the caller `@MainActor` (or the actor's own method) so the compiler proves it, or hop with `await`; when "
+         "the caller is provably on the actor, say why on the line or directly above: `// main-proof: <why>` "
+         "(crash_ratchet.py's escape) or any `// <tag>-allow: <reason>`",
+         JUSTIFIED_ESCAPE + " or // main-proof: <why>", quality_rule(QUALITY_KINDS[5]), scope=("Packages/",),
+         local_only=True),
     Rule("quality-baseline", f"{QUALITY_BASELINE} gains a site",
          "the baseline lists old debt that a push may bring back as it was; a new site would let new debt in",
          "never add a site by hand: fix the code, and rerun `scripts/cmux-next/guardrails.py --quality-baseline "
@@ -5805,11 +5897,29 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
 # ---------------------------------------------------------------- run
 
 def check_failure(name: str, error: Exception) -> str:
-    """The warning for a rule or warning check NAME that raised: the error and where it raised."""
+    """The warning for a warning check or context reading NAME that raised: the error and where it raised."""
     frames = traceback.extract_tb(error.__traceback__)
     where = f" at {Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
     return (f"{name} failed ({type(error).__name__}: {error}{where}), so it was not applied to this push "
             "(fail open); the other rules were. Tell the Performance Lead (PL-guardrails) with this line.")
+
+
+@dataclass
+class RuleFailure(Added):
+    """A rule that raised on this push: it judged nothing, so it refuses the push (fail closed). PATH and NUMBER
+    are the file name and line where it raised; TEXT names the rule and the error. check_own() never nets one out
+    against another range."""
+
+
+def rule_failure(rule: Rule, error: Exception) -> tuple[RuleFailure, str]:
+    """(the refusal, the `guardrails` warning) for RULE that raised ERROR. The warning stays so a test or the
+    self-test sees which rule raised; the refusal is what keeps a broken rule from passing every push."""
+    frames = traceback.extract_tb(error.__traceback__)
+    path, number = (Path(frames[-1].filename).name, frames[-1].lineno) if frames else ("guardrails.py", 0)
+    text = f"rule {rule.id} failed ({type(error).__name__}: {error} at {path}:{number})"
+    return RuleFailure(path, number, text), (
+        f"{text}, so it judged nothing and refuses this push (fail closed); the other rules ran. Tell the "
+        "Performance Lead (PL-guardrails) with this line.")
 
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
@@ -5880,7 +5990,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if rust:
         try:
             rust_rules: str | RustScanError = rust_rule_texts(texts, base)
-        except RustScanError as error:  # the Rust rules fail open with it (rust_rule)
+        except RustScanError as error:  # the Rust rules raise it (rust_rule), so they refuse
             rust_rules = error
         for change in rust:
             change.memo["rust_rules"] = rust_rules
@@ -5905,11 +6015,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
     invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
     try:
+        # Only a push that changes the json can introduce a rule's baseline: any other push reads no history.
         quality_baseline = (texts.get((base, QUALITY_BASELINE)),
-                            None if (base, QUALITY_BASELINE) in texts
-                            else quality_origin(repo, base, head, texts.get((head, QUALITY_BASELINE))))
+                            quality_origins(repo, base, head) if QUALITY_BASELINE in set(names.split("\n")) else {})
     except Exception as error:  # fail closed for the quality rules only: no baseline, so old lines count as new
-        quality_baseline = (None, None)
+        quality_baseline = (None, {})
         warnings.append(("guardrails", check_failure("quality baseline", error)))
     for change in files:
         change.memo["wakeup"] = wakeup
@@ -5930,8 +6040,10 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         scoped = [f for f in files + context_files if in_rule_scope(f.path, rule.scope)]
         try:
             hits = rule.find(scoped, moved)
-        except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
-            warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
+        except Exception as error:  # fail closed: a rule that raised judged nothing, so it refuses; the rest still run
+            failure, warning = rule_failure(rule, error)
+            warnings.append(("guardrails", warning))
+            found.append((rule, [failure]))
             continue
         hits = [Attributed(h.path, h.number, h.text, causes[h.path]) if h.path in causes and type(h) is Added else h
                 for h in hits]
@@ -5987,7 +6099,6 @@ def check_own(repo: Path, base: str, head: str, before=()):
     found, warnings = results[0]
     others = []
     for theirs, other_warnings in results[1:]:
-        # A rule that failed on one range is off for this push even when it ran on the others.
         warnings += [w for w in other_warnings if w[0] == "guardrails" and w not in warnings]
         others.append({rule.id: hits for rule, hits in theirs})
     mine = {rule.id: hits for rule, hits in found}
@@ -5995,6 +6106,13 @@ def check_own(repo: Path, base: str, head: str, before=()):
     for rule in RULES:
         hits = mine.get(rule.id, [])
         prior = [other.get(rule.id, []) for other in others]
+        # A rule that raised on any range cannot tell the push's own debt from the other side's: it refuses (fail
+        # closed), and the same failure on both sides never nets out.
+        failed = list({(h.path, h.number, h.text): h for side in (hits, *prior) for h in side
+                       if isinstance(h, RuleFailure)}.values())
+        if failed:
+            own.append((rule, failed))
+            continue
         if not rule.net:
             kept = push_range.less(hits, prior, key=lambda h: (h.path, h.text.strip()))
         else:
@@ -6060,7 +6178,9 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     """
     lines = []
     if warnings:
-        lines.append("guardrails: warnings (never refuse):")
+        lines.append("guardrails: warnings (these never refuse; a rule that failed refuses below):"
+                     if any(isinstance(h, RuleFailure) for _, hits in refusals for h in hits)
+                     else "guardrails: warnings (never refuse):")
         lines += [f"  [{kind}] {text}" for kind, text in warnings]
     skip = os.environ.get(SKIP_ENV, "").strip()
     skip_ids, skip_error = parse_skip(skip) if skip else (set(), None)
@@ -6075,6 +6195,14 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     lines.append("guardrails: this push adds architecture debt (scripts/cmux-next/guardrails.py):")
     for rule, hits in refusals:
         lines.append(f"  [{rule.id}] {rule.title}")
+        failed = [h for h in hits if isinstance(h, RuleFailure)]
+        if failed:
+            for hit in failed:
+                lines.append(f"    {hit.text}")
+            lines.append("    the rule could not judge this push, so it refuses it (fail closed). Tell the Performance "
+                         f"Lead (PL-guardrails) with these lines; skip it once only with {SKIP_ENV}=\"{rule.id}: <why>\" "
+                         "and say so in your report.")
+            continue
         for hit in hits[:20]:
             lines.append(f"    {hit.path}:{hit.number}: {hit.text.strip()[:140]}")
             if getattr(hit, "cause", ""):
@@ -6203,14 +6331,16 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
     for own in ranges:
-        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        # Fail closed per range: a range the checker could not judge refuses (it judged nothing); the other ranges
+        # are still judged and print their own answer.
         try:
             refusals, warnings = check_own(repo, own.base, own.head, own.before)
             text, refuse = format_report(refusals, warnings)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            print(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
-                  f"{own.base[:11]}..{own.head[:11]}; not applied to that range. Tell the Performance Lead "
-                  "(PL-guardrails) with this line.", file=sys.stderr)
+            print(f"prepush-gate: guardrails.py failed ({type(error).__name__}: {error}) on "
+                  f"{own.base[:11]}..{own.head[:11]}, so it judged nothing there and refuses this push (fail "
+                  "closed). Tell the Performance Lead (PL-guardrails) with this line.", file=sys.stderr)
+            refused = True
             continue
         if text:
             print(text)
@@ -6785,8 +6915,8 @@ def edits_rust_rules(files: dict[str, str | None]) -> bool:
 def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple,
                          judge: Callable[[dict[str, str | None], str], tuple[list[Added], list[str]]]) -> list[str]:
     """The Rust rules' sources, judged with RUST_RULES_HOME swapped: a snapshot without the rules (installed before
-    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects fails open
-    with a warning instead of passing the push unjudged. The failures."""
+    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects refuses
+    the push with the rule's failure named (fail closed) instead of passing it unjudged. The failures."""
     global RUST_RULES_HOME
     failures = []
     installed = RUST_RULES_HOME
@@ -6809,9 +6939,10 @@ def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple
                 failures.append(f"{rule_id}: {name} from a snapshot without the rules")
         RUST_RULES_HOME = broken
         hits, raised = judge(refusing[1], refusing[0])
-        ok = bool(raised) and not hits
+        closed = bool(hits) and all(isinstance(h, RuleFailure) for h in hits)
+        ok = bool(raised) and closed
         print(f"  {'ok  ' if ok else 'FAIL'} {refusing[0]}, with a rule ast-grep rejects: "
-              f"{'fails open with a warning' if raised else 'refused' if hits else 'passes unjudged'}")
+              f"{'refused with its failure named' if ok else 'refused unnamed' if hits else 'passes unjudged'}")
         if not ok:
             failures.append(f"{rule_id}: {refusing[0]} with a rule ast-grep rejects")
     finally:
@@ -6853,7 +6984,7 @@ def self_test() -> int:
                     return run("rev-parse", "HEAD")
 
                 def judge(files: dict[str, str | None], message: str) -> tuple[list[Added], list[str]]:
-                    """(this rule's hits, its fail-open warnings) for one commit of FILES over the suite's base."""
+                    """(this rule's hits, the warnings that it raised) for one commit of FILES over the suite's base."""
                     run("checkout", "--quiet", "--detach", base)
                     refusals, warnings = check(repo, base, commit(files, message))
                     return ([h for rule, found in refusals if rule.id == rule_id for h in found],
@@ -6869,7 +7000,7 @@ def self_test() -> int:
                 for name, files, refused in cases:
                     total += 1
                     hits, raised = judge(files, name)
-                    # A rule that raised is skipped (fail open) and would pass every case that expects no refusal.
+                    # A rule that raised refuses (fail closed): that is no answer, even for a case that expects one.
                     ok = bool(hits) == refused and not raised
                     print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
                           + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits)

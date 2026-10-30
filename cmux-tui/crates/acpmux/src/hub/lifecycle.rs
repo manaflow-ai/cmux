@@ -464,9 +464,7 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         session.loading.store(false, Ordering::SeqCst);
-        if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
-        }
+        self.set_status_unless_closed(session, SessionStatus::Idle);
         self.append(
             session,
             "mux",

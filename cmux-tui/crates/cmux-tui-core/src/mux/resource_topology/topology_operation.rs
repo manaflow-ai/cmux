@@ -295,6 +295,7 @@ impl Mux {
                 index: Some(index),
                 entity,
                 workspace_revision,
+                registry_event: None,
                 transaction: None,
             },
             index > 0,

@@ -430,10 +430,10 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", t.usage);
         return 0;
     }
+    // The marker is the variable's name, never its value (a socket path).
+    let marker = super::super::chief_target::OWNER_KEY;
     if let Some(what) = request.write()
-        && let Some(marker) = std::env::var(super::super::chief_target::OWNER_KEY)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
+        && std::env::var(marker).is_ok_and(|value| !value.trim().is_empty())
     {
         let output = if request.json { OutputMode::Json } else { global.output };
         // A Chief's own turn: its host decides, on its bound connection. A
@@ -445,7 +445,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         {
             return code;
         }
-        return super::super::wire::print_operation_error(&agent_refused(what, &marker), output);
+        return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
     let socket = match super::target(global, request.chief_home.as_deref()) {
         Ok(Target::Explicit(socket, derived)) => (socket, derived),

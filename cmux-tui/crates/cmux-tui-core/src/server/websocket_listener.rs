@@ -14,7 +14,7 @@ use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
 use super::attachment_http;
 use super::connection_scheduler::connection_qos::ReaderClass;
-use super::connection_scheduler::{REQUEST_THREAD_QOS, spawn_request_thread};
+use super::connection_scheduler::{REQUEST_THREAD_QOS, spawn_connection_thread};
 use super::listen;
 use super::page_files;
 use super::*;
@@ -189,8 +189,9 @@ pub fn serve_websocket_with_keepalive(
                 let render_service = render_service.clone();
                 let connections = thread_connections.clone();
                 let cleanup_connections = thread_connections.clone();
-                // It reads frames and runs their requests itself: a request thread.
-                if spawn_request_thread("mux-ws-conn", move || {
+                // It admits the connection (may block), then reads frames and
+                // runs their requests with blocking disallowed.
+                if spawn_connection_thread("mux-ws-conn", move || {
                     handle_websocket_connection_with_permit(
                         mux,
                         stream,
@@ -345,13 +346,39 @@ fn handle_websocket_connection_with_permit(
         let _ = websocket.flush();
         return;
     };
+    // Admitted: from here the thread reads the connection's frames and runs
+    // its requests, which never block it (Chrome's `DisallowBlocking`).
+    cmux_threads::blocking::with_blocking_disallowed(|| {
+        serve_admitted_websocket(
+            mux,
+            websocket,
+            admission,
+            handshake_page,
+            rules.keepalive,
+            render_service,
+            connection_permit,
+        );
+    });
+}
+
+/// Serves an admitted WebSocket connection's frames until it ends. Blocking
+/// is disallowed: it is a request thread from here (threading-model.md,
+/// `mux-ws-conn`).
+fn serve_admitted_websocket(
+    mux: Arc<Mux>,
+    mut websocket: WebSocket<SynchronizedTcpStream>,
+    admission: CredentialMatch,
+    handshake_page: Option<String>,
+    keepalive: WebSocketKeepalive,
+    render_service: Arc<RenderService>,
+    connection_permit: Option<ConnectionPermit>,
+) {
     websocket.set_config(|config| {
         config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
         config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
     });
     // The read timeout is the ping clock: a read that sees nothing for one
     // interval returns, and the loop below pings or gives up.
-    let keepalive = rules.keepalive;
     if websocket.get_mut().set_read_timeout(Some(keepalive.ping_interval)).is_err() {
         return;
     }

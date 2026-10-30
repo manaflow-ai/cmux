@@ -318,7 +318,6 @@ build() {
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -disableAutomaticPackageResolution \
-      -skipPackagePluginValidation \
       -destination "platform=macOS" \
       "${caller_settings[@]}" \
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \

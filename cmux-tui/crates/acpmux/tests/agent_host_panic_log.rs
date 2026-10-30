@@ -10,7 +10,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process =
     daemon_env::Process::stand_in().with_env(&[("ACPMUX_TEST_AGENT_HOST_PANIC", "thread")]);
 
-use acpmux::agent_host::link::{self, Connect, HostLauncher};
+use acpmux::agent_host::link::{self, Connect};
 use acpmux::agent_host::{self, Entry, Liveness, SpawnSpec};
 use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
@@ -46,7 +46,7 @@ async fn agent_host_panic_log_gets_one_line_and_the_host_keeps_its_harness() {
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
         router_owner_fifo: None,
     };
-    let launcher = HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() };
+    let launcher = daemon_env::host_launcher();
     let record = link::spawn(&launcher, &spec).await.expect("spawn host");
 
     let deadline = Instant::now() + Duration::from_secs(20);
