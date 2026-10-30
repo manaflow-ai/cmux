@@ -66,6 +66,42 @@ import Testing
         #expect(loader.retryID == 1)
     }
 
+    @Test func cancelledHomeReconnectDoesNotRefresh() async {
+        let feed = MacHomeFeed()
+        var refreshes = 0
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        let action = HomeRetryAction(feed: feed, reconnect: { _ in
+            signal.yield()
+            try? await Task.sleep(for: .seconds(10))
+        }, refresh: { refreshes += 1 })
+        let task = Task { @MainActor in
+            await action.retry(macID: "mac-home", reconnectNeeded: true)
+        }
+        var iterator = started.makeAsyncIterator()
+        _ = await iterator.next()
+        task.cancel()
+        await task.value
+        #expect(refreshes == 0)
+    }
+
+    @Test func cancelledConversationReconnectDoesNotRefreshOrAdvanceRetry() async {
+        let loader = MacConversationLoader()
+        var refreshes = 0
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        let task = Task { @MainActor in
+            await loader.retry(macID: "mac-home", reconnect: { _ in
+                signal.yield()
+                try? await Task.sleep(for: .seconds(10))
+            }, refresh: { refreshes += 1 })
+        }
+        var iterator = started.makeAsyncIterator()
+        _ = await iterator.next()
+        task.cancel()
+        await task.value
+        #expect(refreshes == 0)
+        #expect(loader.retryID == 0)
+    }
+
     @Test func conversationRetryInvokesSessionLoaderAgainAfterFailure() async throws {
         let owner = FakeHomeOwner()
         let link = PushLink { owner.respond($0) }

@@ -15,6 +15,7 @@ struct HomeRetryAction {
 
     func retry(macID: String?, reconnectNeeded: Bool) async {
         if reconnectNeeded, let macID { await reconnect?(macID) }
+        guard !Task.isCancelled else { return }
         refresh()
     }
 }
@@ -30,7 +31,9 @@ final class MacConversationLoader {
 
     func retry(macID: String?, reconnect: ((String) async -> Void)?, refresh: (@MainActor () async -> Void)? = nil) async {
         if let macID { await reconnect?(macID) }
+        guard !Task.isCancelled else { return }
         if let refresh { await refresh() }
+        guard !Task.isCancelled else { return }
         retryID += 1
     }
 
