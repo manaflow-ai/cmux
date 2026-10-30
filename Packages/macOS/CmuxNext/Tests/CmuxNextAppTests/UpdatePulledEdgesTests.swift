@@ -8,12 +8,16 @@ import Testing
 @MainActor @Suite(.serialized) struct UpdatePulledEdgesTests {
     typealias Click = UpdateClickInstallsNewestTests
 
-    /// A pulled-list read that waits until ``open()``.
+    /// A pulled-list read that waits until ``open()``, then answers with `pulled`.
     final class HeldList: @unchecked Sendable {
         let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let data: Data?
+        init(pulled: [String]? = nil) {
+            data = pulled.map { try! JSONSerialization.data(withJSONObject: $0.map { ["build": $0, "reason": "crashed at launch"] }) }
+        }
         func fetch() async -> Data? {
             for await _ in stream { break }
-            return nil
+            return data
         }
         func open() { continuation.finish() }
     }
@@ -39,6 +43,41 @@ import Testing
         }
         #expect(installs.count == 0, "the slow pulled list made the click install stale build 300")
         #expect(h.sparkle.cancels == 1, "staged build 300 did not give way to 500")
+    }
+
+    /// The appcast answers at once with nothing newer, and the pulled list (which lists staged build
+    /// 300) takes past the click's deadline: the click waits for the list and never installs 300.
+    @Test func aSlowPulledListStillKeepsAPulledStagedBuildFromInstalling() async throws {
+        let (h, installs) = Click.make(newer: false)
+        let list = HeldList(pulled: ["300"])
+        defer { list.open() }
+        h.updater.pulledWatch.fetch = { _ in await list.fetch() }
+        h.updater.installClicked()
+        try #require(await eventually { h.feed.fetches == 1 && h.updater.lastProbe != nil }, "the click never read the feed")
+        for _ in 0..<10 {
+            try await Task.sleep(for: .milliseconds(20))
+            h.clock.advance(by: .seconds(1))
+        }
+        #expect(installs.count == 0, "the deadline installed staged build 300 before the pulled list answered")
+        list.open()
+        #expect(await eventually { h.sparkle.cancels == 1 }, "pulled build 300 was kept after the list answered")
+        #expect(installs.count == 0, "the click installed pulled build 300")
+    }
+
+    /// A staged build known pulled that no installer this app holds can cancel: no card or footer
+    /// pill offers it, and a quit with install on quit on cancels it instead of installing it.
+    @Test func aPulledStagedBuildNoOneCanCancelIsNotOffered() async throws {
+        let (h, installs) = Click.make(newer: false, pulled: ["300"])
+        h.updater.stagedRefresh.cancellable = { false }
+        h.updater.cancelStaged = { false }
+        await h.updater.pulledWatch.refresh().value
+        try #require(h.updater.pulledWatch.isPulled("300"))
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        #expect(h.updater.card == nil, "pulled build 300 shows as Update Ready")
+        #expect(h.updater.footerPill == nil, "pulled build 300 shows as Restart to Update")
+        h.updater.preferences.installOnQuit = true
+        #expect(h.updater.prepareForQuit() == .cancelPendingInstall, "a quit installs pulled build 300")
+        #expect(installs.count == 0)
     }
 
     /// No installer this app can cancel (Sparkle's own silent driver), and the pulled list not read
