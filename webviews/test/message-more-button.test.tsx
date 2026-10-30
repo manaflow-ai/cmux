@@ -37,7 +37,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-const { installMessageMenuReporter, messageMenuTarget, openMessageMenu, setMessageMenuSource } =
+const { installMessageMenuReporter, messageMenuTarget, openForkMenu, openMessageMenu, setMessageMenuSource } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
@@ -104,6 +104,17 @@ test("a stale native dismissal cannot clear a newer More menu", async () => {
   doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: first.popupId }));
   expect(button.hasAttribute("data-popup-open")).toBe(true);
   doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: second.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("Option-click Fork keeps its opener lit until the host closes the destination menu", () => {
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openForkMenu(9, button)).toBe(true);
+  const report = reports.at(-1)!;
+  expect(report.forkDestinations).toBe(9);
+  expect(typeof report.popupId).toBe("string");
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
   expect(button.hasAttribute("data-popup-open")).toBe(false);
 });
 
