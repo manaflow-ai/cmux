@@ -4838,6 +4838,7 @@ struct ParkedTemplate {
     host_pid: u32,
     identity: (Vec<u8>, Vec<u8>, String),
     registry_id: serde_json::Value,
+    workspace_key: String,
 }
 
 /// Start a terminal, then park its daemon the way the Cloud bake does: a
@@ -4905,6 +4906,7 @@ fn park_template_host(harness: &mut RecoveryHarness) -> ParkedTemplate {
         host_pid,
         identity: before,
         registry_id: registry_before,
+        workspace_key: record.workspace_key,
     }
 }
 
@@ -4922,6 +4924,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         host_pid,
         identity: before,
         registry_id: registry_before,
+        workspace_key: builder_key,
     } = park_template_host(&mut harness);
     harness.adopt_template_terminal = true;
     harness.restart();
@@ -4988,6 +4991,14 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
     assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
     assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
+    // Every clone of one snapshot holds this host: its workspace takes a fresh key, never the
+    // builder's, or every clone's workspace is one workspace to an app that shows several machines.
+    assert!(!builder_key.is_empty());
+    assert_ne!(
+        workspaces["workspaces"][0]["key"].as_str(),
+        Some(builder_key.as_str()),
+        "{workspaces}"
+    );
     // The template settings configure this daemon only. A terminal it spawns
     // must not inherit them (the Cloud user's shells and agents).
     let env_file = harness.dir.join("template-child-env");
