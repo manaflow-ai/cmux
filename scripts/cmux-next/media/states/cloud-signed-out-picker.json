@@ -2,9 +2,9 @@
   "title": "New Agent Chat destination picker while Cloud is signed out",
   "launch_args": ["--showcase"],
   "steps": [
-    {"title": "Enable the environment picker preview", "cmux": ["settings", "set", "labs.previewFeatures", "true"], "wait": 1, "shot": false},
     {"title": "Open New Agent Chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 4, "shot": false},
     {"title": "Wait for the new chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "shot": false},
-    {"title": "Open the destination picker", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".acpmux-location-picker[data-kind=computer] .acpmux-location-button"}}, "wait": 1}
+    {"title": "Confirm the fresh-home composer is ready", "rpc": {"method": "debug.agent_pane", "params": {"action": "readiness"}}, "shot": false},
+    {"title": "Open the destination picker", "rpc": {"method": "debug.agent_pane", "params": {"action": "click", "selector": ".nt-location .acpmux-location-picker[data-kind=\"computer\"] button"}}, "wait": 1}
   ]
 }
