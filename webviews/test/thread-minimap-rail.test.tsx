@@ -309,14 +309,14 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 test("the rail never outgrows a short transcript", async () => {
   const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
-  // mask's bands (18 and 56 px) and 4 px past each.
-  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 60);
+  // mask's 18 px bands and 4 px past each.
+  expect(railHeight(60, 820, 400)).toBe(400 - 22 - 22);
   expect(railHeight(60, 820, 820)).toBe(600);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
   // The selected height arm starts a short thread tall and grows toward the cleared pane room.
   expect(railHeight(4, 720, 720)).toBe(320);
-  expect(railHeight(70, 720, 720)).toBe(720 - 22 - 60);
+  expect(railHeight(70, 720, 720)).toBe(Math.floor(720 * 0.92));
   // The visible transcript band no longer controls the rail's initial height.
   expect(railHeight(18, 720, 720, 720, 1)).toBe(railHeight(18, 720, 720, 720, 4));
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);

@@ -237,10 +237,19 @@ jobs:
             commit -q -m "$title" -m "Baked from $COMMIT by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
           auth="$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
-          GIT_CONFIG_COUNT=1 \
-          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
-          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          # Two pushes: first the branch at the baked commit (already on the base, so it adds
+          # no commit), then the one manifest commit on top. A single push of a new branch makes
+          # GitHub work out which commits are new against the whole repository, and on this
+          # repository that times out ("Unable to determine if workflow can be created or updated
+          # due to timeout; `workflows` scope may be required"), which refused every publish.
+          push() {
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              git push --force --quiet "https://github.com/$GITHUB_REPOSITORY.git" "$1:refs/heads/$BRANCH"
+          }
+          push "$COMMIT"
+          push HEAD
           rows="$(jq -r '.entries[] | "| \(.kind) | \(.size.name // "-") | `\(.version)` | `\(.imageId)` |"' "$OUT")"
           body="$(printf '%s\n' \
             "Rebaked devbox image \`$VERSION\` from $COMMIT (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)." \

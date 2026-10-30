@@ -106,16 +106,24 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
                                         "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
 
+    /// The capture shell home (`AppEnvironment.captureShellHome`): a PR capture slot names it in the
+    /// clone's `LSEnvironment`, and a DEBUG launch may pass it in its environment instead (the media
+    /// tours, scripts/cmux-next/media/tour.py), so the tour's shells and machine labels name no CI Mac.
+    public static let captureShellHomeKey = "CMUX_CAPTURE_SHELL_HOME"
+
     /// Keys of cmux variables this process inherited rather than received
-    /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs.
+    /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs
+    /// (and, in a DEBUG build, ``captureShellHomeKey``).
     /// When another cmux started this process (``otherCmuxMarkers``), also
     /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
     /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots.
-    public static func inheritedKeys(processEnvironment: [String: String], bundledEnvironment: [String: String]) -> [String] {
+    public static func inheritedKeys(processEnvironment: [String: String], bundledEnvironment: [String: String],
+                                     isDebugBuild: Bool = ControlService.isDebugBuild) -> [String] {
         let inherited = { (key: String) in processEnvironment[key].map { bundledEnvironment[key] != $0 } ?? false }
         let fromOtherCmux = otherCmuxMarkers.contains(where: inherited)
         return processEnvironment.keys.filter { key in
             guard inherited(key) else { return false }
+            if key == captureShellHomeKey, isDebugBuild, !fromOtherCmux { return false }
             if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
             if key.hasPrefix("CMUX") { return true }
             guard fromOtherCmux else { return false }
