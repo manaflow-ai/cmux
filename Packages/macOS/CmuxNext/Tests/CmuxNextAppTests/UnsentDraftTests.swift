@@ -105,6 +105,9 @@ struct UnsentDraftTests {
         drafts.typed("", for: "tab-2")
         #expect(try Data(contentsOf: file) == corrupt)
         drafts.typed("new text", for: "tab-2")
+        // Quarantine and the replacement write share this file's async serial queue.
+        // Wait for both before inspecting the directory, including under full-suite load.
+        _ = AgentPaneStateFile.at(file).read()
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         let aside = try #require(names.first { $0.contains("unreadable") })
         #expect(try Data(contentsOf: directory.appending(path: aside)) == corrupt)
