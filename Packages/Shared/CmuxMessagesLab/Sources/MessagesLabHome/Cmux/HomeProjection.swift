@@ -350,6 +350,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: Projection -> HomeStore (intents)
 
     var canReact: Bool { isSendEnabled }
+    func canInteract(with message: ID) -> Bool { item(message)?.isReadOnly != true }
     /// A reply goes out as `HomeOp.sendMessage(threadRoot:)` (swipe-to-reply,
     /// Reply… in the menu, "N Replies" opens the thread view). Offline it
     /// waits in HomeStore's queue like any send.

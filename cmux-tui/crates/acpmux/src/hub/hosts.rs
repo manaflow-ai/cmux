@@ -852,7 +852,8 @@ impl Hub {
                     };
                     // A carried turn raised to Web before its start was logged keeps it.
                     let raised = work.carry_next.as_ref().is_some_and(|(_, next)| {
-                        next.get("turnId") == e.msg.get("turnId") && next["control"] == "web"
+                        next.get("turnId") == e.msg.get("turnId")
+                            && next.get("control").and_then(Value::as_str) == Some("web")
                     });
                     work.turn = Some((
                         e.seq,
@@ -892,7 +893,7 @@ impl Hub {
                     if let Some((_, next)) = work.carry_next.as_mut()
                         && e.msg.get("turnId") == next.get("turnId")
                     {
-                        next["control"] = json!(Control::Web.as_str());
+                        next.set("control", json!(Control::Web.as_str()));
                     }
                 }
                 ("mux", "turn_result") => {
@@ -1225,6 +1226,11 @@ impl Hub {
                         if s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
+                        // A Stop ended its agent (`cancel.rs`). Not started again here, for the
+                        // reason above, nor on a task of its own: that start would run inside
+                        // this adoption's future (not `Send`). The next prompt starts it, on the
+                        // same conversation, as after any agent exit.
+                        s.stop_respawn.store(0, Ordering::SeqCst);
                         drop(guard);
                     });
                 }

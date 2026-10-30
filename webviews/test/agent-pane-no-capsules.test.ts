@@ -81,7 +81,11 @@ function capsules(css: string) {
     const height = px(box.height);
     const width = px(box.width);
     if (radius === undefined) return [];
-    const square = height !== undefined && width !== undefined && Math.abs(width - height) < 1;
+    // Square when both sides are the same length, or the same token (`var(--ds-control-primary)`
+    // on both: the drop overlay's round mark, #24644).
+    const square =
+      (height !== undefined && width !== undefined && Math.abs(width - height) < 1) ||
+      (box.height !== undefined && box.height === box.width);
     const capsule = !square && (radius >= 999 || (height !== undefined && radius >= height / 2 - 0.5));
     return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
   });
@@ -90,6 +94,16 @@ function capsules(css: string) {
 describe("capsule detection", () => {
   test.each([
     ["a circle", ".control { width: 32px; height: 32px; border-radius: 999px; }", false],
+    [
+      "a token-sized circle",
+      ".control { width: var(--ds-control-primary); height: var(--ds-control-primary); border-radius: 999px; }",
+      false,
+    ],
+    [
+      "a pill of two tokens",
+      ".control { width: var(--ds-control-wide); height: var(--ds-control-primary); border-radius: 999px; }",
+      true,
+    ],
     ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],
     ["a fully rounded rectangle", ".control { width: 60px; height: 24px; border-radius: 999px; }", true],
     ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],

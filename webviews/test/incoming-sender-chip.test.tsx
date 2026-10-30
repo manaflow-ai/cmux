@@ -58,6 +58,8 @@ afterAll(() => {
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+const { setChiefFaceHost } = await import("../src/agent-session/acpmux/chiefFace");
+const { incomingPrompt } = await import("../src/agent-session/acpmux/conversation/incomingMessage");
 
 const t = translatorFor("en");
 const entry = (fields: Partial<AcpmuxSessionEntry> & { sessionId: string }) =>
@@ -68,7 +70,7 @@ const sessions = [
   entry({ sessionId: "mux-deputy", name: "coord-deputy", hostKind: "local" }),
 ];
 
-async function line(message: { name: string; sessionId?: string }) {
+async function line(message: { name: string; sessionId?: string; chief?: string }) {
   const store = new SubsessionStore();
   store.set(sessions);
   const opened: string[] = [];
@@ -119,3 +121,60 @@ test("a sender no list names has no Open chat: its line only opens the message",
   expect(host.querySelector(".cv-received")?.getAttribute("data-open")).toBe("true");
   expect(opened).toEqual([]);
 });
+
+// manaflow-ai/cmux#27914: a Chief's turn messages a GUI agent chat, by `agents_chat_send` (the cmux
+// daemon's pump: an `agent_message` from `acp:<turn>`) or by `acpmux send` from inside the turn (a
+// `session_message`). acpmux names the Chief (`fromChief`, prompt_provenance.rs `stamp_chief`); the
+// line and its From: line name the Chief and draw its avatar as the sidebar does, not the turn's
+// session name (`optchat-<home>-<n>`) and a robot, and Open chat never opens the turn's session.
+const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
+const sent = "Sidebar fix is up; CI is green.";
+const chiefMessages = {
+  agent_message: {
+    kind: "agent_message",
+    from: "acp:turn-session-1",
+    fromName: "optchat-b902d10e-2991",
+    to: "acp:me",
+    msgId: "m-1",
+    threadId: "t-1",
+    fromChief: "agent_ops",
+  },
+  session_message: {
+    kind: "session_message",
+    from: "turn-session-1",
+    fromName: "optchat-b902d10e-2991",
+    to: "me",
+    fromChief: "agent_ops",
+  },
+};
+
+for (const [kind, provenance] of Object.entries(chiefMessages)) {
+  test(`a Chief's ${kind} shows the Chief's name and avatar, not its turn session`, async () => {
+    const asked: unknown[] = [];
+    const picture = "data:image/png;base64,QUJD";
+    setChiefFaceHost(async (method, params) => {
+      asked.push([method, params]);
+      return { name: "Ops Chief", src: picture };
+    });
+    // Opened, so its From: line shows.
+    setMessageOpened(undefined, "row-1", true);
+    try {
+      const parsed = incomingPrompt(sent, { _meta: { provenance } });
+      const message = parsed?.kind === "message" ? parsed.message : undefined;
+      expect(message).toMatchObject({ chief: "agent_ops" });
+      const { open, from } = await line(message!);
+      await act(async () => undefined);
+      expect(asked).toEqual([["chief.face", { chief: "agent_ops" }]]);
+      expect(from?.textContent).toBe("Ops Chief");
+      expect(host.querySelector(".cv-disclosure__icon img.cv-agent-avatar")?.getAttribute("src")).toBe(picture);
+      expect(open).toBeNull();
+      expect(host.querySelector(".cv-received__from-line")?.textContent).toBe(
+        t("message.fromHeader", { name: "Ops Chief" }),
+      );
+      expect(host.textContent).not.toContain("optchat-");
+    } finally {
+      setMessageOpened(undefined, "row-1", false);
+      setChiefFaceHost(undefined);
+    }
+  });
+}
