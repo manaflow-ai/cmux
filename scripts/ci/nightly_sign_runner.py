@@ -68,12 +68,9 @@ def candidates(variable: str) -> list[str]:
 
 
 def dead(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
-    """The Blacksmith macOS 26 labels the snapshot (fresh or not) shows dead (simple_pool_picker.blacksmith_dead():
-    nothing running and no job started on it for an hour, from a snapshot up to six hours old), or none when it
-    shows every one dead: with no label showing life it says nothing to choose by."""
-    labels = (cascade.SMALL, cascade.LARGE)
-    out = {label for label in labels if cascade._picker_rule.blacksmith_dead(snapshot, label, now)}  # noqa: SLF001
-    return set() if out >= set(labels) else out
+    """The Blacksmith macOS 26 labels the snapshot (fresh or not) shows dead: the cascade's own rule
+    (next_macos_cascade.dead(), simple_pool_picker.blacksmith_dead())."""
+    return set(cascade.dead(snapshot, now))
 
 
 def stalled(snapshot: Mapping[str, Any] | None, labels: list[str], now: dt.datetime) -> set[str] | None:
@@ -100,7 +97,13 @@ def pick(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) ->
     labels = candidates(variable)
     stuck = stalled(snapshot, labels, now)
     if stuck is None:
-        return labels[0], f"no fresh pool snapshot, so `{labels[0]}` (vars.MACOS_RUNNER_26 or the default)"
+        # A snapshot too old for the stall rule still shows a dead label (dead()): never pick it unverified.
+        # dev_landing_place.py's overflow (OVERFLOW_LABEL, 12 vCPU) and nightly_build_runner.py read this pick.
+        gone = dead(snapshot, now)
+        label = next((label for label in labels if label not in gone), labels[0])
+        return label, (f"no fresh pool snapshot, so `{label}` "
+                       + ("(vars.MACOS_RUNNER_26 or the default)" if label == labels[0]
+                          else f"(`{labels[0]}` is dead: nothing running, no job started in an hour)"))
     moving = [label for label in labels if label not in stuck]
     if not moving:
         # A busy label still starts jobs; a dead one starts none.

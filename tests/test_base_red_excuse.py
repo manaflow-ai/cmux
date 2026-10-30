@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -182,6 +183,77 @@ class JobLogEndpoint(unittest.TestCase):
     def test_raw_log_tabs_preserve_the_entire_error(self):
         text = "2026-10-30T12:00:00.000Z ##[error]\tnew\tcompile failure"
         self.assertEqual(excuse.lines_of(text), ["##[error]\tnew\tcompile failure"])
+
+
+# A `gh` on PATH: it records its argv, and with FAKE_GH=old answers the escape flag the way gh 2.45 does
+# (exit 1, "unknown flag: --allow-escape-sequences" then its usage, nothing read); FAKE_GH=http fails every
+# call with an HTTP error; FAKE_GH=other-flag refuses some other flag. Otherwise it prints the log.
+FAKE_GH = """#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_GH_CALLS"], "a") as calls:
+    calls.write(" ".join(args) + "\\n")
+mode = os.environ.get("FAKE_GH", "")
+if mode == "old" and "--allow-escape-sequences" in args:
+    sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage:  gh api <endpoint> [flags]\\n")
+    sys.exit(1)
+if mode == "http":
+    sys.stderr.write("gh: Not Found (HTTP 404)\\n")
+    sys.exit(1)
+if mode == "other-flag":
+    sys.stderr.write("unknown flag: --hostname-x\\nunknown flag: --allow-escape-sequences\\n")
+    sys.exit(1)
+print("2026-10-30T12:00:00.000Z \\x1b[31mred\\x1b[0m log")
+"""
+
+
+class OldGhWithoutEscapeFlag(unittest.TestCase):
+    """2026-10-30: #28397 asked every job log read for --allow-escape-sequences, which gh 2.45 refuses as an
+    unknown flag, so no log could be read on such a host and no red there could be compared with the base."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        gh = Path(self.dir.name) / "gh"
+        gh.write_text(FAKE_GH)
+        gh.chmod(0o755)
+        self.calls = Path(self.dir.name) / "calls"
+        self.calls.write_text("")
+        env = {"PATH": f"{self.dir.name}{os.pathsep}{os.environ.get('PATH', '')}", "FAKE_GH_CALLS": str(self.calls)}
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def read(self, mode):
+        os.environ["FAKE_GH"] = mode
+        return excuse.GitHub().log(REPO, {"id": 7, "run_id": 10})
+
+    def asked(self):
+        return self.calls.read_text().splitlines()
+
+    def test_an_old_gh_is_asked_again_without_the_flag(self):
+        self.assertIn("red", self.read("old"))
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
+
+    def test_a_new_gh_is_asked_once_with_the_flag(self):
+        self.assertIn("\x1b[31mred", self.read(""))
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences repos/{REPO}/actions/jobs/7/logs"])
+
+    def test_any_other_failure_still_refuses_with_no_retry(self):
+        for mode in ("http", "other-flag"):
+            with self.subTest(mode=mode):
+                self.calls.write_text("")
+                with self.assertRaises(excuse.Refused):
+                    self.read(mode)
+                self.assertEqual(len(self.asked()), 1)
+
+    def test_only_the_flag_itself_on_the_first_line_counts(self):
+        self.assertTrue(excuse.escape_flag_unknown("unknown flag: --allow-escape-sequences\n\nUsage: gh api"))
+        for said in ("", "gh: Not Found (HTTP 404)", "unknown flag: --paginate-x",
+                     "HTTP 502\nunknown flag: --allow-escape-sequences",
+                     "unknown flag: --allow-escape-sequences-x"):
+            self.assertFalse(excuse.escape_flag_unknown(said), said)
 
 
 class Excusing(unittest.TestCase):
