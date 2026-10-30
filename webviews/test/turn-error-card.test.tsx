@@ -576,6 +576,46 @@ test("a sign-in card with Sign in again and CodeRouter's button keeps one filled
   }
 });
 
+// The `coderouter-offer` experiment's `primary` arm fills CodeRouter's button and puts it first. On a
+// sign-in failure that would lead with moving the chat (and retrying it there) before the person has
+// signed in: Sign in again leads there too, and CodeRouter's button follows the card's other actions,
+// outlined, as in the default arm.
+test("a sign-in card in the CodeRouter primary arm still leads with Sign in again, CodeRouter outlined last", async () => {
+  const saved = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...saved, "coderouter-offer": "primary" };
+  try {
+    for (const error of ["Not logged in · Please run /login", "HTTP 401 Unauthorized"]) {
+      const done: string[] = [];
+      await act(async () =>
+        root.render(
+          <TurnActionsContext.Provider
+            value={{
+              reauthenticate: () => done.push("sign-in"),
+              retry: () => done.push("resend"),
+              retryFailed: async () => {
+                done.push("retry");
+                return undefined;
+              },
+              switchModel: () => undefined,
+              route: { name: "Claude Code", harness: "claude" },
+              ownRoute: { find: async () => cr, use: async () => void done.push("move") },
+            }}
+          >
+            <TurnFooter row={{ ...failed(error), retryable: true }} />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+      const filled = [...card().querySelectorAll(".cv-turn-error__primary")].map((element) => element.textContent);
+      expect([error, actionLabels()]).toEqual([error, ["Sign in again", "Retry", "Switch model", "Use cmux CodeRouter"]]);
+      expect([error, filled]).toEqual([error, ["Sign in again"]]);
+      await act(async () => button("Sign in again")!.click());
+      expect([error, done]).toEqual([error, ["sign-in"]]);
+    }
+  } finally {
+    globalThis.cmuxExperiments = saved;
+  }
+});
+
 test("a turn that cannot be sent again offers no move onto CodeRouter, which would change nothing on the card", async () => {
   await renderOffer("invalid x-api-key", cr);
   expect(actionLabels()).toEqual(["Switch model"]);
