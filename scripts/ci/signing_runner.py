@@ -271,7 +271,8 @@ def owned_pick(env: Mapping[str, str],
                read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
                read_jobs: Callable[[str], Any] | None = None,
                read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
-               sleep: Callable[[float], None] = time.sleep) -> tuple[str, str]:
+               sleep: Callable[[float], None] = time.sleep,
+               bounded_snapshot: Callable[[str, str], tuple[Any, str]] | None = None) -> tuple[str, str]:
     if (env.get("ENABLED") or "").strip() != ENABLED_VALUE:
         return "", "vars.CI_SIGN_OWNED is not 1, so signing stays off the owned Macs"
     if (env.get("GITHUB_RUN_ATTEMPT") or "1").strip() not in ("", "1"):
@@ -304,8 +305,9 @@ def owned_pick(env: Mapping[str, str],
     # remaining time unknown, so no busy mini is drained.
     moment = now or dt.datetime.now(dt.timezone.utc)
     reader = read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=moment))
-    snapshot, _ = blacksmith_picker.read_snapshot(lambda: reader(jobs_token, repo), "signing runner", sleep=sleep) \
-        if jobs_token else (None, "")
+    bounded = bounded_snapshot or (lambda t, r: blacksmith_picker.read_snapshot(lambda: reader(t, r), "signing runner",
+                                                                                 sleep=sleep))
+    snapshot, _ = bounded(jobs_token, repo) if jobs_token else (None, "")
     running = snapshot.get("running") if (not pool.snapshot_problem(snapshot, moment)
                                           and (pool.snapshot_age_minutes(snapshot, moment) or 0.0)
                                           <= DRAIN_SNAPSHOT_MAX_MINUTES
@@ -319,15 +321,17 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
          sleep: Callable[[float], None] = time.sleep) -> int:
     now = now or dt.datetime.now(dt.timezone.utc)
-    read_once = read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=now))
-    kept: list[Any] = []
+    reader = read_snapshot or (lambda t, r: pool.GitHub(t, r).snapshot(now=now))
+    kept: list[tuple[Any, str]] = []
 
-    def read_snapshot(token: str, repo: str) -> Any:  # noqa: F811 - one snapshot read for both picks
+    def bounded(token: str, repo: str) -> tuple[Any, str]:
+        """One bounded snapshot read (with its retries) for both picks; a failed read is kept too, so the Blacksmith
+        pick never retries what the owned pick already could not read."""
         if not kept:
-            kept.append(read_once(token, repo))
+            kept.append(blacksmith_picker.read_snapshot(lambda: reader(token, repo), "signing runner", sleep=sleep))
         return kept[0]
 
-    owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep)
+    owned, owned_why = owned_pick(env, read_runners, read_jobs, read_snapshot, now, sleep, bounded)
     if list(argv[:1]) == ["owned"]:
         write_output(env, {"owned": owned}, [f"owned: {owned or 'none'} ({owned_why})"])
         return 0
@@ -335,8 +339,7 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
     snapshot, problem = None, "no token to read the pool snapshot"
     token, repo = env.get("SNAPSHOT_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if token and repo:
-        snapshot, problem = blacksmith_picker.read_snapshot(lambda: read_snapshot(token, repo), "signing runner",
-                                                            sleep=sleep)
+        snapshot, problem = bounded(token, repo)
     try:
         attempt = max(1, int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or "1"))
     except ValueError:

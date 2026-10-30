@@ -800,6 +800,24 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                  dt.datetime(2099, 1, 1, 0, 1, tzinfo=dt.timezone.utc)), 0)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual((values["runner"], values["placement"]), ("blacksmith-12vcpu-macos-26", "verified"))
+            # Both picks share one bounded snapshot read (DRAIN_BY_REMAINING_TIME adds no GitHub read), and a read
+            # that fails is kept as well: the Blacksmith pick never retries what the owned pick could not read.
+            for result in (fresh, None):
+                reads: list[str] = []
+
+                def snapshot(token: str, repo: str) -> Any:
+                    reads.append(token)
+                    if result is None:
+                        raise RuntimeError("HTTP Error 502: Bad Gateway")
+                    return result
+
+                output.unlink()
+                self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output),
+                                                      "SNAPSHOT_TOKEN": "s"}, [], read, jobs, snapshot,
+                                                     dt.datetime(2099, 1, 1, 0, 1, tzinfo=dt.timezone.utc),
+                                                     lambda seconds: None), 0)
+                self.assertEqual(len(reads), 1 if result else signing_runner.blacksmith_picker.SNAPSHOT_READS,
+                                 "one bounded read for the owned and the Blacksmith pick")
 
 
     def test_the_cap_counts_every_signing_job_glaeda_holds_the_mini_for(self) -> None:
