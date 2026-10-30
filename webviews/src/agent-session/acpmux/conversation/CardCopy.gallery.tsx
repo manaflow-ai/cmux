@@ -88,6 +88,21 @@ const variant = (look: CardCopyLook, card: Props["card"], state: "rest" | "hover
   play: state === "rest" ? open : state === "hover" ? hovered : copied,
 });
 
+const NOTES = {
+  promptRest:
+    "Selected look, at rest: the faint copy glyph in the prompt card's top-right corner; the first line wraps around it. Raw stays at the card's end.",
+  promptHover:
+    "The pointer on the card: the glyph goes full; only the glyph's own box lights when the pointer is on it, never the card.",
+  promptCopied: "Clicked: the raw prompt is on the clipboard and the glyph is a check for a moment, then back to Copy.",
+  messageRest: "Another agent's message, opened: the same corner copy, faint.",
+  messageHover: "The message card hovered: the glyph at full.",
+  messageCopied: "Clicked: the message's words are copied, a check shows.",
+  quietRest: "Version B, at rest: a 12px glyph at 30%. Quieter, but hard to find on the glass.",
+  quietCopied: "Version B, copied.",
+  wordRest: "Version C, at rest: the default glyph.",
+  wordCopied: 'Version C, copied: "Copied" beside the check. Wider, and it pushes the first line.',
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.card-copy",
   title: "Card corner copy",
@@ -103,15 +118,15 @@ export default componentEntry<Props>({
   load: async () => Stage,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   variants: {
-    "prompt-rest": variant("faint", "prompt", "rest", "Selected look, at rest: the faint copy glyph in the prompt card's top-right corner; the first line wraps around it. Raw stays at the card's end."),
-    "prompt-hover": variant("faint", "prompt", "hover", "The pointer on the card: the glyph goes full; only the glyph's own box lights when the pointer is on it, never the card."),
-    "prompt-copied": variant("faint", "prompt", "copied", "Clicked: the raw prompt is on the clipboard and the glyph is a check for a moment, then back to Copy."),
-    "message-rest": variant("faint", "message", "rest", "Another agent's message, opened: the same corner copy, faint."),
-    "message-hover": variant("faint", "message", "hover", "The message card hovered: the glyph at full."),
-    "message-copied": variant("faint", "message", "copied", "Clicked: the message's words are copied, a check shows."),
-    "quiet-rest": variant("quiet", "prompt", "rest", "Version B, at rest: a 12px glyph at 30%. Quieter, but hard to find on the glass."),
-    "quiet-copied": variant("quiet", "prompt", "copied", "Version B, copied."),
-    "word-rest": variant("word", "prompt", "rest", "Version C, at rest: the default glyph."),
-    "word-copied": variant("word", "prompt", "copied", 'Version C, copied: "Copied" beside the check. Wider, and it pushes the first line.'),
+    "prompt-rest": variant("faint", "prompt", "rest", NOTES.promptRest),
+    "prompt-hover": variant("faint", "prompt", "hover", NOTES.promptHover),
+    "prompt-copied": variant("faint", "prompt", "copied", NOTES.promptCopied),
+    "message-rest": variant("faint", "message", "rest", NOTES.messageRest),
+    "message-hover": variant("faint", "message", "hover", NOTES.messageHover),
+    "message-copied": variant("faint", "message", "copied", NOTES.messageCopied),
+    "quiet-rest": variant("quiet", "prompt", "rest", NOTES.quietRest),
+    "quiet-copied": variant("quiet", "prompt", "copied", NOTES.quietCopied),
+    "word-rest": variant("word", "prompt", "rest", NOTES.wordRest),
+    "word-copied": variant("word", "prompt", "copied", NOTES.wordCopied),
   },
 });

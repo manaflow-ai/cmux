@@ -5,8 +5,8 @@
 .cv-card-copy {
   float: right;
   position: relative;
-  z-index: 1;
-  margin: -4px -6px 2px 6px;
+  z-index: var(--layer-raised);
+  margin: -3px -6px 2px 6px;
   color: var(--cv-text-muted);
   opacity: 0.45;
   transition: opacity 100ms ease;
@@ -26,17 +26,13 @@
   justify-content: center;
   gap: 4px;
   box-sizing: border-box;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 4px;
+  min-width: var(--cv-context-copy);
+  height: var(--cv-context-copy);
+  padding: 0 3px;
   border-radius: 6px;
   cursor: pointer;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-}
-.cv-card-copy[data-look="quiet"] .cv-card-copy__button {
-  min-width: 20px;
-  height: 20px;
 }
 .cv-card-copy__button:hover {
   color: var(--cv-text);
