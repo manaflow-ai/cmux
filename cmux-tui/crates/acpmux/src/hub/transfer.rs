@@ -220,6 +220,8 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
+        // It lives here now, whatever the daemon it came from had recorded.
+        meta.moved_to = None;
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
