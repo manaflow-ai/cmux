@@ -197,7 +197,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
             (
                 "Ask a session a question and print only its reply",
-                "acpmux send review-27310 -q --class question \"Is the diff safe to land?\"",
+                "acpmux send review-27310 -q \"Is the diff safe to land?\"",
             ),
             (
                 "Send a screenshot with the message",
