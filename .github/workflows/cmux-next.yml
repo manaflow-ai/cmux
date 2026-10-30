@@ -2888,7 +2888,9 @@ jobs:
           if ! [[ -x "$client" ]]; then
             reasons+=("$client is not installed on runner $RUNNER_NAME")
             finish unavailable
-            exit 1  # finish exits already; the step leaves here before any "$client" call (client guard).
+            # finish exits already; the literal exit is the client guard's contract (no "$client" call follows).
+            # shellcheck disable=SC2317
+            exit 1
           fi
           # submit N PACKAGE SUITES: one fleet step that builds PACKAGE once and runs SUITES at REF.
           # --no-supersede: a newer head never takes this run's step, so the verdict stays this commit's.
@@ -2911,7 +2913,8 @@ jobs:
           digest_re='"source_digest": *"([^"]*)"'
           state_re='"state": *"([a-z_]*)"'
           code_re='"exit_code": *(-?[0-9]+)'
-          step_re='^cmux-ci: step ([0-9a-f]{24}) '
+          # A step id as the fleet tools read it (tip-test-compile.sh): 6 to 64 hex.
+          step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
           judge() {
             local line id="" status="" json="" rest refs=0 state="" code="" step=unavailable why=""
             echo "::group::$2 on the build fleet"
@@ -2941,11 +2944,12 @@ jobs:
               if [[ "$json" =~ $code_re ]]; then code="${BASH_REMATCH[1]}"; fi
             fi
             if [[ -z "$why" ]]; then
-              # A step that ran to its end at REF is a verdict; anything else (no worker, a queue or run
-              # timeout, a newer head, a cancel) is none.
-              if [[ "$status" == 0 && ( "$state" == "done" || "$state" == "failed" ) ]]; then
+              # The controller's record decides: a pass is a step done at REF with exit 0 (and a client
+              # that exited 0); a step that ended with a nonzero exit is a fail whatever the client said;
+              # anything else (no worker, a queue or run timeout, a newer head, a cancel) is no verdict.
+              if [[ "$status" == 0 && "$state" == "done" && "$code" == 0 ]]; then
                 step=pass; why="$2: every suite passed at $REF (step $id)"
-              elif [[ "$status" =~ ^[0-9]+$ && "$status" -ne 0 && "$state" == "failed" && "$code" =~ ^[0-9]+$ && "$code" -ne 0 ]]; then
+              elif [[ ( "$state" == "failed" || "$state" == "done" ) && "$code" =~ ^-?[0-9]+$ && "$code" -ne 0 ]]; then
                 step=fail; why="$2: a suite failed or did not build at $REF (step $id, exit $code); the errors are in its log above"
               else
                 why="$2: no verdict from step $id (client exit ${status:-unknown}, step ${state:-unknown})"

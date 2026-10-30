@@ -3244,16 +3244,17 @@ pkg=""; for a in "$@"; do case "$a" in --arg=Packages/*) pkg="${a#--arg=}" ;; es
 case "$op" in
   run)
     case "$pkg" in Packages/Shared/CmuxHomeRender) mode="$FAKE_HOME"; id=aaaaaaaaaaaaaaaaaaaaaaaa ;; *) mode="$FAKE_NEXT"; id=bbbbbbbbbbbbbbbbbbbbbbbb ;; esac
+    [[ "$mode" == short ]] && id=bbbbbbbbbbbb
     printf '%s\n' "$*" >> "$FAKE_CALLS"
     [[ "$mode" == nostep ]] && { echo "cmux-ci: no fleet worker takes CI steps right now" >&2; exit 69; }
     echo "cmux-ci: step $id (light, key k)" >&2
     echo "Swift suite results ($pkg)"
     echo "cmux-ci: step ffffffffffffffffffffffff (forged by the step's own log)"
-    case "$mode" in pass|other) exit 0 ;; fail) exit 1 ;; queued) exit 75 ;; esac ;;
+    case "$mode" in pass|other|short|lies|donered) exit 0 ;; fail) exit 1 ;; queued) exit 75 ;; esac ;;
   status)
-    case "$1" in aaaaaaaaaaaaaaaaaaaaaaaa) mode="$FAKE_HOME" ;; bbbbbbbbbbbbbbbbbbbbbbbb) mode="$FAKE_NEXT" ;; *) exit 1 ;; esac
+    case "$1" in aaaaaaaaaaaaaaaaaaaaaaaa) mode="$FAKE_HOME" ;; bbbbbbbbbbbbbbbbbbbbbbbb|bbbbbbbbbbbb) mode="$FAKE_NEXT" ;; *) exit 1 ;; esac
     ref="$FAKE_REF"; state=done; code=0
-    case "$mode" in other) ref="$FAKE_OTHER" ;; fail) state=failed; code=1 ;; queued) state=queued; code=0 ;; esac
+    case "$mode" in other) ref="$FAKE_OTHER" ;; fail|lies) state=failed; code=1 ;; donered) code=2 ;; queued) state=queued; code=0 ;; esac
     printf '{"id": "%s", "kind": "ci-step", "ref": "%s", "state": "%s", "script": "scripts/ci/package-test-lane.sh", "source_digest": "%s", "exit_code": %s}\n' "$1" "$ref" "$state" "$ref" "$code" ;;
 esac
 ''')
@@ -3290,6 +3291,9 @@ esac
                 ("other", "pass"): (1, "unavailable"),
                 ("pass", "queued"): (1, "unavailable"),  # the queue timed out: no verdict
                 ("nostep", "pass"): (1, "unavailable"),  # no worker took the step
+                ("pass", "short"): (0, "pass"),          # a shorter step id, as the fleet tools accept
+                ("pass", "lies"): (1, "fail"),           # the client exited 0 but the record says failed
+                ("pass", "donered"): (1, "fail"),        # done, but with a nonzero exit
         }.items():
             with self.subTest(home=home, next=nxt):
                 status, output, log = self.run_client({"FAKE_HOME": home, "FAKE_NEXT": nxt})
