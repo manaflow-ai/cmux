@@ -25,6 +25,7 @@ extension SidebarListViewComponents {
 
     /// The app lost focus: the gesture ends and no row stays hovered (the pointer's next move hovers again).
     func pointerFocusLost() {
+        onPointerFocusLost?()
         endPointerGesture()
         setHovered(nil)
     }
@@ -77,6 +78,7 @@ extension SidebarListViewComponents {
     func observePointerEnds() -> Any? {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
             if event.type == .keyDown { self?.onPointerKeyDown?(event); return event }
+            self?.onPointerEvent?(event)
             // A window's event is in its coordinates; one with no window (the desktop's) is on screen.
             _ = self?.pointerEventSeen(event.type, in: event.window,
                                        at: event.window?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow)

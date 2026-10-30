@@ -35,6 +35,10 @@ final class SidebarPriorityPanelView: NSView {
     /// The scroll position when the held row's drag began: scrolling while holding a row moves the
     /// pointer through the document, so the drag adds it to the pointer's window offset.
     private var dragScrollStart: CGFloat?
+    /// The held row's last pointer offset (window points): a scroll with the pointer still moves the row again.
+    private var dragPointerOffset: CGFloat = 0
+    /// Whether the left button is held now (`endReleasedGesture`). Tests inject an answer.
+    var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -44,6 +48,11 @@ final class SidebarPriorityPanelView: NSView {
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
+        // A scroll while a row is held keeps the row under the pointer (`clipScrolled`). AppKit posts these on main,
+        // and a selector observer is removed with the view.
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
         SystemScrollers.followThin(scroll)
         empty.isHidden = true
@@ -212,6 +221,7 @@ final class SidebarPriorityPanelView: NSView {
         guard ended else {
             draggingID = row.entry.id
             dragScrollStart = scrollStart
+            dragPointerOffset = offset - (scrollY - scrollStart)
             Motion.withoutAnimation {
                 row.layer?.zPosition = 1
                 row.animator().frame.origin.y = min(max(0, top + offset), max(0, y - heights[from]))
@@ -258,6 +268,40 @@ final class SidebarPriorityPanelView: NSView {
         guard draggingID != nil else { return }
         stopPresses()
         placeRows(animated: window != nil)
+    }
+
+    /// The scroll moved under a held row: the row follows it, as a pointer move would.
+    @objc private func clipScrolled(_ note: Notification) {
+        guard let id = draggingID, let row = rows[id] else { return }
+        drag(row, offset: dragPointerOffset, ended: false)
+    }
+
+    /// Ends a held row or a pending press: a drag goes back to its slot, and a press opens nothing on its release.
+    func endPointerGesture() {
+        if draggingID != nil { cancelDrag() } else { stopPresses() }
+    }
+
+    /// A left press or release anywhere in the app, before its window gets it (the sidebar list's monitor). A press
+    /// means an earlier release never came here (a menu or a modal took it); a release sent to another window ends
+    /// the gesture after its dispatch, unless the button is still down or a forwarded release already ended it.
+    func pointerEventSeen(_ type: NSEvent.EventType, in eventWindow: NSWindow?) {
+        switch type {
+        case .leftMouseDown:
+            endPointerGesture()
+        case .leftMouseUp where eventWindow !== window:
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.leftButtonIsDown() else { return }
+                self.endPointerGesture()
+            }
+        default:
+            break
+        }
+    }
+
+    /// The app or the window lost focus with the button up: the gesture's release will not come here.
+    func pointerFocusLost() {
+        guard !leftButtonIsDown() else { return }
+        endPointerGesture()
     }
 
     override func cancelOperation(_ sender: Any?) {

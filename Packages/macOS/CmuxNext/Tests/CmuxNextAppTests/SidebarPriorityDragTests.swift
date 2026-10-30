@@ -186,6 +186,28 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions == [.place("c", order: ["c", "a", "b"])])
     }
 
+    @Test(arguments: [false, true])
+    func aLostReleaseEndsTheHeldRowAtTheNextPressOrFocusLoss(focusLoss: Bool) throws {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(sidebar: sidebar)
+        defer { harness.close() }
+        harness.panel.leftButtonIsDown = { false }
+        let row = try #require(harness.panel.rows["c"])
+        let originalTop = row.frame.minY
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        #expect(harness.panel.draggingID == "c")
+
+        // A menu took the release. The next press anywhere, or the window losing focus, ends the drag.
+        if focusLoss { sidebar.list.pointerFocusLost() } else { harness.panel.pointerEventSeen(.leftMouseDown, in: harness.window) }
+        #expect(harness.panel.draggingID == nil)
+        #expect(row.layer?.zPosition == 0)
+        #expect(row.frame.minY == originalTop)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -height))
+        #expect(harness.actions.isEmpty, "a lost release neither places nor opens the chat")
+    }
+
     @Test func updatingRowContentBeforeTheDragThresholdKeepsTheClick() throws {
         let harness = Harness()
         defer { harness.close() }

@@ -35,6 +35,10 @@ extension SidebarViewComponents {
         list.onPointerKeyDown = { [weak self] event in
             self?.priorityPanelView.keyEventSeen(event)
         }
+        list.onPointerEvent = { [weak self] event in
+            self?.priorityPanelView.pointerEventSeen(event.type, in: event.window)
+        }
+        list.onPointerFocusLost = { [weak self] in self?.priorityPanelView.pointerFocusLost() }
         priorityButton.isHidden = true
         priorityButton.setAccessibilityIdentifier("cmux.sidebar.priority")
         priorityButton.onPress = { [weak self] in self?.priorityPanelView.onAction?(.toggleShown) }
