@@ -147,3 +147,29 @@ async fn an_outages_first_drop_saves_even_after_the_link_counted_more_attempts()
     let saved = saved_rows(&dir);
     assert!(saved.contains("renamed"), "{saved}");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_retry_that_refreshes_a_row_then_fails_starts_a_new_outage() {
+    // After the grace ran out, a retry may deliver a row change before its
+    // list and then fail. That row goes unreachable again, and its change is saved.
+    let (hub, peer, dir) = disk_fixture();
+    send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
+    tokio::time::advance(Duration::from_secs(11)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "unreachable");
+    let refreshed = json!({"sessionId":"live", "name":"live", "status":"ready", "turnCount":7});
+    hub.peer_notices
+        .send((
+            peer.name.clone(),
+            peer.generation,
+            PeerNotice::SessionChanged { session: refreshed, kind: "status".into(), seq: 2 },
+        ))
+        .await
+        .unwrap();
+    send(&hub, &peer, PeerNotice::Disconnected("retry failed".into())).await;
+    assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "ready");
+    assert!(saved_rows(&dir).contains("\"turnCount\":7"), "{}", saved_rows(&dir));
+    tokio::time::advance(Duration::from_secs(11)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "unreachable");
+}
