@@ -481,9 +481,10 @@ function questionForRequest(sess: SessionCtx, requestId: unknown): string | unde
 /** Checks a person's answers against the items: one non-empty answer per
  * question, and an option label unless the question takes typed text. */
 export function codexQuestionReply(items: AgentQuestionItem[], answers: AgentQuestionAnswers): { answers: Record<string, { answers: string[] }> } {
-  const out: Record<string, { answers: string[] }> = {};
+  const out: Record<string, { answers: string[] }> = Object.create(null);
   for (const item of items) {
-    const answer = answers[item.id];
+    // Own properties only: a question id may be `constructor` or `__proto__`.
+    const answer = Object.hasOwn(answers, item.id) ? answers[item.id] : undefined;
     const name = item.header ?? item.question;
     if (typeof answer !== "string" || !answer.trim()) throw new Error(`${name} needs an answer`);
     if (!item.allowsOther && !item.options.some((o) => o.label === answer)) {
@@ -516,7 +517,7 @@ function answerCodexQuestion(sess: SessionCtx, questionId: string, answers: Agen
   codexQuestions(sess).delete(questionId);
   sess.emit({ kind: "question-resolved", questionId, outcome: "answered" });
   const summary = pending.items
-    .map((item) => `${item.header ?? item.question}: ${item.secret ? "(hidden)" : answers[item.id]}`)
+    .map((item) => `${item.header ?? item.question}: ${item.secret ? "(hidden)" : result.answers[item.id].answers[0]}`)
     .join(" · ");
   sess.emit({ kind: "status", text: `answered: ${truncate(summary, 200)}` });
 }

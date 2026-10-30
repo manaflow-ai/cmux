@@ -544,13 +544,31 @@ function capSessionEvents(sess: Session) {
   // long-lived process; cap the replayable transcript per session.
   if (sess.events.length > MAX_SESSION_EVENTS) {
     const drop = sess.events.length - MAX_SESSION_EVENTS;
-    sess.events.splice(0, drop);
-    generations.splice(0, drop);
+    const dropped = sess.events.splice(0, drop);
+    const droppedGenerations = generations.splice(0, drop);
+    // A question still waiting for an answer outlives the cap, so a page
+    // that reconnects shows it again.
+    const kept = waitingQuestionIndexes(dropped, sess.events);
+    sess.events.unshift(...kept.map((i) => dropped[i]));
+    generations.unshift(...kept.map((i) => droppedGenerations[i]));
     if (sess.events[0]?.kind !== "status" || !sess.events[0].text.startsWith("(transcript truncated")) {
       sess.events.unshift({ kind: "status", text: "(transcript truncated: older events dropped)" });
       generations.unshift(generations[0] ?? 0);
     }
   }
+}
+
+/** Indexes of `dropped` question events that nothing in `dropped` or `rest` resolved. */
+export function waitingQuestionIndexes(dropped: readonly AgentEvent[], rest: readonly AgentEvent[]): number[] {
+  const resolved = new Set<string>();
+  for (const evt of [...dropped, ...rest]) {
+    if (evt.kind === "question-resolved") resolved.add(evt.questionId);
+  }
+  const out: number[] = [];
+  dropped.forEach((evt, i) => {
+    if (evt.kind === "question" && !resolved.has(evt.questionId)) out.push(i);
+  });
+  return out;
 }
 
 function broadcastSessionEvent(sess: Session, evt: AgentEvent) {
@@ -2404,7 +2422,8 @@ export async function sendCommandCatalogResponse(
 export function parseQuestionAnswers(raw: unknown): AgentQuestionAnswers | null | undefined {
   if (raw === null) return null;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const answers: AgentQuestionAnswers = {};
+  // Null prototype: a `__proto__` question id stays an own answer.
+  const answers: AgentQuestionAnswers = Object.create(null);
   for (const [id, value] of Object.entries(raw)) {
     if (typeof value !== "string") return undefined;
     answers[id] = value;

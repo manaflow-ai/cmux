@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { codexAdapter, codexSessionForTest } from "../adapters/codex";
-import { parseQuestionAnswers } from "../server";
+import { parseQuestionAnswers, waitingQuestionIndexes } from "../server";
 import { applyQuestionEvent, pendingQuestions, type AgentEvent } from "../src/session";
+import type { AgentEvent as ServerEvent } from "../types";
 import { questionAnswers, questionCardKey } from "../src/components/QuestionCard";
 
 const threadId = "thread-parity";
@@ -172,6 +173,34 @@ test("a reconnect or a refused answer gives a still-waiting question a fresh car
   const question = { questionId: "codex-item-1", items: [] };
   expect(questionCardKey(question, 1)).not.toBe(questionCardKey(question, 2));
   expect(questionCardKey(question, 2)).toBe(questionCardKey({ ...question }, 2));
+});
+
+test("question ids that name Object.prototype members stay ordinary answers", () => {
+  const h = codexSessionForTest();
+  const odd = (id: string) => ({ id, header: id, question: `${id}?`, options: null });
+  h.feed([ask(16, [odd("constructor"), odd("__proto__")])]);
+  const items = (h.events[0] as Extract<AgentEvent, { kind: "question" }>).items;
+  // Unanswered: inherited members never count as an answer.
+  expect(questionAnswers(items, {}, {})).toBeNull();
+  expect(() => codexAdapter.answerQuestion!(h.sess, "codex-item-1", {})).toThrow("constructor needs an answer");
+  // Answered through the card and the WebSocket op, as the page sends them.
+  const typed = JSON.parse('{"constructor":"a","__proto__":"b"}');
+  const answers = parseQuestionAnswers(JSON.parse(JSON.stringify(questionAnswers(items, {}, typed))))!;
+  codexAdapter.answerQuestion!(h.sess, "codex-item-1", answers);
+  expect(JSON.parse(JSON.stringify(h.writes[0]))).toEqual(
+    JSON.parse('{"jsonrpc":"2.0","id":16,"result":{"answers":{"constructor":{"answers":["a"]},"__proto__":{"answers":["b"]}}}}'),
+  );
+});
+
+test("the history cap keeps a question that is still waiting", () => {
+  const item = { id: "region", question: "Which region?", options: [{ label: "us" }], allowsOther: false, secret: false };
+  const dropped: ServerEvent[] = [
+    { kind: "question", questionId: "open", items: [item] },
+    { kind: "question", questionId: "answered", items: [item] },
+    { kind: "delta", text: "x" },
+  ];
+  const rest: ServerEvent[] = [{ kind: "question-resolved", questionId: "answered", outcome: "answered" }];
+  expect(waitingQuestionIndexes(dropped, rest)).toEqual([0]);
 });
 
 test("the answer op accepts a decline or string answers only", () => {

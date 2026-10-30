@@ -8,16 +8,22 @@ import type { AgentQuestionItem, PendingQuestion } from "../session";
 
 const OTHER = "\u0000other";
 
+// Question ids are the agent's own strings: `constructor` or `__proto__` must
+// read as unset, never as an inherited property.
+function own(record: Record<string, string>, id: string): string | undefined {
+  return Object.hasOwn(record, id) ? record[id] : undefined;
+}
+
 /** Each item's answer, or null while one is still missing. */
 export function questionAnswers(
   items: AgentQuestionItem[],
   choices: Record<string, string>,
   typed: Record<string, string>,
 ): Record<string, string> | null {
-  const answers: Record<string, string> = {};
+  const answers: Record<string, string> = Object.create(null);
   for (const item of items) {
-    const choice = item.options.length ? choices[item.id] : OTHER;
-    const answer = choice === OTHER ? typed[item.id] ?? "" : choice;
+    const choice = item.options.length ? own(choices, item.id) : OTHER;
+    const answer = choice === OTHER ? own(typed, item.id) ?? "" : choice;
     if (!answer?.trim()) return null;
     answers[item.id] = answer;
   }
@@ -65,7 +71,7 @@ export function QuestionCard({ question, onAnswer }: {
                   key={option.label}
                   type="button"
                   role="radio"
-                  aria-checked={choices[item.id] === option.label}
+                  aria-checked={own(choices, item.id) === option.label}
                   className="agent-question-option"
                   onClick={() => setChoices((c) => ({ ...c, [item.id]: option.label }))}
                 >
@@ -82,7 +88,7 @@ export function QuestionCard({ question, onAnswer }: {
               autoComplete="off"
               aria-label={item.header ?? item.question}
               placeholder={agentChatText(item.options.length ? "questionOther" : "questionTypeAnswer")}
-              value={typed[item.id] ?? ""}
+              value={own(typed, item.id) ?? ""}
               onFocus={() => {
                 if (item.options.length) setChoices((c) => ({ ...c, [item.id]: OTHER }));
               }}
