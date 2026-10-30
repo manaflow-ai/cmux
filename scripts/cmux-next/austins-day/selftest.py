@@ -384,6 +384,25 @@ class ClientList(unittest.TestCase):
         self.assertIsNone(entries({"error": "usage.invalid"}))
 
 
+class LockHeldShare(unittest.TestCase):
+    def test_held_share_is_the_change_of_count_times_mean_over_the_window(self):
+        sys.path.insert(0, HERE)
+        try:
+            import importlib
+            summarize_module = importlib.import_module("summarize")
+        finally:
+            sys.path.remove(HERE)
+        share = summarize_module.lock_held_share
+        first = {"registry_lock": {"hold_us": {"count": 1000, "mean": 500}}}       # 0.5 s held
+        last = {"registry_lock": {"hold_us": {"count": 101000, "mean": 4250}}}     # 429.25 s held
+        # (429.25 - 0.5) s over a 500 s window.
+        self.assertEqual(share(first, last, 500.0), round(428.75 / 500, 4))
+        self.assertIsNone(share(first, last, None))
+        self.assertIsNone(share(first, {}, 500.0))
+        # A daemon restart in the window (counters reset below the first read): clamped at 0, never negative.
+        self.assertEqual(share(last, first, 500.0), 0)
+
+
 class AgentFaults(unittest.TestCase):
     def test_missing_or_unhooked_agents_void_the_ab(self):
         head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()

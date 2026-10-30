@@ -159,6 +159,10 @@ def stall_sites(stalls):
 
 
 def lock_held_share(first, last, window_s):
+    """Share of the window the registry lock was held: the change of count x mean hold between two server-stats
+    reads, over the window. The daemon's mean is a whole number of microseconds (rounded down), so the result
+    is low by up to about 1 µs per hold in the window (an exact value needs the daemon to report its hold sum);
+    a daemon restart in the window resets its counters (clamped at 0)."""
     def held_us(snapshot):
         hold = stat(snapshot, "registry_lock", "hold_us") or {}
         return (hold.get("count") or 0) * (hold.get("mean") or 0)
@@ -684,7 +688,8 @@ def main():
                      + (f"; HARNESS FAULTS: {'; '.join(m['harness_faults'])}" if m["harness_faults"] else ""))
         if m.get("registry_lock_held_share") is not None:
             lines.append(f"   registry lock held {m['registry_lock_held_share']:.1%} of the run's server-stats window "
-                         "(descriptive, no verdict: not yet A/A-tested; integer-mean estimate, up to ~1-2 points low)")
+                         "(descriptive, no verdict: not yet A/A-tested; the daemon's mean hold is a whole number of "
+                         "microseconds, so this is low by up to about 1 µs per hold in the window)")
         lines.append(f"   stalls >100 ms: CODE {m['stall_code_count']} ({m['stall_code_total_ms']} ms), "
                      f"WAIT {m['stall_wait_count']} ({m['stall_wait_total_ms']} ms, max CPU share {m['stall_wait_cpu_share_max']}) "
                      f"next to swap max {m['swap_used_mb']['max']} MB, memory level min {m['memory_level_min']}; WAITs: owner B8 (memory)")
