@@ -422,6 +422,7 @@ public final class AgentPaneView: NSView {
         model.transport.onQuestionStateChanged = nil
         model.onQuestionKeySessionChange = nil
         questionKeyBinding = nil
+        page?.onVisibilityChanged = nil
         hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()

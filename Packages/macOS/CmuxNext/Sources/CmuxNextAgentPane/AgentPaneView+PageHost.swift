@@ -8,6 +8,14 @@ extension AgentPaneView {
     /// Wires `page` to this view: navigation, crashes, and the state a new page subscriber gets.
     func attachPage(_ page: PageWebView) {
         page.autoresizingMask = [.width, .height]
+        page.onVisibilityChanged = { [weak self] visible in
+            guard let self else { return }
+            // PageWebView has already revoked its isolated proof before this callback. Revoke
+            // the native witness and cache too, even if AppKit calls an ancestor's hooks later.
+            self.model.transport.gestures.recordQuestionReturn(false)
+            self.questionKeyBinding = nil
+            if visible { self.refreshQuestionKeyBinding() }
+        }
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
             let modifiers = page?.externalLinkModifiers ?? []

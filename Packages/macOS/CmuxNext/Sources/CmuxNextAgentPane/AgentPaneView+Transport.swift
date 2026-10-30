@@ -6,6 +6,7 @@ import WebKit
 extension AgentPaneView {
     func refreshQuestionKeyBinding() {
         guard let page else { return }
+        guard page.window != nil, !page.isHiddenOrHasHiddenAncestor else { return }
         guard let session = model.sessionId, let connection = model.transport.connection else {
             if questionKeyBinding != nil { page.bindQuestionKeyTargets([]) { _ in } }
             questionKeyBinding = nil

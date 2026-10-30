@@ -1,4 +1,5 @@
 @testable import CmuxNextPages
+import AppKit
 import CmuxNextPagesTestSupport
 import Foundation
 import JavaScriptCore
@@ -446,5 +447,75 @@ struct ChromiumQuestionKeyChannelTests {
         #expect(view.chromiumSession?.questionKeys?.documentGuardPrepared == true)
         #expect(hosting.made.first?.loaded == [descriptor.url()])
         view.close()
+    }
+
+    @Test func visibilityOwnerRebindsTheSamePendingQuestionAfterHideAndWindowReattachment() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("question-visibility-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Agent</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { page in
+            page.senderURL = Self.url
+            page.answer = { method, params in
+                switch method {
+                case "Page.getFrameTree": #"{"frameTree":{"frame":{"id":"main","url":"\#(Self.url)"}}}"#
+                case "Page.createIsolatedWorld": #"{"executionContextId":73}"#
+                case "Runtime.evaluate" where (params["expression"] as? String)?.contains("const nonce =") == true:
+                    #"{"result":{"type":"boolean","value":true}}"#
+                default: nil
+                }
+            }
+        }
+        let descriptor = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: [])
+        #if DEBUG
+        PageID.allowFixtureRoot(root, for: descriptor.id)
+        #endif
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
+                                           options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        var transitions: [Bool] = []
+        var bound = false
+        view.onVisibilityChanged = { [weak view] visible in
+            transitions.append(visible)
+            bound = false
+            if visible, let view { bound = view.bindQuestionKeyTarget(Self.target) { _ in } }
+        }
+        window.contentView = view
+        let first: Bool? = await PageTestWait.value("initial visible question binding") { done in
+            page.onCall = { if page.calls.contains(where: { $0.method == "Runtime.addBinding" }) { done(true) } }
+            view.viewDidMoveToWindow()
+        }
+        #expect(first == true)
+        let firstBinding = try #require(page.calls.last(where: { $0.method == "Runtime.addBinding" })?.params["name"] as? String)
+        view.viewDidHide()
+        #expect(!bound)
+        #expect(transitions.last == false)
+        let shown: Bool? = await PageTestWait.value("question binding after unhide") { done in
+            page.onCall = {
+                if let name = page.calls.last(where: { $0.method == "Runtime.addBinding" })?.params["name"] as? String, name != firstBinding { done(true) }
+            }
+            view.viewDidUnhide()
+        }
+        #expect(shown == true)
+        #expect(bound)
+        let shownBinding = try #require(page.calls.last(where: { $0.method == "Runtime.addBinding" })?.params["name"] as? String)
+        window.contentView = nil
+        #expect(!bound)
+        #expect(transitions.last == false)
+        let reattached: Bool? = await PageTestWait.value("question binding after window reattachment") { done in
+            page.onCall = {
+                if let name = page.calls.last(where: { $0.method == "Runtime.addBinding" })?.params["name"] as? String, name != shownBinding { done(true) }
+            }
+            window.contentView = view
+        }
+        #expect(reattached == true)
+        #expect(bound)
+        page.onCall = nil
     }
 }

@@ -1,10 +1,40 @@
 import Foundation
+import AppKit
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import Testing
 @testable import CmuxNextAgentPane
 
 @MainActor
 struct AgentPaneQuestionReturnGestureTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    @Test func pageVisibilityRevokesTheOwnersCachedBindingAndRequiresANewReturn() throws {
+        let source = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "s"),
+                                             source: .bundled(source), pageHost: true, chromium: nil))
+        defer { view.close() }
+        let page = try #require(view.page)
+        view.questionKeyBinding = AgentPaneView.QuestionKeyBinding(connection: 1, session: "s", contexts: [:])
+        view.model.transport.gestures.recordQuestionReturn(true)
+        let beforeHide = try #require(view.model.transport.gestures.questionReturnWitness)
+        // Invoke the descendant first, before AgentPaneView's ancestor hook: this is the order
+        // that previously left the owner's cache populated after the channel was invalidated.
+        page.viewDidHide()
+        #expect(view.questionKeyBinding == nil)
+        #expect(!view.model.transport.gestures.consumeQuestionReturn(beforeHide))
+        page.viewDidUnhide()
+        #expect(view.model.transport.gestures.questionReturnWitness == nil)
+        view.model.transport.gestures.recordQuestionReturn(true)
+        let beforeDetach = try #require(view.model.transport.gestures.questionReturnWitness)
+        page.removeFromSuperview()
+        #expect(!view.model.transport.gestures.consumeQuestionReturn(beforeDetach))
+        view.addSubview(page)
+        #expect(view.model.transport.gestures.questionReturnWitness == nil)
+    }
+
     @Test func decisionsBeforeRequestsLeaveTombstonesAndOlderDecisionsKeepNewerQuestions() throws {
         let contexts = AcpmuxDecisionContexts()
         var pending = try #require(try JSONSerialization.jsonObject(with: Data(AgentPaneRelayedAllowTests.pendingQuestion().utf8)) as? [String: Any])

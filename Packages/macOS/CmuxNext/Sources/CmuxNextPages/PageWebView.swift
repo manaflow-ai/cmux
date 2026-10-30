@@ -51,6 +51,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var nativeRects: [CGRect] = [] {
         didSet { if nativeRects != oldValue { applyNativeRects() } }
     }
+    /// Called after the page's effective visibility changes. Owners use this to revoke native
+    /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
+    public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
@@ -551,10 +554,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil {
-            chromiumSession?.questionKeys?.invalidate()
             popupHost?.dismiss()
         }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        chromiumSession?.page.setVisible(visible)
+        onVisibilityChanged?(visible)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -569,11 +574,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         chromiumSession?.questionKeys?.invalidate()
         popupHost?.dismiss()
         chromiumSession?.page.setVisible(false)
+        onVisibilityChanged?(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        chromiumSession?.page.setVisible(window != nil)
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        chromiumSession?.page.setVisible(visible)
+        onVisibilityChanged?(visible)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -584,6 +592,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
     }
 
     func applyTheme(force: Bool = false) {
