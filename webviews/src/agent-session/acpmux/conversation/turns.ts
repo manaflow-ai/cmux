@@ -19,10 +19,11 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isRunning, messageGroupKey, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 import { isWaitingMessage } from "./pendingMessages";
+import { agentMessage } from "./agentMessages";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1063,9 +1064,12 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
   if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
   if (tool.kind === "execute" && tool.command) return {};
   const call = subsessionCall(tool);
-  if (call?.tool !== "send") return {};
-  const id = call.sessionId;
-  return { doingSendTo: id.length > 12 ? `${id.slice(0, 8)}…` : id, doingSendSession: id };
+  const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
+  if (call?.tool === "send") return { doingSendTo: short(call.sessionId), doingSendSession: call.sessionId };
+  // A harness's own message tool (Claude's SendMessage), which a group of messages draws while it
+  // runs with the Codex-style runs off: with them on it leaves its run, so the line names it.
+  const to = !call && isRunning(tool) ? agentMessage(tool)?.to : undefined;
+  return to ? { doingSendTo: short(to) } : {};
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -1122,6 +1126,9 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
+  // A message in a run of them shows under the group's line while it is open, which it starts
+  // while one goes out (MessageGroupRow.tsx).
+  if (group.type === "messages") return { key: messageGroupKey(group.items, row.id, at), open: true };
   const kind = group.type === "mcp" ? "mcp" : group.kind;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };

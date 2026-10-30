@@ -57,6 +57,17 @@
   text-overflow: ellipsis;
   color: var(--cv-text-dim);
 }
+/* The Stop's hold, after the toggle: quiet caption text, cut to the line, outside the toggle's hover. */
+.cv-pending__held {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-inline-start: var(--ds-space-2);
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
 /* A narrow pane keeps the count whole: the names, cut to a letter or two, would say nothing. */
 @container (max-width: 480px) {
   .cv-pending__senders {

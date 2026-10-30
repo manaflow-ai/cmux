@@ -7,6 +7,7 @@
 // menu is a message's: Send now, Copy, Dismiss (QueuedMessageCard.tsx). A sub-session's note to its
 // parent through acpmux's outbox reads the same, its "From <name>:" taken for its sender (Leo,
 // 2026-10-29: "why is this styled like this?").
+// While the person's Stop holds them, the group's line says so and what lets them in.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -39,6 +40,13 @@ const running = [
   assistant("Reading the helper…", 0.5, { streaming: true }),
 ];
 const elevenAndMine = chat(running, { isWorking: true, queue: [...queued, own] });
+/// The person stopped the turn: acpmux holds the agents' messages (`queue_paused` with
+/// `reason: "stop"`) until their next turn completes, and the stopped turn offers Continue.
+const stopped = [...running.slice(0, 4), assistant("Reading the helper…", 0.5), summary(0.4, { status: "cancelled" })];
+const heldByStop = chat(stopped, {
+  isWorking: false,
+  queue: queued.slice(0, 3).map((entry) => ({ ...entry, heldByStop: true as const })),
+});
 const MINIMAL = { "sidebar.minimal": true };
 /// A sub-session's note to its parent as acpmux's outbox records it (`acpmux send --no-wait`): no
 /// provenance, its sender only in its "From <name>:" lead.
@@ -84,6 +92,10 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openGroup(ctx);
       },
+    },
+    "held-by-stop": {
+      note: "The person stopped the turn: three agents' messages wait, held by the Stop, and the group's line says so and what lets them in (Continue on the stopped turn, or the person's next message).",
+      snapshot: heldByStop,
     },
     menu: {
       note: "Play: a waiting message's ⋯ menu: Send now, Copy, Dismiss; never the person's queue actions.",

@@ -5,7 +5,9 @@
 // as its own received line, whole when opened, with its actions. Whether the group is open lasts
 // while the page does (incomingOpened.ts), so it survives the virtualized list and new arrivals,
 // and the row estimator reads it; Find opens it for a match in one of its messages. It opens at
-// once, never fading in.
+// once, never fading in. While the person's Stop holds any of them (acpmux `heldByStop`), the line
+// says so and what lets them in, after the toggle (Leo, 2026-10-29: "this is so awkward the stop
+// button doesnt really work and resume doesnt really appear!?"); it is never "Read after this turn".
 import { useContext, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -57,6 +59,7 @@ export function PendingMessagesCard({
     const first = group.rows[0]!;
     return first.incoming?.kind === "message" ? first.incoming.message.name : "";
   });
+  const held = rows.some((member) => member.queuedMessage?.heldByStop);
   const count =
     senders.length === 1 ? t("message.waitingFromOne", { n }) : t("message.waitingFrom", { n, sessions: senders.length });
   return (
@@ -77,6 +80,7 @@ export function PendingMessagesCard({
           <span className="cv-pending__count">{count}</span>
           <span className="cv-pending__senders">{names.join(", ")}</span>
         </button>
+        {held && <span className="cv-pending__held">{t("message.heldByStop")}</span>}
       </div>
       {open && (
         <div id={bodyId} className="cv-pending__body">
