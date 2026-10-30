@@ -106,6 +106,30 @@ test("the card shows status, space and phones with their transport, and follows 
   page.unmount();
 });
 
+test("Phone Access rows remain visible and removable when the legacy host is off", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      iphone: {
+        ...state,
+        allowed: false,
+        account: null,
+        space: null,
+        phase: "off",
+        phones: [{ id: "iroh:peer", title: "Demo iPhone · cmux next", subtitle: "Device key demo", connected: false, removable: true, transport: "iroh", path: null }],
+      },
+    }),
+  );
+  await settle();
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-mobile-phone="iroh:peer"]')).not.toBeNull();
+  await act(async () => element.querySelector<HTMLButtonElement>('[data-remove-phone="iroh:peer"]')!.click());
+  await settle();
+  expect(page.provider.log.some((entry) => entry.op === "cmux.settings.mobile.remove_phone")).toBe(true);
+  page.unmount();
+});
+
 test("the switch writes the setting through cmux.settings.set", async () => {
   const page = await renderPage({ path: "/settings/mobile" });
   await settle();
