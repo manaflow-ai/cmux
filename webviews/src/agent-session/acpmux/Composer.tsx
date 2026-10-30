@@ -700,6 +700,10 @@ export function Composer({
           ready,
           cancel: () => {
             if (draftTransfer.current === transfer) draftTransfer.current = undefined;
+            // The source was never cleared. Remove the speculative destination copy so a later
+            // opening of an unselected session cannot resurrect the held prompt.
+            writePersistedDraft(target, "");
+            void keptAttachments?.write(target, []).catch(() => undefined);
           },
           commit: () => {
             transfer.committed = true;
