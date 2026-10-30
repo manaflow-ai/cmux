@@ -611,11 +611,27 @@ class UploadTests(unittest.TestCase):
     def test_in_ci_the_token_from_the_environment_authenticates_the_push(self):
         with mock.patch.dict(os.environ, {"GH_TOKEN": "t0ken"}):
             args = MODULE.credential_args()
-        self.assertEqual(args[0], "-c")
-        self.assertTrue(args[1].startswith("credential.https://github.com.helper=!"))
-        self.assertNotIn("t0ken", args[1])  # read from the environment by the helper, never on a command line
+        self.assertEqual(args[0::2], ["-c", "-c"])
+        self.assertEqual(args[1], "credential.https://github.com.helper=")
+        self.assertTrue(args[3].startswith("credential.https://github.com.helper=!"))
+        self.assertNotIn("t0ken", " ".join(args))  # read from the environment by the helper, never on a command line
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(MODULE.credential_args(), [])
+
+    def test_the_token_wins_over_a_helper_the_host_already_has(self):
+        # Review of #28265: the token helper was appended after the host's own, and git stops at the first
+        # helper that answers, so a cached account (one without push access, say) was used instead of GH_TOKEN.
+        cached = '!f() { test "$1" = get || exit 0; echo username=cached; echo password=CACHED; }; f'
+        env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
+               "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1",
+               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            args = MODULE.credential_args()
+            filled = subprocess.run(["git", *args, "credential", "fill"], input="url=https://github.com/o/r.git\n\n",
+                                    capture_output=True, text=True, check=True).stdout
+        self.assertIn("username=x-access-token\n", filled)
+        self.assertIn("password=t0ken\n", filled)
+        self.assertNotIn("CACHED", filled)
 
     def test_a_credential_in_a_remote_url_never_reaches_git_or_an_error(self):
         # Review of #28265: an origin like https://user:PAT@github.com/... was passed to ls-remote and

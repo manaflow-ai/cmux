@@ -490,11 +490,13 @@ def url_credential_env(env: dict[str, str], secret_url: str, url: str) -> dict[s
 def credential_args() -> list[str]:
     """In CI the token is in the environment (the publish action's GH_TOKEN); hand it to git directly rather
     than through `gh auth git-credential`, which a host's gh guard may refuse. Elsewhere git's own
-    configuration (an ssh key, a credential helper) authenticates, as it does for any push."""
+    configuration (an ssh key, a credential helper) authenticates, as it does for any push. The empty value
+    first clears the helpers the host already names: git stops at the first helper that answers, so a cached
+    account (perhaps one that can't push) would otherwise win over the token."""
     if not (os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")):
         return []
     helper = '!f() { echo username=x-access-token; echo "password=${GH_TOKEN:-$GITHUB_TOKEN}"; }; f'
-    return ["-c", f"credential.https://github.com.helper={helper}"]
+    return ["-c", "credential.https://github.com.helper=", "-c", f"credential.https://github.com.helper={helper}"]
 
 
 def safe_branch(branch: str) -> str:
