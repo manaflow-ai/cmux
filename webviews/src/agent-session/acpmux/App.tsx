@@ -7423,7 +7423,8 @@ function AcpmuxPane() {
   );
   // New Worktree while the host makes it (a git worktree add can take seconds): a line says so;
   // a newer folder pick ends it.
-  const [worktreeCreating, setWorktreeCreating] = useState(false);
+  /// A worktree being made, for the chat (visit) it was asked in: another fresh chat shows nothing of it.
+  const [worktreeCreating, setWorktreeCreating] = useState<false | { sessionId?: string; visit?: string }>(false);
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
@@ -7475,7 +7476,7 @@ function AcpmuxPane() {
     [requestFolder],
   );
   /// New Worktree (cx-lyqio.2): the new chat starts in a worktree of its folder, or says why not.
-  const [worktreeError, setWorktreeError] = useState<string | undefined>();
+  const [worktreeError, setWorktreeError] = useState<{ message: string; sessionId?: string; visit?: string }>();
   const startInWorktree = useCallback(
     (cwd: string) => {
       // A newer folder pick wins over this worktree, as between two picks.
@@ -7486,8 +7487,11 @@ function AcpmuxPane() {
       const sessionId = shownSession.current;
       const visit = trustVisit();
       setFolderAsk(undefined);
+      // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
+      const asked = { sessionId, ...visitOf(visit) };
+      const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
       setWorktreeError(undefined);
-      setWorktreeCreating(true);
+      setWorktreeCreating(asked);
       const use = (folder: string) => {
         // The person's pick: a send there makes it the New Tab default (newtab/startedProject.ts).
         pickedProject.current = folder;
@@ -7495,9 +7499,6 @@ function AcpmuxPane() {
         if (freshRef.current) setProjectDraft(folder);
         else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
       };
-      // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
-      const asked = { sessionId, ...visitOf(visit) };
-      const stillHere = () => inThisVisit(asked, shownSession.current, trustVisit());
       void newWorktree(callNative, cwd, (folder) => {
         if (pick === folderPick.current && stillHere()) use(folder);
       })
@@ -7506,7 +7507,8 @@ function AcpmuxPane() {
           if (ask && pick === folderPick.current) setFolderAsk({ ask, use, sessionId, ...visitOf(visit) });
         })
         .catch((error: unknown) => {
-          if (pick === folderPick.current) setWorktreeError(errorMessage(error) || String(error));
+          if (pick === folderPick.current)
+            setWorktreeError({ message: errorMessage(error) || String(error), ...asked });
         })
         .finally(() => {
           if (pick === folderPick.current) setWorktreeCreating(false);
@@ -10011,11 +10013,14 @@ function AcpmuxPane() {
     if (!pendingFolder || folderConfirming !== false || folderConfirmInFlight.current) return;
     const pending = pendingFolder;
     const generation = ++folderConfirmGeneration.current;
+    // The answer lands only in the chat it was asked in: a chat switched to while it saves gets nothing.
+    const asked = { sessionId: pending.sessionId, ...visitOf(trustVisit()) };
     const use = (cwd: string) => {
-      if (generation === folderConfirmGeneration.current) pending.use(cwd);
+      if (generation === folderConfirmGeneration.current && inThisVisit(asked, shownSession.current, trustVisit()))
+        pending.use(cwd);
     };
     folderConfirmInFlight.current = true;
-    setFolderConfirming({ sessionId: pending.sessionId, ...visitOf(trustVisit()) });
+    setFolderConfirming(asked);
     setFolderAsk(undefined);
     void confirmFolder(callNative, pending.ask, use).then(
       () => {
@@ -10308,11 +10313,19 @@ function AcpmuxPane() {
             {background.notice && t(BACKGROUND_NOTICE_TEXT[background.notice])}
           </output>
         </Notice>
-        <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
+        <Notice
+          id="worktree-creating"
+          tier="status"
+          when={inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
+        >
           <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
         </Notice>
-        <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
-          <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+        <Notice
+          id="worktree-error"
+          tier="error"
+          when={inThisVisit(worktreeError, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
+        >
+          <WorktreeFailure error={worktreeError?.message ?? ""} onDismiss={() => setWorktreeError(undefined)} />
         </Notice>
         <Notice id="btw-failure" tier="error" when={btwFailure}>
           <output className="acpmux-switch-notice acpmux-folder-choice">
