@@ -1722,7 +1722,7 @@ async fn dispatch_request(
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
         method::MUX_INFO => {
-            let s = hub.resolve(session_key(&params)?)?;
+            let s = hub.resolve_told(session_key(&params)?, conn.origin == Origin::Local)?;
             // After a restart the chat logs are read after the ready line; until
             // then the queue, the turn and the status are the session list's. Info
             // waits for this chat's (#22916; read now if the background pass has not

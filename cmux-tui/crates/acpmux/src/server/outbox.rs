@@ -88,8 +88,13 @@ pub(super) async fn handle(
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
-        return Err(RpcError::invalid_params(format!("no session: {target}"))
-            .with_data(json!({"reason": "no_session", "session": target})));
+        // The names it nearly matched, so the sender can pick one (`Hub::unknown_session`).
+        let close = hub.unknown_session(&target).data.map(|d| d["candidates"].clone());
+        let mut data = json!({"reason": "no_session", "session": target});
+        if let Some(close) = close {
+            data["candidates"] = close;
+        }
+        return Err(RpcError::invalid_params(format!("no session: {target}")).with_data(data));
     }
     // Over the caps it is refused now, never kept (`attach.rs`).
     crate::attach::check_wire(&request)?;

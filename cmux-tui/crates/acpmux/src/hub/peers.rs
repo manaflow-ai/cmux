@@ -934,7 +934,6 @@ impl Hub {
         !is_permission_ask(kind) || self.peer_ask_counts(peer, id, msg)
     }
 
-    /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
     /// How many sessions the peers list that `key` names, as [`Hub::resolve_remote`] matches
     /// them: 0 none, 1 the one it resolves, more when it is ambiguous.
     pub fn remote_matches(&self, key: &str) -> usize {
@@ -942,25 +941,59 @@ impl Hub {
         if map.get(key).is_some() {
             return 1;
         }
+        match map.iter().filter(|(id, r)| names_remote(id, r, key)).count() {
+            0 => map.values().filter(|r| remote_segment(r, key)).count(),
+            n => n,
+        }
+    }
+
+    /// [`Self::remote_matches`] without the last-segments rule: how many peer sessions `key`
+    /// names by id, whole name or `peer/name`. A local sub-session's last segments give way to
+    /// one of these (`Hub::resolve_here`).
+    pub(super) fn remote_strict_matches(&self, key: &str) -> usize {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if map.get(key).is_some() {
+            return 1;
+        }
         map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
     }
 
+    /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name or id prefix;
+    /// failing those, the one session whose name ends in `key`'s segments (`mac-ci-3` for
+    /// `claude-sr2/mac-ci-3`, `session_name::ends_with_segments`).
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
         let map = self.remote_sessions.lock().unwrap();
+        let row = |r: &RemoteSession| {
+            (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone())
+        };
         let hit = if let Some(r) = map.get(key) {
-            Some((r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
+            Some(row(r))
         } else {
             let mut matches: Vec<_> = map
                 .iter()
                 .filter(|(id, r)| names_remote(id, r, key))
-                .map(|(_, r)| (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone()))
+                .map(|(_, r)| row(r))
                 .collect();
+            if matches.is_empty() {
+                matches = map.values().filter(|r| remote_segment(r, key)).map(|r| row(r)).collect();
+            }
             if matches.len() == 1 { matches.pop() } else { None }
         };
         drop(map);
         let (peer_name, id, summary) = hit?;
         let peer = self.peer(&peer_name)?;
         Some((peer, id, summary))
+    }
+
+    /// The names of the peer sessions whose name contains `lower` (any case), for a refusal's
+    /// list (`Hub::unknown_session`).
+    pub(super) fn remote_names_containing(&self, lower: &str) -> Vec<String> {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
+            .filter(|n| n.to_ascii_lowercase().contains(lower))
+            .map(str::to_owned)
+            .collect()
     }
 
     /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
@@ -1079,6 +1112,19 @@ impl Hub {
         }
         out
     }
+}
+
+/// Whether `key` is the last segments of peer session `r`'s name: `mac-ci-3`, or
+/// `PEER/mac-ci-3`, for `PEER/claude-sr2/mac-ci-3`.
+fn remote_segment(r: &RemoteSession, key: &str) -> bool {
+    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+    if crate::session_name::ends_with_segments(name, key) {
+        return true;
+    }
+    let peer = format!("{}/", r.peer);
+    key.strip_prefix(&peer).is_some_and(|rest| {
+        crate::session_name::ends_with_segments(name.strip_prefix(&peer).unwrap_or(name), rest)
+    })
 }
 
 /// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,

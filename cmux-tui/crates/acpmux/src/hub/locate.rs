@@ -54,7 +54,21 @@ impl Hub {
             None => (None, by_key(&summaries, query, &own)),
         };
         if found.is_empty() {
-            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), shown)));
+            let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
+            if link.is_some() {
+                return Err(e);
+            }
+            // The names it nearly matched, as `Hub::unknown_session` gives them.
+            let names = summaries.iter().filter_map(|s| s["name"].as_str());
+            let close = crate::session_name::candidates(names, query);
+            if close.is_empty() {
+                return Err(e);
+            }
+            let list = crate::session_name::candidate_list(&close);
+            let shown_close: Vec<&String> =
+                close.iter().take(crate::session_name::CANDIDATES_SHOWN).collect();
+            return Err(RpcError::not_found(format!("{}; close matches: {list}", e.message))
+                .with_data(json!({"candidates": shown_close})));
         }
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
@@ -173,7 +187,9 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
 
 /// The sessions `key` names: ids take precedence over names. A bare name includes every
 /// host, so a local chat cannot hide a peer's chat with the same name from control callers.
-/// Qualified names select their host; bead ids still find the sessions that carry them.
+/// Qualified names select their host; bead ids still find the sessions that carry them. A
+/// sub-session's last name segments (`mac-ci-3` for `claude-sr2/mac-ci-3`,
+/// `session_name::ends_with_segments`) name it when no whole name does, ahead of a prefix.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
@@ -199,6 +215,13 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
             return carry;
         }
     }
+    let by_segment: Vec<&Value> = summaries
+        .iter()
+        .filter(|s| crate::session_name::ends_with_segments(bare_name(s), key))
+        .collect();
+    if !by_segment.is_empty() {
+        return by_segment;
+    }
     if let Some((host, rest)) = key.split_once('/') {
         let on_host: Vec<&Value> =
             summaries.iter().filter(|s| host_of(s, own).eq_ignore_ascii_case(host)).collect();
@@ -209,6 +232,14 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
             .collect();
         if !exact.is_empty() {
             return exact;
+        }
+        let by_segment: Vec<&Value> = on_host
+            .iter()
+            .copied()
+            .filter(|s| crate::session_name::ends_with_segments(bare_name(s), rest))
+            .collect();
+        if !by_segment.is_empty() {
+            return by_segment;
         }
         return on_host.into_iter().filter(|s| key_prefix(s, rest)).collect();
     }
@@ -366,6 +397,23 @@ mod tests {
         assert_eq!(ids(&by_bead(&named, "cx-ab1.2")), ["m3"]);
         assert_eq!(card(&rows[2], Some("big-red"))["beads"], json!(["cx-ab1.2"]));
         assert_eq!(card(&rows[0], Some("big-red"))["beads"], json!([]));
+    }
+
+    /// A sub-session (`PARENT/SHORT`) is found by its short name, here or on a peer, on a `/`
+    /// boundary only, and only when no whole name matches.
+    #[test]
+    fn a_sub_session_is_found_by_its_short_name() {
+        let mut rows = rows();
+        rows.push(json!({"sessionId": "m5", "name": "claude-sr2/mac-ci-3", "harness": "claude"}));
+        rows.push(json!({"sessionId": "m6", "name": "hb/claude-sr2/mac-ci-4", "peer": "hb",
+                         "harness": "claude"}));
+        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "big-red")), ["m5"]);
+        assert_eq!(ids(&by_key(&rows, "mac-ci-4", "big-red")), ["m6"]);
+        assert_eq!(ids(&by_key(&rows, "hb/mac-ci-4", "big-red")), ["m6"]);
+        assert_eq!(ids(&by_key(&rows, "big-red/mac-ci-3", "big-red")), ["m5"]);
+        assert!(by_key(&rows, "ci-3", "big-red").is_empty());
+        rows.push(json!({"sessionId": "m7", "name": "mac-ci-3", "harness": "claude"}));
+        assert_eq!(ids(&by_key(&rows, "mac-ci-3", "big-red")), ["m7"], "a whole name wins");
     }
 
     #[test]

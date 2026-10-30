@@ -78,6 +78,29 @@ impl AppError {
             format!("no session matches {key:?}; run `acpmux ls` or `acpmux ensure {key}`"),
         )
     }
+    /// [`Self::no_session`] for a daemon refusal of `key`, with the names the daemon said
+    /// `key` nearly matched (`session_name::not_found`'s `data.candidates`), so the caller
+    /// can pick one without listing every session.
+    pub fn no_session_from(key: &str, e: &anyhow::Error) -> Self {
+        let candidates: Vec<String> = e
+            .downcast_ref::<crate::client::DaemonError>()
+            .and_then(|d| d.0.data.as_ref())
+            .and_then(|d| d["candidates"].as_array())
+            .map(|c| c.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        if candidates.is_empty() {
+            return Self::no_session(key);
+        }
+        Self::new(
+            Code::NoSession,
+            "no_session",
+            format!(
+                "no session matches {key:?}; close matches: {}; use one of those names, or run `acpmux ls`",
+                crate::session_name::candidate_list(&candidates)
+            ),
+        )
+        .with_data(serde_json::json!({"candidates": candidates}))
+    }
     pub fn with_session(mut self, id: &str) -> Self {
         self.session_id = Some(id.to_owned());
         self
@@ -172,6 +195,13 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         && let Some(kind) = data["errorKind"].as_str()
     {
         app.detail = kind.to_owned();
+        app.data = Some(data.clone());
+    }
+    // The names a key nearly matched (`session_name.rs`) reach the JSON envelope.
+    if let Some(data) = data
+        && data.get("candidates").is_some()
+        && app.data.is_none()
+    {
         app.data = Some(data.clone());
     }
     app
@@ -301,6 +331,26 @@ mod typed_error_tests {
         let app = classify(&typed("unknown session s-1"));
         assert_eq!(app.code as i32, 4, "{:?}", app.envelope());
         assert_eq!(app.envelope()["error"]["errorKind"], "agent.exited");
+    }
+
+    /// The names the daemon said a key nearly matched reach the message and the envelope;
+    /// the refusal stays no_session (exit 4), so the send relay still takes it.
+    #[test]
+    fn a_no_session_refusal_names_the_close_matches() {
+        let refused = daemon(crate::session_name::not_found("mac-ci", &["a/mac-ci-3".into()]));
+        let app = AppError::no_session_from("mac-ci", &refused);
+        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
+        assert!(app.message.contains("close matches: a/mac-ci-3"), "{}", app.message);
+        assert_eq!(app.envelope()["error"]["data"]["candidates"], json!(["a/mac-ci-3"]));
+        let classified = classify(&refused);
+        assert_eq!(classified.code, Code::NoSession);
+        assert_eq!(classified.envelope()["error"]["data"]["candidates"], json!(["a/mac-ci-3"]));
+        let plain = AppError::no_session_from(
+            "x",
+            &daemon(RpcError::not_found("no session matches \"x\"")),
+        );
+        assert_eq!(plain.message, AppError::no_session("x").message);
+        assert!(crate::cli::send_relay::no_such_session(&app.into()));
     }
 
     /// An error with nothing to add prints as before.
