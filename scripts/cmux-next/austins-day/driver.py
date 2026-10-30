@@ -526,7 +526,8 @@ def waves(deadline):
         for thread in threads:
             thread.join(timeout=150)
         flat = [a for chat in results for a in chat]
-        record("waves", {"t": round(start - T0, 2), "wave": wave, "chats": opts.wave_size, "answers": flat,
+        # `chats`: one list per chat attempt (its first entry is its session/new, or the failed connection).
+        record("waves", {"t": round(start - T0, 2), "wave": wave, "chats": [list(chat) for chat in results], "answers": flat,
                          "took_s": round(time.time() - start, 2)})
         errors = [a["error"] for a in flat if a.get("error")]
         say(f"wave {wave}: {len(flat)} answers, {len(errors)} errors in {time.time() - start:.1f}s")
@@ -555,9 +556,12 @@ def topology_ids():
 
 def closes(deadline):
     n = 0
-    while not STOP.is_set() and time.time() < deadline - 20:
+    # A close takes up to about 50 s (create, up to 20 s to show, up to 30 s to go): one starts only when it
+    # can end before the load's deadline, so the end of the run never cuts a close and counts it "not done"
+    # (re-review of 2b7fd104fdc, finding 1).
+    while not STOP.is_set():
         STOP.wait(opts.close_every)
-        if STOP.is_set():
+        if STOP.is_set() or time.time() + 60 > deadline:
             break
         n += 1
         _, parsed, code = cli("workspace", "create", "--name", f"ad-close-{n}", timeout=60)
@@ -577,11 +581,11 @@ def closes(deadline):
         bound = start + 30
 
         def watch(name, still_there):
-            while time.monotonic() < bound and not STOP.is_set():
+            while time.monotonic() < bound:
                 if still_there() is False:
                     gone[name] = (time.monotonic() - start) * 1000
                     return
-                time.sleep(0.05)
+                time.sleep(0.1)
 
         def app_has():
             ids = topology_ids()
@@ -740,7 +744,7 @@ def main():
         json.dump(hangs, f)
     run = {"schema": 1, "label": opts.label, "app_pid": APP_PID, "daemon_pid": DAEMON_PID, "acpmux_home": ACPMUX_HOME,
            "host": socket.gethostname(), "opts": vars(opts), "load_start_s": round(load_start - T0, 2),
-           "load_seconds": opts.seconds, "agents": len(AGENTS), "series": SERIES, "agent_records": agents,
+           "load_seconds": opts.seconds, "agents": opts.agents, "agents_made": len(AGENTS), "series": SERIES, "agent_records": agents,
            "app_probe": {"start": app_probe_start, "end": app_probe_end}, "app_log": log_summary,
            "stalls": stalls(hangs), "hangs_summary": {k: v for k, v in (hangs or {}).items() if k not in ("records", "over_budget")}
            if isinstance(hangs, dict) else hangs}

@@ -23,7 +23,8 @@ if [ -z "${AUSTINS_DAY_COPY:-}" ]; then
   src=$(cd "$(dirname "$0")" && pwd)
   src_repo=$(cd "$src/../../.." && pwd)
   # The harness commit (its tree must be clean: a result names the harness it came from).
-  git -C "$src_repo" diff --quiet HEAD -- scripts/cmux-next/austins-day || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
+  git -C "$src_repo" diff --quiet HEAD -- scripts/cmux-next/austins-day scripts/cmux-next/build_names.py \
+    cmux-tui/crates/acpmux/tests/fake_agent.py || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
   copy=$(mktemp -d "${TMPDIR:-/tmp}/austins-day.XXXXXX")
   cp -p "$src"/*.py "$src"/*.sh "$src"/*.json "$src"/*.md "$copy"/ && cp -p "$src/../build_names.py" "$copy"/ &&
     cp -p "$src_repo/cmux-tui/crates/acpmux/tests/fake_agent.py" "$copy"/ || { rm -rf "$copy"; exit 2; }
@@ -31,6 +32,8 @@ if [ -z "${AUSTINS_DAY_COPY:-}" ]; then
     exec bash "$copy/austins-day.sh" "$@"
 fi
 here=$AUSTINS_DAY_COPY
+# The copy is removed on every exit, from here on (usage errors and missing tools too).
+trap 'rm -rf "$here"' EXIT
 repo=$AUSTINS_DAY_REPO
 harness_sha=$AUSTINS_DAY_SHA
 export AUSTINS_DAY_REPO
@@ -84,9 +87,16 @@ print(jobs[0]["id"], jobs[0]["ref"])' "$1"
 preferred_host=
 current_lease=
 # A killed or failed script releases the lease it holds and removes its private copy.
+current_acquire=
+current_run=
+current_host=
 on_exit() {
+  # A waiting lease request of ours is stopped (only while bash still has it as a running job: never a
+  # reaped pid), the lease is released, and the remote run folder is removed.
+  if [ -n "$current_acquire" ] && jobs -pr | grep -qx "$current_acquire"; then kill "$current_acquire" 2>/dev/null || true; fi
+  if [ -n "$current_host" ] && [ -n "$current_run" ]; then ssh -o BatchMode=yes "$current_host" "rm -rf '$current_run'" >/dev/null 2>&1 || true; fi
   if [ -n "$current_lease" ]; then capture-host release "$current_lease" >/dev/null 2>&1 || true; fi
-  case "$here" in "${TMPDIR:-/tmp}"/austins-day.*) rm -rf "$here" ;; esac
+  rm -rf "$here"
 }
 trap on_exit EXIT
 trap 'exit 130' INT TERM HUP
@@ -100,14 +110,17 @@ run_arm() {
   [ -z "$preferred_host" ] || prefer=(--prefer "$preferred_host")
   capture-host acquire --slot --exclusive ${prefer[@]+"${prefer[@]}"} >"$dir/lease.txt" 2>"$dir/lease.err" &
   lease_pid=$!
+  current_acquire=$lease_pid
   # shellcheck disable=SC2317
+  # Runs when run_arm returns (bash keeps a function's RETURN trap after it; the variables it reads are
+  # this call's locals, so a later return of another function finds them empty and does nothing).
   cleanup() {
-    trap - RETURN  # once, for this run_arm only (a RETURN trap stays set for every later function)
-    if [ -n "$host" ] && [ -n "$run" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run/fakebin'" >/dev/null 2>&1 || true; fi
+    [ -n "${lease_pid:-}" ] || return 0  # another function's return: nothing of a run to clean
+    if [ -n "$host" ] && [ -n "$run" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run'" >/dev/null 2>&1 || true; fi
     if [ -n "$lease" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
     # Only a still-running acquire of ours (in bash's job table: its pid is not yet reaped, so not reused).
     if jobs -pr | grep -qx "$lease_pid"; then kill "$lease_pid" 2>/dev/null || true; fi
-    current_lease=
+    current_lease= current_acquire= current_run= current_host=
   }
   trap cleanup RETURN
   for _ in $(seq 1 400); do
@@ -130,6 +143,7 @@ run_arm() {
   ssh -o BatchMode=yes "$host" "uptime; sysctl -n vm.swapusage kern.memorystatus_level hw.memsize" >"$dir/host-before.txt" 2>&1 || true
   local stage=$stage_root/$job
   run=/Users/Shared/cmux-capture/austins-day/runs/$arm-$round-$(date +%H%M%S)
+  current_run=$run current_host=$host
   ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdir -p '$stage' '$run/out'
     if ! find '$stage' -maxdepth 1 -name '*.app' | grep -q .; then
       tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&

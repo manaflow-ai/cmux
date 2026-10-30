@@ -94,9 +94,13 @@ def synthetic_run():
                                                                                          "p99": 17_000_000, "max": 20_000_000}}}}],
               "person_cli": [{"phase": "load", "ms": float(i), "code": "server.busy" if i == 99 else None} for i in range(100)],
               "app_control": [], "closes": [{"made": True, "app_gone_ms": 30.0, "daemon_gone_ms": None}],
-              "waves": [{"answers": [{"method": "session/new", "ms": 40.0, "error": None},
-                                     {"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"},
-                                     {"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}]}],
+              "waves": [{"chats": [[{"method": "session/new", "ms": 40.0, "error": None},
+                                    {"method": "session/prompt", "ms": 900.0, "error": None}],
+                                   [{"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"}],
+                                   [{"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}],
+                                   # A chat whose connect was refused (acpmux restarting): a failed open too.
+                                   [{"method": "connection", "ms": None, "error": "ConnectionRefusedError: [Errno 61]"}]],
+                         "answers": []}],
               "acpmux_pids": [{"pid": 1}, {"pid": 2}], "notes": []}
     return {"series": series, "agents": 80,
             "agent_records": [{"kind": "start", "hooked": True}] * 80 + [{"kind": "hook", "ms": 3, "rc": 0}],
@@ -138,9 +142,9 @@ class Summary(unittest.TestCase):
             self.assertEqual(m["app_requests"]["timeouts"], 2)
             self.assertEqual(m["workspace_close_not_done"], 1)
             self.assertEqual(m["acpmux_restarts"], 1)
-            self.assertEqual((m["acpmux_opens"], m["acpmux_open_failures"]), (3, 2))
+            self.assertEqual((m["acpmux_opens"], m["acpmux_open_failures"], m["acpmux_connection_failures"]), (4, 3, 1))
             self.assertEqual((m["acpmux_host_start_timeouts"], m["acpmux_agent_start_timeouts"]), (1, 1))
-            self.assertEqual(m["acpmux_open_failure_share"], round(2 / 3, 4))
+            self.assertEqual(m["acpmux_open_failure_share"], 0.75)
             self.assertEqual(m["stalls_over_100ms_cmux"], 1)
             self.assertEqual([s["symbol"] for s in m["stall_sites"]], ["CmuxNextSidebar.Foo.bar()"])
             self.assertEqual(m["stall_sites"][0]["owner"], "a590 (sidebar-owner agent)")

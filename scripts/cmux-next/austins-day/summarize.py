@@ -200,7 +200,13 @@ def run_metrics(run):
     person = load(series["person_cli"])
     control = load(series["app_control"])
     closes = [c for c in series["closes"] if c.get("made")]
-    answers = [a for w in series["waves"] for a in w["answers"]]
+    answers = [a for w in series["waves"] for a in (w.get("answers") or [x for chat in w.get("chats") or [] for x in chat])]
+    # One chat = the first answer of a one_chat attempt: session/new, or the connection that failed first.
+    chat_firsts = [a for w in series["waves"] for chat in w.get("chats") or [] for a in chat[:1]]
+    if not chat_firsts:  # runs from before the per-chat record: each session/new or failed connection is one
+        chat_firsts = [a for a in answers if a["method"] in ("session/new", "connection")]
+    chats_total = len(chat_firsts)
+    chats_failed = sum(1 for a in chat_firsts if a.get("error"))
     pids = [p["pid"] for p in series["acpmux_pids"] if p.get("pid")]
     restarts = max(0, len(dict.fromkeys(pids)) - 1)
     samples = series["samples"]
@@ -245,12 +251,12 @@ def run_metrics(run):
         "acpmux_new_ms": dist(a["ms"] for a in answers if a["method"] == "session/new"),
         "acpmux_prompt_ms": dist(a["ms"] for a in answers if a["method"] == "session/prompt"),
         "acpmux_errors": counts(a["error"][:80] for a in answers if a.get("error")),
-        # pa-b10's measure: chat opens (session/new) in the Chief waves and how many failed, by cause.
-        "acpmux_opens": sum(1 for a in answers if a["method"] == "session/new"),
-        "acpmux_open_failures": sum(1 for a in answers if a["method"] == "session/new" and a.get("error")),
-        "acpmux_open_failure_share": (round(sum(1 for a in answers if a["method"] == "session/new" and a.get("error"))
-                                            / max(1, sum(1 for a in answers if a["method"] == "session/new")), 4)
-                                      if any(a["method"] == "session/new" for a in answers) else None),
+        # pa-b10's measure: each chat of a Chief wave is one attempt (its session/new, or the connection
+        # that failed before it: refused, closed, timed out); a failed chat is either.
+        "acpmux_opens": chats_total,
+        "acpmux_open_failures": chats_failed,
+        "acpmux_open_failure_share": round(chats_failed / chats_total, 4) if chats_total else None,
+        "acpmux_connection_failures": sum(1 for a in answers if a["method"] == "connection"),
         "acpmux_host_start_timeouts": sum(1 for a in answers if "agent host start did not finish" in (a.get("error") or "")),
         "acpmux_agent_start_timeouts": sum(1 for a in answers if "agent_start did not finish" in (a.get("error") or "")),
         "acpmux_waves": len(series["waves"]),
@@ -279,6 +285,8 @@ def run_metrics(run):
     faults = []
     # Every asked agent must start with hooks (review of aa7c09ebaed, finding 3): a run with fewer agents
     # or no hooks has less load, and its refusals and latencies would look "better".
+    if run.get("agents_made", m["agents"]) < m["agents"]:
+        faults.append(f"{run.get('agents_made')} of {m['agents']} agent terminals made")
     if m["agents_started"] < m["agents"]:
         faults.append(f"{m['agents_started']} of {m['agents']} agents started")
     if m["agents_hooked"] < m["agents_started"]:
@@ -333,7 +341,6 @@ KEY = [  # (label, path in metrics) for the text summary
     ("workspace close not done", ("workspace_close_not_done",)),
     ("acpmux restarts", ("acpmux_restarts",)),
     ("acpmux new p99 ms", ("acpmux_new_ms", "p99")),
-    ("acpmux chat opens", ("acpmux_opens",)),
     ("acpmux open failures", ("acpmux_open_failures",)),
     ("acpmux open failure share", ("acpmux_open_failure_share",)),
     ("acpmux host-start 10 s time-outs", ("acpmux_host_start_timeouts",)),
