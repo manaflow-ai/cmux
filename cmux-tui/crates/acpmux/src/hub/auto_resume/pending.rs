@@ -15,9 +15,20 @@ impl Hub {
         // can append a settled marker after this scan but before restoration installs `Ending`.
         let mut pending = self.auto_resumes.lock();
         let mut scheduled = None;
+        let mut manual = None;
+        let mut manual_recorded = false;
         let mut settled = false;
         let skip = |_: &[u8], _: &[u8]| false;
         let _ = self.store.scan_back(&session.id, 0, u64::MAX, &skip, &mut |e: EventRecord| {
+            // A manual retry's replacement prompt can have a new turn id. Its provenance keeps
+            // the failed turn it replaces, so notice a durable queued/user message before the
+            // manual marker is reached while scanning newest-first.
+            if matches!(e.kind.as_str(), "queued" | "user_message")
+                && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
+                && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str) == Some(turn)
+            {
+                manual_recorded = true;
+            }
             if e.msg["turnId"] != turn {
                 return true;
             }
@@ -28,10 +39,13 @@ impl Hub {
                     }
                     true
                 }
-                "auto_resume_settled"
-                | "auto_resume_manual"
-                | "auto_resume_skipped"
-                | "auto_resume_exhausted" => {
+                "auto_resume_manual" => {
+                    if !manual_recorded && manual.is_none() {
+                        manual = Some(e.msg);
+                    }
+                    true
+                }
+                "auto_resume_settled" | "auto_resume_skipped" | "auto_resume_exhausted" => {
                     // Stop can race between set_retry and appending its scheduled event.
                     // A decision for this turn wins even if that append came afterward.
                     settled = true;
@@ -41,7 +55,42 @@ impl Hub {
                 _ => true,
             }
         });
-        if settled {
+        if settled || manual_recorded {
+            return;
+        }
+        if let Some(saved) = manual {
+            let Some(manual_prompt) = saved["manualPromptId"].as_str().map(str::to_owned) else {
+                return;
+            };
+            let Some(control) = saved["control"].as_str().map(str::to_owned) else { return };
+            let Some(gate) = saved["trustGate"].as_bool() else { return };
+            let Some(error) = saved["error"].as_str().map(str::to_owned) else { return };
+            let from = saved["from"].as_str().map(str::to_owned);
+            let full_access_device = saved["fullAccessDevice"].as_str().map(str::to_owned);
+            if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
+                return;
+            }
+            let wake = Arc::new(Notify::new());
+            pending.insert(
+                session.id.clone(),
+                Mark::Waiting { turn: turn.to_owned(), retry: None, _wake: Wake(wake) },
+            );
+            drop(pending);
+            let hub = self.clone();
+            let session = session.clone();
+            let by = retry_turn::RetryBy {
+                control: Control::from_recorded(Some(&control)),
+                trust_gate: gate,
+                full_access_device,
+                from,
+            };
+            // The marker is durable but the replacement prompt is not. Replay it under its
+            // recorded authority; a Stop that wins before this task claims it changes the mark
+            // to Stopped and the restored retry refuses that state.
+            let _ = (manual_prompt, error); // validated above for old/incomplete markers
+            tokio::spawn(async move {
+                let _ = hub.retry_turn_restored(&session, by).await;
+            });
             return;
         }
         let Some(saved) = scheduled else { return };

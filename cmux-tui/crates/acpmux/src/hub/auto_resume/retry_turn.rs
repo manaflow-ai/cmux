@@ -123,10 +123,53 @@ impl Hub {
         session: &Arc<Session>,
         by: RetryBy,
     ) -> Result<Value, RpcError> {
+        self.retry_turn_inner(session, by, true, true).await
+    }
+
+    /// Replays a manual retry whose intent was durable before the daemon stopped. The marker
+    /// already exists, so the replay must not append another one and must not take over a retry
+    /// that Stop settled while the daemon was coming back.
+    pub(super) async fn retry_turn_restored(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: RetryBy,
+    ) -> Result<Value, RpcError> {
+        self.retry_turn_inner(session, by, false, false).await
+    }
+
+    async fn retry_turn_inner(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        by: RetryBy,
+        allow_stopped: bool,
+        record_manual: bool,
+    ) -> Result<Value, RpcError> {
         self.retry_allowed(session, &by).await?;
-        let (cut_turn, failed, error) = self.claim_failed_turn(session)?;
+        let (cut_turn, failed, error) = self.claim_failed_turn(session, allow_stopped)?;
         let (root, done) = split_attempt(&failed);
         let (root, attempt) = (root.to_owned(), done + 1);
+        let prompt_id = format!("{root}{SUFFIX}{attempt}");
+        if record_manual {
+            // The marker is the recovery fence: if the daemon stops before `prompt_with` can
+            // write `queued` or `user_message`, startup can replay this exact retry under the
+            // caller's original rules instead of treating it as settled.
+            self.append_quiet(
+                session,
+                "mux",
+                "auto_resume_manual",
+                json!({
+                    "turnId": cut_turn.clone(),
+                    "promptId": failed.clone(),
+                    "manualPromptId": prompt_id.clone(),
+                    "error": error.clone(),
+                    "control": by.control.as_str(),
+                    "trustGate": by.trust_gate,
+                    "fullAccessDevice": by.full_access_device.clone(),
+                    "from": by.from.clone(),
+                    "why": "manual",
+                }),
+            );
+        }
         let blocks = self.resend_of(session, &cut_turn, &failed).unwrap_or_else(|| {
             let reason = crate::hub::turn_errors::resume_cause(&error, &error).unwrap_or("error");
             vec![json!({"type": "text", "text": continue_text(&error, reason)})]
@@ -140,7 +183,7 @@ impl Hub {
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
-            prompt_id: Some(format!("{root}{SUFFIX}{attempt}")),
+            prompt_id: Some(prompt_id),
             on_accepted: Some(Box::new(move |v| {
                 let _ = tx.send(v);
             })),
@@ -226,7 +269,11 @@ impl Hub {
     /// now firing, so Stop or close until its turn starts still counts (`start_turn`). A retry
     /// that waits is taken over (its timer wakes and records the skip `superseded`). `retry.busy`
     /// while a turn runs, a prompt waits to run, or a continuation is about to start.
-    fn claim_failed_turn(&self, session: &Session) -> Result<(String, String, String), RpcError> {
+    fn claim_failed_turn(
+        &self,
+        session: &Session,
+        allow_stopped: bool,
+    ) -> Result<(String, String, String), RpcError> {
         let mut pending = self.auto_resumes.lock();
         if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
             return Err(busy());
@@ -247,22 +294,15 @@ impl Hub {
                 return Err(busy());
             }
             // Stop came while the failed turn ran: the caller asks for a retry anyway.
-            Some(Mark::Stopped(_)) | None => {}
+            Some(Mark::Stopped(_)) if allow_stopped => {}
+            Some(Mark::Stopped(_)) => return Err(stopped()),
+            None => {}
         }
         if !still_cut(session, &cut_turn) {
             return Err(busy());
         }
         pending.insert(session.id.clone(), Mark::Firing(cut_turn.clone()));
         drop(pending);
-        // The manual takeover must survive a daemon restart even before its replacement turn
-        // writes `turn_started`; keep this internal and quiet so cloud handoff does not report a
-        // terminal settlement before the replacement turn starts.
-        self.append_quiet(
-            session,
-            "mux",
-            "auto_resume_manual",
-            json!({"turnId": cut_turn, "why": "manual"}),
-        );
         Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
     }
 
