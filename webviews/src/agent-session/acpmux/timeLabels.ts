@@ -10,7 +10,7 @@ export function ageWithDate(
   t: Translate = translate,
 ): string {
   if (!updatedAt) return "";
-  const minutes = Math.max(0, Math.round((now - updatedAt) / 60_000));
+  const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
   if (minutes >= WEEK_MINUTES) {
     const language = currentLanguage() || globalThis.navigator?.language || "en";
     return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(updatedAt));
