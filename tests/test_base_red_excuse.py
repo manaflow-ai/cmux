@@ -460,6 +460,33 @@ class Excusing(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh,
                          checks=["nightly-guards / Guard status"])
 
+    def runner_preamble(self, name):
+        """The lines the runner writes before a called workflow's job starts (cmux#28099's Guard status log)."""
+        return log(name, "Set up job", "##[group]GITHUB_TOKEN Permissions", "Contents: read", "##[endgroup]",
+                   "Uses: manaflow-ai/cmux/.github/workflows/ci-guards.yml@refs/pull/28099/merge", "##[group] Inputs",
+                   "  linux_guard_tests: true", '  linux_guard_test_groups: ["release-notary"]',
+                   "  linux_guard_history: false", "  linux_guard_cli: false", "  linux_guard_source: false",
+                   "##[endgroup]", f"Complete job name: {name}") + "\n"
+
+    def test_a_called_workflows_echoed_inputs_are_not_route_reports(self):
+        # cmux#28099 at 0080692 (run 41072552965): the echoed `linux_guard_tests: true` input was read as a route
+        # report and refused the Guard status, whose only failed child is release-notary, red the same way on the base.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        for job_id in (3, 4):
+            self.gh.logs[job_id] = self.runner_preamble(name) + self.gh.logs[job_id]
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_a_route_report_after_the_preamble_is_still_judged(self):
+        self.test_a_called_workflows_echoed_inputs_are_not_route_reports()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "workflow-guard-source-lints: skipped (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "skipped"):
+            self.judge_guard()
+
+    def judge_guard(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["nightly-guards / Guard status"])
+
     def test_guard_route_job_must_match_the_reported_route_input(self):
         # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and
         # linux_guard_source -> workflow-guard-source-lints.  A mismatched

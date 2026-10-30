@@ -251,7 +251,11 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': routing process crashed or ended early")
     prefix = name[:-len("Guard status")]
     routes = []
-    for line in lines_of(text):
+    lines = lines_of(text)
+    # The runner's preamble (token permissions, and a called workflow's echoed `Inputs`, whose `linux_guard_tests: true`
+    # reads like a route report) ends at its `Complete job name:` line; no step prints before it.
+    started = next((at for at, line in enumerate(lines) if line.startswith("Complete job name: ")), None)
+    for line in lines if started is None else lines[started + 1:]:
         match = re.fullmatch(r"((?:workflow-guard-[\w-]+|linux_guard_[\w]+)): (.+)", line)
         if not match:
             continue
