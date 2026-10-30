@@ -4,9 +4,10 @@ import CmuxNextDesign
 /// The chat's compose button while the Home list shows avatars only: Messages' round Liquid Glass
 /// button at the chat's top-left, beside the traffic lights (refs/imessage-layout/2.png). It runs
 /// the list's own New Message action and right-click menu (`HomeSidebarView.newMessage`).
-final class HomeChatComposeButton: NSButton {
-    /// The button's diameter.
-    static let side: CGFloat = 32
+final class HomeChatComposeButton: ClickableButton {
+    /// The button's diameter: the list's glass filter circle's (`HomeSidebarHeaderLayout.side`),
+    /// as Messages' compose and filter circles are one size.
+    static let side: CGFloat = HomeSidebarHeaderLayout.side
     /// A right-click menu (the list compose's: New Chief, Invite).
     var contextMenu: (() -> NSMenu?)?
 

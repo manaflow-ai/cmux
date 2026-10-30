@@ -85,7 +85,7 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     use std::os::unix::fs::FileExt;
     let mut buf = [0u8; 16];
     let n = file.read_at(&mut buf, 0).ok()?;
-    let pid: libc::pid_t = std::str::from_utf8(&buf[..n]).ok()?.trim().parse().ok()?;
+    let pid: libc::pid_t = std::str::from_utf8(buf.get(..n)?).ok()?.trim().parse().ok()?;
     if pid <= 0 {
         return None;
     }

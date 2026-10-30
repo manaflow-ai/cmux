@@ -32,7 +32,12 @@ enum WorkspaceSetVerbs {
             var facts: ActionContext = []
             // A pane on a canvas screen brings the canvas actions (CanvasHandlers).
             if let pane, pane.workspace?.layoutModel.canvasScreenID(containing: pane.layoutPaneID) != nil { facts.insert(.canvasLayout) }
-            if let key = pane?.currentTabKey, services.agentTabs.existingView(key) != nil { facts.insert(.agentPaneFocused) }
+            // A pane target brings the chat it shows; a tab target only its own chat, shown in its
+            // pane or not (`agent set-model --target tab:…`), never another tab's its pane shows.
+            // Either needs a pane a window shows, as the handlers' `ActionScope.pane` does: a parked
+            // workspace's cached chat is not one.
+            let chatKey = pane == nil ? nil : target.kind == .tab ? target.id : pane?.currentTabKey
+            if let chatKey, services.agentTabs.existingView(chatKey) != nil { facts.insert(.agentPaneFocused) }
             return facts
         }
     }
@@ -55,14 +60,19 @@ enum WorkspaceSetVerbs {
     }
 
     /// A new workspace listed in the target section: added as its item (Pinned
-    /// too), or at the bottom of the window's list for the workspaces section.
+    /// too), or for the workspaces section by `workspaces.newPlacement`: first in
+    /// the list under the default `top` (not into the current workspace's group),
+    /// last under `bottom`, after the current workspace under `afterCurrent`
+    /// (Leo 2026-10-22: "DEFAULT NEW WORKSPACE AT THE TOP"; it went to the bottom
+    /// whatever the setting).
     private static func newWorkspace(inSection invocation: ActionInvocation, _ context: AppActionContext) throws {
         let layout = context.services.sidebarLayout
         if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .workspaces:
-            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil))
+            // No slot: the setting's, so the daemon's create already lists it there (one write, no move).
+            try WorkspaceVerbHandlers.create(context, invocation, anchorFree: nil, fromCurrent: false)
         case .items:
             let origin = invocation.origin, sectionID = section.id, services = context.services, end = section.items.count
             try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil)) { id, _ in

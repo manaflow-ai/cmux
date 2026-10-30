@@ -73,13 +73,13 @@ public struct CloudAPIClient: Sendable {
     /// team resolved), so a caller can tell its request stage from the
     /// server's create.
     /// `idlePauseMinutes`: the machine's idle auto-pause from its create (0 is Off, a persistent
-    /// machine); a server that does not store it answers without it (or with its default).
-    public func createMachine(displayName: String?, memoryMb: Int? = nil, idlePauseMinutes: Int? = nil,
-                              idempotencyKey: String = UUID().uuidString,
+    /// machine); a server that does not store it answers without it (or with its default). `autosize`: ``CloudAutosizeRequest``.
+    public func createMachine(displayName: String?, memoryMb: Int? = nil, autosize: CloudAutosizeRequest? = nil,
+                              idlePauseMinutes: Int? = nil, idempotencyKey: String = UUID().uuidString,
                               onSent: (@Sendable () async -> Void)? = nil) async throws -> CloudMachine {
         var body: [String: any Sendable] = [:]
         if let displayName, !displayName.isEmpty { body["displayName"] = displayName }
-        if let memoryMb { body["memoryMb"] = memoryMb }
+        if let memoryMb { body["memoryMb"] = memoryMb } else if let autosize { body["autosize"] = autosize.body }
         if let idlePauseMinutes {
             let value: any Sendable = idlePauseMinutes == 0 ? "off" : idlePauseMinutes
             body["idlePauseMinutes"] = value
