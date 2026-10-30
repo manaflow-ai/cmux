@@ -44,9 +44,25 @@ extension UpdaterService {
         if let startCheck = stagedRefresh.startCheck { startCheck() } else { controller?.checkForUpdates() }
     }
 
+    /// Whether `build` is known pulled: on the pulled list as last read, or dropped as pulled before.
+    func isKnownPulled(_ build: String) -> Bool {
+        pulledWatch.isPulled(build) || droppedPulled.contains(build)
+    }
+
+    /// A found update known pulled is never offered or downloaded: ``indicatorPhase`` hides it (no
+    /// card, no Update Available button, no download), and its Sparkle prompt ends without
+    /// skipping it, so the next check offers a good build as usual.
+    func dropPulledAvailable() {
+        guard case .available = sourcePhase, let found = availableBuild(), isKnownPulled(found) else { return }
+        log.append("found build \(found) was pulled: not offering it")
+        dismissAvailable()
+    }
+
     /// The pulled list was read, or a build was staged or found: a pulled staged build gives way to
     /// the newest good one, and a pulled running build updates to it.
     func followPulled() {
+        // A found build the list now marks pulled leaves the update-found step before anything accepts it.
+        if case .available = flow.phase, let found = availableBuild(), isKnownPulled(found) { return syncFlowPhase() }
         guard disabledReason == nil, newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
