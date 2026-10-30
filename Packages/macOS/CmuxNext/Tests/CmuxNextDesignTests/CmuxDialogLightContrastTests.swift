@@ -212,7 +212,11 @@ import CmuxNextDesignTokens
     func theFocusRingReadsAtThreeToOneOnTheCard(isDark: Bool) throws {
         let tokens = ThemeTokens.derive(from: isDark ? Self.dark : Self.light)
         let look = CmuxDialogButtonLook(role: .cancel, tokens: tokens)
-        for surface in CmuxDialogButtonLook.cardSurfaces(tokens) {
+        // The real glass card shows little of its veil: on a light theme it measured rgb(223,223,223),
+        // the scrimmed window itself (real-app capture at 1dcfb3faa718, where a ring fit only to the
+        // veil estimate still read 2.66:1). The ring reads on that too.
+        let scrimmedWindow = tokens.scrim.composited(over: tokens.windowBackground.withAlpha(1))
+        for surface in CmuxDialogButtonLook.cardSurfaces(tokens) + [scrimmedWindow] {
             let ring = look.focusRing.composited(over: surface)
             #expect(ring.contrast(with: surface) >= 3, "ring \(ring.contrast(with: surface)):1 on the card")
         }
