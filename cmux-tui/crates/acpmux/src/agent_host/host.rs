@@ -524,7 +524,7 @@ impl Started {
             });
         }
 
-        state.orphan_follow(&events_tx); // The wait starts with no event too (`host/orphan.rs`).
+        state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
@@ -654,7 +654,7 @@ impl Started {
             if state.finished() {
                 break;
             }
-            if state.orphan_follow(&events_tx) {
+            if state.orphan_follow(&events_tx).await {
                 break;
             }
             // Nothing more is read while a carry holds what was read (`read_held`).
@@ -990,7 +990,8 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            if self.stall_hello {
+            // An orphaned host that ends its harness answers once the exit is in (`orphan.rs`).
+            if self.stall_hello || self.orphan.hold_hello(id, &frame, self.exit_h.is_none()) {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {

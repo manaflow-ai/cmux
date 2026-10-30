@@ -10,6 +10,10 @@ use std::collections::HashSet;
 /// ([`OrphanExit`]), as at the daemon's shutdown (`hub/shutdown.rs` `SHUTDOWN_GRACE`).
 const ORPHAN_END_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long an ended host waits for a connection that has not said hello yet: a controller's
+/// own wait for the answer (`link::connect`).
+const HELLO_LINGER: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// What a host with no controller still holds for a next daemon ([`OrphanExit`]).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Pending {
@@ -77,6 +81,12 @@ pub(super) struct Orphan {
     /// The census said clear, and its answer went round the event queue once more, so every
     /// event any task sent before it (a line, a connection) is handled before the end.
     confirming: bool,
+    /// Hellos that came while the harness ends, answered once its exit is in: no daemon starts a
+    /// turn on a harness that is ending, and every one is told it exited.
+    held: Vec<(u64, ControllerFrame)>,
+    /// The harness ended with connections that have not said hello yet: whether their wait
+    /// ([`HELLO_LINGER`]) is over (None: not started).
+    linger: Option<bool>,
     /// Requests the controller sent the harness with no answer yet, by id (its JSON text).
     open: HashSet<String>,
     /// Fenced lines queued for the harness whose receipt is not logged yet.
@@ -87,6 +97,21 @@ pub(super) struct Orphan {
 }
 
 impl Orphan {
+    /// Holds connection `id`'s hello `frame` while the harness ends (`exit_pending`): true when
+    /// it is held, to be answered once the exit is in.
+    pub(super) fn hold_hello(
+        &mut self,
+        id: u64,
+        frame: &ControllerFrame,
+        exit_pending: bool,
+    ) -> bool {
+        let held = self.ending && exit_pending;
+        if held {
+            self.held.push((id, frame.clone()));
+        }
+        held
+    }
+
     /// A line from the controller: a request waits for its answer, and a session opened with
     /// MCP servers names them.
     pub(super) fn note_request(&mut self, message: &Message) {
@@ -158,11 +183,25 @@ impl State {
     /// As the host starts serving and after every event: a controller's hello ends the wait (its
     /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
     /// end is done: the harness exited and no controller is there to log it. A daemon that
-    /// connects while the harness ends is answered as any: it logs the exit, as of a harness
-    /// that crashed, and the host then ends as every host does (`finished`).
-    pub(super) fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
-        if self.orphan.ending && self.exit_h.is_some() && self.controller.is_none() {
-            return true;
+    /// connected while the harness ended is answered once the exit is in (`hold_hello`): it
+    /// logs the exit, as of a harness that crashed, and the host then ends as every host does
+    /// (`finished`). A connection that has not said hello yet gets [`HELLO_LINGER`].
+    pub(super) async fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        if self.orphan.ending && self.exit_h.is_some() {
+            for (id, hello) in std::mem::take(&mut self.orphan.held) {
+                self.on_frame(id, Some(hello)).await;
+            }
+            if self.controller.is_some() {
+                return false;
+            }
+            if self.pending_conns.is_empty() || self.orphan.linger == Some(true) {
+                return true;
+            }
+            if self.orphan.linger.is_none() {
+                self.orphan.linger = Some(false);
+                self.orphan_wait(events, HELLO_LINGER);
+            }
+            return false;
         }
         let Some(exit) = &self.spec.orphan_exit else { return false };
         if self.controller.is_some() {
@@ -200,7 +239,14 @@ impl State {
         let (Some(exit), Some(since)) = (self.spec.orphan_exit.clone(), self.orphan.since) else {
             return;
         };
-        if generation != self.orphan.generation || self.controller.is_some() || self.orphan.ending {
+        if self.orphan.ending {
+            // The end's wait for a connection's hello is over (`orphan_follow`).
+            if generation == self.orphan.generation && census.is_none() {
+                self.orphan.linger = self.orphan.linger.map(|_| true);
+            }
+            return;
+        }
+        if generation != self.orphan.generation || self.controller.is_some() {
             return;
         }
         let wait = std::time::Duration::from_millis(exit.idle_ms);

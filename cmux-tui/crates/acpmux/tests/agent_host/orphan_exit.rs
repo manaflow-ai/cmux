@@ -138,3 +138,40 @@ async fn a_host_no_controller_ever_reached_ends_after_its_wait() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A daemon that connects while the host ends its harness (between SIGTERM and SIGKILL) is
+/// answered only once the harness's exit is in, so it never starts a turn on a dying harness and
+/// is told it exited; it logs the exit and the host ends as every host does (review 4).
+#[tokio::test]
+async fn a_daemon_connecting_while_the_harness_ends_is_told_it_exited() {
+    let dir = scratch("orph-late");
+    let term = dir.join("term");
+    let agent = dir.join("agent");
+    // Notes its SIGTERM and runs on until the SIGKILL, with nothing running under it (the
+    // census would keep a harness with a child up).
+    write_executable(
+        &agent,
+        "#!/usr/bin/env python3\nimport os, signal, sys\n\
+         signal.signal(signal.SIGTERM, lambda *_: open(os.environ['TERM_NOTE'], 'w').close())\n\
+         while True: signal.pause()\n",
+    );
+    let mut launch = orphan_spec(&dir, "s-orph-late");
+    launch.program = agent.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch.env.push(("TERM_NOTE".into(), term.to_string_lossy().into_owned()));
+    let record = link::spawn(&launcher(), &launch).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while !term.exists() {
+        assert!(std::time::Instant::now() < deadline, "the idle host never ended its harness");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (late, adopted) = connected(&record, 0).await;
+    // The harness wrote nothing: its exit is the one entry, numbered before the answer. (A
+    // killed harness's `exited` is `Some(None)`, which reads back as none on the wire.)
+    assert_eq!(adopted.last_h, 1, "a hello during the end was answered before the exit");
+    let mut logged = 0;
+    read_until(&late, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
