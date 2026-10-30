@@ -324,6 +324,43 @@ class Scratch(unittest.TestCase):
         scratch.release_holders()
         self.assertEqual(self.lease().parent.name, "root-0")  # the lowest free root, the warmest
 
+    def test_two_jobs_that_both_find_no_root_make_two(self):
+        # Both saw an empty scratch: the one that loses root 0's lock goes on to root 1.
+        self.checkout()
+        self.scratch.mkdir()
+        with open(scratch.lock_path(self.scratch / "root-0"), "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)  # another job is making root 0 right now
+            self.assertEqual(self.lease(("root-0", "root-1", "root-2")).parent.name, "root-1")
+
+    def test_a_root_above_a_pruned_one_is_still_found_and_reused(self):
+        self.checkout()
+        self.lease(("root-0", "root-1", "root-2"))
+        self.lease(("root-0", "root-1", "root-2"))
+        third = self.lease(("root-0", "root-1", "root-2"))
+        self.assertEqual(third.parent.name, "root-2")
+        self.built("root-2")
+        scratch.release_holders()
+        for name in ("root-0", "root-1"):
+            scratch.drop(self.scratch / name)
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=10), \
+                unittest.mock.patch.object(scratch, "disk_reserve_bytes", return_value=10):
+            verdict = {}
+            self.assertEqual(self.lease(("root-0", "root-1", "root-2"), verdict=verdict), third)
+        self.assertEqual(verdict["state"], "warm")
+
+    def test_the_scan_covers_every_root_a_lock_file_names(self):
+        self.checkout()
+        parts = ("x", "s", "b")
+        with unittest.mock.patch.object(scratch, "toolchain_parts", return_value=parts):
+            self.scratch.mkdir()
+            for k in range(3):
+                scratch.lock_path(self.scratch / scratch.shared_fingerprint(parts, k)).touch()
+            high = self.scratch / scratch.shared_fingerprint(parts, 2)
+            (high / "Packages__macOS__B/arm64-apple-macosx/debug").mkdir(parents=True)
+            (high / "Packages__macOS__B/arm64-apple-macosx/debug/description.json").write_text("{}")
+            with unittest.mock.patch.object(scratch, "free_bytes", return_value=0):
+                self.assertEqual(scratch.lease(self.workspace, self.store, RUNNER), high / scratch.SHARED_SOURCE)
+
     def test_a_kept_root_starts_warm(self):
         self.checkout()
         self.lease()

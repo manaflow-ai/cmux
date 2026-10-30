@@ -530,7 +530,11 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     scratch_existed = scratch.is_dir() and any(scratch.iterdir())
     scratch.mkdir(parents=True, exist_ok=True)
     known = entries(scratch)
-    count = len(fingerprints) if fingerprints is not None else len(known) + 1
+    # Root k exists only if roots 0..k-1 were busy when it was made, and a lock file outlives its directory
+    # (drop keeps it), so every root that exists, or that another job is making now, is numbered below
+    # the count of directories and lock files: no root is stranded above the scan.
+    locks = sum(1 for path in scratch.glob("*.lock"))
+    count = len(fingerprints) if fingerprints is not None else len(known) + locks + 1
 
     parts = toolchain_parts(workspace) if fingerprints is None else ("", "", "")
 
@@ -540,13 +544,17 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
     roots = [root(k) for k in range(count)]
     sizes: dict[str, int] = {}
     held: tuple[Path, int] | None = None
-    # A root that exists first, in order, then the first new one if the disk has room for it.
-    for target in [r for r in roots if r.is_dir()] + [r for r in roots if not r.is_dir()][:1]:
+    room_checked = False
+    # Every root that exists, lowest first; then new ones in order while the disk has room for one.
+    # A root another job holds or is making (its lock taken) is passed over, never waited for.
+    for target in [r for r in roots if r.is_dir()] + [r for r in roots if not r.is_dir()]:
         if not target.is_dir():
-            estimate = max((size for size, _ in (tree_stats(entry) for entry in known)), default=0)
-            prune(scratch, sizes=sizes, room=estimate)
-            if free_bytes(scratch) - disk_reserve_bytes() < estimate:
-                break
+            if not room_checked:
+                estimate = max((size for size, _ in (tree_stats(entry) for entry in known)), default=0)
+                prune(scratch, sizes=sizes, room=estimate)
+                if free_bytes(scratch) - disk_reserve_bytes() < estimate:
+                    break
+                room_checked = True
         lock_existed = lock_path(target).exists()
         fd = os.open(lock_path(target), os.O_RDWR | os.O_CREAT, 0o644)
         try:
