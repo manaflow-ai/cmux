@@ -562,7 +562,7 @@ final class ShellModel {
                 theme.haptics.success()
                 switchTeam(to: team.id)
             } catch ServiceTeamCreation.Failure.unavailable {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Creating teams isn't available for this account yet")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
                 theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")

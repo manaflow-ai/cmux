@@ -89,6 +89,16 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.rail.side" : {
+      "default" : "left",
+      "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
       "description" : "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",

@@ -39,6 +39,11 @@ impl Hub {
     // ------------------------------------------------------------- export
 
     pub fn export(&self, session: &Arc<Session>, dest: &Path) -> Result<PathBuf> {
+        // What the log holds back goes in first (`store/deferred.rs`).
+        anyhow::ensure!(
+            self.store_deferred(session),
+            "could not store the chat's newest tool output"
+        );
         let meta = session.meta();
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
@@ -238,6 +243,8 @@ impl Hub {
         session.meta.lock().unwrap().last_seq = last;
         if live {
             self.restore_queue(&session);
+            // The source's subagent retries stayed there: their prompts do not wait here.
+            self.drop_unsent_subagent_retries(&session);
         }
         // Published frozen: it is not this daemon's chat until its own receipt is logged (a
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is

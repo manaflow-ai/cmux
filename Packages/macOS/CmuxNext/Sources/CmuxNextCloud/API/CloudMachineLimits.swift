@@ -15,17 +15,20 @@ public struct CloudMachineLimits: Sendable, Hashable, Decodable {
     /// The vCPUs the server gives each of those sizes (`vcpusByMemoryMb`), so a size is labeled
     /// without a table of the app's own.
     public var vcpusByMemoryMb: [Int: Int]
+    /// Sizes the server offers only with a plan upgrade, in MiB; nil when the server sent none.
+    public var lockedMemoryOptionsMb: [Int]?
 
     public init(maxActiveVms: Int?, activeVmCount: Int, planId: String? = nil,
-                memoryOptionsMb: [Int] = [], vcpusByMemoryMb: [Int: Int] = [:]) {
+                memoryOptionsMb: [Int] = [], vcpusByMemoryMb: [Int: Int] = [:], lockedMemoryOptionsMb: [Int]? = nil) {
         self.maxActiveVms = maxActiveVms
         self.activeVmCount = activeVmCount
         self.planId = planId
         self.memoryOptionsMb = memoryOptionsMb
         self.vcpusByMemoryMb = vcpusByMemoryMb
+        self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
     }
 
-    enum CodingKeys: String, CodingKey { case maxActiveVms, activeVmCount, planId, memoryOptionsMb, vcpusByMemoryMb }
+    enum CodingKeys: String, CodingKey { case maxActiveVms, activeVmCount, planId, memoryOptionsMb, vcpusByMemoryMb, lockedMemoryOptionsMb }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -39,6 +42,7 @@ public struct CloudMachineLimits: Sendable, Hashable, Decodable {
         memoryOptionsMb = Array(Set(options.filter { $0 > 0 })).sorted()
         let vcpus = ((try? c.decodeIfPresent([String: Int].self, forKey: .vcpusByMemoryMb)) ?? nil) ?? [:]
         vcpusByMemoryMb = Dictionary(vcpus.compactMap { key, value in Int(key).flatMap { $0 > 0 && value > 0 ? ($0, value) : nil } }) { first, _ in first }
+        lockedMemoryOptionsMb = try? c.decodeIfPresent([Int].self, forKey: .lockedMemoryOptionsMb)
     }
 }
 
