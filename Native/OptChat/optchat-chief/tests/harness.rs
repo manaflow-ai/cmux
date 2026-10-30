@@ -441,8 +441,10 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         let tags = &inner.specs[0].tags;
         assert_eq!(tags.get(CHIEF_TAG).map(String::as_str), Some("h0me"));
         assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("turn"));
-        // Plus its names on an approval card (approval_display_tags.rs), never `mux.parent`.
-        assert_eq!(tags.len(), 4);
+        // Plus its names on an approval card (approval_display_tags.rs) and the Chief's
+        // participant id (manaflow-ai/cmux#27914), never `mux.parent`.
+        assert!(tags.contains_key(optchat_chief::acpmux::CHIEF_PARTICIPANT_TAG));
+        assert_eq!(tags.len(), 5);
         assert!(!tags.contains_key(cmux_chief::rules::PARENT_TAG));
     }
     let dir = tempfile::tempdir().unwrap();
