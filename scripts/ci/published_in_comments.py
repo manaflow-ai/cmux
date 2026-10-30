@@ -95,10 +95,12 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
             # GitHub's cap. Never delete a legacy comment if that would drop a
             # publication line; update that comment separately below instead.
             publication_lines = [item for item in text.splitlines() if item.startswith("- ")]
-            rendered = next((payload.get("body", "") for method, _, payload in writes
-                             if method in {"POST", "PATCH"} and payload), "")
-            if any(item not in rendered for item in publication_lines):
-                return legacy_publish(repo, number, line, snapshot, pause)
+            content_writes = [(method, payload) for method, _, payload in writes
+                              if method in {"POST", "PATCH"} and payload]
+            if content_writes:
+                rendered = content_writes[0][1].get("body", "")
+                if any(item not in rendered for item in publication_lines):
+                    return legacy_publish(repo, number, line, snapshot, pause)
             for method, path, payload in writes:
                 status_api(method, path, payload)
                 time.sleep(pause)

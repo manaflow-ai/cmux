@@ -81,9 +81,9 @@ class PublishedInTests(unittest.TestCase):
     def test_oversized_status_keeps_lossless_legacy_fallback(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)
         new = module.build_line("v2", "https://x/v2", "b" * 40)
-        history = "\n".join(f"- [v{i}](https://x/{i}) (`{i:010d}`)" for i in range(2500))
+        history = "\n".join(f"- [v{i}](https://x/{i}) (`{i:010d}`)" for i in range(1200))
         comments = [
-            {"id": 1, "body": module.pr_status.render({"checks": "green"}),
+            {"id": 1, "body": module.pr_status.render({"checks": "green" * 5000}),
              "user": {"login": "github-actions[bot]"}},
             {"id": 2, "body": module.MARKER + "\nShipped in:\n" + old + "\n" + history,
              "user": {"login": "github-actions[bot]"}},
@@ -96,6 +96,27 @@ class PublishedInTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "PATCH")
         self.assertIn(old, calls[0][2]["body"])
         self.assertIn(new, calls[0][2]["body"])
+
+    def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
+        line = module.build_line("v1", "https://x/v1", "a" * 40)
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"published": "Shipped in:\n" + line}),
+             "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": module.MARKER + "\nShipped in:\n" + line,
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        calls = []
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+            if method == "DELETE":
+                comments.pop()
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, line, comments, 0), "written")
+        self.assertEqual(calls[0][0], "DELETE")
+        self.assertNotIn("POST", [method for method, _, _ in calls])
+        self.assertNotIn("PATCH", [method for method, _, _ in calls])
 
     def test_settle_preserves_prior_build_after_stale_writer(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)
