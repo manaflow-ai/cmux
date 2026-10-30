@@ -719,6 +719,9 @@ jobs:
       mac_release: ${{ steps.route.outputs.mac_release }}
       swift_canary_targets: ${{ steps.route.outputs.swift_canary_targets }}
       macos: ${{ steps.route.outputs.macos }}
+      # The Mac fast tier's package build and suites (cmux_next_route.py fast_tier): false for a
+      # pull request whose change none of them reads (a daemon-only Rust change, an app-host file).
+      fast_tier: ${{ steps.route.outputs.fast_tier }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
       swift: ${{ steps.route.outputs.swift }}
@@ -1235,7 +1238,7 @@ jobs:
           # FAST_LABEL, which it then takes (fast_runner).
           CASCADE_RUNS: >-
             ${{ format(' {0} {1} {2} {3} ',
-            ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',
+            ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && 'fast-tier' || '',
             needs.path_route.outputs.swift_canary == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'swift-canary' || '',
             (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme') || needs.path_route.outputs.scheme == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) && 'cmux-scheme-compile' || '',
             needs.path_route.outputs.native == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'release-compile' || '') }}
@@ -2635,13 +2638,15 @@ jobs:
   # by kind: this Mac job builds and runs the Swift entries, and
   # fast-tier-cargo runs the cargo and script entries beside it, so the Mac no
   # longer builds cmux-tui (297-422 s) after CmuxNext.
-  # A pull request the router sends to no Mac tier (only web or CI files, which
-  # no fast-tier entry builds or reads) starts no Mac fast tier: its result is
-  # the base's. The cargo half still runs, and a route with no answer (a failed
-  # path_route) runs it as before.
+  # A pull request whose change no fast-tier Swift entry builds or reads starts
+  # no Mac fast tier: its result is the base's. That is every PR the router
+  # sends to no Mac tier (only web or CI files), and one whose Mac tiers are
+  # only the daemon or scheme compile (cmux-tui Rust, the app host), which the
+  # package build cannot see (cmux_next_route.py fast_tier). The cargo half
+  # still runs, and a route with no answer (a failed path_route) runs it as before.
   fast-tier:
     needs: [macos-placement, path_route, push-head-preflight]
-    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
+    if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
     # The cache saves name the R2 write credentials, which live in the ci-cache-writer
     # environment (main only; tests/test_ci_pull_request_caches_are_read_only.py). This job

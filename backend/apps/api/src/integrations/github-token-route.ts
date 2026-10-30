@@ -56,6 +56,7 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (p.kind !== "session" && !(p.kind === "install" && TOKEN_INSTALL_KINDS.has(p.install_kind ?? ""))) return no(403, "auth.forbidden", `a ${p.install_kind ?? p.kind} install cannot get GitHub tokens`)
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
+  // This live-machine ownership check gates the VM's existing vm-self read and write access.
   const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
   const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
   return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
@@ -91,8 +92,10 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
-    // A person's install needs at least the read class (paired daemons hold read and mutate-own); the VM's vm-self grant is its machine's.
-    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
+    if (who.p.kind === "install" && who.p.install_kind !== "vm") {
+      if (!who.p.grant_classes?.includes("read")) return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
+      if (Object.values(body.permissions).includes("write") && !who.p.grant_classes.includes("mutate-own")) return failed(no(403, "auth.forbidden", "this install's grant does not cover mutate-own"))
+    }
     const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
     return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)

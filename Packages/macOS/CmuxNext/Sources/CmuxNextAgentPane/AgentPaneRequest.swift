@@ -1,4 +1,5 @@
 import CmuxNextDictation
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
 
@@ -69,6 +70,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
+    /// `readAloud.speak` / `readAloud.stop`: the speaker under a message (``AgentPaneReadAloud``).
+    case readAloud(AgentPaneReadAloud.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -170,6 +173,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
+    case tabRowToolsSet([PaneTabRowTool])
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
