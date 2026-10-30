@@ -145,8 +145,9 @@ test("a long output shows its last lines until Show all output", async () => {
   expect(shown()).not.toContain("line 0\n");
   expect(shown().split("\n").length).toBeLessThan(1000);
   // Its first lines show under a fade until the block is opened (BlockParts.tsx); then all of it.
-  // The preview counts every line (the command's too), and opening it shows them all.
-  await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 5001 lines"));
+  // The preview counts the output's own lines (the command is its own block, ShellBlock.tsx), and
+  // opening it shows them all.
+  await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 5000 lines"));
   expect(shown()).toBe(lines.join("\n"));
 });
 

@@ -271,7 +271,8 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
 
     def test_every_part_of_bun_run_check_runs_in_the_warn_branch(self) -> None:
         package = json.loads((ROOT / "webviews/package.json").read_text(encoding="utf-8"))
-        parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
+        scripts = package["scripts"]
+        parts = [part.strip() for part in scripts.get("check:pieces", scripts["check"]).split("&&")]
         jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text(encoding="utf-8"))["jobs"]
         runs = [
             step["run"]
