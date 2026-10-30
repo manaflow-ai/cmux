@@ -92,7 +92,8 @@ to explore, and say so next to any number you cite.
   otherwise `no difference`. Every metric is lower-is-better. (A percentile bootstrap was used before
   2026-10-30; over 5 pairs it is far too narrow, and the A/A showed it.)
 - **Run order.** Rounds alternate which arm runs first (ABBA: base first in odd rounds, head first in
-  even rounds). Each metric also gets a position estimate, second run minus first run; a metric whose
+  even rounds). With 5 rounds, 3 start with the base, so one fifth of a position effect stays in the arm
+  difference; the interval is wider than that, and the position column shows the effect apart. Each metric also gets a position estimate, second run minus first run; a metric whose
   position interval excludes 0 is flagged "POSITION EFFECT" (a warm-up or drift effect).
 
 ## A/A self-test
@@ -116,7 +117,11 @@ schedule or a fleet timer.
 
 ## What it measures
 
-Everything is over the load phase. Distributions are p50/p95/p99/max; the rest are counts.
+Distributions are p50/p95/p99/max; the rest are counts. The harness's own samples (CLI and app probes,
+memory, load, swap, hooks, closes, waves) cover the load phase. The daemon's `server-stats` histograms
+(lock wait and hold, journal commit) and the app's `debug.hangs` count from their process's start, so
+they also cover setup and the 10 s baseline; the app probe and the refused rate are read as differences
+over the run's own window.
 `OUT/summary.json` holds every run and the median per arm; `OUT/summary.txt` is the short form.
 Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, `debug-hangs.json`,
 `hog.jsonl` and the agents' logs.

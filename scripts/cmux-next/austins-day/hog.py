@@ -3,8 +3,9 @@
 
   hog.py --swap-gb 6 --deadline UNIX_TIME [--floor 12] [--resume 20] [--max-fraction 0.9] [--log FILE]
 
-It allocates 256 MiB chunks of random bytes (the compressor cannot shrink them) and touches one
-byte per page of a few chunks each second, so its pages stay in use and the system must swap other
+It allocates 256 MiB chunks of mostly random bytes (each 4 MiB block starts with fresh random bytes
+and repeats a shared random tail, so the compressor gains little) and writes one byte every 8 pages of
+a few chunks each second, so its pages stay in use and the system must swap other
 memory (the app's, the daemon's, the agents') to keep them. It grows until swap used is --swap-gb
 above what it was at the start, or until the kernel's free-memory level (kern.memorystatus_level,
 0-100) drops to --floor; below --floor it frees chunks until the level is back at --resume. It

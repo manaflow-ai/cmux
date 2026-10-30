@@ -216,8 +216,12 @@ def run_tool(name, argv, cwd):
     rc = 0
     try:
         if name == "Read":
-            files = [f for f in os.listdir(cwd) if f.endswith(".txt")]
-            if files:
+            # The fixture's files are in dir*/ folders of the worktree (the root has none).
+            files = [os.path.join(d, f) for d in os.listdir(cwd) if os.path.isdir(os.path.join(cwd, d)) and not d.startswith(".")
+                     for f in os.listdir(os.path.join(cwd, d)) if f.endswith(".txt")]
+            if not files:
+                rc = "no-files"
+            else:
                 with open(os.path.join(cwd, random.choice(files)), "rb") as f:
                     f.read()
         else:

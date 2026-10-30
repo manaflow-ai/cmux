@@ -117,7 +117,11 @@ def build(opts):
     ready = os.path.join(root, "READY")
     if os.path.exists(ready):
         try:
-            if json.load(open(ready)).get("params") == params:
+            with open(ready) as f:
+                kept = json.load(f).get("params") or {}
+            # `made` is what the build produced, not a parameter (review of aa7c09ebaed, finding 4: comparing
+            # it made every run rebuild the 19,110 packs inside its lease).
+            if {k: v for k, v in kept.items() if k != "made"} == params:
                 print(f"packs: {root} is ready ({count_packs(root)} packs)")
                 return
         except ValueError:
@@ -155,10 +159,10 @@ def build(opts):
     have = count_packs(root)
     for n in range(max(0, opts.packs - have)):
         pack_one_blob(pack_dir, f"austins day promisor blob {n}\n".encode())
-    params["made"] = count_packs(root)
+    made = count_packs(root)
     with open(ready, "w") as f:
-        json.dump({"params": params}, f)
-    print(f"packs: built {root}: {params['made']} packs, {opts.worktrees} worktrees")
+        json.dump({"params": {**params, "made": made}}, f)
+    print(f"packs: built {root}: {made} packs, {opts.worktrees} worktrees")
 
 
 def check(opts):

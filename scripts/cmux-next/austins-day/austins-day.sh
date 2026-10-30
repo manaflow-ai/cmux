@@ -15,20 +15,25 @@
 # OUT/summary.txt. Never run on a person's Mac; run from an agent VM or a workstation that reaches
 # the capture minis (CAPTURE_HOST_HOSTS, see README.md).
 set -euo pipefail
-# Bash reads a script while it runs: an edit to this file during a run changes the running copy (the A/A of
-# 2026-10-30 died at its end that way). Run a private copy, so the owner can edit the harness meanwhile.
+# The whole harness runs from a private copy made at the start (this script, driver.py, fake_claude.py,
+# hog.py, packs.py, summarize.py, aa-failures.json, build_names.py and the acpmux test agent): an edit to
+# the checkout during an A/B changes nothing in it, so every round runs the harness its arm.json names
+# (the A/A of 2026-10-30 died when this file was edited mid-run; review of aa7c09ebaed, finding 2).
 if [ -z "${AUSTINS_DAY_COPY:-}" ]; then
-  copy=$(mktemp "${TMPDIR:-/tmp}/austins-day.XXXXXX.sh") && cp "$0" "$copy" && chmod +x "$copy"
-  AUSTINS_DAY_COPY=1 AUSTINS_DAY_HERE=$(cd "$(dirname "$0")" && pwd) exec "$copy" "$@"
+  src=$(cd "$(dirname "$0")" && pwd)
+  src_repo=$(cd "$src/../../.." && pwd)
+  # The harness commit (its tree must be clean: a result names the harness it came from).
+  git -C "$src_repo" diff --quiet HEAD -- scripts/cmux-next/austins-day || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
+  copy=$(mktemp -d "${TMPDIR:-/tmp}/austins-day.XXXXXX")
+  cp -p "$src"/*.py "$src"/*.sh "$src"/*.json "$src"/*.md "$copy"/ && cp -p "$src/../build_names.py" "$copy"/ &&
+    cp -p "$src_repo/cmux-tui/crates/acpmux/tests/fake_agent.py" "$copy"/ || { rm -rf "$copy"; exit 2; }
+  AUSTINS_DAY_COPY=$copy AUSTINS_DAY_REPO=$src_repo AUSTINS_DAY_SHA=$(git -C "$src_repo" rev-parse HEAD) \
+    exec bash "$copy/austins-day.sh" "$@"
 fi
-# The private copy: unlinked at once (bash keeps reading it through its open file).
-case "$0" in "${TMPDIR:-/tmp}"/austins-day.*.sh) rm -f "$0" ;; esac
-here=${AUSTINS_DAY_HERE:-$(cd "$(dirname "$0")" && pwd)}
-cmux_next=$(cd "$here/.." && pwd)
-repo=$(cd "$here/../../.." && pwd)
-# The harness commit each run used (its tree must be clean: a result names the harness it came from).
-harness_sha=$(git -C "$repo" rev-parse HEAD)
-git -C "$repo" diff --quiet HEAD -- scripts/cmux-next/austins-day || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
+here=$AUSTINS_DAY_COPY
+repo=$AUSTINS_DAY_REPO
+harness_sha=$AUSTINS_DAY_SHA
+export AUSTINS_DAY_REPO
 usage() { sed -n '2,16p' "$here/austins-day.sh" >&2; exit 2; }
 build='' base='' head='' runs=5 out='' aa=0
 while [ $# -gt 0 ]; do
@@ -52,7 +57,7 @@ if [ -n "$build" ]; then [ -z "$base$head" ] || usage; elif [ -z "$base" ] || [ 
 out=${out:-${TMPDIR:-/tmp}/austins-day-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$out"
 # capture-host on PATH (the installed hq tools) and the ssh routes to the capture minis.
-. "$cmux_next/capture-host-env.sh"
+. "$repo/scripts/cmux-next/capture-host-env.sh"
 command -v capture-host >/dev/null || { echo "capture-host not found (install the hq tools: cmux-ci capture)" >&2; exit 2; }
 export CAPTURE_HOST_SLOT_HOSTS=${CAPTURE_HOST_SLOT_HOSTS:-${CAPTURE_HOST_HOSTS:-}}
 export CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS=${CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS:-600}
@@ -77,6 +82,14 @@ print(jobs[0]["id"], jobs[0]["ref"])' "$1"
 }
 
 preferred_host=
+current_lease=
+# A killed or failed script releases the lease it holds and removes its private copy.
+on_exit() {
+  if [ -n "$current_lease" ]; then capture-host release "$current_lease" >/dev/null 2>&1 || true; fi
+  case "$here" in "${TMPDIR:-/tmp}"/austins-day.*) rm -rf "$here" ;; esac
+}
+trap on_exit EXIT
+trap 'exit 130' INT TERM HUP
 # run_arm ARM JOB COMMIT ROUND DIR POSITION (1: the round's first run, 2: its second)
 run_arm() {
   local arm=$1 job=$2 commit=$3 round=$4 dir=$5 position=${6:-1}
@@ -89,9 +102,12 @@ run_arm() {
   lease_pid=$!
   # shellcheck disable=SC2317
   cleanup() {
+    trap - RETURN  # once, for this run_arm only (a RETURN trap stays set for every later function)
     if [ -n "$host" ] && [ -n "$run" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run/fakebin'" >/dev/null 2>&1 || true; fi
     if [ -n "$lease" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
-    kill "$lease_pid" 2>/dev/null || true
+    # Only a still-running acquire of ours (in bash's job table: its pid is not yet reaped, so not reused).
+    if jobs -pr | grep -qx "$lease_pid"; then kill "$lease_pid" 2>/dev/null || true; fi
+    current_lease=
   }
   trap cleanup RETURN
   for _ in $(seq 1 400); do
@@ -101,6 +117,7 @@ run_arm() {
     sleep 2
   done
   [ -n "$lease" ] || { echo "no lease" >&2; return 1; }
+  current_lease=$lease
   acquired=$(date +%s)  # the lease's 10 minutes start now
   local info
   info=$(capture-host slot-info "$lease")
@@ -118,14 +135,18 @@ run_arm() {
       tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&
       for a in \"\$tmp\"/*.app; do mv \"\$a\" '$stage/'; done; rm -rf \"\$tmp\"
     fi
-    echo '$commit' > '$stage/capture-commit'"
-  scp -q "$here/driver.py" "$here/fake_claude.py" "$here/hog.py" "$here/packs.py" "$cmux_next/build_names.py" \
-    "$repo/cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
+    echo '$commit' > '$stage/capture-commit'" || { echo "staging job $job on $host failed" >&2; return 1; }
+  scp -q "$here/driver.py" "$here/fake_claude.py" "$here/hog.py" "$here/packs.py" "$here/build_names.py" \
+    "$here/fake_agent.py" "$host:$run/" || { echo "copy to $host failed" >&2; return 1; }
   ssh -o BatchMode=yes "$host" "nice -n 5 python3 -I '$run/packs.py' build '$fixture'" | tee "$dir/fixture.txt"
+  # set -e does not act inside run_arm (it is called in && and ||): each step that must work says so.
+  [ "${PIPESTATUS[0]}" = 0 ] || { echo "fixture build failed on $host" >&2; return 1; }
   local app name
   app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
   name=$(basename "$app" .app)
+  [ -n "$app" ] || { echo "no staged app for job $job on $host" >&2; return 1; }
   capture-host launch --commit "$commit" "$lease" "$app" ad -- | tee "$dir/launch.txt"
+  [ "${PIPESTATUS[0]}" = 0 ] || { echo "the app did not launch in $lease" >&2; return 1; }
   local printed clone keyed sock=""
   printed=$(grep -o 'socket=[^ ]*' "$dir/launch.txt" | head -1 | cut -d= -f2- || true)
   clone=$(sed -n 's/.* app=\(.*\.app\)$/\1/p' "$dir/launch.txt" | head -1)

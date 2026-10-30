@@ -98,7 +98,8 @@ def synthetic_run():
                                      {"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"},
                                      {"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}]}],
               "acpmux_pids": [{"pid": 1}, {"pid": 2}], "notes": []}
-    return {"series": series, "agents": 80, "agent_records": [{"kind": "start", "hooked": True}, {"kind": "hook", "ms": 3, "rc": 0}],
+    return {"series": series, "agents": 80,
+            "agent_records": [{"kind": "start", "hooked": True}] * 80 + [{"kind": "hook", "ms": 3, "rc": 0}],
             "app_probe": {"start": {"bounds_us": [1000, 10000, 100000], "counts": [5, 0, 0], "timeouts": 0, "max_us": 900},
                           "end": {"bounds_us": [1000, 10000, 100000], "counts": [95, 4, 1], "timeouts": 2, "max_us": 80000}},
             "app_log": {"ok": True, "no_reply_within": 3, "no_reply_by_cmd": {"put-frontend-projection": 3}},
@@ -311,6 +312,23 @@ class ReadTimes(unittest.TestCase):
             dirs = [write_run(tmp, "base-1", "base", after, 1), write_run(tmp, "head-1", "head", before, 1)]
             summary = summarize(os.path.join(tmp, "s.json"), dirs)
             self.assertTrue(summary["invalid"].startswith("invalid: base is not an ancestor of head"), summary["invalid"])
+
+
+class AgentFaults(unittest.TestCase):
+    def test_missing_or_unhooked_agents_void_the_ab(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = [write_run(tmp, "base-1", "base", head, 1), write_run(tmp, "head-1", "head", head, 1)]
+            path = os.path.join(dirs[1], "run.json")
+            with open(path) as f:
+                run_ = json.load(f)
+            # The head's hook injection broke: its agents start without hooks (less load, "better" numbers).
+            run_["agent_records"] = [{"kind": "start", "hooked": False}] * 80
+            with open(path, "w") as f:
+                json.dump(run_, f)
+            summary = summarize(os.path.join(tmp, "s.json"), dirs)
+            self.assertEqual(summary["invalid"], "invalid: harness faults (head round 1: 0 of 80 started agents got hooks)")
+            self.assertNotIn("comparison", summary)
 
 
 class StallCause(unittest.TestCase):

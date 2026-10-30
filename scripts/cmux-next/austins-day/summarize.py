@@ -45,7 +45,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+# The checkout (git history and OWNERS.md): the runner's private copy names it; else this file's checkout.
+REPO = os.environ.get("AUSTINS_DAY_REPO") or os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
 
 def dist(values):
@@ -72,7 +73,10 @@ def histogram_dist(start, end):
     ({"bounds_us": [...], "counts": [...], "timeouts", "max_us"}); None when the build has no probe."""
     if not isinstance(end, dict) or "counts" not in end or "bounds_us" not in end:
         return None
-    before = start.get("counts") if isinstance(start, dict) and start.get("bounds_us") == end["bounds_us"] else None
+    # Without a start read the window is unknown (the histogram counts from app launch): not measured.
+    if not isinstance(start, dict) or start.get("bounds_us") != end["bounds_us"]:
+        return None
+    before = start.get("counts")
     window = [e - (before[i] if before else 0) for i, e in enumerate(end["counts"])]
     total = sum(window)
     bounds = end["bounds_us"]
@@ -273,6 +277,12 @@ def run_metrics(run):
     }
     # The harness's own faults: a hooked agent that logged no hook run, or a hook thread that crashed.
     faults = []
+    # Every asked agent must start with hooks (review of aa7c09ebaed, finding 3): a run with fewer agents
+    # or no hooks has less load, and its refusals and latencies would look "better".
+    if m["agents_started"] < m["agents"]:
+        faults.append(f"{m['agents_started']} of {m['agents']} agents started")
+    if m["agents_hooked"] < m["agents_started"]:
+        faults.append(f"{m['agents_hooked']} of {m['agents_started']} started agents got hooks")
     if m["agents_hooked"] and not hooks:
         faults.append("hooked agents logged no hook runs")
     crashed = [h["rc"] for h in hooks if str(h.get("rc", "")).startswith("harness-error")]
@@ -514,9 +524,10 @@ def validity(runs):
     missing = [r["dir"] for r in base + head if "metrics" not in r]
     if missing:
         return f"invalid: runs without results: {', '.join(missing)}"
-    broken = [f"{r.get('arm')} round {r.get('round')}" for r in base + head if r["metrics"]["harness_faults"]]
+    broken = [f"{r.get('arm')} round {r.get('round')}: {'; '.join(r['metrics']['harness_faults'])}"
+              for r in base + head if r["metrics"]["harness_faults"]]
     if broken:
-        return f"invalid: harness faults ({', '.join(broken)}): {base[0]['metrics']['harness_faults'] or head[0]['metrics']['harness_faults']}"
+        return f"invalid: harness faults ({' | '.join(broken)})"
     quiet = [f"round {r.get('round')}" for r in base if not any(r["metrics"]["austin_failure"].values())]
     if quiet:
         return f"invalid: base did not reproduce ({', '.join(quiet)} showed none of Austin's failures)"

@@ -569,19 +569,37 @@ def closes(deadline):
         shown_by = time.monotonic() + 20
         while time.monotonic() < shown_by and ws not in (topology_ids() or set()):
             time.sleep(0.1)
+        # The app's and the daemon's views are polled in their own threads from the moment the action is
+        # sent: a slow `cmux workspace list` under load must not delay the app's reading, and the action's
+        # own reply (up to its 2 s deadline) must not delay either (review of aa7c09ebaed, finding 1).
+        gone = {}
         start = time.monotonic()
+        bound = start + 30
+
+        def watch(name, still_there):
+            while time.monotonic() < bound and not STOP.is_set():
+                if still_there() is False:
+                    gone[name] = (time.monotonic() - start) * 1000
+                    return
+                time.sleep(0.05)
+
+        def app_has():
+            ids = topology_ids()
+            return None if ids is None else ws in ids
+
+        def daemon_has():
+            _, listed, _ = cli("workspace", "list", timeout=10)
+            return None if listed is None else ws in json.dumps(listed)
+
+        watchers = [threading.Thread(target=watch, args=("app", app_has), daemon=True),
+                    threading.Thread(target=watch, args=("daemon", daemon_has), daemon=True)]
+        for thread in watchers:
+            thread.start()
         answer = rpc("action.run", {"action": "closeWorkspace", "target": f"workspace:{ws}", "args": {"confirm": True}}, timeout=30)
         acted_ms = (time.monotonic() - start) * 1000
-        app_gone = daemon_gone = None
-        bound = time.monotonic() + 30
-        while time.monotonic() < bound and (app_gone is None or daemon_gone is None):
-            if app_gone is None and ws not in (topology_ids() or {ws}):
-                app_gone = (time.monotonic() - start) * 1000
-            if daemon_gone is None:
-                _, listed, _ = cli("workspace", "list", timeout=10)
-                if listed is not None and ws not in json.dumps(listed):
-                    daemon_gone = (time.monotonic() - start) * 1000
-            time.sleep(0.05)
+        for thread in watchers:
+            thread.join(timeout=max(0.0, bound - time.monotonic()) + 15)
+        app_gone, daemon_gone = gone.get("app"), gone.get("daemon")
         record("closes", {"t": round(time.time() - T0, 2), "n": n, "made": True, "action_ms": round(acted_ms, 1),
                           "action_error": answer.get("error") if isinstance(answer, dict) else None,
                           "app_gone_ms": app_gone and round(app_gone, 1), "daemon_gone_ms": daemon_gone and round(daemon_gone, 1)})
