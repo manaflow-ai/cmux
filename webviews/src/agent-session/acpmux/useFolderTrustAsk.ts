@@ -236,7 +236,6 @@ export function useFolderTrustAsk(
         ready: boolean;
         authorityEpoch: number;
         ownerEpoch: number;
-        bindsFolder?: string;
         visitValue: unknown;
         generation: number;
       }
@@ -560,16 +559,17 @@ export function useFolderTrustAsk(
       resend.current.delete(sessionId);
       return;
     }
-    // A callback belongs to the exact route/visit that received the refusal.
-    // Never replay it after a client or chat selection changes, even when the
-    // session id and folder happen to match.
-    if (
-      held.authorityEpoch !== authorityEpoch ||
-      (held.ownerEpoch !== ownerEpoch && !held.cwds.includes(cwd)) ||
-      held.visitValue !== visitValue ||
-      !sameVisit() ||
-      !sameAuthority()
-    ) {
+    // A refusal still waiting for an explicit Trust answer belongs to its chat. Returning
+    // to that chat (or learning its folder from the refusal) may bind a new visit, but never
+    // another authority. Once Trust releases the callback, the visit must stay exact.
+    if (held.authorityEpoch !== authorityEpoch || !sameVisit() || !sameAuthority()) {
+      resend.current.delete(sessionId);
+      return;
+    }
+    if (!held.ready) {
+      held.ownerEpoch = ownerEpoch;
+      held.visitValue = visitValue;
+    } else if (held.ownerEpoch !== ownerEpoch || held.visitValue !== visitValue) {
       resend.current.delete(sessionId);
       return;
     }
@@ -670,7 +670,6 @@ export function useFolderTrustAsk(
             ready: false,
             authorityEpoch,
             ownerEpoch,
-            bindsFolder: !cwd ? refusedFolder : undefined,
             visitValue,
             generation: resendGeneration.current,
           });
