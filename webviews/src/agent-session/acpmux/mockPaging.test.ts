@@ -102,7 +102,10 @@ test("learning an unnamed native chat thread publishes the fold rows it repairs"
   client.streamingAssistantMessageId = undefined;
 
   const replay = (seq: number, update: any, acpmux: Record<string, unknown>) => {
-    const withCodex = { ...update, _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "native-root" } } } };
+    const withCodex = {
+      ...update,
+      _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "native-root" } } },
+    };
     fold.reduce(
       { seq, at: seq * 1000, msg: { method: "session/update", params: { update: withCodex, _meta: { acpmux } } } },
       withCodex,
@@ -111,16 +114,21 @@ test("learning an unnamed native chat thread publishes the fold rows it repairs"
   replay(1, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "stale", parent: null }] });
   replay(2, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "stale" }] });
   client.takeSubagentRows();
-  expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
-    "stale",
-  ]);
+  expect(
+    client.rows
+      .sorted()
+      .flatMap((row: any) => row.subagents ?? [])
+      .map((agent: any) => agent.id),
+  ).toEqual(["stale"]);
 
   client.learnChatThread();
 
-  expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
-    "stale",
-    "child",
-  ]);
+  expect(
+    client.rows
+      .sorted()
+      .flatMap((row: any) => row.subagents ?? [])
+      .map((agent: any) => agent.id),
+  ).toEqual(["stale", "child"]);
   expect(fold.takeRows()).toEqual([]);
 });
 
@@ -149,17 +157,20 @@ test("late root promotion keeps a worker before a later subagent batch", async (
   replay(2, { subagents: [{ id: "child", parent: "stale" }] });
   fold.closeBatch();
   replay(3, { subagents: [{ id: "later", parent: null }] });
-  expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
-    "stale",
-    "later",
-  ]);
+  expect(
+    client.rows
+      .sorted()
+      .flatMap((row: any) => row.subagents ?? [])
+      .map((agent: any) => agent.id),
+  ).toEqual(["stale", "later"]);
 
   fold.setRoot("native-root");
   client.takeSubagentRows();
 
-  expect(client.rows.sorted().flatMap((row: any) => row.subagents ?? []).map((agent: any) => agent.id)).toEqual([
-    "stale",
-    "child",
-    "later",
-  ]);
+  expect(
+    client.rows
+      .sorted()
+      .flatMap((row: any) => row.subagents ?? [])
+      .map((agent: any) => agent.id),
+  ).toEqual(["stale", "child", "later"]);
 });

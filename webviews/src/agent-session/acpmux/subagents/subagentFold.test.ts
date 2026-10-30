@@ -712,7 +712,10 @@ test("an unknown sender keeps the persisted parent during replay", () => {
     "missing-sender",
   );
 
-  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["known", null], ["unseen", "known"]]);
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["known", null],
+    ["unseen", "known"],
+  ]);
 });
 
 test("a resolved sender replaces a stale persisted parent", () => {
@@ -724,11 +727,7 @@ test("a resolved sender replaces a stale persisted parent", () => {
     return fold.reduce({ seq, at: seq * 1000, msg }, withCodex);
   };
   replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "known", parent: null }] }, "root-native");
-  replay(
-    { sessionUpdate: "subagent_spawned" },
-    { subagents: [{ id: "unseen", parent: "known" }] },
-    "missing-sender",
-  );
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "unseen", parent: "known" }] }, "missing-sender");
   replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "missing-sender", parent: null }] }, "root-native");
 
   expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
@@ -736,8 +735,18 @@ test("a resolved sender replaces a stale persisted parent", () => {
     ["unseen", "missing-sender"],
     ["missing-sender", null],
   ]);
-  expect(fold.views().known?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
-  expect(fold.views()["missing-sender"]?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["unseen"]);
+  expect(
+    fold
+      .views()
+      .known?.flatMap((row) => row.subagents ?? [])
+      .map(({ id }) => id),
+  ).toEqual([]);
+  expect(
+    fold
+      .views()
+      ["missing-sender"]?.flatMap((row) => row.subagents ?? [])
+      .map(({ id }) => id),
+  ).toEqual(["unseen"]);
 });
 
 test("authoritative lineage clears a stale pending sender", () => {
@@ -750,11 +759,7 @@ test("authoritative lineage clears a stale pending sender", () => {
     return fold.reduce({ seq, at: seq * 1000, msg }, withCodex);
   };
   replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "parent", parent: null }] }, "root-native");
-  replay(
-    { sessionUpdate: "subagent_spawned" },
-    { subagents: [{ id: "child", parent: "parent" }] },
-    "unseen-sender",
-  );
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "parent" }] }, "unseen-sender");
   replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: null }] }, "root-native");
   replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "unseen-sender", parent: null }] }, "root-native");
 
@@ -774,15 +779,14 @@ test("replay reparents a grandchild when its sender spawn arrives later", () => 
     const msg = { method: "session/update", params: { update: withCodex, _meta: { acpmux } } };
     return fold.reduce({ seq, at: seq * 1000, msg }, withCodex);
   };
-  replay(
-    { sessionUpdate: "subagent_spawned" },
-    { subagents: [{ id: "grandchild", parent: null }] },
-    "child",
-  );
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "grandchild", parent: null }] }, "child");
   expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["grandchild", null]]);
   replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: null }] }, "root-native");
 
-  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["grandchild", "child"], ["child", null]]);
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["grandchild", "child"],
+    ["child", null],
+  ]);
 });
 
 test("a known child sender in a root-wrapped update remains the grandchild parent", () => {
@@ -831,7 +835,12 @@ test("an authoritative root sender reparents an existing child to the top level"
     ["child", null],
     ["later", null],
   ]);
-  expect(fold.views().parent?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
+  expect(
+    fold
+      .views()
+      .parent?.flatMap((row) => row.subagents ?? [])
+      .map(({ id }) => id),
+  ).toEqual([]);
   const rows = fold.takeRows();
   expect(rows.find((row) => row.subagents?.some(({ id }) => id === "child"))?.at).toBe(startedAt);
   expect(rows.find((row) => row.subagents?.some(({ id }) => id === "later"))?.subagents?.map(({ id }) => id)).toEqual([
@@ -842,17 +851,35 @@ test("an authoritative root sender reparents an existing child to the top level"
 test("an authoritative child sender moves an existing worker and refuses an ancestor cycle", () => {
   const fold = new SubagentFold();
   fold.setRoot("root-native");
-  feed(fold, { sessionUpdate: "subagent_spawned" }, {
-    subagents: [{ id: "a", parent: null }, { id: "b", parent: "a" }, { id: "c", parent: null }],
-  });
+  feed(
+    fold,
+    { sessionUpdate: "subagent_spawned" },
+    {
+      subagents: [
+        { id: "a", parent: null },
+        { id: "b", parent: "a" },
+        { id: "c", parent: null },
+      ],
+    },
+  );
   const update = {
     sessionUpdate: "subagent_spawned",
     _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId: "c" } } },
   };
   feed(fold, update, { subagents: [{ id: "b", parent: "a" }] });
   expect(fold.all().find(({ id }) => id === "b")?.parent).toBe("c");
-  expect(fold.views().a?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
-  expect(fold.views().c?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["b"]);
+  expect(
+    fold
+      .views()
+      .a?.flatMap((row) => row.subagents ?? [])
+      .map(({ id }) => id),
+  ).toEqual([]);
+  expect(
+    fold
+      .views()
+      .c?.flatMap((row) => row.subagents ?? [])
+      .map(({ id }) => id),
+  ).toEqual(["b"]);
   feed(fold, update, { subagents: [{ id: "c", parent: null }] });
   const cycle = {
     ...update,
@@ -880,7 +907,12 @@ for (const move of ["pending-agent", "pending-root", "known-agent", "known-root"
       subagents: [{ id: "b", parent: "a" }],
     });
     feed(fold, say("After."), { subagent: "a" });
-    expect(fold.views().a?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["b"]);
+    expect(
+      fold
+        .views()
+        .a?.flatMap((row) => row.subagents ?? [])
+        .map(({ id }) => id),
+    ).toEqual(["b"]);
 
     if (move === "pending-agent")
       feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "c", parent: null }] });
@@ -888,23 +920,42 @@ for (const move of ["pending-agent", "pending-root", "known-agent", "known-root"
     else if (move === "phantom") fold.setRoot("b");
     else {
       const senderThreadId = move === "known-agent" ? "c" : "root-native";
-      feed(fold, {
-        ...update,
-        _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } },
-      }, { subagents: [{ id: "b", parent: null }] });
+      feed(
+        fold,
+        {
+          ...update,
+          _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } },
+        },
+        { subagents: [{ id: "b", parent: null }] },
+      );
     }
 
     const views = fold.views();
     expect(views.a?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
-    expect(views.a?.filter((row) => row.kind === "assistant").map((row) => row.text).join("")).toBe("Before.After.");
+    expect(
+      views.a
+        ?.filter((row) => row.kind === "assistant")
+        .map((row) => row.text)
+        .join(""),
+    ).toBe("Before.After.");
     if (move === "pending-agent" || move === "known-agent")
       expect(views.c?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["b"]);
     else if (move === "phantom") expect(fold.all().some(({ id }) => id === "b")).toBe(false);
-    else expect(fold.takeRows().flatMap((row) => row.subagents ?? []).filter(({ id }) => id === "b")).toHaveLength(1);
+    else
+      expect(
+        fold
+          .takeRows()
+          .flatMap((row) => row.subagents ?? [])
+          .filter(({ id }) => id === "b"),
+      ).toHaveLength(1);
     feed(fold, say("More."), { subagent: "a" });
-    expect(fold.views().a?.filter((row) => row.kind === "assistant").map((row) => row.text).join("")).toBe(
-      "Before.After.More.",
-    );
+    expect(
+      fold
+        .views()
+        .a?.filter((row) => row.kind === "assistant")
+        .map((row) => row.text)
+        .join(""),
+    ).toBe("Before.After.More.");
   });
 }
 
