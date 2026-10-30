@@ -257,7 +257,7 @@ fn first_pr(line: &str) -> Option<u64> {
     let mut best: Option<(usize, u64)> = None;
     for (marker, skip) in [("#", 1), ("pull/", 5)] {
         for (i, _) in line.match_indices(marker) {
-            if let Some(n) = digits(&line[i + skip..])
+            if let Some(n) = line.get(i + skip..).and_then(digits)
                 && best.is_none_or(|(at, _)| i < at)
             {
                 best = Some((i, n));
@@ -938,13 +938,12 @@ impl Hub {
     pub(super) fn inbox_unsend(&self, session: &Arc<Session>, prompt_id: &str) -> Unsend {
         let removed = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            match inbox.items.iter().position(|i| i.prompt_id == prompt_id) {
+            let found = inbox.items.iter().enumerate().find(|(_, i)| i.prompt_id == prompt_id);
+            match found.map(|(at, i)| (at, i.noticed, i.notice.is_none())) {
                 None => return Unsend::Gone,
-                Some(i) if inbox.items[i].noticed && inbox.items[i].notice.is_none() => {
-                    return Unsend::Carried;
-                }
-                Some(i) if inbox.items[i].noticed => return Unsend::Noticed,
-                Some(i) => {
+                Some((_, true, true)) => return Unsend::Carried,
+                Some((_, true, false)) => return Unsend::Noticed,
+                Some((i, false, _)) => {
                     inbox.removed.insert(prompt_id.to_owned());
                     inbox.items.remove(i)
                 }
