@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "4112409553201",
+  "notes": "notes/4112409553201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25720,
+      "title": "fix(next): keep slow prompt acknowledgements queued",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28514,
+      "title": "tool-evals: CMUX_EVAL_CODEX_DEVELOPER passes developer instructions to codex app-server for an A/B run (a real cmux Codex chat gets none)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
