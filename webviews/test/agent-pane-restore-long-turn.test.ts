@@ -35,16 +35,21 @@ afterAll(() => {
     else delete scope[key];
 });
 
-const CHAT = "0190a000-0000-7000-8000-00000000b17e";
+/// Each test opens its own chat: a chat's kept tail outlives its client (tailCache.ts), and one id
+/// with two different histories is no chat acpmux serves.
+const chatId = (n: number) => `0190a000-0000-7000-8000-00000000b17${n}`;
 const START = Date.UTC(2026, 9, 29, 18, 0, 0);
 const OLDER_TURNS = 30;
 
 type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
 type Snapshot = { rows: { kind: string; text?: string; items?: { kind: string }[] }[]; canLoadOlder: boolean };
-const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { sessionId: CHAT, update } });
+const update = (sessionId: string, update: Record<string, unknown>) => ({
+  method: "session/update",
+  params: { sessionId, update },
+});
 
 /// OLDER_TURNS short turns, then the current turn: `tools` tool calls, each with `outputBytes` of output.
-function chat(tools: number, outputBytes: number): Rec[] {
+function chat(sessionId: string, tools: number, outputBytes: number): Rec[] {
   const steps: [string, string, Record<string, unknown>][] = [];
   for (let n = 1; n <= OLDER_TURNS; n++)
     steps.push(
@@ -53,7 +58,7 @@ function chat(tools: number, outputBytes: number): Rec[] {
       [
         "in",
         "agent_message_chunk",
-        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Answer ${n}.` } }),
+        update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Answer ${n}.` } }),
       ],
       ["mux", "turn_result", { stopReason: "end_turn" }],
     );
@@ -64,7 +69,7 @@ function chat(tools: number, outputBytes: number): Rec[] {
       [
         "in",
         "tool_call",
-        update({
+        update(sessionId, {
           sessionUpdate: "tool_call",
           toolCallId: `call-${n}`,
           title: `swift build ${n}`,
@@ -76,7 +81,7 @@ function chat(tools: number, outputBytes: number): Rec[] {
       [
         "in",
         "tool_call_update",
-        update({
+        update(sessionId, {
           sessionUpdate: "tool_call_update",
           toolCallId: `call-${n}`,
           status: "completed",
@@ -85,7 +90,7 @@ function chat(tools: number, outputBytes: number): Rec[] {
       ],
     );
   return steps.map(([dir, kind, msg], index) => ({
-    sessionId: CHAT,
+    sessionId,
     seq: index + 1,
     at: START + index * 1000,
     dir,
@@ -98,7 +103,7 @@ function chat(tools: number, outputBytes: number): Rec[] {
 function daemon(all: Rec[]) {
   const sizes = all.map((event) => JSON.stringify(event).length);
   const summary = {
-    sessionId: CHAT,
+    sessionId: all[0]!.sessionId,
     cwd: "/home/dev/cmux",
     title: "coordinator",
     harness: "claude",
@@ -180,7 +185,7 @@ async function open(all: Rec[]) {
     undefined,
     () => new Socket() as unknown as WebSocket,
   );
-  await client.select(CHAT);
+  await client.select(all[0]!.sessionId);
   const prompts = () => (state.snapshot?.rows ?? []).filter((row) => row.kind === "user").map((row) => row.text ?? "");
   const tools = () =>
     (state.snapshot?.rows ?? []).reduce(
@@ -194,7 +199,7 @@ const everyPrompt = [...Array.from({ length: OLDER_TURNS }, (_, n) => `Question 
 test("a restored chat whose current turn outgrows a page shows the turn before it after one ask", async () => {
   // About 12 MB of current turn, the size measured on the reporting machine (5.6 MB and 13.5 MB).
   const TOOLS = 1500;
-  const { client, stats, state, prompts, tools } = await open(chat(TOOLS, 4000));
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(1), TOOLS, 4000));
   try {
     // The open is the current turn's tail, drawn under its prompt.
     expect(prompts()).toEqual(["The current turn"]);
@@ -224,7 +229,7 @@ test("a current turn longer than one ask reads is read on by the next ask, from 
   // Each tool output passes an older page's 256 KiB cap, so every record is a page of its own, and
   // the turn is longer than one ask reads (direct.ts OLDER_PAGES_PER_ASK, 128 pages).
   const TOOLS = 80;
-  const { client, stats, state, prompts, tools } = await open(chat(TOOLS, 300 * 1024));
+  const { client, stats, state, prompts, tools } = await open(chat(chatId(2), TOOLS, 300 * 1024));
   try {
     expect(prompts()).toEqual(["The current turn"]);
     stats.historyReads = 0;
