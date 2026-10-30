@@ -595,5 +595,8 @@ async fn of_two_first_messages_at_once_only_one_runs_as_the_prompt() {
     }
     let taken = inbox.values().filter(|v| **v).count();
     assert_eq!(taken, 1, "one first work, one inbox item: {inbox:?}");
-    answers(&mut c, &sent).await;
+    // The first work's turn answers; the inbox item waits for a notice, so its answer is not read.
+    let ran = if inbox["x-1"] { sent[1] } else { sent[0] };
+    let reply = answers(&mut c, &[ran]).await;
+    assert_eq!(reply[&ran]["stopReason"], "end_turn", "{}", reply[&ran]);
 }
