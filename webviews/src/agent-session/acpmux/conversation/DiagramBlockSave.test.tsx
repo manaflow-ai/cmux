@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import * as clipboard from "./clipboard";
 
 type Call = { method: string; params: Record<string, unknown> };
 const calls: Call[] = [];
@@ -26,7 +27,7 @@ await mock.module("../../../pages/markdown/diagrams", () => ({
   renderVega: async () => undefined,
 }));
 const copied: string[] = [];
-await mock.module("./clipboard", () => ({ copyText: async (text: string) => void copied.push(text) }));
+await mock.module("./clipboard", () => ({ ...clipboard, copyText: async (text: string) => void copied.push(text) }));
 const { DiagramBlock } = await import("./DiagramBlock");
 
 let dom: JSDOM | undefined;
