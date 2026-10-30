@@ -13,5 +13,5 @@ test("clock consumers use the page-owned clock and declare no private repeating 
   expect(source).toContain("subscribePageMinute");
   expect(source).toContain("usePageNow");
   expect(source).not.toMatch(/setInterval\s*\(/);
-  expect(source).not.toMatch(/addEventListener\(\s*[\"']visibilitychange/);
+  expect(source).not.toMatch(/addEventListener\(\s*["']visibilitychange/);
 });
