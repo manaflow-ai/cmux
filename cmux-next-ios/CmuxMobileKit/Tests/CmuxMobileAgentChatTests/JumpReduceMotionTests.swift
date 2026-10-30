@@ -21,8 +21,26 @@ import UIKit
         let content: UIView
         let window: UIWindow
         var bottomY: CGFloat { scroll.contentSize.height + scroll.contentInset.bottom - scroll.bounds.height }
+        /// Motion now: a running animation, or what is drawn this frame
+        /// (the transcript's opacity, the scroll position) differing from
+        /// where the jump lands.
+        var movingNow: Bool {
+            let drawnOpacity = content.layer.presentation()?.opacity ?? content.layer.opacity
+            let drawnY = scroll.layer.presentation()?.bounds.origin.y ?? scroll.contentOffset.y
+            return !(scroll.layer.animationKeys() ?? []).isEmpty || !(content.layer.animationKeys() ?? []).isEmpty
+                || content.alpha < 1 || drawnOpacity < 1 || abs(drawnY - scroll.contentOffset.y) > 0.5
+        }
+        /// Motion right after the jump or one frame later (a delayed fade
+        /// starts on a later frame).
         var moving: Bool {
-            !(scroll.layer.animationKeys() ?? []).isEmpty || !(content.layer.animationKeys() ?? []).isEmpty
+            if movingNow { return true }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+            return movingNow
+        }
+        var state: String {
+            "keys \(scroll.layer.animationKeys() ?? []) \(content.layer.animationKeys() ?? []), alpha \(content.alpha), "
+                + "drawn opacity \(content.layer.presentation()?.opacity ?? -1), "
+                + "drawn y \(scroll.layer.presentation()?.bounds.origin.y ?? -1), y \(scroll.contentOffset.y)"
         }
     }
 
@@ -63,7 +81,7 @@ import UIKit
         let transcript = try transcript(reducesMotion: true)
         defer { transcript.window.isHidden = true }
         transcript.controller.scrollTranscript(toTop: false, animated: true)
-        #expect(!transcript.moving, "no fade and no spring")
+        #expect(!transcript.moving, "no fade and no spring: \(transcript.state)")
         #expect(transcript.content.alpha == 1, "the transcript is never hidden")
         #expect(abs(transcript.scroll.contentOffset.y - transcript.bottomY) < 1, "lands on the newest turn")
     }
@@ -74,8 +92,8 @@ import UIKit
         let transcript = try transcript(reducesMotion: false)
         defer { transcript.window.isHidden = true }
         transcript.controller.scrollTranscript(toTop: false, animated: true)
-        #expect(transcript.moving)
         #expect(abs(transcript.scroll.contentOffset.y - transcript.bottomY) < 1)
+        #expect(transcript.moving, "\(transcript.state)")
     }
 }
 #endif
