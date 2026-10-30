@@ -49,7 +49,7 @@ const { act, createRef } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("../src/agent-session/acpmux/Composer");
 const { noChat } = await import("../src/gallery/fixtures/acpmux");
-const { readPersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
+const { readPersistedDraft, writePersistedDraft } = await import("../src/agent-session/acpmux/composerDraft");
 const host = document.getElementById("composer")!;
 let root: ReturnType<typeof createRoot>;
 afterEach(() => {
@@ -71,23 +71,16 @@ const attachment: ComposerAttachment = {
   size: 16,
   text: "attached content",
 };
-async function fixture(options: { refuse?: boolean; delay?: Promise<void> } = {}) {
+async function fixture() {
   root = createRoot(host);
   const handle = createRef<ComposerHandle>();
-  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
-  const writes: { id: string; chips: ComposerAttachment[] }[] = [];
-  let finishRead!: (chips: ComposerAttachment[]) => void;
+  const sent: string[] = [];
+  const stored = new Map<string, ComposerAttachment[]>();
   const store = {
-    read: (id: string): Promise<ComposerAttachment[]> =>
-      id === "destination"
-        ? new Promise((resolve) => {
-            finishRead = resolve;
-          })
-        : Promise.resolve([]),
+    read: async (id: string) => stored.get(id) ?? [],
     write: async (id: string, chips: ComposerAttachment[]) => {
-      writes.push({ id, chips });
-      if (id === "destination") await options.delay;
-      return { held: options.refuse && id === "destination" ? [] : chips.map((c) => c.id) };
+      stored.set(id, chips);
+      return { held: chips.map((c) => c.id) };
     },
   };
   const draw = (id: string) =>
@@ -100,8 +93,8 @@ async function fixture(options: { refuse?: boolean; delay?: Promise<void> } = {}
             summary: { sessionId: id, harness: "claude", cwd: "/project", turnCount: 0 },
           })}
           chips={() => null}
-          onSend={(text, attachments) => {
-            sent.push({ text, attachments: attachments ?? [] });
+          onSend={(text) => {
+            sent.push(text);
             return true;
           }}
           onStop={() => {}}
@@ -111,87 +104,72 @@ async function fixture(options: { refuse?: boolean; delay?: Promise<void> } = {}
       ),
     );
   await draw("source");
-  await act(async () => {
-    handle.current!.restore("held draft", [attachment]);
-  });
-  return { handle, draw, sent, writes, finishRead: () => act(async () => finishRead([])) };
+  await act(async () => handle.current!.restore("held draft", [attachment]));
+  const copy = () => writePersistedDraft("destination", handle.current!.draftText());
+  return { handle, draw, sent, stored, copy };
 }
-test("text and attachment arrive once despite a delayed empty destination read", async () => {
+test("recovery copies only text, keeps the source intact, and sends nothing", async () => {
   const f = await fixture();
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  await transfer.ready;
+  f.copy();
   await f.draw("destination");
-  await act(async () => transfer.commit());
-  await f.finishRead();
-  expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
-  expect(readPersistedDraft("source") ?? "").toBe("");
-  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(true);
-  expect(f.sent).toHaveLength(0);
-  await act(async () => {
-    f.handle.current!.send();
-  });
-  await act(async () => {
-    f.handle.current!.send();
-  });
-  expect(f.sent).toEqual([{ text: "held draft", attachments: [attachment] }]);
-  await f.draw("other");
-  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
-});
-test("a cancelled transfer preserves the source without restore or duplication", async () => {
-  const f = await fixture();
-  act(() => {
-    const transfer = f.handle.current!.prepareDraftTransfer("destination");
-    transfer.cancel();
-  });
-  expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
-  await f.draw("other");
-  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
+  expect(f.handle.current!.draftText()).toBe("held draft");
+  expect(f.handle.current!.wakeState().attachments).toEqual([]);
+  expect(f.stored.get("source")).toEqual([attachment]);
   expect(readPersistedDraft("source")).toBe("held draft");
-  expect(f.sent).toHaveLength(0);
+  expect(f.sent).toEqual([]);
+  await f.draw("source");
+  expect(f.handle.current!.draftText()).toBe("held draft");
+  expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
 });
-test("a different selected session never receives a pending transfer", async () => {
+test("failed selection leaves the source unchanged without restoring twice", async () => {
   const f = await fixture();
-  act(() => {
-    f.handle.current!.prepareDraftTransfer("destination");
-  });
-  await f.draw("other");
-  expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
-  expect(readPersistedDraft("source")).toBe("held draft");
-});
-
-test("failed selection after rendering preserves the source, while destination chips are durable", async () => {
-  const f = await fixture();
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  await transfer.ready;
-  await f.draw("destination");
-  await f.draw("other");
-  act(() => transfer.cancel());
-  expect(readPersistedDraft("source")).toBe("held draft");
-  expect(f.writes.some((w) => w.id === "destination" && w.chips[0]?.id === attachment.id)).toBe(true);
-  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
-  expect(f.sent).toHaveLength(0);
-});
-
-test("a destination store that retains no contents leaves the source intact", async () => {
-  const f = await fixture({ refuse: true });
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  await expect(transfer.ready).rejects.toThrow("draft contents were not retained");
-  transfer.cancel();
-  expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
-  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
-});
-test("edits while the destination save waits abort recovery and preserve the newer draft", async () => {
-  let resolve!: () => void;
-  const f = await fixture({
-    delay: new Promise<void>((yes) => {
-      resolve = yes;
+  const { FolderContinuation } = await import("../src/agent-session/acpmux/folderContinuation");
+  await expect(
+    new FolderContinuation().run({
+      start: async () => "destination",
+      current: () => true,
+      copyText: f.copy,
+      select: async () => {
+        throw new Error("offline");
+      },
+      clearFolder: () => {
+        throw new Error("must not clear");
+      },
     }),
+  ).rejects.toThrow("offline");
+  expect(f.handle.current!.draftText()).toBe("held draft");
+  expect(f.handle.current!.wakeState().attachments).toEqual([attachment]);
+  expect(f.sent).toEqual([]);
+});
+test("edits while selecting remain in the source and another chat receives no copied text", async () => {
+  const f = await fixture();
+  const { FolderContinuation } = await import("../src/agent-session/acpmux/folderContinuation");
+  let resolve!: (value: boolean) => void;
+  let began!: () => void;
+  const started = new Promise<void>((yes) => {
+    began = yes;
   });
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  await act(async () => f.handle.current!.prefill("new edit "));
-  resolve();
-  await expect(transfer.ready).rejects.toThrow("draft changed during recovery");
-  transfer.cancel();
-  expect(f.handle.current!.draftState().text).toBe("new edit held draft");
-  expect(f.sent).toHaveLength(0);
+  const run = new FolderContinuation().run({
+    start: async () => "destination",
+    current: () => true,
+    copyText: f.copy,
+    select: () => {
+      began();
+      return new Promise<boolean>((yes) => {
+        resolve = yes;
+      });
+    },
+    clearFolder: () => {
+      throw new Error("must not clear");
+    },
+  });
+  await started;
+  await act(async () => f.handle.current!.prefill("edited "));
+  await f.draw("other");
+  resolve(false);
+  await run;
+  expect(f.handle.current!.draftText()).toBe("");
+  expect(readPersistedDraft("source")).toBe("edited held draft");
+  expect(f.stored.get("source")).toEqual([attachment]);
+  expect(f.sent).toEqual([]);
 });
