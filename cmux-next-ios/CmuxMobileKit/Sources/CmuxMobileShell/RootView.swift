@@ -316,10 +316,11 @@ public struct RootView: View {
         AgentSessionDirectory.shared.removeAll()
         // No account's chat text stays for notification previews, and no reply or photo waits (review L4).
         PushRetryStore.app?.removeAll()
-        // The App Group is resolved and emptied off the main thread.
+        // The App Group is resolved and emptied off the main thread, after any snapshot save in flight.
+        let snapshotsCleared = PushSnapshots.clearForSignOut()
         Task.detached(priority: .utility) {
+            await snapshotsCleared.value
             let group = await PushAppGroup.resolved(timeout: PushAppGroupResolver.cleanupTimeout)
-            PushSnapshotStore(group: group)?.removeAll()
             PushOutbox(group: group)?.removeAll()
         }
         welcomeCut = false
