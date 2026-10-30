@@ -46,6 +46,7 @@ extension IPhoneHostService {
         prompts.forget(id: id)
         showPairDialog()
         if prompts.pending.isEmpty { quietAttention() }
+        phoneAdmission?.remove(phoneDeviceID: id)
         pairedStore.forget(id: id)
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op

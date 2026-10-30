@@ -223,6 +223,7 @@ public final class IPhoneHostService {
     /// when it next connects.
     public func removePhone(id: String) async {
         if id.hasPrefix("iroh:") {
+            phoneAdmission?.remove(phoneDeviceID: String(id.dropFirst(5)))
             pairedStore.forget(id: String(id.dropFirst(5)), transport: .iroh)
             phonesError = nil
             return

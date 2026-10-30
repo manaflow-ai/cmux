@@ -9,12 +9,49 @@ import Foundation
 @MainActor
 final class PhoneAdmission {
     enum PromptResult: Sendable, Equatable { case allow, deny, unavailable }
+    @MainActor
+    private final class PromptWaiter {
+        private var continuation: CheckedContinuation<PromptResult, Never>?
+        private var cancelled = false
+
+        func wait(_ operation: @escaping () async -> PromptResult) async -> PromptResult {
+            await withCheckedContinuation { continuation in
+                guard !cancelled else {
+                    continuation.resume(returning: .unavailable)
+                    return
+                }
+                self.continuation = continuation
+                Task { @MainActor [self] in self.finish(await operation()) }
+            }
+        }
+
+        func finish(_ result: PromptResult) {
+            guard let continuation else {
+                cancelled = true
+                return
+            }
+            self.continuation = nil
+            continuation.resume(returning: result)
+        }
+    }
+
+    private struct Question {
+        var id: UUID
+        var accountGeneration: UInt64
+        var admissionGeneration: UInt64
+        var task: Task<Bool, Never>
+        var cancel: () -> Void
+    }
+
     static let dialogIdentifier = "cmux.dialog.phoneAccessAllow"
     private let phones: MobileHostPairedStore
-    private var questions: [String: (id: UUID, generation: UInt64, task: Task<Bool, Never>)] = [:]
+    private var questions: [String: Question] = [:]
     private var denied: [String: ContinuousClock.Instant] = [:]
     private var generation: UInt64
+    /// Invalidates one endpoint's pending answer without invalidating the account.
+    private var admissionGeneration: UInt64 = 0
     var ask: (MobileHostPairRequest, String) async -> PromptResult = PhoneAdmission.askOnThisMac
+    var dismissAsk: @MainActor (MobileHostPairRequest, String) -> Void = PhoneAdmission.dismissOnThisMac
     var accountName: @MainActor () -> String = { "" }
     var announce: @MainActor (MobileHostPairRequest) -> Void = { _ in }
     var quiet: @MainActor () -> Void = {}
@@ -29,7 +66,11 @@ final class PhoneAdmission {
                 guard let self else { return }
                 if generation != self.phones.generation {
                     generation = self.phones.generation
-                    for question in questions.values { question.task.cancel() }
+                    admissionGeneration &+= 1
+                    for question in questions.values {
+                        question.cancel()
+                        question.task.cancel()
+                    }
                     questions = [:]
                     denied = [:]
                     for dialog in CmuxDialogCenter.shared.records where dialog.spec.identifier == Self.dialogIdentifier {
@@ -37,6 +78,7 @@ final class PhoneAdmission {
                     }
                 }
                 for phone in change.removed where phone.transport == .iroh {
+                    remove(phoneDeviceID: phone.id)
                     denied[phone.id] = nil
                     await disconnect(phone.id)
                 }
@@ -46,30 +88,42 @@ final class PhoneAdmission {
 
     func decide(_ phone: MobileHostPairRequest) async -> Bool {
         guard phone.transport == .iroh, let user = phones.current?.userID else { return false }
-        let selected = phones.generation
+        let selectedAccountGeneration = phones.generation
+        let selectedAdmissionGeneration = admissionGeneration
         if phones.trusts(phone) { return true }
-        if let at = denied[phone.phoneDeviceID], at.duration(to: now()) < .seconds(600), generation == selected { return false }
-        let question: (id: UUID, generation: UInt64, task: Task<Bool, Never>)
+        if let at = denied[phone.phoneDeviceID], at.duration(to: now()) < .seconds(600), generation == selectedAccountGeneration { return false }
+        let question: Question
         if let existing = questions[phone.phoneDeviceID] {
-            guard existing.generation == selected else { return false }
+            guard existing.accountGeneration == selectedAccountGeneration,
+                  existing.admissionGeneration == selectedAdmissionGeneration else { return false }
             question = existing
         } else {
             guard questions.count < 2 else { return false }
             announce(phone)
             // task-owner: one question and save per endpoint, shared by concurrent connections
-            question = (UUID(), selected, Task { [self] in
-                let answer = await ask(phone, accountName().isEmpty ? user : accountName())
-                guard !Task.isCancelled, phones.generation == selected, phones.current?.userID == user else { return false }
+            let waiter = PromptWaiter()
+            let account = accountName().isEmpty ? user : accountName()
+            let id = UUID()
+            let task = Task { [self, waiter] in
+                let answer = await waiter.wait { await ask(phone, account) }
+                guard !Task.isCancelled, generation == selectedAdmissionGeneration,
+                      phones.generation == selectedAccountGeneration, phones.current?.userID == user else { return false }
                 switch answer {
                 case .unavailable: return false
                 case .deny: denied[phone.phoneDeviceID] = now(); return false
                 case .allow: break
                 }
                 do {
-                    try await phones.change(for: user, generation: selected) { $0.approve(phone, at: Date()) }
-                    return phones.generation == selected && phones.trusts(phone)
+                    try await phones.change(for: user, generation: selectedAccountGeneration) { $0.approve(phone, at: Date()) }
+                    return generation == selectedAdmissionGeneration && phones.generation == selectedAccountGeneration && phones.trusts(phone)
                 } catch { return false }
-            })
+            }
+            question = Question(id: id, accountGeneration: selectedAccountGeneration,
+                                admissionGeneration: selectedAdmissionGeneration, task: task,
+                                cancel: { [self, waiter] in
+                                    waiter.finish(.unavailable)
+                                    dismissAsk(phone, account)
+                                })
             questions[phone.phoneDeviceID] = question
         }
         let allowed = await question.task.value
@@ -77,7 +131,19 @@ final class PhoneAdmission {
             questions[phone.phoneDeviceID] = nil
             if questions.isEmpty { quiet() }
         }
-        return allowed && phones.generation == selected && phones.trusts(phone)
+        return allowed && generation == selectedAdmissionGeneration &&
+            phones.generation == selectedAccountGeneration && phones.trusts(phone)
+    }
+
+    /// Removes a phone's pending question before the store forget is queued. The
+    /// waiter resolves as unavailable, and a late Allow cannot pass the new token.
+    func remove(phoneDeviceID: String) {
+        admissionGeneration &+= 1
+        denied[phoneDeviceID] = nil
+        guard let question = questions.removeValue(forKey: phoneDeviceID) else { return }
+        question.cancel()
+        question.task.cancel()
+        if questions.isEmpty { quiet() }
     }
 
     static func spec(_ phone: MobileHostPairRequest, user: String) -> CmuxDialogSpec {
@@ -90,6 +156,14 @@ final class PhoneAdmission {
 
     static func askOnThisMac(_ phone: MobileHostPairRequest, user: String) async -> PromptResult {
         await askOnThisMac(phone, user: user, timeout: .seconds(120))
+    }
+
+    @MainActor
+    static func dismissOnThisMac(_ phone: MobileHostPairRequest, _ user: String) {
+        let prompt = spec(phone, user: user)
+        for record in CmuxDialogCenter.shared.records where record.spec == prompt {
+            CmuxDialogCenter.shared.dismiss(record.id)
+        }
     }
 
     static func askOnThisMac(_ phone: MobileHostPairRequest, user: String, timeout: Duration,

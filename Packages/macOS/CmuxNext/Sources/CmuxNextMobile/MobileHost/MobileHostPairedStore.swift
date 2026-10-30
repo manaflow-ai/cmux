@@ -13,12 +13,19 @@ public final class MobileHostPairedStore: Sendable {
         var id: String
         var transport: MobileHostPairedDevice.Transport
     }
+    private struct RemovalMarker: Sendable {
+        var id: UUID
+        /// The store revision at which the removal happened. A transaction that
+        /// began before this revision cannot clear the marker, even if its edit
+        /// re-adds the removed device.
+        var revision: UInt64
+    }
     private struct State: Sendable {
         var userID: String?
         var generation: UInt64 = 0
         var revision: UInt64 = 0
         var forgotten: Set<String> = []
-        var removals: [Removal: UUID] = [:]
+        var removals: [Removal: RemovalMarker] = [:]
         var list: MobileHostPairedDevices?
         var file: MobileHostPairedDevicesFile?
         var observers: [@Sendable (Change) -> Void] = []
@@ -94,7 +101,7 @@ public final class MobileHostPairedStore: Sendable {
                         do { try file.save(list) }
                         catch { continuation.resume(); return }
                     }
-                    publish(list, generation: selected, completed: removals)
+                    publish(list, generation: selected, completed: removals.mapValues(\.id))
                     continuation.resume()
                 }
             }
@@ -107,19 +114,19 @@ public final class MobileHostPairedStore: Sendable {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard let user = state.userID else { return nil }
             let removal = Removal(id: id, transport: transport)
-            let marker = UUID()
             let selected = state.generation
+            state.revision &+= 1
+            let marker = RemovalMarker(id: UUID(), revision: state.revision)
             state.removals[removal] = marker
             let removed = state.list?.devices.filter { $0.id == id && $0.transport == transport } ?? []
             state.list?.remove(id, transport: transport)
-            state.revision &+= 1
             if let file = state.file {
                 MobileHostPairedDevicesFile.enqueue { [self] in
                     var list = file.load(userID: user)
                     list.remove(id, transport: transport)
                     do {
                         try file.save(list)
-                        publish(list, generation: selected, completed: [removal: marker])
+                        publish(list, generation: selected, completed: [removal: marker.id])
                     } catch { /* Memory and the marker stay revoked; a later load retries. */ }
                 }
             }
@@ -133,6 +140,7 @@ public final class MobileHostPairedStore: Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             state.withLock { state in
                 let selected = state.generation
+                let startedRevision = state.revision
                 guard let file = state.file, state.userID == user, state.list != nil,
                       generation == nil || generation == selected else {
                     continuation.resume(throwing: CocoaError(.userCancelled)); return
@@ -148,9 +156,12 @@ public final class MobileHostPairedStore: Sendable {
                             guard state.generation == selected, state.userID == user else { return [:] }
                             var completed: [Removal: UUID] = [:]
                             for (removal, marker) in state.removals {
+                                // Only an edit that started after the removal may
+                                // explicitly approve the same endpoint again.
+                                guard startedRevision >= marker.revision else { continue }
                                 let before = current.devices.first { $0.id == removal.id && $0.transport == removal.transport }
                                 let after = next.devices.first { $0.id == removal.id && $0.transport == removal.transport }
-                                if before != after { completed[removal] = marker }
+                                if before != after { completed[removal] = marker.id }
                             }
                             return completed
                         }
@@ -175,7 +186,7 @@ public final class MobileHostPairedStore: Sendable {
                          completed: [Removal: UUID] = [:]) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard state.generation == generation, state.userID == list.userID else { return nil }
-            for (key, marker) in completed where state.removals[key] == marker { state.removals[key] = nil }
+            for (key, marker) in completed where state.removals[key]?.id == marker { state.removals[key] = nil }
             var next = list
             for removal in state.removals.keys { next.remove(removal.id, transport: removal.transport) }
             let removed = (state.list?.devices ?? []).filter { old in

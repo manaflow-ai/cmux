@@ -259,6 +259,33 @@ import Testing
         #expect(result == .deny)
     }
 
+    @Test func removalCancelsPendingRekeyAndRejectsLateAllow() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = await Self.store(at: directory)
+        try await store.change(for: "one") { $0.approve(Self.phone, at: Date()) }
+        var rekeyed = Self.phone
+        rekeyed.identityKey = String(repeating: "c", count: 64)
+
+        let host = IPhoneHostService(pairedStore: store)
+        let gate = PhoneAccessGate()
+        host.followPhoneAccess(gate, disconnect: { _ in })
+        let admission = try #require(host.phoneAdmission)
+        let questions = AsyncStream<CheckedContinuation<PhoneAdmission.PromptResult, Never>>.makeStream()
+        admission.ask = { _, _ in
+            await withCheckedContinuation { questions.continuation.yield($0) }
+        }
+        // task-owner: resume the underlying prompt after removal to model a stale Allow click
+        let pending = Task { await gate.admits(rekeyed) }
+        var events = questions.stream.makeAsyncIterator()
+        let answer = try #require(await events.next())
+        await host.removePhone(id: "iroh:" + Self.phone.phoneDeviceID)
+        answer.resume(returning: .allow)
+        #expect(await !pending.value)
+        #expect(!store.trusts(Self.phone))
+        #expect(!store.trusts(rekeyed))
+    }
+
     @Test func localRowsRemainRemovableWhenIPhoneHostIsOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
