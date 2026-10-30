@@ -97,8 +97,9 @@ async function expanded(ctx: PlayContext) {
 
 async function prsOpen(ctx: PlayContext) {
   await settled(ctx);
-  const row = ctx.document.querySelector(".acpmux-pr-stack__row");
-  if (row && row.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-pr-stack__row" });
+  const disclosure = ctx.document.querySelector(".acpmux-pr-stack__disclosure");
+  if (disclosure && disclosure.getAttribute("aria-expanded") !== "true")
+    await ctx.click({ selector: ".acpmux-pr-stack__disclosure" });
   await settled(ctx);
 }
 

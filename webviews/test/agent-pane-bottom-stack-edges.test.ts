@@ -132,7 +132,7 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
               (row.querySelector(".acpmux-pr-stack__count") ?? row).getBoundingClientRect().height / lineHeight,
             ),
             text: (row.textContent ?? "").trim(),
-            expanded: row.getAttribute("aria-expanded"),
+            expanded: document.querySelector(".acpmux-pr-stack__disclosure")?.getAttribute("aria-expanded") ?? null,
           }
         : null,
       foot: foot ? main.bottom - foot.getBoundingClientRect().bottom : null,
@@ -147,7 +147,7 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
           return Math.round((right - (r.left + r.right) / 2) * 10) / 10;
         };
         return {
-          prs: center(".acpmux-pr-stack__status svg"),
+          prs: center(".acpmux-pr-stack__disclosure svg"),
           tray: center(".acpmux-running-tray__head .acpmux-running-tray__status svg"),
           composer: center(".acpmux-composer-box button:last-of-type svg"),
         };
@@ -219,8 +219,9 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       const row = page.locator(".acpmux-pr-stack__row");
       expect(await row.count()).toBe(1);
       expect((await row.textContent())?.trim()).toBe("2 PRs");
-      expect(await row.getAttribute("aria-expanded")).toBe("false");
-      await row.click();
+      const disclosure = page.locator(".acpmux-pr-stack__disclosure");
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+      await disclosure.click();
       // The same task as the click: the list is there, whole and opaque, with nothing running on it.
       const shown = await page.evaluate(() => {
         const list = document.querySelector(".acpmux-pr-stack__list");
@@ -239,10 +240,14 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       expect(shown!.animations).toBe(0);
       expect(shown!.opacity).toBe(1);
       expect(shown!.height).toBeGreaterThan(0);
-      expect(await row.getAttribute("aria-expanded")).toBe("true");
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
       const links = page.locator(".acpmux-pr-stack__list a");
       expect(await links.count()).toBe(2);
       expect(await links.first().getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/129");
+      // A chip's × hides only that shortcut: the count still names both (Session Info's Changes).
+      await page.locator(".acpmux-pr-stack__dismiss").first().click();
+      expect(await links.count()).toBe(1);
+      expect((await row.textContent())?.trim()).toBe("2 PRs");
       // The per-message pills (cmux#26082) stay where they are.
       expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBeGreaterThan(0);
     } finally {

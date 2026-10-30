@@ -10795,7 +10795,14 @@ function AcpmuxPane() {
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
         {/* The chat's pull requests (summary/PullRequestStack.tsx): one "N PRs" row right over the tray. */}
-        {!quick && !freshView && <PullRequestStack key={shownSessionId} prs={stackPullRequests} />}
+        {!quick && !freshView && (
+          <PullRequestStack
+            key={shownSessionId}
+            prs={stackPullRequests}
+            sessionId={shownSessionId}
+            onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
+          />
+        )}
         {trayPlacement === "tray" && trayNode}
         {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
           stack, right above the composer, while the turn works; an agent a cancel or a reconnect left

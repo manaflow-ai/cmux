@@ -144,8 +144,52 @@
 .acpmux-pr-stack .acpmux-summary-row:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
 }
-.acpmux-pr-stack__mark,
-.acpmux-pr-stack__status {
+/* The count fills the line; the disclosure sits in the tray's trailing column, its own 28px box, so
+   each lights only itself (foundations: a highlight covers only its control). */
+.acpmux-pr-stack__row {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-pr-stack__disclosure {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ds-control-row, 28px);
+  height: var(--ds-control-row, 28px);
+  /* Its glyph centers 22 from the right, the stack's trailing line (grid.md 5.5). */
+  margin-right: var(--ds-space-2, 8px);
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+.acpmux-pr-stack__disclosure:hover,
+.acpmux-pr-stack__disclosure[aria-expanded="true"] {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  color: var(--agent-text);
+}
+.acpmux-pr-stack__disclosure:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-pr-stack__chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.acpmux-pr-stack__chip > .acpmux-pr-stack__link {
+  flex: 1;
+  min-width: 0;
+  padding-right: calc(var(--ds-space-6, 32px) + var(--ds-space-2, 8px));
+}
+.acpmux-pr-stack__dismiss {
+  position: absolute;
+  right: var(--ds-space-2, 8px);
+}
+.acpmux-pr-stack__mark {
   flex: none;
   display: inline-flex;
   align-items: center;
