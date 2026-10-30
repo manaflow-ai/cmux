@@ -491,9 +491,11 @@ if ! awk '
   exit 1
 fi
 
-# Nightly distribution verification launches no app or CLI. The signed-app and
-# final-DMG jobs retain deterministic artifact and sidecar protocol checks and
-# gate publication, while app behavior stays in the path-routed integration lane.
+# The signed-app and final-DMG jobs retain deterministic artifact and sidecar
+# protocol checks and gate publication. The only app they launch is the cmux NEXT
+# fresh-home launch smoke of the final DMG (launch-smoke-gate.sh, in the secret-free
+# final-DMG job; tests/test_nightly_next_launch_smoke.py); other app behavior stays
+# in the path-routed integration lane.
 if ! awk '
   /^  verify-signed-nightly:/ { job="verify"; next }
   /^  verify-final-dmg-nightly:/ { job="verify-dmg"; dmg_job=1; next }
@@ -508,7 +510,7 @@ if ! awk '
   job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
   END { exit !(sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must use secret-free static verification jobs that gate publication, with no runtime smoke"
+  echo "FAIL: nightly must use secret-free verification jobs that gate publication"
   exit 1
 fi
 
@@ -909,7 +911,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
