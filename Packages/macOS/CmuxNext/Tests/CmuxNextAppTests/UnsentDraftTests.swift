@@ -136,4 +136,30 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts.merged(typed: "a and more", kept: "a") == "a and more")
         #expect(AgentUnsentDrafts.merged(typed: "b", kept: "a\n\nb") == "a\n\nb")
     }
+
+    /// The webview consumes this same fixture, including its generated million-character case.
+    @Test func sharedMergeVectors() throws {
+        struct Part: Decodable {
+            let text: String
+            let count: Int
+        }
+        struct Vector: Decodable {
+            let name: String
+            let kept: [Part]
+            let typed: [Part]
+            let expected: [Part]
+        }
+        func expand(_ parts: [Part]) -> String {
+            parts.map { String(repeating: $0.text, count: $0.count) }.joined()
+        }
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let file = root.appending(path: "webviews/test/fixtures/composer-draft-merge.json")
+        let vectors = try JSONDecoder().decode([Vector].self, from: Data(contentsOf: file))
+        for vector in vectors {
+            let actual = AgentUnsentDrafts.merged(typed: expand(vector.typed), kept: expand(vector.kept))
+            #expect(Array(actual.utf16) == Array(expand(vector.expected).utf16), "\(vector.name)")
+        }
+    }
+
 }
