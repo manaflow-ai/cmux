@@ -17,6 +17,8 @@ enum CloudNetworkAccessActions {
                     read: @escaping @MainActor (String) async throws -> CloudNetworkPolicyState,
                     write: @escaping @MainActor (String, CloudNetworkPolicy) async throws -> CloudNetworkPolicyState) throws {
         let session = try CloudHandlers.machine(invocation, context)
+        // The policy lives on the web control plane (`/api/vm`); the app server link's machines have none yet.
+        guard context.services.cloud.configuration.linkSource == .legacy else { throw unavailable }
         let access = try level(invocation)
         let machineID = session.machineID, isAgent = CloudMoveAsks.isAgent(invocation)
         let work: @MainActor () async throws -> [String: ActionResultValue] = {
@@ -31,6 +33,12 @@ enum CloudNetworkAccessActions {
         }
         guard CloudHandlers.origin(of: invocation) == .user else { return CloudHandlers.result("set network access", context, work) }
         CloudHandlers.runTracked("set network access", context) { _ = try await work() }
+    }
+
+    /// The same refusal (and key) as the other Cloud machine actions a machine's backend can't do.
+    static var unavailable: ActionFailure {
+        ActionFailure(message: String(localized: "cloud.operationUnavailable",
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
     }
 
     /// The `access` argument: one of ``CloudNetworkAccess``'s raw values.
