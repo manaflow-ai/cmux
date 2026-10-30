@@ -715,6 +715,31 @@ test("an unknown sender keeps the persisted parent during replay", () => {
   expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["known", null], ["unseen", "known"]]);
 });
 
+test("a resolved sender replaces a stale persisted parent", () => {
+  const fold = new SubagentFold();
+  const replay = (update: any, acpmux: Record<string, unknown>, senderThreadId: string) => {
+    seq += 1;
+    const withCodex = { ...update, _meta: { codex: { collaboration: { tool: "spawnAgent", senderThreadId } } } };
+    const msg = { method: "session/update", params: { update: withCodex, _meta: { acpmux } } };
+    return fold.reduce({ seq, at: seq * 1000, msg }, withCodex);
+  };
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "known", parent: null }] }, "root-native");
+  replay(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "unseen", parent: "known" }] },
+    "missing-sender",
+  );
+  replay({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "missing-sender", parent: null }] }, "root-native");
+
+  expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+    ["known", null],
+    ["unseen", "missing-sender"],
+    ["missing-sender", null],
+  ]);
+  expect(fold.views().known?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual([]);
+  expect(fold.views()["missing-sender"]?.flatMap((row) => row.subagents ?? []).map(({ id }) => id)).toEqual(["unseen"]);
+});
+
 test("replay reparents a grandchild when its sender spawn arrives later", () => {
   const fold = new SubagentFold();
   fold.setRoot("root-native");
