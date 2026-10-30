@@ -397,7 +397,15 @@ pub fn begin_create(
     env: &dyn Fn(&str) -> Option<String>,
     now_unix: i64,
 ) -> Result<Option<std::fs::File>, CliError> {
-    let lock = match create_lock_path(env) {
+    let lock = lock_store(env)?;
+    refuse_if_one_is_stored(env, now_unix)?;
+    Ok(lock)
+}
+
+/// This user's lock on the token store, held while a create or a revoke
+/// reads and changes it. `None` when there is no config directory.
+fn lock_store(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<std::fs::File>, CliError> {
+    Ok(match create_lock_path(env) {
         Some(path) => {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| {
@@ -420,9 +428,7 @@ pub fn begin_create(
             Some(file)
         }
         None => None,
-    };
-    refuse_if_one_is_stored(env, now_unix)?;
-    Ok(lock)
+    })
 }
 
 /// `token create` refuses while a token that may be live is stored: storing a
@@ -591,11 +597,25 @@ pub async fn revoke(
         Err(error) if matches!(error.status(), Some(401 | 404)) => {}
         Err(error) => return Err(error),
     }
-    remove(env).map_err(CliError::unexpected)?;
+    // Under the store lock, remove the local copy only if it is still this
+    // key: a create may have stored a new one while the revoke was in flight.
+    let _lock = lock_store(env)?;
+    let still_stored = load(env)
+        .ok()
+        .flatten()
+        .is_some_and(|stored| stored.key_id == token.key_id);
+    if still_stored {
+        remove(env).map_err(CliError::unexpected)?;
+    }
     let text = if json_output {
-        json!({ "id": token.key_id, "revoked": true, "removed": true }).to_string()
-    } else {
+        json!({ "id": token.key_id, "revoked": true, "removed": still_stored }).to_string()
+    } else if still_stored {
         format!("token {} revoked and removed", token.key_id)
+    } else {
+        format!(
+            "token {} revoked; the stored token is a newer one and was kept",
+            token.key_id
+        )
     };
     writeln!(out, "{text}").map_err(|e| CliError::unexpected(format!("write output: {e}")))
 }
@@ -798,7 +818,7 @@ mod tests {
         Mock::given(method("DELETE"))
             .and(path("/v1/agent-keys/vmk_x"))
             .respond_with(ResponseTemplate::new(204))
-            .expect(1)
+            .expect(2)
             .mount(&server)
             .await;
         let dir = std::env::temp_dir().join(format!("cmux-vm-revoke-json-{}", std::process::id()));
@@ -826,6 +846,17 @@ mod tests {
             json!({"id": "vmk_x", "revoked": true, "removed": true})
         );
         assert_eq!(load(&env).unwrap(), None);
+        // A token a create stored while the revoke was in flight stays.
+        let newer = StoredToken {
+            key_id: "vmk_newer".into(),
+            ..token.clone()
+        };
+        save(&newer, &env).unwrap();
+        let mut out = Vec::new();
+        revoke(&client, &token, &env, true, &mut out).await.unwrap();
+        let printed: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(printed["removed"], json!(false));
+        assert_eq!(load(&env).unwrap(), Some(newer));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

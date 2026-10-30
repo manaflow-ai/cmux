@@ -42,6 +42,10 @@ use crate::{exit, fetch_body, new_idempotency_key, parse_key, request_body};
 
 /// A VM that is not kept is deleted once it has been this long without running.
 const AUTO_DELETE_SECONDS: i64 = 900;
+/// Time a run may spend past its command's `--timeout` (boot, sync, pull).
+const RUN_MARGIN_SECONDS: u64 = 1800;
+/// `--timeout`'s ceiling, which also bounds a run with no timeout.
+const MAX_TIMEOUT_SECONDS: u64 = 604_800;
 /// Raw bytes per upload or download chunk: 1 MB is 1,333,336 base64
 /// characters, under the API's 1 MiB `stdinBase64` limit.
 const CHUNK_BYTES: usize = 1_000_000;
@@ -111,9 +115,11 @@ pub struct RunArgs {
     /// the team's own (dev/test teams pause after 300 s, at most; others never)
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true, value_parser = idle_seconds)]
     idle_timeout: Option<i64>,
-    /// Kill the command after this many seconds (0: no limit; at most 7 days)
+    /// Kill the command after this many seconds (0: no limit; at most 7 days).
+    /// The VM itself is paused by the service 30 minutes past it (7 days with
+    /// none), so a run whose client dies still ends
     #[arg(long, value_name = "SECONDS", default_value_t = 3600,
-          value_parser = clap::value_parser!(u64).range(0..=604_800))]
+          value_parser = clap::value_parser!(u64).range(0..=MAX_TIMEOUT_SECONDS))]
     timeout: u64,
     /// Minimum vCPU count
     #[arg(long, value_parser = clap::value_parser!(u32).range(2..=32))]
@@ -256,6 +262,17 @@ pub async fn run(
     Ok(code)
 }
 
+/// The service's bound on one run: `--timeout` (or its ceiling, with no
+/// timeout) plus the margin for boot, sync and pull.
+fn max_run_seconds(timeout: u64) -> u64 {
+    let command = if timeout == 0 {
+        MAX_TIMEOUT_SECONDS
+    } else {
+        timeout.min(MAX_TIMEOUT_SECONDS)
+    };
+    command + RUN_MARGIN_SECONDS
+}
+
 fn idle_seconds(text: &str) -> Result<i64, String> {
     match text.parse::<i64>() {
         Ok(seconds) if seconds == -1 || (60..=86_400).contains(&seconds) => Ok(seconds),
@@ -274,6 +291,10 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
         "displayName": name,
         "idleTimeoutSeconds": args.idle_timeout,
         "autoDeleteSeconds": (!args.keep).then_some(AUTO_DELETE_SECONDS),
+        // The service's own bound on the run: the client's --timeout ends
+        // nothing if the client dies, so the service pauses the VM (and
+        // then, unless kept, deletes it) on its own.
+        "maxRunSeconds": max_run_seconds(args.timeout),
         "resources": resources.map(drop_nulls),
         "labels": { "cmux.run": "1" },
     }))?;
@@ -504,7 +525,7 @@ async fn follow(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<Outcome, CliError> {
-    let deadline = (timeout > 0).then(|| Instant::now() + Duration::from_secs(timeout));
+    let mut deadline = (timeout > 0).then(|| Instant::now() + Duration::from_secs(timeout));
     let (mut out_at, mut err_at) = (0_u64, 0_u64);
     loop {
         if deadline.is_some_and(|deadline| Instant::now() > deadline) {
@@ -550,9 +571,14 @@ async fn follow(
             let _ = stderr.write_all(&err);
             let _ = stderr.flush();
         }
-        // Done once the exit status is there and nothing more was read.
-        if rc != "-" && out.is_empty() && err.is_empty() {
-            return Ok(Outcome::Exited(rc.parse().unwrap_or(exit::UNEXPECTED)));
+        if rc != "-" {
+            // Done once the exit status is there and nothing more was read.
+            if out.is_empty() && err.is_empty() {
+                return Ok(Outcome::Exited(rc.parse().unwrap_or(exit::UNEXPECTED)));
+            }
+            // The command has ended: reading the rest of its output is not
+            // running past --timeout.
+            deadline = None;
         }
     }
 }
@@ -1439,6 +1465,14 @@ mod tests {
             Path::new("../outside/secret.txt")
         ));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_service_bounds_every_run() {
+        assert_eq!(max_run_seconds(3600), 3600 + RUN_MARGIN_SECONDS);
+        assert_eq!(max_run_seconds(0), MAX_TIMEOUT_SECONDS + RUN_MARGIN_SECONDS);
+        // Within the API's maximum (30 days).
+        assert!(max_run_seconds(MAX_TIMEOUT_SECONDS) <= 2_592_000);
     }
 
     #[test]
