@@ -67,6 +67,8 @@ const SWEEP = "home_attachment_sweep"
 const DROPS = "home_attachment_drops"
 /** The R2 etag of each stored part of a multipart slot, in order (the completion names them). */
 const PARTS = "home_attachment_parts"
+/** Multipart uploads an expired slot no longer names whose abort failed (retried by the next wake). */
+const ABORTS = "home_attachment_aborts"
 /** The main engine's row table (OwnerEngine default prefix `own_`). */
 const ENGINE_ROWS = "own_rows"
 const MAX_UPLOADERS = 64
@@ -545,3 +547,41 @@ export const setMultipartUpload = (sql: Sql, id: string, uploadId: string): bool
   sql.exec(`UPDATE ${SLOTS} SET multipart_upload_id = ? WHERE id = ?`, uploadId, id)
   return true
 }
+
+/**
+ * A multipart upload whose slot is gone but whose abort failed transiently: the upload id is kept
+ * here, in the same step that forgets the slot, so its parts are never left without a record that
+ * ends them (a self-hosted bucket has no lifecycle rule). Same backoff and dead letter as a drop.
+ */
+const ensureAborts = (sql: Sql) =>
+  sql.exec(`CREATE TABLE IF NOT EXISTS ${ABORTS} (upload_id TEXT PRIMARY KEY, object_key TEXT NOT NULL, next_attempt_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, dead INTEGER NOT NULL DEFAULT 0)`)
+
+export type QueuedAbort = { upload_id: string; object_key: string }
+
+/** Queues `upload` for another abort after the first backoff (its first attempt just failed). */
+export const queueAbort = (sql: Sql, upload: QueuedAbort, now: number): void => {
+  ensureAborts(sql)
+  sql.exec(`INSERT OR REPLACE INTO ${ABORTS} (upload_id, object_key, next_attempt_at, attempts, dead) VALUES (?, ?, ?, 1, 0)`, upload.upload_id, upload.object_key, now + dropBackoffMs(1))
+}
+
+/** Queued aborts due at `now`, oldest attempt first. */
+export const dueAborts = (sql: Sql, now: number, limit = 100): Array<QueuedAbort> =>
+  has(sql, ABORTS) ? sql.exec<QueuedAbort>(`SELECT upload_id, object_key FROM ${ABORTS} WHERE dead = 0 AND next_attempt_at <= ? ORDER BY next_attempt_at, upload_id LIMIT ?`, now, limit).map((r) => ({ upload_id: r.upload_id, object_key: r.object_key })) : []
+
+/** The earliest next attempt of a queued abort, or null. */
+export const nextAbortAt = (sql: Sql): number | null => {
+  if (!has(sql, ABORTS)) return null
+  const at = sql.exec<{ at: number | null }>(`SELECT MIN(next_attempt_at) AS at FROM ${ABORTS} WHERE dead = 0`)[0]?.at
+  return at === null || at === undefined ? null : Number(at)
+}
+
+/** A failed abort attempt: the next one after the backoff; true when it is now dead-lettered. */
+export const failAbort = (sql: Sql, uploadId: string, now: number): boolean => {
+  const row = sql.exec<{ attempts: number }>(`SELECT attempts FROM ${ABORTS} WHERE upload_id = ?`, uploadId)[0]
+  const attempts = Number(row?.attempts ?? 0) + 1
+  const dead = attempts >= DROP_MAX_ATTEMPTS
+  sql.exec(`UPDATE ${ABORTS} SET attempts = ?, next_attempt_at = ?, dead = ? WHERE upload_id = ?`, attempts, now + dropBackoffMs(attempts), dead ? 1 : 0, uploadId)
+  return dead
+}
+
+export const clearAbort = (sql: Sql, uploadId: string): void => void sql.exec(`DELETE FROM ${ABORTS} WHERE upload_id = ?`, uploadId)

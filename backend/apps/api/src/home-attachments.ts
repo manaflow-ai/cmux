@@ -307,7 +307,14 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
     // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
     const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } })
-    if (!(await conversationOf(env, conversation).setMultipartUpload(conversation, slot.id, upload.uploadId))) {
+    // A failed or lost owner call aborts the upload too: no slot may name it, so nothing else would end it.
+    const recorded = await conversationOf(env, conversation)
+      .setMultipartUpload(conversation, slot.id, upload.uploadId)
+      .catch(async (e: unknown) => {
+        await upload.abort().catch(() => {})
+        throw e
+      })
+    if (!recorded) {
       await upload.abort()
       return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
     }
