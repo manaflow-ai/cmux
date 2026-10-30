@@ -612,8 +612,8 @@
     },
     {
       "path": "CloudInboxListRequest.java",
-      "sha256": "4d70f9c493aba17e6860602b2108e58224be5785bbd77ce7704c8857d472d68e",
-      "size": 2751
+      "sha256": "fe53a8e981fb61fba053215636eb4b3feab060f0a1b531f919b2bfc9927ea980",
+      "size": 3384
     },
     {
       "path": "CloudInboxOpRequest.java",
@@ -2132,7 +2132,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "7e160e66c2e5377e52c9c81ea060c2dae94a3e6c8b76a349d7a6ad010d0d5e7f",
+      "sha256": "b6edcf9b684637bbafc553670990bd5ccf83b24d865193d1c941860b6395a6d0",
       "size": 7584
     },
     {
@@ -3432,7 +3432,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d",
+  "ir_sha256": "f505270819036f4e40907a17894671335dd8fb375d3db3962e2872e5538742b9",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

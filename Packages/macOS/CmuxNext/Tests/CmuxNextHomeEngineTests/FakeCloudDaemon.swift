@@ -39,7 +39,7 @@ actor FakeCloudDaemon: CloudConversationCommands {
         blobs["\(hash):\(variant.rawValue)"] = (bytes, mimeType)
     }
 
-    func inboxList(limit: Int) async throws -> CloudInboxList { CloudInboxList(entries: []) }
+    func inboxList() async throws -> CloudInboxList { CloudInboxList(entries: []) }
 
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot {
         throw DaemonError.notConnected

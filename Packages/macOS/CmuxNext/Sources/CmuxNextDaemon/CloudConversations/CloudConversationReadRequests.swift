@@ -4,7 +4,8 @@ import Foundation
 // section 4). The daemon only transports: ConversationDO owns each cloud
 // conversation and UserDO owns the inbox. Trusted local connections only.
 
-/// `cloud-inbox-list`: the account inbox (UserDO `inbox.list`).
+/// `cloud-inbox-list`: the account inbox (UserDO `inbox.list`): with `limit`, one page; without,
+/// every page (the daemon follows `next_cursor`).
 public struct CloudInboxListRequest: DaemonRequest {
     public typealias Response = CloudInboxList
     public static let command = "cloud-inbox-list"

@@ -27,7 +27,7 @@ nonisolated extension CloudHomeSource {
     public func inbox() async throws -> InboxSnapshot {
         let (commands, identity, generation, leased) = state.withLock { ($0.commands, $0.identity, $0.generation, $0.leased) }
         guard let commands, let identity, leased else { return state.withLock { $0.snapshot(me: me) } }
-        let list = try await reply(for: identity) { try await commands.inboxList(limit: Self.inboxLimit) }
+        let list = try await reply(for: identity) { try await commands.inboxList() }
         let (inbox, missing, unlisted, current) = state.withLock { state -> (InboxSnapshot, [ConversationID], [ConversationID],
                                                                              (any CloudConversationCommands)?) in
             guard state.generation == generation else { return (state.snapshot(me: me), [], [], nil) }

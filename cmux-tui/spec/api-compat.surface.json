@@ -7751,6 +7751,10 @@
       "/include_archived": {
         "ty": "boolean"
       },
+      "/cursor": {
+        "ty": "string",
+        "nullable": true
+      },
       "/limit": {
         "ty": "uint32",
         "nullable": true

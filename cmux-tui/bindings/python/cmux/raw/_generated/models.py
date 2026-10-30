@@ -2680,6 +2680,7 @@ class CloudHostReplicaStatusRequest:
 @dataclass(frozen=True)
 class CloudInboxListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-list/request'
+    cursor: Union[str, None, MissingType] = field(default=MISSING)
     include_archived: Union[bool, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
 
