@@ -121,7 +121,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsSoleMachineHeader = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
-    /// than this Mac names it (and a failed connection) on its second line.
+    /// than this Mac names it (and a failed connection) in its machine mark,
+    /// hover card and accessibility label, and an expanded row's meta line.
     public var flattensMachines = false
     /// In one list, the status a computer's rows name after its name when it
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).

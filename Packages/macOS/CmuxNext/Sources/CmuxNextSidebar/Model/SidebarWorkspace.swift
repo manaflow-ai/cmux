@@ -157,8 +157,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
     public var detail = SidebarWorkspaceDetail()
-    /// The person's notes for the workspace (Edit Workspace Description…): its first line leads
-    /// the row's second line and the hover card shows it whole. Nil while unset.
+    /// The person's notes for the workspace (Edit Workspace Description…): the hover card shows it
+    /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.
     public var workspaceDescription: String?
     /// The task lane the person pinned (Mark as Done, Set Workspace Status): the hover card names
     /// it and done-fold logic can use it. Nil while automatic.
