@@ -24,6 +24,10 @@
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
 # step: the imported host code predates a cmux-screen rustfmt config.
+# api-compat [BASE_SHA]: api-compat-check --write (from BASE_SHA's ledger when given, as CI's
+# --base), then the check itself, and spec/api-compat.surface.json and api-compat.wire.json in
+# .build/artifacts/api-compat-ledgers.tar (fetch it with --artifact): a schema change gets its
+# ledgers from the tool, not by hand, with no cargo on the agent's machine.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -50,7 +54,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat [TEST_FILTER | BASE_SHA]" >&2; exit 2 ;; esac
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -746,6 +750,26 @@ if [[ "$mode" == rd-bench ]]; then
   warm_target_guard
   step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
   step "rd-bench artifact" copy_rd_bench
+  finish
+fi
+api_compat_base() { # the BASE_SHA commit, fetched when the checkout does not have it
+  [[ -z "$filter" ]] && return 0
+  [[ "$filter" =~ ^[0-9a-f]{40}$ ]] || { echo "error: api-compat BASE_SHA must be a full commit SHA" >&2; return 2; }
+  git cat-file -e "$filter^{commit}" 2>/dev/null || git fetch --no-tags --depth=1 origin "$filter"
+}
+pack_api_compat() {
+  mkdir -p "$root/.build/artifacts"
+  tar -cf "$root/.build/artifacts/api-compat-ledgers.tar" -C "$root/cmux-tui" spec/api-compat.surface.json spec/api-compat.wire.json || return 1
+  git -C "$root" diff --stat -- cmux-tui/spec/api-compat.surface.json cmux-tui/spec/api-compat.wire.json
+}
+if [[ "$mode" == api-compat ]]; then
+  warm_target_guard
+  base_args=()
+  [[ -n "$filter" ]] && base_args=(--base "$filter")
+  step "api-compat base" api_compat_base
+  step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write ${base_args[@]+"${base_args[@]}"}
+  step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check -- ${base_args[@]+"${base_args[@]}"}
+  step "api-compat ledgers" pack_api_compat
   finish
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
