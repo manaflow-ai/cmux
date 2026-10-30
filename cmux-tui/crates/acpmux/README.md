@@ -253,7 +253,11 @@ Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/N
 Every command that takes a session (send, last, retry, wait, attach, `session
 info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
 live session with that name across this host and its peers, so `acpmux send review "…"`
-reaches `linux-b/review` when no other live session is called `review`. Closed sessions count
+reaches `linux-b/review` when no other live session is called `review`. A sub-session (named
+`PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
+`coord/lane-3` when no session on any host has that name or id and none here has a
+name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
+refused with the close matches. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:
