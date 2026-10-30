@@ -830,6 +830,14 @@ for (const kind of ["turn_result", "turn_end"] as const)
         ),
       );
       expect(rows().some((row) => row.kind === "typing")).toBe(true);
+      // Review at 6a5caff3 (P2): its paired end (turn_end then turn_result) is late too.
+      daemon.push(
+        record(
+          [["mux", kind === "turn_end" ? "turn_result" : "turn_end", { turnId: "turn-old", status: "cancelled" }]],
+          6,
+        ),
+      );
+      expect(rows().some((row) => row.kind === "typing")).toBe(true);
       await client.cancel();
       expect(cancels()).toBe(2);
     } finally {
