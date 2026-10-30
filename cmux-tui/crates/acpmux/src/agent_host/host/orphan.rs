@@ -21,6 +21,8 @@ struct Pending {
     unlogged: usize,
     /// Claude Code runs a subagent or a background shell, or a carry holds its output.
     translator: bool,
+    /// Connections that have not said hello yet: a next daemon's, perhaps.
+    connections: usize,
 }
 
 impl Pending {
@@ -70,6 +72,8 @@ pub(super) struct Orphan {
     generation: u64,
     /// The end began.
     ending: bool,
+    /// The entry count when the census started: a line that came while it ran keeps the host.
+    census_at: u64,
     /// Requests the controller sent the harness with no answer yet, by id (its JSON text).
     open: HashSet<String>,
     /// Fenced lines queued for the harness whose receipt is not logged yet.
@@ -80,6 +84,11 @@ pub(super) struct Orphan {
 }
 
 impl Orphan {
+    /// The host's own end began: its harness group is being ended.
+    pub(super) fn ends(&self) -> bool {
+        self.ending
+    }
+
     /// A line from the controller: a request waits for its answer, and a session opened with
     /// MCP servers names them.
     pub(super) fn note_request(&mut self, message: &Message) {
@@ -144,19 +153,16 @@ impl State {
             unwritten: self.orphan.unwritten,
             unlogged: self.entries.iter().filter(|(_, e, _)| needs_a_daemon(e)).count(),
             translator,
+            connections: 0,
         }
     }
 
     /// As the host starts serving and after every event: a controller's hello ends the wait (its
     /// generation moves on); its absence starts one ([`OrphanExit`]). True once the host's own
-    /// end is done: the harness exited and no controller, nor a connection that may become one,
-    /// came meanwhile to log it (a controller that comes logs the exit and ends the host as any).
+    /// end is done: the harness exited. No controller can have come meanwhile: an ending host
+    /// answers no hello (`on_frame`), and the end began only with no connection at all.
     pub(super) fn orphan_follow(&mut self, events: &mpsc::Sender<Event>) -> bool {
-        if self.orphan.ending
-            && self.controller.is_none()
-            && self.pending_conns.is_empty()
-            && self.exit_h.is_some()
-        {
+        if self.orphan.ending && self.exit_h.is_some() {
             return true;
         }
         let Some(exit) = &self.spec.orphan_exit else { return false };
@@ -199,11 +205,14 @@ impl State {
             return;
         }
         let wait = std::time::Duration::from_millis(exit.idle_ms);
-        // Checked again on the census's answer too: what came while it ran keeps the host. From
-        // here to the group's SIGTERM the loop handles no other event, so no entry and no hello
-        // comes in between; a hello waiting in the queue meets an ending harness, as a prompt
-        // meets one the daemon's idle pass stops.
-        if let OrphanStep::Wait(after) = orphan_step(wait, since.elapsed(), self.pending().await) {
+        // Checked again on the census's answer too: an entry or a connection that came while it
+        // ran keeps the host (a connection that has not said hello yet may be a next daemon's).
+        // From here to the group's SIGTERM the loop handles no other event, and once it is sent
+        // the host answers no hello, so no turn starts on the harness it ends.
+        let mut pending = self.pending().await;
+        pending.connections = self.pending_conns.len();
+        pending.unlogged += usize::from(census.is_some() && self.next_h != self.orphan.census_at);
+        if let OrphanStep::Wait(after) = orphan_step(wait, since.elapsed(), pending) {
             self.orphan_wait(events, after);
             return;
         }
@@ -215,6 +224,7 @@ impl State {
             // Something else runs under it (a dev server it left), or it can not tell.
             (Some(false), _) | (None, None) => self.orphan_wait(events, wait),
             (None, Some(pid)) => {
+                self.orphan.census_at = self.next_h;
                 let given = self.orphan.given_servers.clone();
                 let (events, generation) = (events.clone(), self.orphan.generation);
                 // task-owner: one census, bounded by its own budget (`hub/idle_census.rs`).
@@ -258,6 +268,7 @@ mod tests {
             Pending { unwritten: 1, ..idle },
             Pending { unlogged: 1, ..idle },
             Pending { translator: true, ..idle },
+            Pending { connections: 1, ..idle },
         ] {
             assert_eq!(orphan_step(wait, wait * 5, busy), OrphanStep::Wait(wait), "{busy:?}");
         }

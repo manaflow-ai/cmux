@@ -138,14 +138,14 @@ pub(crate) async fn host_census(
     given: Option<Value>,
 ) -> bool {
     let crate::agent_host::OrphanExit { mut servers, path, .. } = exit;
-    servers.extend(resolved(from_json(given.as_ref()), &path));
-    let found = tokio::task::spawn_blocking(move || crate::agent_host::tree::under(pid));
-    match tokio::time::timeout(CENSUS_BUDGET, found).await {
-        Ok(Ok(Some((leader_args, found)))) => {
-            matches!(classify(&found, pid, &leader_args, &servers), Census::Clear)
-        }
-        _ => false,
-    }
+    // Off the host's one runtime thread, within the budget: resolving a server's name stats
+    // each `PATH` folder, which a slow mount can hold.
+    let found = tokio::task::spawn_blocking(move || {
+        servers.extend(resolved(from_json(given.as_ref()), &path));
+        let (leader_args, found) = crate::agent_host::tree::under(pid)?;
+        Some(matches!(classify(&found, pid, &leader_args, &servers), Census::Clear))
+    });
+    matches!(tokio::time::timeout(CENSUS_BUDGET, found).await, Ok(Ok(Some(true))))
 }
 
 /// What the idle census knows of a harness's MCP servers (`ChildAgent::launch`).

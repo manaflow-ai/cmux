@@ -524,8 +524,7 @@ impl Started {
             });
         }
 
-        // A harness that never writes and a daemon that never connects still start the wait.
-        state.orphan_follow(&events_tx);
+        state.orphan_follow(&events_tx); // The wait starts with no event too (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
@@ -991,7 +990,8 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            if self.stall_hello {
+            // Nor does a host that ends its harness (`host/orphan.rs`): no turn starts on it.
+            if self.stall_hello || self.orphan.ends() {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
