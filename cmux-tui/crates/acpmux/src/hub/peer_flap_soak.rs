@@ -70,7 +70,7 @@ mod tests {
         json!({
             "sessionId": format!("s{session}"),
             "name": format!("lane-{peer}-{session}"),
-            "status": if session % 2 == 0 { "closed" } else { "running" },
+            "status": if session.is_multiple_of(2) { "closed" } else { "running" },
             "createdAt": 1,
             "updatedAt": 1
         })
