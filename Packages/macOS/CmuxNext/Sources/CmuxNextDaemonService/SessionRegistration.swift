@@ -20,6 +20,8 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     private let withdraw: @MainActor (_ session: String) -> Void
     /// Refusal notices not shown yet (no window), per session: shown at the next submit.
     private var pendingNotices: [String: String] = [:]
+    /// Sessions whose notice shows now (until closed): taken back when it stops being true.
+    private var shownNotices: Set<String> = []
     private var stopped = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "session-registration")
     /// Called when a backoff ends: the owner syncs, which submits the record again.
@@ -47,9 +49,12 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     public func submit(session: String, record: Record, machine: String?, epoch: Int,
                        send: @escaping @Sendable () async throws -> Void) -> Task<Void, Never>? {
         guard !stopped else { return nil }
-        showPendingNotices()
         let link = SessionRegistrationConnection(generation: UInt64(truncatingIfNeeded: epoch))
-        guard let token = ledger.begin(session: session, record: record, connection: link) else { return nil }
+        let token = ledger.begin(session: session, record: record, connection: link)
+        // A new send replaces the older record's answer: its pending notice no longer holds.
+        if token != nil { pendingNotices[session] = nil }
+        showPendingNotices()
+        guard let token else { return nil }
         // task-owner: one put-session; its answer goes to the ledger on the main actor
         return Task { [weak self] in
             do {
@@ -65,6 +70,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     public func retain(sessions: Set<String>) {
         ledger.retain(sessions: sessions)
         pendingNotices = pendingNotices.filter { sessions.contains($0.key) }
+        for session in shownNotices where !sessions.contains(session) { takeBack(session) }
         for (session, timer) in retries where !sessions.contains(session) {
             timer.cancel()
             retries[session] = nil
@@ -81,20 +87,24 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
         guard !stopped else { return }
         guard let error else {
             ledger.succeeded(session: session, token: token)
-            if ledger.isRecorded(session: session) { pendingNotices[session] = nil }
+            if ledger.isRecorded(session: session) {
+                pendingNotices[session] = nil
+                takeBack(session)
+            }
             return
         }
         logger.error("put-session \(session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         let outcome = ledger.failed(session: session, token: token, failure: SessionRegistrationLedger<Record>.classify(error))
-        if let reason = outcome.refusal {
-            pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: reason)
+        // The person reads a localized reason; the daemon's raw text is in the log line above.
+        if outcome.refusal != nil {
+            pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: Self.refusedReason)
             showPendingNotices()
         }
         guard let delay = outcome.retryAfter else {
             // No answer and the timed retries are spent: the record waits for an event (a changed
             // record or a new connection epoch), so the person sees that it is not saved (R9 R-L5).
             if outcome.refusal == nil, ledger.isWaitingForEvent(session: session) {
-                pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: String(describing: error))
+                pendingNotices[session] = Self.notSavedForRestore(machine: machine, reason: Self.noAnswerReason)
                 showPendingNotices()
             }
             return
@@ -112,10 +122,28 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     public func showPendingNotices() {
         for (session, message) in pendingNotices where notice(session, message) {
             pendingNotices[session] = nil
+            shownNotices.insert(session)
         }
     }
 
+    private func takeBack(_ session: String) {
+        guard shownNotices.remove(session) != nil else { return }
+        withdraw(session)
+    }
+
     // Keys live in Resources/SessionRegistration.xcstrings.
+    /// The home daemon refused the record (its message is in the log).
+    nonisolated static var refusedReason: String {
+        String(localized: "sessionRegistration.reason.refused", defaultValue: "cmux refused its record (details are in the log)",
+               table: "SessionRegistration", bundle: .module)
+    }
+
+    /// The home daemon did not answer, and the retries are spent.
+    nonisolated static var noAnswerReason: String {
+        String(localized: "sessionRegistration.reason.noAnswer", defaultValue: "cmux did not answer (details are in the log)",
+               table: "SessionRegistration", bundle: .module)
+    }
+
     /// The home daemon refused to record a connected machine: the next launch does not restore it.
     nonisolated static func notSavedForRestore(machine: String?, reason: String) -> String {
         guard let machine, !machine.isEmpty else {
