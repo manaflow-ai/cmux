@@ -1025,7 +1025,14 @@ export function QuickModelMenu({
           </div>
         )}
         {families ? (
-          <div className="acpmux-quick-layout">
+          <div
+            className="acpmux-quick-layout"
+            style={
+              {
+                "--acpmux-quick-rail-rows": railTabs.length + (families.onAddHarness ? 1 : 0),
+              } as React.CSSProperties
+            }
+          >
             {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
             <fieldset ref={rail} className="acpmux-quick-rail" aria-label={t("picker.harness")}>
               {railTabs.map((family) => (

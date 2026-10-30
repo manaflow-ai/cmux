@@ -370,11 +370,15 @@
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
 }
+/* The menu follows its model list, and a long rail scrolls (the rail is `contain: size`). A short
+   list still leaves room for up to six rail rows, so a tab with one row never squashes the menu to
+   that row with the selected harness scrolled out of the rail (Leo 2026-10-29: "This fucking
+   minimum space is just asinine"). --acpmux-quick-rail-rows is the rail's tab count. */
 .acpmux-quick-layout {
   display: flex;
   flex-direction: row;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: calc(min(var(--acpmux-quick-rail-rows, 0), 6) * var(--ui-row-height) + 8px);
   max-height: calc(100vh - 16px);
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
   overflow: hidden;
@@ -382,11 +386,9 @@
 .acpmux-quick-newtab {
   max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
 }
-/* Contain only the rail's width: its tabs count toward the menu's height, so a short model list
-   never squeezes the rail into a scroller that hides the selected harness. */
 .acpmux-quick-rail {
   flex: 0 0 36%;
-  contain: inline-size;
+  contain: size;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -433,7 +435,7 @@
   font-size: var(--text-control);
   line-height: 1;
 }
-.acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; }
+.acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; min-height: 0; }
 .acpmux-quick-placement-top .acpmux-quick-rail {
   flex: none;
   contain: none;
