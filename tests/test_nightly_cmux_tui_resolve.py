@@ -27,6 +27,24 @@ def check(condition: bool, message: str) -> None:
 
 
 text = (ROOT / ".github/workflows/nightly.yml").read_text()
+
+
+def expand_step_aliases(source: str) -> str:
+    """Inline `- *name` step aliases with their `- &name` anchor's step, so a job that reuses
+    an anchored step (publish-nightly's publication tooling checkout) is read as written out."""
+    anchors = {m.group(2): (m.group(1), m.group(3)) for m in
+               re.finditer(r"^( *)- &([A-Za-z0-9_-]+)\n((?:\1  .*\n|\n(?=\1  ))+)", source, re.MULTILINE)}
+
+    def inline(m: re.Match) -> str:
+        indent, name = m.group(1), m.group(2)
+        if name not in anchors or anchors[name][0] != indent:
+            return m.group(0)
+        body = anchors[name][1]
+        return f"{indent}- " + body[len(indent) + 2:]
+    return re.sub(r"^( *)- \*([A-Za-z0-9_-]+)\n", inline, source, flags=re.MULTILINE)
+
+
+text = expand_step_aliases(text)
 # The job block: from its key to the next job key (two-space indent), no YAML module needed.
 match = re.search(r"^  resolve-nightly-cmux-tui-client:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", text, re.MULTILINE | re.DOTALL)
 job = match.group(1) if match else ""
@@ -78,7 +96,9 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # continued, with this run's tools. promote-nightly-next and its -acked job run
 # only on main and check out the promote guard at github.sha; they move a branch
 # and build nothing (#21049).
-exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# The advisory attester uses workflow controls and the already-built artifact;
+# its checkout contributes no shipped bytes.
+exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}

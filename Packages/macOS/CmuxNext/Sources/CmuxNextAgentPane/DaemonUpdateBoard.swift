@@ -5,11 +5,12 @@ public import Observation
 
 /// The latest update state of each ``DaemonUpdateTarget``, as ``DaemonUpdatePolicy`` reports it:
 /// an ssh machine's sidebar tooltip shows its line (``detail(sshHost:)``), another surface looks a
-/// target up by id (``detail(id:)``), and Settings > Updates lists the machines that cannot update
-/// or failed to, in one row (``otherMachines``). Failed or rolled-back updates share one toast that
-/// stays until closed (``noticeToast(_:)``): the machines' names, each reason in its tooltip, and
-/// Details, which shows the reasons in the toast itself, never Settings. Closed, it stays closed for
-/// that build, also across launches. A machine that cannot update in place never has a toast.
+/// target up by id (``detail(id:)``), and Settings > Updates lists the machines that cannot update,
+/// are offline or failed to, in one row (``otherMachines``). Failed or rolled-back updates share one
+/// toast that stays until closed (``noticeToast(_:)``): the machines' names in plain words, each
+/// reason in its tooltip and behind Details, which shows the reasons in the toast itself, never
+/// Settings. Closed, it stays closed for that build, also across launches. A machine that cannot
+/// update in place or is offline never has a toast.
 @MainActor @Observable
 public final class DaemonUpdateBoard {
     // lint:allow one board per app process: the policy writes it, the sidebar of every window reads it
@@ -216,6 +217,8 @@ public final class DaemonUpdateBoard {
             switch event.state {
             case .cannotUpdate(let reason):
                 machines.append(OtherMachine(id: event.id, line: reason, canUpdate: true))
+            case .offline:
+                machines.append(OtherMachine(id: event.id, line: Self.offlineLine(event.displayName), canUpdate: false))
             case .updating where clicked.contains(event.id), .retrying where clicked.contains(event.id):
                 machines.append(OtherMachine(id: event.id, line: Self.updatingLine(event.displayName), canUpdate: false))
             default:
@@ -263,6 +266,12 @@ public final class DaemonUpdateBoard {
                               bundle: .module), name)
     }
 
+    /// The row's line of machine `name` while it is offline.
+    nonisolated static func offlineLine(_ name: String) -> String {
+        String(format: String(localized: "agentPane.daemonUpdate.machines.offline", defaultValue: "%@ is offline; it will update when it's back",
+                              bundle: .module), name)
+    }
+
     /// The tooltip line of target `id`, nil when it has no update state.
     public func detail(id: String) -> String? {
         targets[id].map { Self.line($0.state) }
@@ -286,6 +295,8 @@ public final class DaemonUpdateBoard {
             String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's build…", bundle: .module)
         case .retrying:
             String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .module)
+        case .offline:
+            String(localized: "agentPane.daemonUpdate.offline", defaultValue: "Offline; it will update when it's back", bundle: .module)
         case .updated(let build):
             String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .module), build)
         case .failed(let reason, false):

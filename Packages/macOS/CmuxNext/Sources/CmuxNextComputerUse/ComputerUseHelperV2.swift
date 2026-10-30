@@ -181,6 +181,11 @@ public final class ComputerUseHelperV2 {
         "\(ComputerUseHelperDaemon.userTemporaryDirectory())cmux-cua-v2/\(ComputerUseHelperDaemon.scope(bundleID))"
     }
 
+    /// Whether this build carries the helper v2. DEV builds embed it; a
+    /// build without it (NIGHTLY, release today) runs the legacy helper
+    /// when `computerUse.driver` is "upstream" (`ComputerUseHelperDaemon.effectiveDriver`).
+    public var isInBuild: Bool { helperApp() != nil }
+
     /// DEV builds embed the dev helper at Contents/Library (scripts/cmux-next/embed-cua-helper-dev.sh).
     nonisolated static func embeddedHelperApp(bundle: Bundle = .main) -> URL? {
         let url = bundle.bundleURL.appending(path: "Contents/Library/\(helperAppName)", directoryHint: .isDirectory)

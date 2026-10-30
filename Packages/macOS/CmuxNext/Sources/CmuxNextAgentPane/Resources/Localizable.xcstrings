@@ -918,6 +918,268 @@
         }
       }
     },
+    "agentPane.daemonUpdate.machines.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ غير متصل؛ سيتم تحديثه عند عودته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je van mreže; ažurirat će se kad se vrati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er offline; den opdateres, når den er tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist offline; wird aktualisiert, sobald es wieder da ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is offline; it will update when it's back"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está sin conexión; se actualizará cuando vuelva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est hors ligne ; il sera mis à jour à son retour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è offline; verrà aggiornato quando torna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はオフラインです。戻ったら更新されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ គ្មានការតភ្ជាប់; វានឹងធ្វើបច្ចុប្បន្នភាពនៅពេលវាត្រឡប់មកវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 오프라인입니다. 다시 연결되면 업데이트됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er frakoblet; den oppdateres når den er tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ jest offline; zostanie zaktualizowany po powrocie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ está offline; será atualizado quando voltar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не в сети; обновится, когда вернётся"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ออฟไลน์อยู่ จะอัปเดตเมื่อกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ çevrimdışı; geri geldiğinde güncellenecek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не в мережі; оновиться, коли повернеться"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đang ngoại tuyến; sẽ cập nhật khi kết nối lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已离线，恢复连接后将更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已離線，恢復連線後將更新"
+          }
+        }
+      }
+    },
+    "agentPane.daemonUpdate.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل؛ سيتم التحديث عند العودة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van mreže; ažurirat će se kad se vrati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; opdateres, når den er tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; wird aktualisiert, sobald es wieder da ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; it will update when it's back"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión; se actualizará cuando vuelva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne ; mise à jour à son retour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; verrà aggiornato quando torna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインです。戻ったら更新されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានការតភ្ជាប់; នឹងធ្វើបច្ចុប្បន្នភាពនៅពេលត្រឡប់មកវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인입니다. 다시 연결되면 업데이트됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frakoblet; oppdateres når den er tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; zostanie zaktualizowany po powrocie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline; será atualizado quando voltar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в сети; обновится, когда вернётся"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออฟไลน์ จะอัปเดตเมื่อกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çevrimdışı; geri geldiğinde güncellenecek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в мережі; оновиться, коли повернеться"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngoại tuyến; sẽ cập nhật khi kết nối lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已离线，恢复连接后将更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已離線，恢復連線後將更新"
+          }
+        }
+      }
+    },
     "agentPane.daemonUpdate.notice.failed": {
       "extractionState": "manual",
       "localizations": {
@@ -5517,6 +5779,268 @@
         }
       }
     },
+    "agentPane.pageCommand.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ غير متاح في هذه الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije dostupno u ovom chatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke tilgængelig i denne chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist in diesem Chat nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ isn't available in this chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no está disponible en este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas disponible dans ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è disponibile in questa chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットでは「%@」を使用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនមាននៅក្នុងការជជែកនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅에서는 %@을(를) 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke tilgjengelig i denne chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ jest niedostępne w tym czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não está disponível neste chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» недоступно в этом чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ใช้ไม่ได้ในแชทนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu sohbette kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» недоступно в цьому чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không khả dụng trong cuộc trò chuyện này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天中无法使用“%@”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天中無法使用「%@」。"
+          }
+        }
+      }
+    },
+    "agentPane.pageCommand.needsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ التركيز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ zahtijeva fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kræver fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ erfordert Fokus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires focus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requiere el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ richiede il focus."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」にはフォーカスが必要です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ត្រូវការការផ្ដោត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에는 포커스가 필요합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ krever fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wymaga fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requer foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для «%@» требуется фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ต้องมีโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için odak gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для «%@» потрібен фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cần có tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”需要焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」需要焦點。"
+          }
+        }
+      }
+    },
     "agentPane.chooseFolder.notSaved": {
       "extractionState": "manual",
       "localizations": {
@@ -7488,127 +8012,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux لا يعمل. افتح محادثة وكيل جديدة لتشغيله."
+            "value": "توقف acpmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux nije pokrenut. Otvorite novi chat s agentom da ga pokrenete."
+            "value": "acpmux je zaustavljen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux kører ikke. Åbn en ny agentchat for at starte den."
+            "value": "acpmux er stoppet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux läuft nicht. Öffne einen neuen Agenten-Chat, um es zu starten."
+            "value": "acpmux wurde gestoppt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux is not running. Open a new agent chat to start it."
+            "value": "acpmux stopped."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux no se está ejecutando. Abre un nuevo chat con el agente para iniciarlo."
+            "value": "acpmux se detuvo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux n’est pas en cours d’exécution. Ouvrez une nouvelle discussion avec l’agent pour le démarrer."
+            "value": "acpmux s’est arrêté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux non è in esecuzione. Apri una nuova chat con l’agente per avviarlo."
+            "value": "acpmux si è arrestato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux が実行されていません。新しいエージェントチャットを開くと起動します。"
+            "value": "acpmux が停止しました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux មិនកំពុងដំណើរការទេ។ បើកការជជែកភ្នាក់ងារថ្មី ដើម្បីចាប់ផ្តើមវា។"
+            "value": "acpmux បានឈប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux가 실행 중이 아닙니다. 새 에이전트 채팅을 열면 시작됩니다."
+            "value": "acpmux가 중지되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux kjører ikke. Åpne en ny agentchat for å starte den."
+            "value": "acpmux er stoppet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux nie działa. Otwórz nowy czat z agentem, aby go uruchomić."
+            "value": "acpmux został zatrzymany."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O acpmux não está em execução. Abra um novo chat com o agente para iniciá-lo."
+            "value": "O acpmux parou."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux не запущен. Откройте новый чат с агентом, чтобы запустить его."
+            "value": "acpmux остановлен."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ไม่ได้ทำงานอยู่ เปิดแชตเอเจนต์ใหม่เพื่อเริ่มการทำงาน"
+            "value": "acpmux หยุดทำงานแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux çalışmıyor. Başlatmak için yeni bir ajan sohbeti açın."
+            "value": "acpmux durdu."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux не запущено. Відкрийте новий чат з агентом, щоб запустити його."
+            "value": "acpmux зупинено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux không chạy. Mở một cuộc trò chuyện tác tử mới để khởi động nó."
+            "value": "acpmux đã dừng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 未运行。打开新的代理聊天即可启动它。"
+            "value": "acpmux 已停止。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 未執行。開啟新的代理聊天即可啟動它。"
+            "value": "acpmux 已停止。"
           }
         }
       }

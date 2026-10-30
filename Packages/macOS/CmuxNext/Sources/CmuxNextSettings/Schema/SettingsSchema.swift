@@ -258,7 +258,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "column", "visible range", "overview"]
             ),
             SettingDescriptor(
                 CloseFocusSetting.configPath, section: .general, group: columns,
