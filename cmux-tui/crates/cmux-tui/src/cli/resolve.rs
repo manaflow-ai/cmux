@@ -66,10 +66,16 @@ impl Failure {
                 output,
                 3,
             ),
-            Self::Refused => {
-                eprintln!("cmux: session is busy");
-                3
-            }
+            Self::Refused => print_local_error(
+                &json!({
+                    "code": "session.busy",
+                    "message": "session is busy",
+                    "details": {},
+                    "retryable": true,
+                }),
+                output,
+                3,
+            ),
         }
     }
 }
