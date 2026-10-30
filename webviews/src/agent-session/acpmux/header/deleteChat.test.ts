@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { afterDeleteDismiss } from "./deleteDismiss";
+import { deleteClosesTab } from "./archiveClose";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -118,6 +119,41 @@ test("a purged notification after the purge's answer selects nothing, so Delete'
     await new Promise((resolve) => setTimeout(resolve, 0));
     // Not the fallback chat: the deleted chat's tab closes, it does not show another chat.
     expect(client.selectedSession).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("leaving the chat for an empty selection while the purge is out is not the purge's completion", async () => {
+  let release!: () => void;
+  const { client, notifyPurged } = await connected(new Promise<void>((resolve) => (release = resolve)));
+  try {
+    const confirmed = client.selectedSession!;
+    const purging = client.purge(confirmed);
+    await Promise.resolve();
+    // The person opens a New Tab (or switches harness) in the pane: nothing is selected.
+    client.leave();
+    release();
+    await purging;
+    notifyPurged(confirmed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.selectedSession).toBeUndefined();
+    expect(deleteClosesTab(client, confirmed)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("the purge's own completion closes: still selected, or the client fell back from it", async () => {
+  const { client, notifyPurged } = await connected();
+  try {
+    const confirmed = client.selectedSession!;
+    await client.purge(confirmed);
+    expect(deleteClosesTab(client, confirmed)).toBe(true);
+    notifyPurged(confirmed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.selectedSession).toBeUndefined();
+    expect(deleteClosesTab(client, confirmed)).toBe(true);
   } finally {
     client.close();
   }

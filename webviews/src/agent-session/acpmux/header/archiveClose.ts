@@ -12,3 +12,8 @@ export function archiveClosesTab(client: ArchiveCloseClient, archived: string | 
   if (archived === undefined) return false;
   return client.selectedSession === archived || client.fellBackFrom(archived);
 }
+
+/// The same rule for Delete's completion: the deleted chat is still selected (acpmux's `purged`
+/// notification is not in yet) or the client left it on its own when it left the list. An empty
+/// selection the person made meanwhile (a New Tab, a harness switch) is not the purge's.
+export const deleteClosesTab = archiveClosesTab;

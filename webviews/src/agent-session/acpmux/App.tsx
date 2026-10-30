@@ -429,7 +429,7 @@ import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
-import { archiveClosesTab } from "./header/archiveClose";
+import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
 import { avatarRows } from "./header/avatarRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
@@ -9161,7 +9161,7 @@ function AcpmuxPane() {
       deleteInFlight.current?.target !== target ||
       deleteInFlight.current.client !== client ||
       directClient.current !== client ||
-      (client.selectedSession !== undefined && client.selectedSession !== target)
+      !deleteClosesTab(client, target)
     )
       return;
     deleteInFlight.current = undefined;
