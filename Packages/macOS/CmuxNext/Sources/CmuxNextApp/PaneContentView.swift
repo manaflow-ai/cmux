@@ -323,6 +323,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Another pane may own `previous` now and have taken its callback.
         if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
         content = view
+        toolbar?.refresh()
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
         if let leaving { retire(leaving) }

@@ -13,7 +13,7 @@ struct AgentPaneTabRowToolsTests {
         #expect(tools?.first?.menu.first?.checked == true)
     }
 
-    @Test func decodesAbsentOptionalBadgeAndRole() {
+    @Test func decodesAbsentOptionalBadgeAndRole() throws {
         let raw: [String: Any] = [
             "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,
             "menu": [["id": "open", "label": "Open", "enabled": true]],

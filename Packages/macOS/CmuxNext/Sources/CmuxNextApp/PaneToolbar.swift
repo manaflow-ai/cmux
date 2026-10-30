@@ -55,6 +55,7 @@ final class PaneToolbar {
     /// Writes the pinned list (`tabs.toolbarButtons`); every pane follows the file.
     var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
+    private var refreshCurrent: (() -> Void)?
 
     init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?, paneTarget: ActionTargetRef? = nil,
          contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
@@ -94,6 +95,13 @@ final class PaneToolbar {
         view.onNativeTool = { [weak pane] id, menuItemID in
             pane?.view.displayedAgentPaneView?.model.onTabRowToolInvoked?(id, menuItemID)
         }
+        refreshCurrent = { [weak self, weak pane] in
+            guard let self, let pane else { return }
+            let state = Self.state(pane)
+            guard !state.behind else { return }
+            self.update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned,
+                        paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
+        }
         // task-owner: lives as long as the pane's view; event-driven (Observation)
         observation = Task { [weak self, weak pane] in
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
@@ -103,6 +111,9 @@ final class PaneToolbar {
             }
         }
     }
+
+    /// Rebinds controls immediately after the pane changes content ownership.
+    func refresh() { refreshCurrent?() }
 
     private static func state(_ pane: PaneController) -> State {
         let displayed = pane.view.displayedAgentPaneView
