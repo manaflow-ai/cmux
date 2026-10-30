@@ -111,11 +111,15 @@ export function PullRequestStackProvider({
             const next = [...dismissed, url];
             setDismissed(next);
             writeDismissed(sessionId, next);
-            // Focus moves to the row now in that place, or back to the count when none is left.
+            // Focus moves to the row now in that place. With none left the count is disabled (it can
+            // take no focus), so focus goes on to the composer's prompt, where the person types next.
             requestAnimationFrame(() => {
               const rows = document.querySelectorAll<HTMLElement>(".acpmux-pr-stack__link");
               (
-                rows[Math.min(index, rows.length - 1)] ?? document.querySelector<HTMLElement>(".acpmux-pr-count")
+                rows[Math.min(index, rows.length - 1)] ??
+                document.querySelector<HTMLElement>(
+                  '.acpmux-composer [contenteditable="true"], .acpmux-composer textarea',
+                )
               )?.focus();
             });
           },

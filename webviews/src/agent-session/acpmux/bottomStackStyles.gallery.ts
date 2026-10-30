@@ -90,9 +90,17 @@ function stack(working: boolean, { prs = true, tray = true }: { prs?: boolean; t
 
 async function settled(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+  // Motion that ends (an entrance, a fold) has ended; a running line's spinner turns for as long as
+  // the line runs, so it is not waited for.
   await ctx.waitFor(() =>
     [...ctx.document.querySelectorAll(".acpmux-dock *")].every((node) =>
-      node.getAnimations().every((animation) => animation.playState !== "running"),
+      node
+        .getAnimations()
+        .every(
+          (animation) =>
+            animation.playState !== "running" ||
+            !Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)),
+        ),
     ),
   );
 }

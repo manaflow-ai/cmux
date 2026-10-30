@@ -319,15 +319,25 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         true,
       );
       expect(await shownDismiss()).toBe(1);
-      // Delete on a focused row dismisses it, as its × does; the count still names both.
-      await links.nth(1).focus();
-      await page.keyboard.press("Delete");
-      expect(await links.count()).toBe(1);
-      expect((await count.textContent())?.trim()).toBe("2 PRs");
+      // A row's × dismisses it, and focus moves to the row now in its place; the count still names both.
       await links.first().hover();
       await page.locator(".acpmux-pr-stack__dismiss").first().click();
+      expect(await links.count()).toBe(1);
+      expect((await count.textContent())?.trim()).toBe("2 PRs");
+      await page.waitForFunction(() => document.activeElement?.matches(".acpmux-pr-stack__link") ?? false);
+      // Delete on the focused last row dismisses it too. The count, with nothing left to open, is
+      // disabled, so focus goes on to the composer's prompt, never to the page's body.
+      await page.keyboard.press("Delete");
       expect(await page.locator(".acpmux-pr-stack__list a").count()).toBe(0);
       expect((await count.textContent())?.trim()).toBe("2 PRs");
+      await page.waitForFunction(
+        () =>
+          document.activeElement !== document.body &&
+          (document.activeElement?.matches('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea') ??
+            false),
+        undefined,
+        { timeout: 2_000 },
+      );
       // The per-message pills (cmux#26082) stay where they are.
       expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBeGreaterThan(0);
     } finally {
