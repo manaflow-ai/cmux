@@ -27,7 +27,7 @@ extension TabStripView: TitlebarPressDeciding {
         let clip = contentView.convert(tabsClip.frame, to: self)
         let runEnd = newTabButton.isHidden
             ? clip.minX + min(tabRunTrailing(), clip.width)
-            : contentView.convert(newTabButton.frame, to: self).maxX
+            : contentView.convert(newTabMenuButton.isHidden ? newTabButton.frame : newTabMenuButton.frame, to: self).maxX
         if runEnd > clip.minX { rects.append(CGRect(x: clip.minX, y: 0, width: runEnd - clip.minX, height: bounds.height)) }
         return rects
     }
