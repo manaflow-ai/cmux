@@ -9,9 +9,10 @@
 //! daemon's `guests` after every `hello`, redeem, kick) and the relay of each guest's chat come in
 //! the next changes.
 
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
+use cmux_threads::sync::Mutex;
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
