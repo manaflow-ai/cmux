@@ -46,6 +46,9 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     /// An installed cmux app (`<publisher>/<name>`); its menu offers Hide.
     public static let appKind = "app"
 
+    /// Whether a Pinned item of this ref belongs to one space: a link, tab or app (`SidebarDocBody.belongsToASpace`).
+    public var belongsToASpace: Bool { [Self.urlKind, Self.tabKind, Self.appKind].contains(kind) }
+
     public static func builtIn(_ item: SidebarBuiltIn) -> LayoutItemRef { LayoutItemRef(kind: builtInKind, value: item.rawValue) }
     /// A qualified public workspace id (`<session>:ws_…`).
     public static func workspace(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: workspaceKind, value: id) }

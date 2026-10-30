@@ -35,12 +35,12 @@ extension SidebarDocStore {
     /// The `item.update` ops that store the acting window's space `room` on `items` moving into `section`: a link,
     /// tab or app in Pinned draws only in its space (`extra.room`), and one with none stored reads as the default
     /// space's (spaces.md), so a move into Pinned from another band stores it in the same change, as `item.add` does.
-    /// A workspace (its space is its own) and a group (its `profile`) store none, nor does a move into another band,
+    /// Only a link, tab or app stores one (`SidebarDocBody.belongsToASpace`); nor does a move into another band,
     /// one with no space, or an item `records` does not confirm yet (the daemon would refuse the whole change).
     static func roomOps(moving items: [String], into section: String, room: String?, records: SidebarDocRecords) -> [[String: Any]] {
         guard section == pinnedSection, let room else { return [] }
         return items.compactMap { id -> [String: Any]? in
-            guard let record = records.items[id], record.body.workspace == nil, !record.body.isGroup,
+            guard let record = records.items[id], record.body.belongsToASpace,
                   (record.room ?? SidebarDocItem.defaultRoom) != room else { return nil }
             return ["op": "item.update", "id": id, "patch": ["room": room]]
         }
@@ -207,7 +207,7 @@ private struct LayoutOpPlanner {
         var wire: [String: Any] = ["id": item.id.rawValue, "body": Self.body(item), "shows_label": item.showsLabel]
         if let span = item.span { wire["span"] = span }
         // A link, tab or app pinned in one space is that space's (spaces.md); other bands are not per space.
-        if section == SidebarLayoutDocument.pinnedSectionID, let room = item.room ?? room { wire["extra"] = ["room": room] }
+        if section == SidebarLayoutDocument.pinnedSectionID, item.ref.belongsToASpace, let room = item.room ?? room { wire["extra"] = ["room": room] }
         return [["op": "item.add", "item": wire, "to": target(section.rawValue, index: index, moving: item.id.rawValue)]]
     }
 

@@ -89,6 +89,16 @@ public nonisolated enum SidebarDocBody: Hashable, Sendable {
         if case .workspace(let ref) = self { ref } else { nil }
     }
 
+    /// Whether a Pinned item of this body belongs to one space (spaces.md): a link, tab or app does, stored as
+    /// `extra.room`. A built-in, room, saved group or unknown ref stays shared; a workspace's space is its own and
+    /// a group's is its `profile`.
+    public var belongsToASpace: Bool {
+        switch self {
+        case .url, .tab, .app: true
+        default: false
+        }
+    }
+
     public var isGroup: Bool {
         if case .group = self { true } else { false }
     }

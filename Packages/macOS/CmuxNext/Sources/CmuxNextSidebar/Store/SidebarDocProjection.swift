@@ -153,7 +153,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             } else if row.depth == 0 {
                 var layoutItem = Self.layoutItem(item)
                 // A Pinned link, tab or app is its space's (a pinned workspace's space is its own, `bandHides`).
-                if record.kind == .pinned, item.body.workspace == nil { layoutItem.room = item.room ?? SidebarDocItem.defaultRoom }
+                if record.kind == .pinned, item.body.belongsToASpace { layoutItem.room = item.room ?? SidebarDocItem.defaultRoom }
                 sections[index].items.append(layoutItem)
             }
         }
