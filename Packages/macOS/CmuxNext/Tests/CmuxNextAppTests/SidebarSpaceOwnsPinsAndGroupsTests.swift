@@ -172,4 +172,84 @@ import Testing
         let topAdd = try #require(topOps.first { $0["op"] as? String == "item.add" }, "\(topOps)")
         #expect((topAdd["item"] as? [String: Any])?["extra"] == nil, "\(topAdd)")
     }
+
+    /// A link in a custom band (`sec_custom`) that stores no space, Pinned, and This Mac.
+    static let linkDocument = Data("""
+    {"revision": "3",
+     "sections": [
+       {"id": "sec_pinned", "kind": {"type": "pinned"}, "region": "top", "order": "a"},
+       {"id": "sec_custom", "kind": {"type": "custom"}, "region": "top", "order": "b", "title": "Links"},
+       {"id": "sec_m_s-local", "kind": {"type": "machine", "session_id": "s-local"}, "order": "c"}
+     ],
+     "items": [
+       {"id": "itm_l", "section": "sec_custom", "order": "a", "body": {"type": "url", "url": "https://work.example"}},
+       {"id": "itm_1", "section": "sec_m_s-local", "order": "a",
+        "body": {"type": "workspace", "ref": {"session_id": "s-local", "workspace_id": "ws-1"}}}
+     ]}
+    """.utf8)
+
+    /// A daemon that keeps every change it is sent and never answers (the change stays pending, as on a round trip).
+    @MainActor final class RecordingRemote: SidebarDocRemote {
+        let document: Data
+        private(set) var applied: [[[String: Any]]] = []
+        private(set) var moved: [[String]] = []
+        init(document: Data) { self.document = document }
+        var isAvailable: Bool { true }
+        func get() async throws -> Data { document }
+        func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply {
+            moved.append(items)
+            return try await unanswered()
+        }
+        func pin(_ items: [String], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func apply(ops: Data, key: String) async throws -> SidebarDocReply {
+            applied.append((try? JSONSerialization.jsonObject(with: ops) as? [[String: Any]]) ?? [])
+            return try await unanswered()
+        }
+        private func unanswered() async throws -> SidebarDocReply {
+            try await Task.sleep(for: .seconds(600))
+            throw CancellationError()
+        }
+    }
+
+    static func loadedStore(_ remote: RecordingRemote) async throws -> SidebarDocStore {
+        let store = SidebarDocStore(remote: remote)
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
+        try #require(store.isActive, "the store did not load the document")
+        return store
+    }
+
+    static func roomUpdate(_ ops: [[String: Any]], item: String) -> String? {
+        ops.first { $0["op"] as? String == "item.update" && $0["id"] as? String == item }
+            .flatMap { ($0["patch"] as? [String: Any])?["room"] as? String }
+    }
+
+    /// A link already in another band, moved into Pinned (the band's Move to Pinned), stores the acting window's
+    /// space in the same change: without it the projection reads it as the default space's, and in Work it would
+    /// vanish from Work and show in Default. One moved into another band stores none.
+    @Test func anExistingLinkMovedIntoPinnedTakesTheActingSpace() async throws {
+        let store = try await Self.loadedStore(RecordingRemote(document: Self.linkDocument))
+        store.newItemRoom = { Self.work }
+        let ops = try store.docOps(for: [.itemMove(LayoutItemID("itm_l"), section: SidebarLayoutDocument.pinnedSectionID, index: 0)],
+                                   layout: .defaults)
+        #expect(ops.contains { $0["op"] as? String == "move" }, "\(ops)")
+        #expect(Self.roomUpdate(ops, item: "itm_l") == Self.work, "\(ops)")
+
+        let other = try store.docOps(for: [.itemMove(LayoutItemID("itm_l"), section: LayoutSectionID("sec_top"), index: 0)],
+                                     layout: .defaults)
+        #expect(Self.roomUpdate(other, item: "itm_l") == nil, "\(other)")
+    }
+
+    /// A link dragged into Pinned (the document drag's drop) stores the acting window's space in the same change.
+    @Test func aLinkDraggedIntoPinnedTakesTheActingSpace() async throws {
+        let remote = RecordingRemote(document: Self.linkDocument)
+        let store = try await Self.loadedStore(remote)
+        store.newItemRoom = { Self.work }
+        store.move(["itm_l"], to: SidebarDocTarget(section: Self.pinned), title: SidebarDocStore.moveTitle)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty || !remote.moved.isEmpty }
+        #expect(Self.roomUpdate(remote.applied.flatMap { $0 }, item: "itm_l") == Self.work,
+                "applied \(remote.applied), moved \(remote.moved)")
+    }
 }
