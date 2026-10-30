@@ -29,6 +29,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.WorkspaceRowHoverMotionTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuBehaviorTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ExtensionsMenuPerformanceTests
 Packages/macOS/CmuxNext CmuxNextBrowserTests.ToolbarButtonsStateTests
+Packages/macOS/CmuxNext CmuxNextDesignTests.CaptureBackdropSnapshotTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.DialogFadeTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.MotionScreenTests
 Packages/macOS/CmuxNext CmuxNextDesignTests.PagePopupMotionTests

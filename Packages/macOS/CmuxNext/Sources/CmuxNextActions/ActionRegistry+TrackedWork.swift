@@ -1,11 +1,10 @@
 /// Returns one registry-owned effect for helpers that report work and result tasks.
 /// Existing helper deadlines and result fields remain intact.
-@MainActor
-public enum ActionTrackedWork {
-    typealias Answer = Result<[String: ActionResultValue], ActionWorkFailure>
+private typealias TrackedWorkAnswer = Result<[String: ActionResultValue], ActionWorkFailure>
 
-    public static func effect(
-        registry: ActionRegistry,
+@MainActor
+extension ActionRegistry {
+    public func trackedWorkEffect(
         cancellationFailure: ActionWorkFailure,
         waiting: ActionWait = .network,
         authorize: (@MainActor () async -> ActionWorkFailure?)? = nil,
@@ -13,11 +12,11 @@ public enum ActionTrackedWork {
         start: @escaping @MainActor () -> ActionWorkFailure?
     ) -> ActionEffect {
         let scope = ActionRunScope.current
-        let capturedByCaller = registry.isCapturingWork
-        let answers = AsyncStream<Answer>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        let capturedByCaller = isCapturingWork
+        let answers = AsyncStream<TrackedWorkAnswer>.makeStream(bufferingPolicy: .bufferingOldest(1))
         if capturedByCaller {
             // task-owner: result-only relay; the registry effect below always finishes its stream.
-            registry.track(result: Task {
+            track(result: Task {
                 for await answer in answers.stream { return answer }
                 return .failure(cancellationFailure)
             })
@@ -25,10 +24,10 @@ public enum ActionTrackedWork {
         // action-wait-allow: the caller names its service wait; this adapter preserves helper work and result tracking.
         return .waiting(waiting) {
             let answer = await withTaskCancellationHandler {
-                if let failure = await authorize?() { return Answer.failure(failure) }
-                guard !Task.isCancelled else { return Answer.failure(cancellationFailure) }
-                return await run(registry: registry, scope: scope, capturedByCaller: capturedByCaller,
-                                 cancellationFailure: cancellationFailure, start: start)
+                if let failure = await authorize?() { return TrackedWorkAnswer.failure(failure) }
+                guard !Task.isCancelled else { return TrackedWorkAnswer.failure(cancellationFailure) }
+                return await self.runTrackedWork(scope: scope, capturedByCaller: capturedByCaller,
+                                                 cancellationFailure: cancellationFailure, start: start)
             } onCancel: {
                 // task-owner: one-shot cancellation invalidates the reserved sign-in generation.
                 Task { @MainActor in cancelAuthorization() }
@@ -40,9 +39,9 @@ public enum ActionTrackedWork {
         }
     }
 
-    private static func run(registry: ActionRegistry, scope: ActionRunScope?, capturedByCaller: Bool,
-                            cancellationFailure: ActionWorkFailure,
-                            start: @MainActor () -> ActionWorkFailure?) async -> Answer {
+    private func runTrackedWork(scope: ActionRunScope?, capturedByCaller: Bool,
+                                cancellationFailure: ActionWorkFailure,
+                                start: @MainActor () -> ActionWorkFailure?) async -> TrackedWorkAnswer {
         var captured: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         var startFailure: ActionWorkFailure?
         let refusal = ActionRunScope.carrying(scope) {
@@ -51,11 +50,11 @@ public enum ActionTrackedWork {
             // reporting enabled so CloudHandlers.runTracked can show its
             // normal failure sheet.
             if capturedByCaller {
-                return registry.capturingRefusal {
-                    captured = registry.capturingRun { startFailure = start() }
+                return capturingRefusal {
+                    captured = capturingRun { startFailure = start() }
                 }
             }
-            captured = registry.capturingRun { startFailure = start() }
+            captured = capturingRun { startFailure = start() }
             return nil
         }
         let work = captured.work, results = captured.results
