@@ -797,3 +797,80 @@ describe("Home attachments: a stale part write that lands after a newer one neve
     expect((await m.putPart(1)).status).toBe(200)
   })
 })
+
+describe("Home attachments: the slot itself ends an upload its owner never recorded", { timeout: 120_000 }, () => {
+  /** The test bucket as a self-hosted one: it can abort every open upload under a key prefix (FsBucket.abortMultipartUploads). */
+  const prefixAborting = (uploads: Array<R2MultipartUpload>, calls: Array<string>) => {
+    const bucket = testEnv.HOME_ATTACHMENTS
+    return new Proxy(bucket, {
+      get(t, p) {
+        if (p === "abortMultipartUploads")
+          return async (prefix: string) => {
+            calls.push(prefix)
+            let n = 0
+            for (const u of uploads) if (u.key.startsWith(prefix)) await u.abort().then(() => n++, () => undefined)
+            return n
+          }
+        if (p === "createMultipartUpload")
+          return async (key: string, options?: R2MultipartOptions) => {
+            const u = await t.createMultipartUpload(key, options)
+            uploads.push(t.resumeMultipartUpload(u.key, u.uploadId))
+            return u
+          }
+        const v = Reflect.get(t, p)
+        return typeof v === "function" ? v.bind(t) : v
+      }
+    })
+  }
+
+  it("the owner was unreachable for the record, the abort and the queue: on a self-hosted bucket the slot's expiry aborts every upload under its key", async () => {
+    const alice = await signIn("att-unrecorded-expiry")
+    const { id } = await group(alice)
+    const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
+    const gc = await import("../src/home-attachment-gc.ts")
+    const uploads: Array<R2MultipartUpload> = []
+    const calls: Array<string> = []
+    const bucket = prefixAborting(uploads, calls)
+    const failingAbort = new Proxy(bucket, {
+      get(t, p) {
+        if (p === "createMultipartUpload")
+          return async (key: string, options?: R2MultipartOptions) => {
+            const u = await (t as R2Bucket).createMultipartUpload(key, options)
+            return new Proxy(u, { get: (x, q) => (q === "abort" ? async () => { throw new Error("connection reset") } : (typeof Reflect.get(x, q) === "function" ? (Reflect.get(x, q) as Function).bind(x) : Reflect.get(x, q))) })
+          }
+        const v = Reflect.get(t, p)
+        return typeof v === "function" ? v.bind(t) : v
+      }
+    })
+    const owner = ownerWith({
+      setMultipartUpload: async () => { throw new Error("owner unreachable") },
+      queueMultipartAbort: async () => { throw new Error("owner unreachable") }
+    })
+    const body = JSON.stringify({ conversation: id, sha256: sha(new Uint8Array([7])), byte_count: 40_000_000, mime_type: "application/octet-stream", name: "a.bin", multipart: true })
+    const request = new Request("https://api.test/v1/home/attachments/intent", { method: "POST", headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" }, body })
+    await expect(handleAttachmentIntent(request, { ...owner, HOME_ATTACHMENTS: failingAbort as R2Bucket })).rejects.toThrow("owner unreachable")
+    expect(uploads).toHaveLength(1)
+    await uploads[0]!.uploadPart(1, new Uint8Array(1))
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
+    await runInDurableObject(stub, async (inst: any) => gc.runAttachmentWake({ ...inst.gc, env: { ...testEnv, HOME_ATTACHMENTS: bucket } }, undefined, Date.now()))
+    expect(calls).toEqual([uploads[0]!.key])
+    await expect(uploads[0]!.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+
+  it("an upload offered to a slot already past its time is refused and queued for an abort, which a wake runs", async () => {
+    const alice = await signIn("att-record-expired")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const conv = stub as unknown as {
+      createUploadSlot(e: string, actor: string, quotaUser: string, meta: unknown, mode: string, id: string): Promise<{ id: string; object_key: string }>
+      setMultipartUpload(e: string, id: string, uploadId: string, objectKey?: string): Promise<boolean>
+    }
+    const slot = await conv.createUploadSlot(g.id, alice.user, alice.user, { hash: sha(new Uint8Array([8])), byte_count: 40_000_000, mime_type: "application/octet-stream" }, "multipart", crypto.randomUUID().replaceAll("-", ""))
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 1_000))
+    const upload = await testEnv.HOME_ATTACHMENTS.createMultipartUpload(slot.object_key)
+    expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId, slot.object_key)).toBe(false)
+    expect(await wakeOwner(g.id, Date.now())).not.toBeNull()
+    await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+})
