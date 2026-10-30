@@ -127,7 +127,7 @@ struct CloudNetworkAccessTests {
     func aCLIRunWritesTheLevelAndGetsItBack(origin: ActionOrigin) async throws {
         let start = CloudNetworkPolicy(mode: .full, ranges: [Self.range])
         let (result, written) = try await run("trusted", from: start, origin: origin)
-        guard case .success(let fields) = result else { return Issue.record("set-network-access failed: \(result)") }
+        guard case .success(let fields) = result else { Issue.record("set-network-access failed: \(result)"); return }
         #expect(fields["network_access"] == .string("custom"), "the machine's own range keeps it custom")
         #expect(fields["mode"] == .string("allowlist"))
         #expect(fields["applied"] == .string("applied"))
@@ -140,7 +140,7 @@ struct CloudNetworkAccessTests {
         let none = CloudNetworkPolicy(mode: .none)
         let same = try await run("none", from: none, origin: .cli)
         #expect(same.written.isEmpty)
-        guard case .success(let fields) = same.result else { return Issue.record("failed: \(same.result)") }
+        guard case .success(let fields) = same.result else { Issue.record("failed: \(same.result)"); return }
         #expect(fields["network_access"] == .string("none"))
         let retried = try await run("none", from: none, origin: .cli, applied: "failed")
         #expect(retried.written == [none], "a PUT retries a failed apply")
@@ -151,7 +151,7 @@ struct CloudNetworkAccessTests {
         #expect(narrowed.written.map(\.mode) == [.none])
         let widened = try await run("full", from: CloudNetworkPolicy(mode: .none), origin: .mcp)
         #expect(widened.written.isEmpty)
-        guard case .failure(let failure) = widened.result else { return Issue.record("an agent widened access") }
+        guard case .failure(let failure) = widened.result else { Issue.record("an agent widened access"); return }
         #expect(failure.message == CloudStrings.networkAccessAgentWidens)
         let person = try await run("full", from: CloudNetworkPolicy(mode: .none), origin: .cli)
         #expect(person.written.map(\.mode) == [.full])
