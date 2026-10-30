@@ -294,6 +294,29 @@ class NewestIndependentVerdictWins(unittest.TestCase):
         self.passes([self.box("SHIP", self.A, 1), self.carried(self.C, self.A, 9)])
         self.passes([self.carried(self.C, self.A, 9)], [review("APPROVED", at=self.at(1), oid=self.A)])
 
+    def test_a_ship_whose_text_says_carries_is_a_review(self):
+        """cmux#27632 (2026-10-29): "Review (independent review subagent): SHIP at <head>. ... the warning carries the
+        whole finding." is an independent SHIP; the word marks a carried receipt only in the reviewer label, or as
+        "carried from" / "carried over" on the line."""
+        line = (f"Review (independent review subagent): SHIP at {self.C}. Both are fixed: the warning carries the "
+                "whole finding.")
+        self.passes([comment(line, at=self.at(3))])
+        self.assertIsNone(receipt.CARRIED.search(line))
+        for first in (f"Review (codex gpt-6-astra high; carried): SHIP at {self.C}",
+                      f"Review (codex gpt-6-astra high fast, independent box review-26809-7554; carried): SHIP at {self.C}",
+                      f"Review (Astra; carried): SHIP at {self.C}", f"Review (Astra, carries): SHIP at {self.C}",
+                      f"Review (codex): SHIP at {self.C} (carried from {self.A[:8]})",
+                      f"Review (codex): SHIP at {self.C}; the SHIP at {self.A[:8]} is carried over the base merge",
+                      f"REVIEW (codex): SHIP at {self.C}, Carried From {self.A[:8]}"):
+            with self.subTest(first=first):
+                self.assertTrue(receipt.CARRIED.search(first))
+                self.refused([comment(first, at=self.at(3))])  # a carried SHIP alone never passes
+        for first in (f"Review (subagent): SHIP at {self.C}; the fix carries over to the iOS lane",
+                      f"Review (subagent): SHIP at {self.C}, the change carried the old test along"):
+            with self.subTest(first=first):
+                self.assertIsNone(receipt.CARRIED.search(first))
+                self.passes([comment(first, at=self.at(3))])
+
     def test_a_carried_ship_needs_an_independent_ship_behind_it(self):
         self.refused([self.carried(self.C, self.A, 9)])
 
