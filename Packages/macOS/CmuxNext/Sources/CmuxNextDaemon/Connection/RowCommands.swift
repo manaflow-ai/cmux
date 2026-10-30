@@ -22,7 +22,10 @@ public struct RowCommands: Sendable {
             return try await connection.request(NewRowRequest(pane: pane, height: height, options: await connection.served(options)))
         }
         let options = await connection.placed(options)
-        return DaemonConnection.created(try await connection.request(NewRowRequest(pane: pane, height: height, options: options)), options: options)
+        // A keyed row (`row-client-keys-v1`) waits through a late start as a split does: its stand-in is never taken
+        // back on a client clock (P0 2026-10-30).
+        return DaemonConnection.created(try await connection.requestPaneCreation(NewRowRequest(pane: pane, height: height, options: options),
+                                                                                 keys: .rowClientKeys), options: options)
     }
 
     /// Every row height of `column` (`set-row-heights`).
