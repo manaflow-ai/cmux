@@ -33,15 +33,23 @@ async function connected(hold?: Promise<void>) {
     }
   }
   const emitted: string[] = [];
+  let socket: RecordingHost | undefined;
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
       if (snapshot.sessionId) emitted.push(snapshot.sessionId);
     },
     undefined,
-    () => new RecordingHost() as unknown as WebSocket,
+    () => (socket = new RecordingHost()) as unknown as WebSocket,
   );
-  return { client, purged, emitted };
+  /// acpmux's `purged` notification for `sessionId`, delivered on its own (after the purge's answer).
+  const notifyPurged = (sessionId: string) =>
+    (socket as unknown as { deliver: (message: unknown) => void }).deliver({
+      jsonrpc: "2.0",
+      method: "_acpmux/session_changed",
+      params: { kind: "purged", session: { sessionId } },
+    });
+  return { client, purged, emitted, notifyPurged };
 }
 
 test("a Delete confirmation painted for A cannot purge B after the hold releases before React commits", async () => {
@@ -91,6 +99,25 @@ test("dismissing the Delete dialog while the purge is out keeps the deletion, so
     release();
     await purging;
     expect(client.purgeInFlight).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a purged notification after the purge's answer selects nothing, so Delete's tab close stands", async () => {
+  const { client, purged, notifyPurged } = await connected();
+  try {
+    const confirmed = client.selectedSession!;
+    const other = await client.startSession("claude");
+    await client.select(confirmed);
+    expect(other).toBeDefined();
+    await client.purge(confirmed);
+    expect(purged).toEqual([confirmed]);
+    expect(client.selectedSession).toBe(confirmed);
+    notifyPurged(confirmed);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Not the fallback chat: the deleted chat's tab closes, it does not show another chat.
+    expect(client.selectedSession).toBeUndefined();
   } finally {
     client.close();
   }
