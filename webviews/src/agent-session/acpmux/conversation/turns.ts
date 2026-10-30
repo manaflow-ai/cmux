@@ -8,6 +8,7 @@
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
@@ -112,7 +113,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 /// activity line under it.
 export function turnView(
   rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   options: {
     now?: number;
     working?: boolean;
@@ -128,7 +129,7 @@ export function turnView(
 /// A turn view (``turnViewFrom``) with what it was drawn from, for the next snapshot to build on.
 export type TurnView = {
   source: readonly AcpmuxRow[];
-  expanded: ReadonlySet<string>;
+  expanded: Folds;
   clockOffset: number;
   liveRuns: boolean;
   lineBelow: boolean;
@@ -156,7 +157,7 @@ const NO_MESSAGE_BREAKS: readonly number[] = [];
 
 export function turnViewFrom(
   rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   {
     now = Date.now(),
     working = false,
@@ -330,7 +331,7 @@ const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 
 /// Which of the turn at `rows[start]` up to `end` has its "Worked for" open: the prompt's, each
 /// steer's (`turnParts`) and each takeaway's (`foldSegments`), as a key ("" when none is).
-function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: ReadonlySet<string>): string {
+function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   let key = expanded.has(`${WORKED}-${rows[start]!.id}`) ? "1" : "0";
   // A takeaway keys the fold after it (foldSegments).
@@ -345,7 +346,7 @@ function shapedTurn(
   rows: readonly AcpmuxRow[],
   start: number,
   end: number,
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   live: boolean,
   last: boolean,
   clockOffset: number,
@@ -511,7 +512,7 @@ const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 function shapeTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   live: boolean,
   last: boolean,
   retryable: boolean,

@@ -1,0 +1,172 @@
+// The chat menu's Transcript view in the real agent pane (Leo, 2026-10-29: "i like these kinds of
+// settings from claude code desktop..."). The page is the pane's dev entry with its browser host,
+// talking JSON-RPC over a WebSocket to a stand-in acpmux daemon that serves one finished recorded
+// chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
+//
+// - Normal is today's transcript: the finished turn folds its work under "Worked for".
+// - Thinking, picked from the menu, opens that fold: the thought shows, the commands stay folded.
+// - Verbose also opens each command and its output.
+// - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
+//
+// Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+import { REPLAY_SESSION, replayFixtureEvents } from "../src/agent-session/acpmux/replay/replayFixture";
+
+await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("agent-pane-transcript-view: skipping (run `bunx playwright install chromium`)");
+    describe.skip("transcript view", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  const ANSWER = "All 12 tests in api/client.test.ts pass.";
+
+  const events = replayFixtureEvents();
+  const summary = {
+    sessionId: REPLAY_SESSION,
+    cwd: "/home/dev/api",
+    title: "Fix the flaky retry test",
+    harness: "claude",
+    status: "idle",
+    updatedAt: events.at(-1)!.at,
+  };
+
+  function answer(method: string, params: Record<string, any>): unknown {
+    switch (method) {
+      case "initialize":
+        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      case "_acpmux/watch":
+        return { sessions: [summary] };
+      case "_acpmux/attach":
+        return { session: summary, lastSeq: events.length, events };
+      case "_acpmux/events": {
+        const after = Number(params.afterSeq ?? 0);
+        const before = Number(params.beforeSeq ?? Number.POSITIVE_INFINITY);
+        const page = events.filter((event) => event.seq > after && event.seq < before);
+        return { events: page, hasMore: false, lastSeq: events.length };
+      }
+      default:
+        return null;
+    }
+  }
+
+  let daemon: ReturnType<typeof Bun.serve> | undefined;
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  const pageUrl = () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${REPLAY_SESSION}`;
+  };
+  beforeAll(async () => {
+    daemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
+          if (message.id !== undefined)
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
+        },
+      },
+    });
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/");
+    browser = await chromium.launch({ headless: true });
+    // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
+    // again if it stalls, so the test times only the menu.
+    for (let attempt = 1; ; attempt++) {
+      const warm = await browser.newPage();
+      await warm.goto(pageUrl());
+      try {
+        await warm.getByText(ANSWER).waitFor({ timeout: 25_000 });
+        await warm.close();
+        break;
+      } catch (error) {
+        await warm.close();
+        if (attempt === 3) throw error;
+      }
+    }
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+    await daemon?.stop(true);
+  });
+
+  async function pick(page: Page, view: string): Promise<void> {
+    await page.getByRole("button", { name: "Chat actions" }).click();
+    await page.getByRole("menuitem", { name: "Transcript view" }).click();
+    await page.getByRole("menuitemradio", { name: view }).click();
+    await page.getByRole("menu").first().waitFor({ state: "detached" });
+  }
+
+  describe("transcript view", () => {
+    test("Thinking and Verbose from the chat menu open a finished turn's work; Normal folds it", async () => {
+      const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
+      await page.goto(pageUrl());
+      await page.getByText(ANSWER).waitFor();
+      const worked = page.locator(".cv-worked").first();
+      const thought = page.locator(".cv-thought");
+      const commands = page.locator(".cv-command");
+      const openCommands = page.locator('.cv-command[aria-expanded="true"]');
+      const normal = {
+        worked: await worked.getAttribute("aria-expanded"),
+        thoughts: await thought.count(),
+        commands: await commands.count(),
+      };
+
+      await pick(page, "Thinking");
+      await thought.first().waitFor();
+      const thinking = {
+        worked: await worked.getAttribute("aria-expanded"),
+        thoughts: (await thought.count()) > 0,
+        commands: (await commands.count()) > 0,
+        open: await openCommands.count(),
+      };
+
+      await pick(page, "Verbose");
+      await openCommands.first().waitFor();
+      const verbose = { open: (await openCommands.count()) === (await commands.count()) };
+
+      // The reader's own close of the turn holds in Verbose.
+      await worked.click();
+      await commands.first().waitFor({ state: "detached" });
+      const closedByHand = { worked: await worked.getAttribute("aria-expanded"), commands: await commands.count() };
+
+      await pick(page, "Normal");
+      const backToNormal = {
+        worked: await worked.getAttribute("aria-expanded"),
+        thoughts: await thought.count(),
+        commands: await commands.count(),
+      };
+
+      expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
+        normal: { worked: "false", thoughts: 0, commands: 0 },
+        thinking: { worked: "true", thoughts: true, commands: true, open: 0 },
+        verbose: { open: true },
+        closedByHand: { worked: "false", commands: 0 },
+        backToNormal: { worked: "false", thoughts: 0, commands: 0 },
+      });
+      await page.close();
+    });
+  });
+});

@@ -94,17 +94,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("Normal keeps today's defaults; Thinking opens thoughts; Verbose also opens tool output", () => {
-  render("chat-a");
-  expect(command().getAttribute("aria-expanded")).toBe("false");
-  expect(thought()).toBe("folded");
-  act(() => setTranscriptView("chat-a", "thinking"));
-  expect(command().getAttribute("aria-expanded")).toBe("false");
-  expect(thought()).toBe("open");
-  act(() => setTranscriptView("chat-a", "verbose"));
-  expect(command().getAttribute("aria-expanded")).toBe("true");
-  expect(thought()).toBe("open");
-});
+// The views from the real chat menu on a finished turn: agent-pane-transcript-view.test.ts.
 
 test("a reader's toggle belongs to the view it was made in", () => {
   render("chat-a");
