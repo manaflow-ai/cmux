@@ -5,6 +5,7 @@
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { AccountReader } from "./account";
+import { connectionFailure } from "./connectionFailure";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
 import { TransferWatch, type FileTransfer } from "./transfers";
@@ -217,11 +218,9 @@ export class CloudStore {
       if (session !== this.session) return;
       this.started = false;
       const failed = failure(error);
-      // Only a retryable transport failure can recover in the background. Other auth
-      // failures need an explicit error and Retry, never a connected page without auth.
-      const retrying = failed.connection === "disconnected" && isPageError(error) && error.retryable;
-      this.set({ ...failed, loading: false, connection: retrying ? "disconnected" : "failed" });
-      if (retrying) this.startLater();
+      const connection = connectionFailure(error);
+      this.set({ ...failed, loading: false, connection });
+      if (connection === "disconnected") this.startLater();
       return;
     }
     if (session !== this.session) return;
@@ -811,7 +810,7 @@ function codeOf(error: unknown): string | undefined {
  * alert at a time, so an error banner replaces the no-image banner.
  */
 export function failure(error: unknown, withMessage = true): Partial<CloudState> {
-  if (isPageError(error) && error.code === "cmux.protocol.transport") {
+  if (connectionFailure(error) === "disconnected") {
     return { connection: "disconnected", error: message(error), errorCode: codeOf(error), blocked: undefined };
   }
   return withMessage ? { error: message(error), errorCode: codeOf(error), blocked: undefined } : {};
