@@ -641,12 +641,12 @@ import Testing
         #expect(image.size.width >= 300 && image.size.height >= 80)
     }
 
-    /// Allow answers only the person's own click on Allow itself: the sheet dispatching the person's
-    /// mouse-down on Allow, with the person's mouse-up on Allow current, each click once. Not an
-    /// Accessibility press or a programmatic click (outside any dispatch, or inside the dispatch of the
-    /// person's click on something else, or while Allow is still held), not a click the strict check
-    /// refuses (another process's, or DEBUG automation's), not a nested event the check refuses, and not
-    /// the same click twice.
+    /// Allow answers only the person's own click on Allow itself, read from the click's events: the
+    /// person's mouse-down on Allow, then the person's mouse-up on Allow, each click once. Never Allow's
+    /// action: not an Accessibility press or a programmatic click (outside any dispatch, or inside the
+    /// dispatch of the person's click on something else, or while Allow is still held), not a click the
+    /// strict check refuses (another process's, or DEBUG automation's), not a nested event the check
+    /// refuses, and not the same click twice.
     @Test func allowAnswersOnlyThePersonsOwnClickOnAllow() async throws {
         _ = NSApplication.shared
         let fake = Fake()
@@ -697,10 +697,11 @@ import Testing
         await settle()
         #expect(fake.writes.isEmpty && model.ask != nil)
         try click(allow, allow, true) {
-            #expect(panel.takePersonClick(on: allow))
-            #expect(!panel.takePersonClick(on: allow), "the same click twice")
+            guard let up = current else { return Issue.record("no mouse-up current") }
+            #expect(panel.takePersonClick(on: allow, up: up))
+            #expect(!panel.takePersonClick(on: allow, up: up), "the same click twice")
         }
-        #expect(!panel.takePersonClick(on: allow), "after the click's dispatch, its mouse-up still current")
+        if let up = current { #expect(!panel.takePersonClick(on: allow, up: up), "after the click ended, its mouse-up again") }
         #expect(fake.writes.isEmpty && model.ask != nil)
         try click(allow, allow, true) { allow.performClick(nil) }
         for _ in 0..<1000 where model.ask != nil { await Task.yield() }
@@ -710,8 +711,9 @@ import Testing
     /// On the displayed sheet AppKit dispatches a click's mouse-up as an event of its own, after the
     /// mouse-down's dispatch or inside it, and Allow's action runs in the mouse-up's dispatch (HQ#5121: a
     /// click on the displayed Allow on a GUI fleet Mac found no mouse-down held). The person's click on Allow
-    /// grants there. A mouse-up the check refuses, one on Deny, a press while Allow is held, another event
-    /// between the two halves of the click and a press after the click grant nothing.
+    /// grants there, once, however often Allow's action is pressed inside it. A mouse-up the check refuses,
+    /// one on Deny, a press while Allow is held, another event between the two halves of the click and a
+    /// press after the click grant nothing.
     @Test(arguments: [false, true]) func thePersonsClickOnAllowGrantsWhenItsMouseUpIsDispatchedOnItsOwn(nested: Bool) async throws {
         _ = NSApplication.shared
         let fake = Fake()
@@ -766,7 +768,10 @@ import Testing
         try click(allow, allow, true, { other(.rightMouseDown) }) { allow.performClick(nil) } // another event between
         for _ in 0..<50 { await Task.yield() }
         #expect(fake.writes.isEmpty && model.ask != nil)
-        try click(allow, allow, true, {}) { allow.performClick(nil) }
+        try click(allow, allow, true, {}) {
+            allow.performClick(nil)
+            _ = allow.accessibilityPerformPress()
+        }
         for _ in 0..<1000 where model.ask != nil { await Task.yield() }
         #expect(fake.writes == ["screen true"] && model.ask == nil)
     }
