@@ -205,7 +205,7 @@
     "seed-swiftpm-manifests.yml:seed": {"class": "warm-seed", "warm": ["ssd-cas", "actions-cache"]},
     "signing-keychain-macos.yml:bash32-syntax": {"class": "linux-build", "warm": ["actions-cache"]},
     "signing-keychain-macos.yml:real-import": {"class": "mac-sign", "warm": [], "exempt": "signs with a throwaway identity to test the keychain helper; compiles nothing"},
-    "swift-linux-packages.yml:swift-linux-packages": {"class": "linux-swift", "warm": [], "exempt": "cold: a compile driver from a clean tree; no warm source wired yet"},
+    "swift-linux-packages.yml:swift-linux-packages": {"class": "linux-swift", "warm": ["actions-cache"]},
     "swift-packages-linux.yml:packages": {"class": "linux-swift", "warm": ["actions-cache"]},
     "terminal-hang-diagnostics.yml:phase-attribution": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "test-feed-reply-providers.yml:full-text": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
