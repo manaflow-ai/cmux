@@ -291,3 +291,64 @@ test("a reload that failed is tried again on the next refresh, and by choosing t
   await store.start();
   expect(store.getSnapshot().file?.content).toBe(`at ${shas[0]}`);
 });
+
+test("a change that failed to read is tried again by a refresh at the same head and by clicking its revision", async () => {
+  const head = "3".repeat(40);
+  const parent = "4".repeat(40);
+  let failParent = true;
+  const host = new Host((op, params) => {
+    if (op === ArtifactsOps.tree)
+      return { ref: "main", sha: head, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: [{ sha: head, parents: [parent], message: "Edit", authorName: "cmux", time: 0, trailers: {} }],
+      };
+    if (params.ref === parent && failParent)
+      throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
+    return {
+      path: "a.md",
+      size: 1,
+      contentType: "text/markdown",
+      commit: String(params.ref),
+      content: `at ${String(params.ref)}`,
+    };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().diff).toBeUndefined();
+  expect(store.getSnapshot().fileFailure?.code).toBe("cmux.artifacts.unavailable");
+  failParent = false;
+  await store.start();
+  expect(store.getSnapshot().diff).toEqual({ sha: head, before: `at ${parent}`, after: `at ${head}` });
+
+  // A fresh page whose first change read fails: clicking the chosen revision reads it again.
+  failParent = true;
+  const fresh = new ArtifactsStore(host);
+  await fresh.start();
+  expect(fresh.getSnapshot().diff).toBeUndefined();
+  failParent = false;
+  await fresh.selectCommit(fresh.getSnapshot().history[0]!);
+  expect(fresh.getSnapshot().diff?.before).toBe(`at ${parent}`);
+});
+
+test("folders under the root are read several at once", async () => {
+  let inFlight = 0;
+  let most = 0;
+  // Each folder read waits until the next microtask turns after every read started in its batch.
+  const host = new Host(async (_op, params) => {
+    inFlight += 1;
+    most = Math.max(most, inFlight);
+    for (let turn = 0; turn < 8; turn++) await Promise.resolve();
+    inFlight -= 1;
+    const path = String(params.path ?? "");
+    const entries = path
+      ? [{ name: "f.md", path: `${path}/f.md`, type: "blob" as const }]
+      : [0, 1, 2, 3, 4, 5].map((n) => ({ name: `d${n}`, path: `d${n}`, type: "tree" as const }));
+    return { ref: "main", sha: "5".repeat(40), entries };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().paths).toHaveLength(6);
+  expect(most).toBeGreaterThan(1);
+  expect(most).toBeLessThanOrEqual(4);
+});

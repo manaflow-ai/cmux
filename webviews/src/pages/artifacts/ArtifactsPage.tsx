@@ -70,6 +70,8 @@ function FileTree({
   const [expanded, setExpanded] = useState(() => foldersOf(paths));
   const [focused, setFocused] = useState(selected);
   useEffect(() => setExpanded(foldersOf(paths)), [paths]);
+  // The store may choose another file (a refresh removed this one): the tree follows it.
+  useEffect(() => setFocused(selected), [selected]);
   const files = useMemo(() => new Set(paths), [paths]);
   const lines = useMemo(() => {
     // Children by folder, folders before files, each sorted by name.

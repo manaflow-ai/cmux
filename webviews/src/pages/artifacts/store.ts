@@ -115,25 +115,27 @@ export class ArtifactsStore {
         ),
       ]);
       if (request !== this.fileRequest) return;
-      this.fileHead = head;
       this.set({ file, history: history.commits, fileLoading: false });
       const newest = history.commits[0];
-      if (newest) await this.showCommit(newest, request, file);
+      // Read at this head only once its newest change shows too; otherwise a refresh tries again.
+      if (!newest || (await this.showCommit(newest, request, file))) this.fileHead = head;
     } catch (error) {
       if (request === this.fileRequest) this.set({ fileLoading: false, fileFailure: failureOf(error) });
     }
   }
 
-  /** Shows `commit`'s change to the chosen file. */
+  /** Shows `commit`'s change to the chosen file; the chosen revision again only to retry a failed read. */
   async selectCommit(commit: ArtifactCommit): Promise<void> {
-    if (!this.client || !this.snapshot.selected || commit.sha === this.snapshot.selectedCommit) return;
+    if (!this.client || !this.snapshot.selected) return;
+    if (commit.sha === this.snapshot.selectedCommit && this.snapshot.diff?.sha === commit.sha) return;
     await this.showCommit(commit, ++this.fileRequest);
   }
 
-  private async showCommit(commit: ArtifactCommit, request: number, head?: ArtifactFile): Promise<void> {
+  /** Whether `commit`'s change now shows (false: it failed, or the person moved on). */
+  private async showCommit(commit: ArtifactCommit, request: number, head?: ArtifactFile): Promise<boolean> {
     const client = this.client;
     const path = this.snapshot.selected;
-    if (!client || !path) return;
+    if (!client || !path) return false;
     // Reading the same revision again (a refresh) keeps its change on screen meanwhile.
     const same = this.snapshot.diff?.sha === commit.sha;
     this.set({ selectedCommit: commit.sha, fileFailure: undefined, ...(same ? {} : { diff: undefined }) });
@@ -149,35 +151,40 @@ export class ArtifactsStore {
             )
           : undefined,
       ]);
-      if (request === this.fileRequest) this.set({ diff: { sha: commit.sha, before, after: after ?? "" } });
+      if (request !== this.fileRequest) return false;
+      this.set({ diff: { sha: commit.sha, before, after: after ?? "" } });
+      return true;
     } catch (error) {
       if (request === this.fileRequest) this.set({ fileFailure: failureOf(error) });
+      return false;
     }
   }
 
-  /** Every file path under the root, one level per read, at most ``MAX_FOLDERS`` folders. */
+  /**
+   * Every file path under the root, one level per read: the root first, then up to
+   * ``FOLDER_READS`` folders at once, at most ``MAX_FOLDERS`` folders in all.
+   */
   private async readTree(client: PageClient): Promise<{ paths: string[]; sha?: string; truncated: boolean }> {
     const files: string[] = [];
-    const queue = [""];
+    const queue: string[] = [];
     let sha: string | undefined;
-    let read = 0;
+    // Folders read or waiting, the root included.
+    let listed = 1;
     let truncated = false;
-    const next = async (): Promise<void> => {
-      for (let folder = queue.shift(); folder !== undefined; folder = queue.shift()) {
-        read += 1;
-        // Folders read at the root's commit, so a save landing meanwhile cannot mix two trees.
-        const tree = await client.call<ArtifactsTree>(ArtifactsOps.tree, folder ? { path: folder, ref: sha } : {});
-        sha ??= tree.sha;
-        for (const entry of tree.entries) {
-          if (entry.type === "blob") files.push(entry.path);
-          else if (read + queue.length < MAX_FOLDERS) queue.push(entry.path);
-          else truncated = true;
-        }
+    const read = async (folder: string): Promise<void> => {
+      // Folders read at the root's commit, so a save landing meanwhile cannot mix two trees.
+      const tree = await client.call<ArtifactsTree>(ArtifactsOps.tree, folder ? { path: folder, ref: sha } : {});
+      sha ??= tree.sha;
+      for (const entry of tree.entries) {
+        if (entry.type === "blob") files.push(entry.path);
+        else if (listed < MAX_FOLDERS) {
+          listed += 1;
+          queue.push(entry.path);
+        } else truncated = true;
       }
     };
-    // The root first, so its folders can fan out.
-    await next();
-    while (queue.length) await Promise.all(Array.from({ length: Math.min(FOLDER_READS, queue.length) }, next));
+    await read("");
+    while (queue.length) await Promise.all(queue.splice(0, FOLDER_READS).map(read));
     return { paths: files.sort(), sha, truncated };
   }
 
