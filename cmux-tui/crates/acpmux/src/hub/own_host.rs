@@ -261,4 +261,46 @@ mod segment_tests {
         let untold = err(hub.resolve_told("mac-ci", false));
         assert!(untold.data.is_none(), "{untold:?}");
     }
+
+    /// Review of #27791: a short name skips closed sessions while a live one has it, here and
+    /// on peers, as `key_route` does; only closed ones still tie among themselves.
+    #[test]
+    fn a_short_name_counts_closed_sessions_only_when_none_is_live() {
+        let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane")]);
+        let closed = hub.sessions.lock().unwrap().get("m2").cloned().unwrap();
+        hub.set_status(&closed, SessionStatus::Closed);
+        assert_eq!(id(hub.resolve("lane")), "m1", "the live one, not a tie with the closed one");
+        let live = hub.sessions.lock().unwrap().get("m1").cloned().unwrap();
+        hub.set_status(&live, SessionStatus::Closed);
+        assert!(err(hub.resolve("lane")).message.contains("matches 2 sessions"), "both closed");
+
+        // A closed peer session with the short name gives way to a live one here, and a live
+        // peer one is the peer route's while every one here is closed.
+        let hub = hub_with(&[("m1", "a/lane")]);
+        let row = RemoteSession {
+            peer: "hb".into(),
+            summary: json!({"sessionId": "r1", "name": "hb/c/lane", "peer": "hb",
+                            "status": "closed"}),
+            receipt: SessionReceipt {
+                host_id: "hb".into(),
+                mux_session_id: "r1".into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.lock().unwrap().insert("hb/r1".into(), row);
+        assert_eq!(id(hub.resolve("lane")), "m1");
+        assert!(hub.resolve_remote("lane").is_none());
+    }
+
+    /// Review of #27791: a peer daemon's or a read-only machine's `_acpmux/resolve` learns no
+    /// session names from a miss.
+    #[test]
+    fn a_resolve_miss_names_close_matches_only_to_a_caller_that_reads_hosts() {
+        let hub = hub_with(&[("m1", "coord/lane-3")]);
+        let told = hub.locate("lane", false, true).unwrap_err();
+        assert_eq!(told.data.unwrap()["candidates"], json!(["coord/lane-3"]));
+        let untold = hub.locate("lane", false, false).unwrap_err();
+        assert!(untold.data.is_none(), "{untold:?}");
+    }
 }

@@ -134,9 +134,9 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod key_route;
 pub mod mac_approvers;
 mod own_host;
-pub(crate) mod key_route;
 mod peer_cache;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
@@ -1160,7 +1160,7 @@ impl Hub {
                 by_name.push(s.clone());
             }
             if bare && crate::session_name::ends_with_segments(&meta.name, key) {
-                by_segment.push(s.clone());
+                by_segment.push((s.clone(), meta.status == SessionStatus::Closed));
             }
             if s.id.starts_with(key) || meta.name.starts_with(key) {
                 by_prefix.push(s.clone());
@@ -1193,14 +1193,29 @@ impl Hub {
             && !by_segment.is_empty()
             && self.remote_strict_matches(key) == 0
         {
+            // Closed ones count only when no live one, here or on a peer, has the short name
+            // (`hub/key_route.rs`), so this agrees with the route the unix socket takes.
             let remote = self.remote_segment_names(key);
-            if by_segment.len() == 1 && remote.is_empty() {
-                return Ok(by_segment.remove(0));
+            let live = by_segment.iter().any(|(_, closed)| !closed)
+                || remote.iter().any(|(_, closed)| !closed);
+            let here: Vec<Arc<Session>> = by_segment
+                .into_iter()
+                .filter(|(_, closed)| !live || !closed)
+                .map(|(s, _)| s)
+                .collect();
+            let there: Vec<String> =
+                remote.into_iter().filter(|(_, closed)| !live || !closed).map(|(n, _)| n).collect();
+            match (here.as_slice(), there.len()) {
+                ([one], 0) => return Ok(one.clone()),
+                // The one a peer has is `resolve_remote`'s.
+                ([], 1) => return Err(crate::session_name::not_found(key, &[])),
+                // Several, here or on peers: a tie, refused with every name.
+                _ => {
+                    let mut names = named(&here);
+                    names.extend(there);
+                    return Err(tied(names));
+                }
             }
-            // Several, here or on peers: a tie, refused with every name.
-            let mut names = named(&by_segment);
-            names.extend(remote);
-            return Err(tied(names));
         }
         match by_prefix.len() {
             1 => Ok(by_prefix.remove(0)),
@@ -1213,17 +1228,25 @@ impl Hub {
     /// either, or, for a bare key, the last name segment. A peer's session with that short name
     /// gives way to any of them (`Hub::resolve_remote`).
     pub(super) fn local_matches(&self, key: &str) -> usize {
+        self.local_match_counts(key).iter().sum()
+    }
+
+    /// This daemon's own sessions `key` names: [by id, name or a prefix of either; by short name
+    /// and live; by short name and closed]. A peer's short name gives way to the first two, and
+    /// to the third only when it is closed too (`Hub::resolve_remote`).
+    pub(super) fn local_match_counts(&self, key: &str) -> [usize; 3] {
         let bare = !key.contains('/');
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        sessions
-            .values()
-            .filter(|s| {
-                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                s.id.starts_with(key)
-                    || meta.name.starts_with(key)
-                    || (bare && crate::session_name::ends_with_segments(&meta.name, key))
-            })
-            .count()
+        let mut counts = [0; 3];
+        for s in sessions.values() {
+            let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if s.id.starts_with(key) || meta.name.starts_with(key) {
+                counts[0] += 1;
+            } else if bare && crate::session_name::ends_with_segments(&meta.name, key) {
+                counts[if meta.status == SessionStatus::Closed { 2 } else { 1 }] += 1;
+            }
+        }
+        counts
     }
 
     /// The one session here whose last name segment is the bare `key` (`HOST/SHORT` with this

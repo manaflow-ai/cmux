@@ -55,7 +55,9 @@ impl Hub {
         };
         if found.is_empty() {
             let e = RpcError::not_found(self.unfound(query, link.as_ref(), shown));
-            if link.is_some() {
+            // Close names only for a caller that may read them all: never a peer daemon's or a
+            // read-only machine's connection (`names_hosts`).
+            if link.is_some() || !names_hosts {
                 return Err(e);
             }
             // The names it nearly matched, as `Hub::unknown_session` gives them.

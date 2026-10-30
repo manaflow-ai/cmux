@@ -959,14 +959,14 @@ impl Hub {
     }
 
     /// The names (with their ids) of the peer sessions whose short name is `key`
-    /// ([`remote_segment`]), for `Hub::resolve_here`'s tie.
-    pub(super) fn remote_segment_names(&self, key: &str) -> Vec<String> {
+    /// ([`remote_segment`]), each with whether it is closed, for `Hub::resolve_here`'s tie.
+    pub(super) fn remote_segment_names(&self, key: &str) -> Vec<(String, bool)> {
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         map.values()
             .filter(|r| remote_segment(r, key))
             .map(|r| {
                 let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
-                format!("{name} ({}/{})", r.peer, r.receipt.mux_session_id)
+                (format!("{name} ({}/{})", r.peer, r.receipt.mux_session_id), remote_closed(r))
             })
             .collect()
     }
@@ -990,17 +990,28 @@ impl Hub {
                 .collect();
             let short = matches.is_empty();
             if short {
-                matches = map.values().filter(|r| remote_segment(r, key)).map(|r| row(r)).collect();
+                // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
+                let found: Vec<&RemoteSession> =
+                    map.values().filter(|r| remote_segment(r, key)).collect();
+                let live = found.iter().any(|r| !remote_closed(r));
+                matches =
+                    found.into_iter().filter(|r| !live || !remote_closed(r)).map(row).collect();
             }
             (if matches.len() == 1 { matches.pop() } else { None }, short)
         };
         drop(map);
         let (peer_name, id, summary) = hit?;
-        // A bare short name gives way to any session here `key` names. Read only now, with the
-        // peers' rows unlocked and a candidate in hand, so no other lookup scans this daemon's
-        // sessions a second time.
-        if by_short_name && !key.contains('/') && self.local_matches(key) > 0 {
-            return None;
+        // A bare short name gives way to any session here `key` names by id, name or prefix, to
+        // a live one here with the short name, and, when this one is closed, to a closed one
+        // here too (`Hub::resolve_here` refuses those ties). Read only now, with the peers' rows
+        // unlocked and a candidate in hand, so no other lookup scans this daemon's sessions a
+        // second time.
+        if by_short_name && !key.contains('/') {
+            let [other, live_here, closed_here] = self.local_match_counts(key);
+            let closed = summary.get("status").and_then(Value::as_str) == Some("closed");
+            if other > 0 || live_here > 0 || (closed && closed_here > 0) {
+                return None;
+            }
         }
         let peer = self.peer(&peer_name)?;
         Some((peer, id, summary))
@@ -1133,6 +1144,11 @@ impl Hub {
         }
         out
     }
+}
+
+/// Whether peer session `r` is closed (its row's `status`).
+fn remote_closed(r: &RemoteSession) -> bool {
+    r.summary.get("status").and_then(Value::as_str) == Some("closed")
 }
 
 /// Whether `key` is peer session `r`'s short name, its name's last segment: a bare
