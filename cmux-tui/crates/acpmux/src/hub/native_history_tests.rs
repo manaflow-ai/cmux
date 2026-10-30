@@ -220,6 +220,13 @@ async fn a_cursor_into_a_replaced_transcript_is_refused() {
     // Appending keeps the cursor good: the bytes it starts are still there.
     std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
     assert!(page(&hub, &cursor).await["turns"].as_u64().unwrap() > 0);
+    // Truncating the seeded tail invalidates the cursor even if its older boundary is intact.
+    let original = std::fs::read(&file).unwrap();
+    std::fs::OpenOptions::new().write(true).open(&file).unwrap().set_len(cursor.0 + 1).unwrap();
+    let params = json!({"sessionId": "chat", "before": cursor.0, "mark": cursor.1});
+    let refused = handle(&hub, &params).await.unwrap_err();
+    assert_eq!(refused.data.as_ref().unwrap()["reason"], "transcriptRead.stale");
+    std::fs::write(&file, &original).unwrap();
     // Another, longer transcript in its place.
     transcript(&file, 400, 24);
     assert!(std::fs::metadata(&file).unwrap().len() > cursor.0);

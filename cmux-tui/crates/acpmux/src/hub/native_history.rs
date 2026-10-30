@@ -107,6 +107,7 @@ fn mark_holds(input: &mut std::fs::File, before: u64, mark: &str) -> bool {
     let (current_dev, current_ino) = file_identity(&meta);
     if (dev, ino) != (current_dev, current_ino)
         || len < before
+        || meta.len() < len
         || fields.next().is_some()
         || n == 0
         || n > MARK_BYTES
