@@ -80,6 +80,15 @@ struct Guest {
     attempt_id_sha256: String,
 }
 
+/// What a create asks of its share: how long it lasts, how many guests it lets in, and the
+/// caller's id for the request (`LinkShare::create_id`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct ShareTerms {
+    pub(super) ttl_secs: u64,
+    pub(super) uses: u32,
+    pub(super) create_id: Option<String>,
+}
+
 /// A client's `create_id`, in bytes.
 const MAX_CREATE_ID_BYTES: usize = 64;
 
@@ -425,11 +434,10 @@ impl LinkShares {
         directory: Option<&Path>,
         session: String,
         surface: u64,
-        ttl_secs: u64,
-        uses: u32,
+        terms: ShareTerms,
         provisioning: bool,
-        create_id: Option<String>,
     ) -> Result<Value, &'static str> {
+        let ShareTerms { ttl_secs, uses, create_id } = terms;
         let (share_id, secret, provision_key) = (token::<16>()?, token::<16>()?, token::<16>()?);
         self.with(directory, |shares, now| {
             if shares.len() >= MAX_SHARES {
@@ -674,6 +682,7 @@ pub(super) fn handle(
             {
                 return Err("share.bad_request");
             }
+            let terms = ShareTerms { ttl_secs: ttl, uses, create_id: p.create_id };
             let session = tab_session(mux, p.surface).ok_or("share.not_a_chat")?;
             if p.session.as_ref().is_some_and(|named| *named != session) {
                 return Err("share.chat_moved");
@@ -682,20 +691,12 @@ pub(super) fn handle(
                 return Err("share.room_unreachable");
             }
             match shares.bridge.room() {
-                None => shares.insert(directory, session, p.surface, ttl, uses, false, p.create_id),
+                None => shares.insert(directory, session, p.surface, terms, false),
                 Some(room) => {
                     let token = p.owner_token.map(zeroize::Zeroizing::new);
                     let token = token.filter(|t| !t.is_empty() && t.len() <= 8192);
                     let token = token.ok_or("share.needs_sign_in")?;
-                    let created = shares.insert(
-                        directory,
-                        session,
-                        p.surface,
-                        ttl,
-                        uses,
-                        true,
-                        p.create_id,
-                    )?;
+                    let created = shares.insert(directory, session, p.surface, terms, true)?;
                     room::provision(mux, created, room, token)
                 }
             }

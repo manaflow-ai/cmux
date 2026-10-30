@@ -554,7 +554,17 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(pending(), 0, "credentialless pending room deletes settle at expiry");
-    assert!(shares.insert(Some(&directory), SESSION.into(), 1, 3600, 1, false, None).is_ok());
+    assert!(
+        shares
+            .insert(
+                Some(&directory),
+                SESSION.into(),
+                1,
+                ShareTerms { ttl_secs: 3600, uses: 1, create_id: None },
+                false
+            )
+            .is_ok()
+    );
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
 }
@@ -624,7 +634,15 @@ fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
     room.shared.deletes.lock().unwrap().push_back(503);
     let (_fake, mux, surface, _owner) = bridged("room-owner-unsaved", &room);
     let shares = shares_of(&mux);
-    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true, None).unwrap();
+    let created = shares
+        .insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares.refuse_writes.store(true, Ordering::Relaxed);
     let mut configured = shares.bridge.room().unwrap();
@@ -657,7 +675,15 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
     let directory = mux.session_state_directory().unwrap();
     let shares = shares_of(&mux);
     shares.serve(&mux);
-    let created = shares.insert(Some(&directory), SESSION.into(), 1, 60, 1, true, None).unwrap();
+    let created = shares
+        .insert(
+            Some(&directory),
+            SESSION.into(),
+            1,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares
         .end(Some(&directory), &super::super::Named { share_id: id.clone(), guest_id: None })
@@ -686,14 +712,36 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
     let room = FakeRoom::start(&[]);
     let (_fake, mux, surface, _owner) = bridged("room-late-capacity", &room);
     let shares = shares_of(&mux);
-    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true, None).unwrap();
+    let created = shares
+        .insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
     for _ in 1..MAX_SHARES {
-        shares.insert(None, SESSION.into(), surface, 60, 1, false, None).unwrap();
+        shares
+            .insert(
+                None,
+                SESSION.into(),
+                surface,
+                ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+                false,
+            )
+            .unwrap();
     }
     assert_eq!(
-        shares.insert(None, SESSION.into(), surface, 60, 1, false, None),
+        shares.insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            false
+        ),
         Err("share.limit")
     );
     delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
@@ -707,7 +755,15 @@ fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
     let room = FakeRoom::start(&[]);
     let (_fake, mux, surface, _owner) = bridged("room-late-token-race", &room);
     let shares = shares_of(&mux);
-    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true, None).unwrap();
+    let created = shares
+        .insert(
+            None,
+            SESSION.into(),
+            surface,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap();
     let id = created["share_id"].as_str().unwrap().to_owned();
     shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
     assert!(view(&mux, &id).unwrap().delete, "the revoke queues the room's DELETE");

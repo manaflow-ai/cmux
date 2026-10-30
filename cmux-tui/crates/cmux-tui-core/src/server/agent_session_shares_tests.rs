@@ -275,7 +275,15 @@ fn a_provisioning_share_arms_its_expiry_timer() {
     let fake = FakeAcpmux::start("share-provisioning-expiry");
     let mux = mux_with(&fake, "share-provisioning-expiry");
     let shares = &mux.control_clients.agent_sessions.link_shares;
-    let expires = shares.insert(None, SESSION.into(), 1, 60, 1, true, None).unwrap()["expires_at"]
+    let expires = shares
+        .insert(
+            None,
+            SESSION.into(),
+            1,
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            true,
+        )
+        .unwrap()["expires_at"]
         .as_u64()
         .unwrap();
     shares.serve(&mux);
@@ -295,7 +303,15 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
     std::fs::create_dir_all(&directory).unwrap();
     let dir = Some(directory.as_path());
     let first = LinkShares::default();
-    let share = first.insert(dir, "acp_x".into(), 3, 3600, 3, false, None).unwrap();
+    let share = first
+        .insert(
+            dir,
+            "acp_x".into(),
+            3,
+            ShareTerms { ttl_secs: 3600, uses: 3, create_id: None },
+            false,
+        )
+        .unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
     let redeem = |shares: &LinkShares, attempt: &str| {
         shares.redeem(
