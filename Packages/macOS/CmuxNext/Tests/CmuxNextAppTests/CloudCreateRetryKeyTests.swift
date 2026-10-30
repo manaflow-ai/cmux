@@ -211,9 +211,31 @@ import Testing
         let machine = try await flow.create(name: nil, startedByPerson: false, key: "k1")
         #expect(machine["id"]?.stringValue == "vm_1")
         #expect(backend.machines.count == 1)
-        #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "state"), request: "r"))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "params"), request: "r"))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.notInFeed(request: "r"), request: "r"))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "other", reason: "state"), request: "r"))
+        #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "state"), request: "r", answeredEarlier: false))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "params"), request: "r", answeredEarlier: true))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.notInFeed(request: "r"), request: "r", answeredEarlier: true))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "other", reason: "state"), request: "r", answeredEarlier: true))
+        // A closed feed item counts only after this key began answering the request.
+        #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem), request: "r", answeredEarlier: true))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: CloudApprovalAnswer.closedItem), request: "r", answeredEarlier: false))
+    }
+
+    @Test func aRetryCancelledMidAnswerWaitsForTheRunningApprovedOp() async throws {
+        let backend = Backend()
+        backend.pending = 3
+        let creation = CloudMachineCreation(windowID: nil)
+        let key = creation.request.idempotencyKey
+        // The first attempt marked req_1 as being answered, then was cancelled; the approval still
+        // reads pending (its op runs) but its feed item is closed.
+        creation.markAnswering("req_1", key: key)
+        let flow = CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
+                                          confirm: { _ in true },
+                                          approve: { request, _, _ in throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: CloudApprovalAnswer.closedItem) },
+                                          pause: { _ in })
+        let machine = try await flow.create(name: nil, startedByPerson: false, key: key, answering: creation.request.answeringRequest)
+        #expect(machine["id"]?.stringValue == "vm_1")
+        #expect(backend.machines.count == 1)
+        creation.renewKey(replacing: key)
+        #expect(creation.request.answeringRequest == nil)
     }
 }

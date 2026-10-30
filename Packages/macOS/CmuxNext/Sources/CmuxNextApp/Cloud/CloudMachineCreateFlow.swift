@@ -96,8 +96,10 @@ struct CloudMachineCreateFlow {
     /// `environment`: boot it in that Cloud environment (`cloud.environment.boot`)
     /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
     /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
+    /// `answering`: the approval an earlier attempt with `key` began answering; `onAnswering` hears each, before it goes out.
     func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
-                onApproved: @MainActor (String) -> Void = { _ in }, gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
+                onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
+                gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
             if startedByPerson { _ = await confirm(.upgrade(need)) }
             throw Failure.upgradeRequired(need.reason)
@@ -110,7 +112,8 @@ struct CloudMachineCreateFlow {
         if let environment { args["environment"] = .string(environment) }
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
         let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed,
-                                            approved: key == nil ? nil : approved, onApproved: onApproved) { request in
+                                            approved: key == nil ? nil : approved, onApproved: onApproved,
+                                            answering: key == nil ? nil : answering, onAnswering: onAnswering) { request in
             await confirm(.approval(request: request, machine))
         }
         return answer["machine"] ?? answer
@@ -129,6 +132,7 @@ struct CloudMachineCreateFlow {
     /// for the approved op (its feed item is closed, so it is not answered again).
     private func approvalLoop(_ op: String, args: JSONValue, key: String, confirmed: Bool, approved earlier: String? = nil,
                               onApproved: @MainActor (String) -> Void = { _ in },
+                              answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?
@@ -150,9 +154,11 @@ struct CloudMachineCreateFlow {
                     guard await ask(request) else { throw Failure.declined }
                     confirmed = true
                 }
+                onAnswering(request)
                 do {
                     try await approve(request, op, args)
-                } catch let failure as CloudApprovalAnswer.Failure where Self.alreadyAnswered(failure, request: request) {
+                } catch let failure as CloudApprovalAnswer.Failure
+                            where Self.alreadyAnswered(failure, request: request, answeredEarlier: request == answering) {
                     // An earlier attempt answered it and was cancelled before it could record that: the
                     // item is closed, so wait for the approved op like any answered request.
                 }
@@ -186,10 +192,13 @@ struct CloudMachineCreateFlow {
         }
     }
 
-    /// The approval item for `request` is no longer open to answer: an attempt already answered it.
-    static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String) -> Bool {
+    /// The approval item for `request` is no longer open to answer: an attempt already answered it. The
+    /// request has ended ("state"), or, after an attempt with this key began answering it
+    /// (`answeredEarlier`), it still reads pending (`integration.approval.get` shows a running approved op
+    /// as pending) while its feed item is closed.
+    static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String, answeredEarlier: Bool) -> Bool {
         switch failure {
-        case .mismatch(let r, let reason): r == request && reason == "state"
+        case .mismatch(let r, let reason) where r == request: reason == "state" || (answeredEarlier && reason == CloudApprovalAnswer.closedItem)
         case .notInFeed, .mismatch, .refused: false
         }
     }
