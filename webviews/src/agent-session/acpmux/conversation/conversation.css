@@ -1050,21 +1050,25 @@
 /* The table may be wider than the column; it scrolls instead of widening the row. */
 /* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy at its top-right
    corner, shown on hover or keyboard focus like the message rows'. The pair shares the compact
-   control height and icon rhythm with the rest of the agent pane. */
+   control height and icon rhythm with the rest of the agent pane. It sits just outside the cells,
+   in space the block leaves free at the column's edge (a wider table scrolls), so it never covers
+   a header's text or catches a click meant for a cell. */
 .cv-table-block {
+  --cv-table-tools-width: calc(var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) * 2);
   position: relative;
   width: fit-content;
-  max-width: 100%;
+  max-width: calc(100% - var(--cv-table-tools-width));
   margin: var(--cv-table-before, 6.5px) 0 14px;
 }
 .cv-table-tools {
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  right: 0;
+  left: 100%;
   display: flex;
   align-items: center;
   gap: var(--cv-action-gap, 4px);
+  padding-left: var(--cv-action-gap, 4px);
   opacity: 0;
 }
 .cv-table-tools .cv-iconbtn--compact {
