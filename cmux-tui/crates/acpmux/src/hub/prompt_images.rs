@@ -170,6 +170,18 @@ pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
     blocks.iter().filter_map(decode).map(|(_, named)| named).collect()
 }
 
+/// `named`'s records, each with its own block's source from the prompt's display metadata
+/// (`name_image_sources`): a queued prompt's listed images keep their sources.
+pub(super) fn named_sourced(blocks: &[Value], display_parts: Option<&Value>) -> Vec<Value> {
+    let mut named: Vec<(usize, Value)> = blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, block)| decode(block).map(|(_, named)| (index, named)))
+        .collect();
+    name_image_sources(&mut named, blocks, display_parts);
+    named.into_iter().map(|(_, named)| named).collect()
+}
+
 /// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` (and a
 /// queued prompt's `queued` and `queue_updated`) records of them, each with its source from the
 /// prompt's display metadata (`name_image_sources`), so Edit message and a reload keep it. An image

@@ -79,6 +79,13 @@ struct AttachmentSourceTests {
         // An ask for files the paste did not bring answers nothing, and leaves the record.
         #expect(record.source(.paste, names: ["b.png"]) == nil)
         #expect(record.source(.paste, names: ["a.png", "a.png"]) == nil)
+        // A drop of a file and a picture names both: the file by its URL, the picture by the claim.
+        record.stashSource([URL(fileURLWithPath: "/tmp/c.png")], items: 2, claimed: nil, kind: .drop)
+        #expect(record.source(.drop, names: ["c.png", "image.png"])?.urls == [URL(fileURLWithPath: "/tmp/c.png")])
+        // A pane moved to another chat forgets the last gesture's record.
+        record.stashSource([URL(fileURLWithPath: "/tmp/d.png")], items: 1, claimed: nil, kind: .drop)
+        record.clearForSessionChange()
+        #expect(record.source(.drop, names: ["d.png"]) == nil)
         let taken = record.source(.paste, names: ["a.png"])
         #expect(taken?.urls == [URL(fileURLWithPath: "/tmp/a.png")] && taken?.claimed == "com.apple.finder")
         // Once only.

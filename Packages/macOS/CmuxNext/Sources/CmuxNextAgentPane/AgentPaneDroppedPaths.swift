@@ -86,32 +86,26 @@ public final class AgentPaneDroppedPaths {
     }
 
     /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:
-    /// its file URLs in the order of `names`, and its claim. Only an ask for that gesture's own
-    /// files answers, and uses the record up: with file URLs, exactly those files' names; without,
-    /// no more files than the pasteboard held items. Any other ask answers nothing and leaves the
-    /// record for the page's own ask.
+    /// the file URLs among them, and its claim. Only an ask for that gesture's own files answers,
+    /// and uses the record up: no more files than the pasteboard held items, and every file URL it
+    /// held named (a drop of files and pictures names both). Any other ask answers nothing and
+    /// leaves the record for the page's own ask.
     func source(_ kind: Kind, names: [String]) -> (urls: [URL], claimed: String?)? {
         guard let record = sourced[kind] else { return nil }
         guard now() - record.at <= Self.lifetime else {
             sourced[kind] = nil
             return nil
         }
-        let urls: [URL]
-        if record.urls.isEmpty {
-            guard !names.isEmpty, names.count <= record.items else { return nil }
-            urls = []
-        } else {
-            guard names.count == record.urls.count else { return nil }
-            var left = record.urls
-            var picked: [URL] = []
-            for name in names {
-                guard let index = left.firstIndex(where: { Self.named($0, name) }) else { return nil }
-                picked.append(left.remove(at: index))
-            }
-            urls = picked
+        guard !names.isEmpty, names.count <= record.items else { return nil }
+        var left = record.urls
+        var picked: [URL] = []
+        for name in names {
+            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { continue }
+            picked.append(left.remove(at: index))
         }
+        guard left.isEmpty else { return nil }
         sourced[kind] = nil
-        return (urls, record.claimed)
+        return (picked, record.claimed)
     }
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last
@@ -155,6 +149,7 @@ public final class AgentPaneDroppedPaths {
         generation = UUID()
         held.values.forEach { $0.expiry.cancel() }
         held.removeAll()
+        sourced.removeAll()
         retainedPaths.removeAll()
     }
 

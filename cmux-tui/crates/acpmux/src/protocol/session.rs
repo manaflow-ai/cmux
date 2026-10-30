@@ -406,6 +406,10 @@ pub struct QueuedImage {
     pub mime_type: String,
     /// Its file name, when the client gave one.
     pub name: Option<String>,
+    /// The app it came from (`{name, bundleId?, site?}`), as the prompt's display metadata named it. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub source: Option<Value>,
 }
 
 /// What limits the session's agent as far as acpmux can tell.
