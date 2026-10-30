@@ -154,9 +154,13 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_pools.py
 
-      - name: Validate fast checks fail over with the overflow switch
+      - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Validate no job names its runner only as literal labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_set.py
 
       - name: Validate fast checks name the commit they test
         if: ${{ matrix.group == 'ci' }}
