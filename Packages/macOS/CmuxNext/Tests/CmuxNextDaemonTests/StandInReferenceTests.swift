@@ -2,8 +2,9 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// P0 2026-10-30, rule (b): DEBUG builds stop at a request that names a stand-in (a pending create's pane handle or tab
-/// surface) as a pane or surface reference (`DaemonRequestExecutor.perform`); the daemon does not know one.
+/// P0 2026-10-30, rule (b): a request that names a stand-in (a pending create's pane handle or tab surface) as a pane or
+/// surface reference is refused before it is sent (`DaemonRequestExecutor.perform`, `PaneNotReady`), in every build and
+/// from every sender, creates too; the daemon does not know one.
 @MainActor struct StandInReferenceTests {
     @Test func aStandInPaneOrSurfaceIsFound() {
         let standIn = ProvisionalPane()
@@ -22,8 +23,8 @@ import Testing
     }
 }
 
-/// The same check on the encoded line, as the request boundary runs it before a request goes out (a non-create pane verb
-/// that names a stand-in is refused there with `PaneNotReady`, never sent).
+/// The same check on the encoded line, as the request boundary runs it before a request goes out (any request that names
+/// a stand-in is refused there with `PaneNotReady`, never sent).
 @MainActor struct StandInLineTests {
     @Test func anEncodedLineThatNamesAStandInIsCaught() throws {
         let standIn = ProvisionalPane()
@@ -43,19 +44,5 @@ import Testing
         // A stand-in's digits in text (a line typed into a terminal) are not a pane reference.
         let text = try WireCoding.encodeRequest(SendInputRequest(surface: SurfaceID(rawValue: 9), text: "\(standIn.handle.rawValue)"), id: 9)
         #expect(DaemonRequestExecutor.standInReference(inLine: text) == nil)
-    }
-}
-
-/// Review #5 B1: DEBUG builds stop only the creates that resolve their target (`TargetResolvedCreate`); a tab move or a
-/// respawn that names a stand-in is refused locally instead (`PaneNotReady`).
-struct TargetResolvedCreateTests {
-    @Test func onlyTheResolvedCreatesAreAsserted() {
-        #expect(NewTabRequest.self is any TargetResolvedCreate.Type)
-        #expect(SplitRequest.self is any TargetResolvedCreate.Type)
-        #expect(NewColumnRequest.self is any TargetResolvedCreate.Type)
-        #expect(NewRowRequest.self is any TargetResolvedCreate.Type)
-        #expect(!(MoveTabToColumnRespawnRequest.self is any TargetResolvedCreate.Type))
-        #expect(!(MoveTabToSplitRespawnRequest.self is any TargetResolvedCreate.Type))
-        #expect(!(CreateTerminalRequest.self is any TargetResolvedCreate.Type))
     }
 }

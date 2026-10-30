@@ -58,11 +58,15 @@ public struct PaneSplitCommand: Sendable {
         // creates run in order, each once the store holds the one before) the daemon's pane has taken it over
         // (``DaemonStore/daemonHandle(showing:)``). P0 2026-10-30: a quick second Cmd-D made no pane, 12 of 12.
         let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
-        let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
+        let send = daemon.intendNowReporting("split", intent, transaction: transaction) { connection in
             try await connection.split(try await target(), direction: direction, options: sent)
         }
         return {
-            guard let created = await send() else { throw PaneSplitFailure() }
+            let answer = await send()
+            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
+            // (or answered by a capturing caller), never the generic failure on top of it.
+            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
+            guard case .success(let created) = answer else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
             // The store holds the daemon's pane before the next create of this workspace resolves its target.

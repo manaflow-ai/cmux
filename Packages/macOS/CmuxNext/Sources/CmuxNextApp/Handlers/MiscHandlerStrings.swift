@@ -117,10 +117,12 @@ enum MiscHandlerStrings {
 
 extension ActionWorkFailure {
     /// The failure of a person's optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it:
-    /// ``PendingPaneNotCreated`` reads in the app's language at this boundary (its English text stays for the log); other
-    /// errors keep the daemon's own text, as before.
+    /// ``PendingPaneNotCreated`` and ``PaneNotReady`` read in the app's language at this boundary (their English text stays
+    /// for the log); other errors keep the daemon's own text, as before.
     @MainActor static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
         if error is PendingPaneNotCreated { return ActionWorkFailure("\(label): \(MiscHandlerStrings.pendingPaneNotCreated)") }
-        return ActionWorkFailure(label, error)
+        var failure = ActionWorkFailure(label, error)
+        if error is PaneNotReady { failure.message = MiscHandlerStrings.paneNotReady }
+        return failure
     }
 }
