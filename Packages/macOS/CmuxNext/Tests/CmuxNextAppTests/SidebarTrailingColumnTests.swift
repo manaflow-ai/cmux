@@ -407,6 +407,8 @@ import Testing
     /// Leo 2026-10-21: "no empty pin symbol by default" (cmux#24371). An expanded unpinned row draws no pin on
     /// hover (Pin Workspace stays in its ⋮ menu); an expanded pinned row still offers Unpin there.
     @Test func anExpandedUnpinnedRowDrawsNoPinOnHover() throws {
+        Motion.reduceMotionOverride = true // the controls show at once instead of fading in from 0
+        defer { Motion.reduceMotionOverride = nil }
         try SidebarGroupRailAlignmentTests.with(.expanded, .off) {
             let h = KindHarness(width: 260)
             defer { h.window.close() }
