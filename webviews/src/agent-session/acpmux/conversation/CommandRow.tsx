@@ -18,6 +18,7 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
+import { leadingVerb, ToolLabel } from "./ToolVerb";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
@@ -55,6 +56,11 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
     command: "\u0000",
   }).split("\u0000");
+  const line = (
+    <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
+      {short}
+    </code>
+  );
   return (
     <>
       <button
@@ -78,13 +84,12 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             // Find counts the command, not this, so it is not highlighted.
             <span data-find-skip>{tool.description}</span>
           ) : (
-            <>
+            // "Ran" in the run's verb column (ToolVerb.tsx), the command after it.
+            <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
               {before && <span data-find-skip>{before}</span>}
-              <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
-                {short}
-              </code>
+              {line}
               {after && <span data-find-skip>{after}</span>}
-            </>
+            </ToolLabel>
           )}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>

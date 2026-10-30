@@ -18,6 +18,10 @@ final class AgentActivityPageService {
     private var paneWait: Task<Void, Never>?
     /// Counts jumps, so a workspace that mounts after a newer jump opens nothing.
     private var jumps = 0
+    /// The pages made, weakly held, so a live preview card's click selects its session in them.
+    private let pages = NSHashTable<AgentActivityPageTab>.weakObjects()
+    /// The session the next page made selects (``open(session:)`` opened a new tab).
+    private var pendingSelection: String?
 
     init(services: AppServices) {
         self.services = services
@@ -26,19 +30,43 @@ final class AgentActivityPageService {
     /// Selects the active window's Agent activity tab, else opens one beside
     /// the focused tab.
     func open() {
-        guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
+        _ = openTab()
+    }
+
+    /// ``open()``: true only when it opened a new tab.
+    private func openTab() -> Bool {
+        guard let window = services.windows.active else {
+            services.registry.refuse(RefusalStrings.noWindowOpen)
+            return false
+        }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { AgentActivityPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
                 pane.select(StripTabID(tab.id))
-                return
+                return false
             }
         }
-        guard let pane = window.focusedPane else { return }
+        guard let pane = window.focusedPane else { return false }
         pane.newBrowserTab(url: AgentActivityPageAddress.url)
+        return true
+    }
+
+    /// Opens Agent Activity (``open()``) on Computer Use session `session`: the live preview card's
+    /// click. An open page selects it now; a page this opens selects it as it is made. When no page
+    /// opens, nothing waits, so a page made later never selects this old session.
+    func open(session: String) {
+        for page in pages.allObjects { page.model.select(session: session) }
+        pendingSelection = session
+        if !openTab() { pendingSelection = nil }
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        pages.add(page)
+        if let session = pendingSelection {
+            pendingSelection = nil
+            page.model.select(session: session)
+        }
+        return page
     }
 
     /// Shows a lane's chat where ``AgentChatJump`` says it lives. Back returns

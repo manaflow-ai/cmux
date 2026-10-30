@@ -26,6 +26,12 @@ export type ToolGroup =
   | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCall }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
+  /// Adjacent start_session calls become one disclosure row with one expandable child per session.
+  | {
+      type: "subsessionGroup";
+      items: AcpmuxActivity[];
+      calls: Extract<SubsessionCall, { tool: "start" }>[];
+    }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
   | { type: "mcp"; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
@@ -73,9 +79,21 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   let mutationUnsettled = false;
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
+  let subsessionGroup:
+    | {
+        items: AcpmuxActivity[];
+        calls: Extract<SubsessionCall, { tool: "start" }>[];
+      }
+    | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
   let held: AcpmuxActivity[] = [];
   const close = () => {
+    if (subsessionGroup) {
+      if (subsessionGroup.calls.length === 1)
+        groups.push({ type: "subsession", item: subsessionGroup.items[0]!, call: subsessionGroup.calls[0]! });
+      else groups.push({ type: "subsessionGroup", ...subsessionGroup });
+      subsessionGroup = undefined;
+    }
     if (mcp) groups.push({ type: "mcp", items: mcp.items });
     mcp = undefined;
     if (run) {
@@ -189,6 +207,17 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         }
       }
     };
+    if (subsession?.tool === "start") {
+      if (subsessionGroup) {
+        subsessionGroup.items.push(item);
+        subsessionGroup.calls.push(subsession);
+      } else {
+        close();
+        subsessionGroup = { items: [item], calls: [subsession] };
+      }
+      rememberMessageFiles();
+      continue;
+    }
     if (key && mcp?.key === key) {
       mcp.items.push(item);
       rememberMessageFiles();

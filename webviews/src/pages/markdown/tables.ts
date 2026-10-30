@@ -5,6 +5,9 @@
 //   selection to a caret.
 // - Copying a cell selection writes a Markdown table (text/plain) and an HTML table (text/html, for
 //   spreadsheets).
+// - A click places the caret; a drag and a Shift-click select text, also across cells, as in Safari
+//   and the rest of the document (user 2026-10-28: snapping to whole cells was "extremely
+//   unintuitive"). Whole cells are selected by Cmd-A, and Shift-click extends such a selection.
 // - A drag that starts in a cell and leaves the table selects text from the press to the pointer
 //   (MARKDOWN-SELECTION). prosemirror-tables kept a one-cell selection for the rest of such a drag:
 //   it holds the selection while its drag runs and finds no cell under the pointer.
@@ -21,6 +24,7 @@ import {
   goToNextCell,
   isInTable,
   selectedRect,
+  tableEditingKey,
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
@@ -762,6 +766,41 @@ export const tableDragOutPlugin = $prose(
             window.addEventListener("mousemove", move);
             window.addEventListener("mouseup", stop);
             return false;
+          },
+        },
+      },
+    }),
+);
+
+/**
+ * Pointer selection in tables is text selection (user 2026-10-28). prosemirror-tables turns a drag
+ * that crosses into another cell, and a Shift-click from a caret into another cell, into a cell
+ * selection; both start with a transaction that sets `tableEditingKey` to the anchor cell. This
+ * plugin drops that start unless a cell selection already exists (Cmd-A, then Shift-click extends
+ * it), so the browser's own drag selection goes on, and it does the Shift-click itself as a text
+ * selection from the anchor to the click.
+ */
+export const tableTextSelectPlugin = $prose(
+  () =>
+    new Plugin({
+      filterTransaction(tr, state) {
+        const anchor = tr.getMeta(tableEditingKey) as number | undefined;
+        if (typeof anchor !== "number" || anchor < 0) return true;
+        return !(tr.selection instanceof CellSelection) || state.selection instanceof CellSelection;
+      },
+      props: {
+        handleDOMEvents: {
+          mousedown(view, event) {
+            if (event.button !== 0 || !event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+            const { state } = view;
+            if (state.selection instanceof CellSelection) return false;
+            if (!(event.target as Element | null)?.closest?.("td, th")) return false;
+            const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            if (!hit) return false;
+            const selection = TextSelection.between(state.selection.$anchor, state.doc.resolve(hit.pos));
+            event.preventDefault();
+            if (!selection.eq(state.selection)) view.dispatch(state.tr.setSelection(selection));
+            return true;
           },
         },
       },
