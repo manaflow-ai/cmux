@@ -361,7 +361,6 @@ test("an intentional clear while loading rejects the old saved generation", asyn
   await until(() => !acpmux.held.has("generation-clear"), "clear tombstone to persist");
 });
 
-
 test("a remounted composer reads again before reconciling a newer same-generation daemon draft", async () => {
   const acpmux = daemon({ "remount-external": "saved" }, 4);
   await acpmux.connect();

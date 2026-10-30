@@ -83,7 +83,9 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
     await mkdir(directory, { recursive: true });
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme });
-      await page.screenshot({ path: path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}-${colorScheme}.png`) });
+      await page.screenshot({
+        path: path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}-${colorScheme}.png`),
+      });
     }
     await page.emulateMedia({ colorScheme: "light" });
   }
