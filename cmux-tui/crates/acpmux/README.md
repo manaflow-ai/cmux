@@ -399,15 +399,18 @@ deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMa
 
 `usageWarnings` (`{"contextTokens": 400000, "subagentsPerHour": 40, "autocompactCap": true}`,
 those are the defaults; 0 or false turns a rule off): a session whose usage breaks a rule gets
-`usageWarnings` on its summary, `[{rule, value, limit, text}]`, decided from its `usageStats`
+`usageWarnings` on its summary, `[{rule, value, limit, text, action}]`, decided from its `usageStats`
 when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session known to run
 with no autocompact cap (`usageStats.autocompact` `none`); `contextTokens`: its last call's
 context is above the limit; `subagentsPerHour`: it started more subagents than the limit in the
 last hour. A number acpmux could not read is null, never zero, and an unknown cap (`unknown`: a
 chat it adopted or revived without seeing its launch) or count neither raises nor clears a
-warning. `acpmux ls` marks such a row `warn`
+warning. Each warning names the step that answers it (`action`: `{label, command, available}`;
+nothing is done automatically): no cap, rotate onto a capped profile (`lane-place rotate NAME`,
+still to come); a large context, compact it (`acpmux send NAME /compact`); many subagents, open
+the session and, to stop it, `acpmux session cancel NAME`. `acpmux ls` marks such a row `warn`
 in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
-number (`no-cap ctx 412k 90 sub/h`), and `--json` rows carry the whole list. The cmux NEXT
+number and command (`ctx 412k: acpmux send NAME /compact`), and `--json` rows carry the whole list. The cmux NEXT
 sidebar draws a warning triangle on the row whose tooltip is each `text`.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title

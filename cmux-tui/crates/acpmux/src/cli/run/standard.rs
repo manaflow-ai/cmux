@@ -1415,7 +1415,9 @@ fn text_field(value: Option<&Value>) -> String {
 
 /// A row's WARN cell for `acpmux ls`: `warn` when it breaks a usage rule, so the default listing
 /// stays compact (Leo 2026-10-30: "acpmux ls should probably not be overly... verbose?"); `wide`
-/// names each rule with its number (`no-cap ctx 955k 90 sub/h`). Empty when it breaks none.
+/// names each rule with its number and the command that answers it
+/// (`ctx 955k: acpmux send lane-1 /compact; 90 sub/h: acpmux session cancel lane-1`). Empty when
+/// it breaks none.
 fn usage_warn_cell(session: &Value, wide: bool) -> String {
     let Some(warnings) = session["usageWarnings"].as_array().filter(|w| !w.is_empty()) else {
         return String::new();
@@ -1423,7 +1425,7 @@ fn usage_warn_cell(session: &Value, wide: bool) -> String {
     if !wide {
         return "warn".to_owned();
     }
-    warnings.iter().map(crate::hub::usage_warnings::short).collect::<Vec<_>>().join(" ")
+    warnings.iter().map(crate::hub::usage_warnings::with_command).collect::<Vec<_>>().join("; ")
 }
 
 fn team_receipt_line(receipt: &Value) -> String {
@@ -1446,13 +1448,17 @@ mod tests {
     }
 
     #[test]
-    fn a_rows_warn_cell_is_one_word_and_wide_names_each_rule_with_its_number() {
-        let row = serde_json::json!({"usageWarnings": [
-            {"rule": "noAutocompactCap", "value": 955_000, "limit": null},
-            {"rule": "contextTokens", "value": 955_000, "limit": 400_000},
-            {"rule": "subagentsPerHour", "value": 90, "limit": 40},
-        ]});
-        assert_eq!(super::usage_warn_cell(&row, true), "no-cap ctx 955k 90 sub/h");
+    fn a_rows_warn_cell_is_one_word_and_wide_names_each_rule_its_number_and_command() {
+        let stats =
+            serde_json::json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
+        let summary = serde_json::json!({"name": "lane-1", "status": "idle", "family": "claude", "usageStats": stats});
+        let warnings = crate::hub::usage_warnings::usage_warnings(&summary, &Default::default());
+        let row = serde_json::json!({"usageWarnings": warnings});
+        assert_eq!(
+            super::usage_warn_cell(&row, true),
+            "no-cap: lane-place rotate lane-1 (coming); ctx 955k: acpmux send lane-1 /compact; \
+             90 sub/h: acpmux session cancel lane-1"
+        );
         // The default listing marks the row with one word and no numbers.
         assert_eq!(super::usage_warn_cell(&row, false), "warn");
         // An older daemon's row, or one with nothing to warn about: an empty cell.

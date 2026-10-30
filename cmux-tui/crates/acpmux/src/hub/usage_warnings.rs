@@ -4,10 +4,13 @@
 //! `usageWarnings` thresholds in config (`config/usage_warnings.rs`); the cmux NEXT sidebar badge
 //! and the WARN column of `acpmux ls` only show them.
 //!
-//! Each warning is `{rule, value, limit, text}`: `rule` is `noAutocompactCap`, `contextTokens` or
-//! `subagentsPerHour`; `value` the session's number (context tokens, or subagents started in the
-//! last hour), null when it has none; `limit` the threshold it passed, null for
-//! `noAutocompactCap`; `text` one line a tooltip shows. Empty for a closed session or one with no
+//! Each warning is `{rule, value, limit, text, action}`: `rule` is `noAutocompactCap`,
+//! `contextTokens` or `subagentsPerHour`; `value` the session's number (context tokens, or
+//! subagents started in the last hour), null when it has none; `limit` the threshold it passed,
+//! null for `noAutocompactCap`; `text` one line a tooltip shows, ending in what to do; `action`
+//! `{label, command, available}`, the step that answers it (a metric must trigger an action, HQ#5123)
+//! and the command that takes it, `available` false while that command is still to come. Nothing
+//! is done automatically. Empty for a closed session or one with no
 //! `usageStats` yet. A number acpmux could not read is unknown (null or absent), never zero, and
 //! an unknown number neither raises nor clears a warning.
 
@@ -21,8 +24,48 @@ pub const CONTEXT_TOKENS: &str = "contextTokens";
 /// `subagentsPerHour`: it started more subagents in the last hour than the limit.
 pub const SUBAGENTS_PER_HOUR: &str = "subagentsPerHour";
 
-/// The warnings a session summary earns under `limits`, in the order above.
+/// The step that answers each rule, its label and the command that takes it for session `name`
+/// (`available` false: the command is still to come).
+fn action(rule: &str, name: &str) -> Value {
+    let (label, command, available) = match rule {
+        // `session restart` keeps the launch settings, so it adds no cap: the session moves onto a
+        // capped profile (claude-sr2), which `lane-place rotate` will do.
+        NO_AUTOCOMPACT_CAP => {
+            ("Rotate onto a capped profile", format!("lane-place rotate {name}"), false)
+        }
+        // Claude Code's own `/compact`, sent as a prompt (`claude_stdio`: it ends its prompt).
+        CONTEXT_TOKENS => ("Compact it", format!("acpmux send {name} /compact"), true),
+        _ => (
+            "Open the session to see what it starts; cancel its turn to stop it",
+            format!("acpmux session cancel {name}"),
+            true,
+        ),
+    };
+    json!({"label": label, "command": command, "available": available})
+}
+
+/// `warning` with its action, and the action at the end of its text.
+fn with_action(mut warning: Value, name: &str) -> Value {
+    let action = action(warning["rule"].as_str().unwrap_or_default(), name);
+    let command = action["command"].as_str().unwrap_or_default().to_owned();
+    let soon = if action["available"] == true { "" } else { ", coming" };
+    let text = format!(
+        "{}. {} ({command}{soon})",
+        warning["text"].as_str().unwrap_or_default(),
+        action["label"].as_str().unwrap_or_default()
+    );
+    warning["text"] = json!(text);
+    warning["action"] = action;
+    warning
+}
+
+/// The warnings a session summary earns under `limits`, in the order above, each with its action.
 pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
+    let name = summary["name"].as_str().unwrap_or_default().to_owned();
+    rules_broken(summary, limits).into_iter().map(|w| with_action(w, &name)).collect()
+}
+
+fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
     let stats = &summary["usageStats"];
     if summary["status"] == "closed" || !stats.is_object() {
         return Vec::new();
@@ -61,15 +104,29 @@ pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
     out
 }
 
-/// One short cell per warning for `acpmux ls`: `no-cap`, `ctx 955k`, `90 sub/h`.
+/// One short cell per warning for `acpmux ls`: `no-cap`, `ctx 955k`, `90 sub/h`; `?` for a number
+/// it does not have, never a made-up zero.
 pub fn short(warning: &Value) -> String {
-    let value = warning["value"].as_u64();
+    let value = || warning["value"].as_u64().map_or_else(|| "?".to_owned(), tokens);
     match warning["rule"].as_str() {
         Some(NO_AUTOCOMPACT_CAP) => "no-cap".to_owned(),
-        Some(CONTEXT_TOKENS) => format!("ctx {}", tokens(value.unwrap_or(0))),
-        Some(SUBAGENTS_PER_HOUR) => format!("{} sub/h", value.unwrap_or(0)),
+        Some(CONTEXT_TOKENS) => format!("ctx {}", value()),
+        Some(SUBAGENTS_PER_HOUR) => format!("{} sub/h", value()),
         Some(other) => other.to_owned(),
         None => String::new(),
+    }
+}
+
+/// `short` with the command that answers it, for `acpmux ls --wide`:
+/// `ctx 412k: acpmux send lane-1 /compact`, `no-cap: lane-place rotate lane-1 (coming)`.
+pub fn with_command(warning: &Value) -> String {
+    let action = &warning["action"];
+    match action["command"].as_str() {
+        Some(command) if action["available"] == false => {
+            format!("{}: {command} (coming)", short(warning))
+        }
+        Some(command) => format!("{}: {command}", short(warning)),
+        None => short(warning),
     }
 }
 

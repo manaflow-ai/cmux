@@ -7,7 +7,7 @@ use crate::config::{UsageLimits, UsageWarningsConfig};
 use serde_json::{Value, json};
 
 fn row(family: &str, stats: Value) -> Value {
-    json!({"status": "idle", "family": family, "usageStats": stats})
+    json!({"name": "dep-1", "status": "idle", "family": family, "usageStats": stats})
 }
 
 fn rules(warnings: &[Value]) -> Vec<&str> {
@@ -26,19 +26,35 @@ fn a_runaway_claude_session_breaks_all_three_rules_with_its_numbers() {
     assert_eq!(w[0]["limit"], Value::Null);
     assert_eq!(
         w[0]["text"],
-        "No autocompact cap: context is 412k and only compacts at the model's limit"
+        "No autocompact cap: context is 412k and only compacts at the model's limit. \
+         Rotate onto a capped profile (lane-place rotate dep-1, coming)"
+    );
+    assert_eq!(
+        w[0]["action"],
+        json!({"label": "Rotate onto a capped profile", "command": "lane-place rotate dep-1", "available": false})
     );
     assert_eq!(
         w[1],
         json!({"rule": "contextTokens", "value": 412_000, "limit": 400_000,
-        "text": "Context 412k tokens, above the 400k warning line"})
+        "text": "Context 412k tokens, above the 400k warning line. Compact it (acpmux send dep-1 /compact)",
+        "action": {"label": "Compact it", "command": "acpmux send dep-1 /compact", "available": true}})
     );
     assert_eq!(
         w[2],
         json!({"rule": "subagentsPerHour", "value": 90, "limit": 40,
-        "text": "90 subagents started in the last hour, above 40"})
+        "text": "90 subagents started in the last hour, above 40. Open the session to see what it starts; \
+                 cancel its turn to stop it (acpmux session cancel dep-1)",
+        "action": {"label": "Open the session to see what it starts; cancel its turn to stop it",
+                   "command": "acpmux session cancel dep-1", "available": true}})
     );
     assert_eq!(w.iter().map(short).collect::<Vec<_>>(), ["no-cap", "ctx 412k", "90 sub/h"]);
+}
+
+/// A warning with no number shows `?`, never a made-up zero.
+#[test]
+fn a_cell_without_a_number_says_so() {
+    assert_eq!(short(&json!({"rule": "contextTokens", "value": null})), "ctx ?");
+    assert_eq!(short(&json!({"rule": "subagentsPerHour"})), "? sub/h");
 }
 
 #[test]
@@ -92,7 +108,12 @@ fn no_cap_with_no_context_read_yet_still_warns() {
     let w = usage_warnings(&fresh, &UsageLimits::default());
     assert_eq!(rules(&w), ["noAutocompactCap"]);
     assert_eq!(w[0]["value"], Value::Null);
-    assert_eq!(w[0]["text"], "No autocompact cap: context only compacts at the model's limit");
+    assert!(
+        w[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("No autocompact cap: context only compacts at the model's limit. ")
+    );
 }
 
 #[test]
@@ -116,7 +137,12 @@ fn the_config_moves_or_turns_off_each_rule() {
     );
     let w = usage_warnings(&deputy, &limits);
     assert_eq!(rules(&w), ["contextTokens"]);
-    assert_eq!(w[0]["text"], "Context 1.2M tokens, above the 1.0M warning line");
+    assert!(
+        w[0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("Context 1.2M tokens, above the 1.0M warning line. Compact it")
+    );
     // The defaults are written nowhere: a config without the section keeps an empty file.
     assert!(UsageWarningsConfig::default().is_default());
     assert_eq!(serde_json::to_value(UsageWarningsConfig::default()).unwrap(), json!({}));
