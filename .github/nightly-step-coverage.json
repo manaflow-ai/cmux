@@ -100,7 +100,8 @@
         "Pack the nightly app for reuse": {"nightly_only": "records the nightly-next products for a later nightly-next build; a pull request never records one"},
         "Finish the dSYM upload to Sentry": {"nightly_only": "finishes Sentry dSYM upload (token)"},
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
-        "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a successfully built Chief artifact for the exact source and environment key"},
+        "Read whether the OptChat Chief was rebuilt": {"plumbing": true, "note": "reads the build script's reused/built result so only a rebuilt Chief entry is saved; scripts/cmux-next/tests/optchat-chief-input-cache.test.sh checks the result"},
+        "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a rebuilt Chief artifact as a new generation of the exact source and environment key"},
         "Stop the helper builds still running": {"plumbing": true},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
       "build-nightly-inputs": {

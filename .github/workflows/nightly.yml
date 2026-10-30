@@ -2306,54 +2306,14 @@ jobs:
           fi
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
-      # The Home Chief's brain host (Native/OptChat/optchat-chief) ships in the
-      # cmux-next nightly only: this step builds it for the "Bundle
-      # optchat-chief" phase script, which copies it to Resources/bin, and
-      # build-sign-notarize-nightly signs it with the app's Developer ID and
-      # hardened runtime (sign-cmux-bundle-helpers.sh signs every Mach-O
-      # there). Main's nightly, RC and stable never set the variable, so they
-      # bundle nothing, and the app starts the bundled Chief only on DEV and
-      # NIGHTLY bundle ids (HomeBrainHost.bundledChiefAllowed).
+      # The Home Chief (cmux-next nightly only): see scripts/ci/nightly-steps/chief-build.sh.
       - name: Prepare the OptChat Chief cache key
         id: chief-cache-key
         if: (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next') && steps.nightly-product.outputs.hit != 'true'
         env:
           SOURCE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.chief_key }}
           ARCHS: ${{ env.NIGHTLY_COMPILE_ARCHS }}
-        run: |
-          set -euo pipefail
-          rm -rf .nightly-optchat-chief
-          [[ "$SOURCE_KEY" =~ ^[0-9a-f]{64}$ ]] || { echo "portable Chief key unavailable; using the local keyed fallback"; exit 0; }
-          toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
-          [[ -n "$toolchain" ]] || { echo "Chief portable key unavailable; using the local keyed fallback"; exit 0; }
-          if ! rustup toolchain install "$toolchain" --profile minimal >/dev/null; then
-            echo "Chief toolchain unavailable; using the local keyed fallback"; exit 0
-          fi
-          if ! computed_key="$(python3 scripts/cmux-next/optchat-chief-input-key.py --portable --archs "$ARCHS" --toolchain "$toolchain")"; then
-            echo "Chief portable key failed on this checkout; using the local keyed fallback"; exit 0
-          fi
-          if [[ "$computed_key" != "$SOURCE_KEY" ]]; then
-            echo "Chief portable key differs from the resolved source; using the local keyed fallback"; exit 0
-          fi
-          if ! environment_key="$(python3 scripts/cmux-next/optchat-chief-input-key.py --environment --archs "$ARCHS" --toolchain "$toolchain")"; then
-            echo "Chief environment key failed; using the local keyed fallback"; exit 0
-          fi
-          [[ "$environment_key" =~ ^[0-9a-f]{64}$ ]] || { echo "Chief environment key invalid; using the local keyed fallback"; exit 0; }
-          arch_key="${ARCHS//,/ }"; arch_key="${arch_key// /-}"
-          cache_key="cmux-next-optchat-chief-${SOURCE_KEY}-${environment_key}-${arch_key}"
-          cache_root=".nightly-optchat-chief"
-          {
-            echo "source_key=$SOURCE_KEY"
-            echo "environment_key=$environment_key"
-            echo "cache_key=$cache_key"
-            echo "cache_root=$cache_root"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY=$SOURCE_KEY"
-            echo "CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY=$environment_key"
-            echo "CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1"
-            echo "CMUX_NEXT_OPTCHAT_CHIEF_CACHE=$cache_root"
-          } >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/chief-cache-key.sh
 
       - name: Restore the OptChat Chief cache
         id: chief-cache-restore
@@ -2362,42 +2322,13 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ steps.chief-cache-key.outputs.cache_root }}
-          key: ${{ steps.chief-cache-key.outputs.cache_key }}
+          key: ${{ steps.chief-cache-key.outputs.save_key }}
+          restore-keys: |
+            ${{ steps.chief-cache-key.outputs.restore_prefix }}
 
       - name: Build the OptChat Chief (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
-          # A trusted NEXT worker keeps Chief binaries keyed by their inputs
-          # (optchat-chief-input-key.py: the path-dependency closure, the
-          # regenerated inspector page, toolchain, SDK and cargo settings), so
-          # a push that changes none of them skips cargo. The step took 90-114 s
-          # on every build (runs 39349353760 to 39374887542); about 6 in 10
-          # consecutive promotions on 2026-10-19/20 left these inputs unchanged.
-          export CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1
-          if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_CACHE:-}" ]]; then
-            case "${RUNNER_NAME:-}" in
-              *-glaeda|*-glaeda-[0-9]*)
-                export CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$HOME/Library/Caches/cmux-nightly-next/$RUNNER_NAME/caches/optchat-chief"
-                ;;
-            esac
-          fi
-          # It builds in the background, beside the Release build (it took 90 to
-          # 176 s of this job's serial path): "Bundle the OptChat Chief and the
-          # iPhone host" joins it after xcodebuild and copies it in with the
-          # Xcode phase's own script. Install its toolchain and targets, and the
-          # iPhone host's, here first, so no two background builds install into
-          # one toolchain at once (both scripts then find them in place).
-          toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
-          rustup toolchain install "$toolchain" --profile minimal >/dev/null
-          rustup target add --toolchain "$toolchain" aarch64-apple-darwin x86_64-apple-darwin >/dev/null
-          (cd cmux-next-ios/rust && rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null)
-          python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" optchat-chief -- \
-            nice -n 10 env CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
-          echo "CMUX_NEXT_OPTCHAT_CHIEF_PENDING_BIN=$chief_bin" >> "$GITHUB_ENV"
-          # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
-          echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
+        run: bash scripts/ci/nightly-steps/chief-build.sh
 
       # The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which
       # Settings > Mobile runs: the "Bundle cmux-mobile-host" phase script
@@ -2669,13 +2600,18 @@ jobs:
           env "${phase_env[@]}" CMUX_NEXT_MOBILE_HOST_BIN="${CMUX_NEXT_MOBILE_HOST_PENDING_BIN:?}" \
             CMUX_NEXT_REQUIRE_MOBILE_HOST=1 scripts/cmux-next/bundle-mobile-host.sh
 
+      - name: Read whether the OptChat Chief was rebuilt
+        id: chief-cache-result
+        if: steps.chief-cache-key.outputs.cache_key != ''
+        run: bash scripts/ci/nightly-steps/chief-cache-result.sh
+
       - name: Save the OptChat Chief cache
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && steps.chief-cache-key.outputs.cache_key != '' && steps.chief-cache-restore.outputs.cache-hit != 'true'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && steps.chief-cache-key.outputs.cache_key != '' && steps.chief-cache-result.outputs.rebuilt == 'true'
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ steps.chief-cache-key.outputs.cache_root }}
-          key: ${{ steps.chief-cache-key.outputs.cache_key }}
+          key: ${{ steps.chief-cache-key.outputs.save_key }}
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
       # bundles: the daemon, app host and Cloud server come from this tree
@@ -3328,15 +3264,7 @@ jobs:
         env:
           BUILD_SHA: ${{ steps.build.outputs.build_sha }}
           ARCHS: ${{ needs.decide.outputs.compile_archs }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin "$BUILD_SHA"
-          git checkout --detach --quiet "$BUILD_SHA"
-          toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
-          [[ -n "$toolchain" ]] || { echo "error: cannot read cmux-tui/rust-toolchain.toml" >&2; exit 1; }
-          key="$(python3 scripts/cmux-next/optchat-chief-input-key.py --portable --archs "$ARCHS" --toolchain "$toolchain")"
-          [[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "error: invalid portable Chief key" >&2; exit 1; }
-          echo "key=$key" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci/nightly-steps/chief-input-key.sh
       - name: Leave the build slot to a newer nightly-next push
         id: superseded
         if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'

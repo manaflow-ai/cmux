@@ -34,6 +34,8 @@ Environment:
                                  resolver; when set, Mac does not recompute source inputs
   CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY=1  require a cache record to match
                                  the source and Mac environment identities
+  CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE  file this writes "reused" or "built" to,
+                                 so the nightly saves only an entry it rebuilt
 USAGE
 }
 
@@ -95,6 +97,7 @@ if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]]; then
   fi
 fi
 cache_bin="$cache_dir/optchat-chief"
+[[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE:-}" ]] || rm -f "$CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE"
 
 # In the input-keyed cache, which a trusted worker keeps between runs, entries
 # are touched on use and only the 8 most recently used stay; so do at most 8
@@ -112,6 +115,17 @@ prune_input_keyed() {
     done < <(ls -1dt "$cache_root"/* 2>/dev/null)
   done
   return 0
+}
+
+# Tells the caller whether the cache entry was reused or rebuilt. An entry
+# that failed validation is rebuilt, so the nightly saves it as a new
+# generation instead of restoring the bad one again (cache keys are immutable).
+report_result() {
+  local file="${CMUX_NEXT_OPTCHAT_CHIEF_RESULT_FILE:-}"
+  [[ -n "$file" ]] || return 0
+  mkdir -p "$(dirname "$file")"
+  rm -f "$file"
+  printf '%s\n' "$1" > "$file"
 }
 
 # Copies the cached binary to --output (when given) and reports where it is.
@@ -141,11 +155,13 @@ if [[ -x "$cache_bin" ]]; then
     else
       prune_input_keyed
       deliver "already cached"
+      report_result reused
       exit 0
     fi
   else
     prune_input_keyed
     deliver "already cached"
+    report_result reused
     exit 0
   fi
 fi
@@ -222,3 +238,4 @@ printf '%s\n' "commit=$commit" "archs=$archs" ${input_key:+"inputs=$input_key"} 
 mv -f "$staged_ref" "$cache_bin.ref"
 prune_input_keyed
 deliver built
+report_result built
