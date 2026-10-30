@@ -212,15 +212,12 @@ def main() -> int:
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
             # Finding 4: an entry the base had stale, filled with SwiftUI by this change.
             def own_origins(f: str) -> list[str]:
-                # Its own path, git's rename source, and (a symlink) the real file it reads.
-                paths = [f, moves.get(f, f)]
-                if (root / f).is_symlink():
-                    real = pathlib.Path(os.path.realpath(root / f))
-                    if real.is_relative_to(root):
-                        paths.append(real.relative_to(root).as_posix())
-                return paths
+                # Its own path and git's rename source.
+                return [f, moves.get(f, f)]
 
-            listed = sorted(importing & allowed_set)
+            # A symlinked Swift path is out of scope here: it neither fails nor vouches for another entry
+            # (git keeps a link's target text, the work-tree scan follows it).
+            listed = sorted(f for f in importing & allowed_set if not (root / f).is_symlink())
             # Entries whose own origins had no SwiftUI at the base, by file name: one gone entry of a
             # name pairs with one of them only (a move that rewrote the file), never with two.
             unexplained = by_name(f for f in listed
