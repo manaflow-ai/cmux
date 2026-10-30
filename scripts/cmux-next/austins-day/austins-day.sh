@@ -29,7 +29,7 @@ repo=$(cd "$here/../../.." && pwd)
 # The harness commit each run used (its tree must be clean: a result names the harness it came from).
 harness_sha=$(git -C "$repo" rev-parse HEAD)
 git -C "$repo" diff --quiet HEAD -- scripts/cmux-next/austins-day || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
-usage() { sed -n '2,16p' "$0" >&2; exit 2; }
+usage() { sed -n '2,16p' "$here/austins-day.sh" >&2; exit 2; }
 build='' base='' head='' runs=5 out='' aa=0
 while [ $# -gt 0 ]; do
   case "$1" in
