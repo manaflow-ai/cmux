@@ -12,7 +12,7 @@ extension SidebarRowFeed {
     }
 }
 
-/// Rows show their agent sessions' acpmux lane state (`sidebar.laneStatus`, Debug, on by default):
+/// Rows can show their agent sessions' acpmux lane state (`sidebar.laneStatus`, off by default):
 /// a row's status mark also follows the lane (`AgentLaneStore`) of each agent chat in it on this
 /// Mac (`SidebarLocalLanes`), so it reads working, waiting on you or failed even when no turn
 /// state reached the row, whatever harness runs the chat.
