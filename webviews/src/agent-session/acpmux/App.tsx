@@ -8520,8 +8520,7 @@ function AcpmuxPane() {
               if (row) {
                 // After Trust, the row's whole run goes again, as its card's Retry sends it.
                 rowRetry.replayAfterTrust(error, routeForSend);
-              } else if (routeForSend(error, () => composerHandle.current?.send())) {
-                void heldPrompt.hold();
+              } else {
                 const retry =
                   newTabRetainsDraft.current && expectedSessionId
                     ? () =>
@@ -8533,7 +8532,6 @@ function AcpmuxPane() {
                   void heldPrompt.hold();
                   if (!newTabRetainsDraft.current && !inComposer) restorePrompt(text, attachments);
                 }
-
               }
             }
             throw error;
