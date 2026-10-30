@@ -720,6 +720,13 @@ impl Peer {
         }
     }
 
+    /// Forget an attachment whose first baseline request failed before it was
+    /// accepted. A later client must be allowed to establish that baseline.
+    pub fn clear_attached(&self, session_id: &str) {
+        self.replay_highwater.lock_or_recover().remove(session_id);
+        self.attached.lock_or_recover().remove(session_id);
+    }
+
     /// Advance the reconnect cursor from a page returned by `_acpmux/attach`.
     /// The page's `lastSeq` includes records filtered out by `kinds`, so only
     /// the records actually delivered to the client may advance the cursor.

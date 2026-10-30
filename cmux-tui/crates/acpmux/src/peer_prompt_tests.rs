@@ -125,6 +125,15 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
     );
 }
 
+#[test]
+fn failed_first_attach_can_establish_a_new_baseline() {
+    let (notices, _) = mpsc::channel(16);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, notices);
+    assert!(peer.mark_attached("s"));
+    peer.clear_attached("s");
+    assert!(peer.mark_attached("s"));
+}
+
 #[tokio::test]
 async fn reconnect_replays_before_admitting_a_concurrent_attach() {
     replay_during_handshake(false, false).await;

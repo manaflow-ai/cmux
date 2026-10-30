@@ -282,6 +282,8 @@ async fn forward_inner(
                             && peer.link_epoch() == link
                         {
                             peer.note_hidden_attach_page(&id, &page);
+                        } else {
+                            peer.clear_attached(&id);
                         }
                     }
                 });
@@ -340,6 +342,11 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
         // `Peer::request` already took the peer's display lines out of the result and the error.
+        if result.is_err() && first_attach {
+            // Do not strand the marker when the first baseline request failed.
+            // A retry must be able to establish a fresh no-history cursor.
+            peer.clear_attached(&id);
+        }
         let mut result = result.map_err(|e| {
             if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
                 && e.message.contains("Method not found")
