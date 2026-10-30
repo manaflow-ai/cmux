@@ -34,6 +34,9 @@ pub struct FakeControlPlane {
     /// `connect-info-nofs` / `connect-info-fs`: `cloud.machine.connect_info`
     /// answers a bound machine whose daemon lacks / has `fs-v1`.
     connect_info: Option<bool>,
+    /// `connect-info-owner` / `connect-info-team`: the caller's `vm_kind` in
+    /// every `connect_info` answer (none: a Worker that predates it).
+    vm_kind: Option<&'static str>,
     /// Machines `vm-resume` started.
     started: Vec<String>,
 }
@@ -58,7 +61,8 @@ pub fn connect_info(id: &str, capabilities: &Value) -> Value {
 
 impl FakeControlPlane {
     /// The vectors plus the link-test names `vm-get`, `vm-list`,
-    /// `vm-resume`, `vm-get-unbound`, `connect-info-nofs`, `connect-info-fs`.
+    /// `vm-resume`, `vm-get-unbound`, `connect-info-nofs`, `connect-info-fs`,
+    /// `connect-info-owner`, `connect-info-team`.
     pub fn with(names: &[&str]) -> Self {
         let mut fake = Self {
             wire: WireFake::load(),
@@ -67,6 +71,7 @@ impl FakeControlPlane {
             start_any: false,
             get_unbound: false,
             connect_info: None,
+            vm_kind: None,
             started: Vec::new(),
         };
         for name in names {
@@ -77,6 +82,8 @@ impl FakeControlPlane {
                 "vm-get-unbound" => fake.get_unbound = true,
                 "connect-info-nofs" => fake.connect_info = Some(false),
                 "connect-info-fs" => fake.connect_info = Some(true),
+                "connect-info-owner" => fake.vm_kind = Some("owner"),
+                "connect-info-team" => fake.vm_kind = Some("team"),
                 other => panic!("no link-test name {other}"),
             }
         }
@@ -117,6 +124,9 @@ impl FakeControlPlane {
                 let capabilities =
                     if self.connect_info == Some(true) { json!(["fs-v1"]) } else { json!([]) };
                 let mut info = connect_info(id, &capabilities);
+                if let Some(kind) = self.vm_kind {
+                    info["vm_kind"] = json!(kind);
+                }
                 if self.list_two && id == "vm-beta02" && !self.started.iter().any(|s| s == id) {
                     info["state"] = json!("paused");
                 }
