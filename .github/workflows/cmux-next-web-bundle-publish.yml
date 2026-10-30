@@ -243,11 +243,11 @@ jobs:
           trap 'rm -f "$dir/key.pem"' EXIT
           (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
           curl -fsS --retry 3 --max-time 60 -o "$dir/manifest.json" "https://files.cmux.com/cmux-next-web/$KEY/manifest.json?pointer=$GITHUB_RUN_ID"
-          # Exit 3 is "nothing to publish"; anything else nonzero fails the job.
+          # Any payload failure, including a missing outputs digest, fails production
+          # publication. Exit 3 is only meaningful for the newer-pointer no-op below.
           rc=0
           python3 "$ptr" payload --manifest "$dir/manifest.json" --abi-file webviews/src/web-abi.json --channel "$CHANNEL" \
             --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" --out "$dir/payload.json" || rc=$?
-          if [[ $rc == 3 ]]; then echo "::warning::$KEY has no outputs digest; no web update pointer"; exit 0; fi
           [[ $rc == 0 ]] || exit "$rc"
           python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/$CHANNEL.json"
           rm -f "$dir/key.pem"

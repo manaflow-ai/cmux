@@ -60,6 +60,11 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertRegex(body, r"exit 1")
         self.assertNotIn("no web update pointer", body)
 
+    def test_missing_outputs_digest_cannot_make_production_green(self):
+        pointer_job = WORKFLOW.read_text().split("\n  pointer:\n", 1)[1]
+        self.assertIn('[[ $rc == 0 ]] || exit "$rc"', pointer_job)
+        self.assertNotIn("has no outputs digest; no web update pointer", pointer_job)
+
     def test_toolchain_change_moves_source_identity(self):
         namespace = {}
         exec(compile(KEY.read_text(), str(KEY), "exec"), namespace)
