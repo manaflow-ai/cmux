@@ -109,5 +109,4 @@ enum MiscHandlerStrings {
     static var deleteConversationTitle: String { String(localized: "handlers.misc.home.deleteConversationTitle", defaultValue: "Are you sure you want to delete this conversation?", table: "MiscHandlers", bundle: .module) }
     static var deleteConversationMessage: String { String(localized: "handlers.misc.home.deleteConversationMessage", defaultValue: "It leaves your Home list. A new message brings it back, and Show Hidden Conversations lists it again.", table: "MiscHandlers", bundle: .module) }
     static var deleteConversationConfirm: String { String(localized: "handlers.misc.home.deleteConversationConfirm", defaultValue: "Delete", table: "MiscHandlers", bundle: .module) }
-    static var deleteConversationCancel: String { String(localized: "handlers.misc.home.deleteConversationCancel", defaultValue: "Cancel", table: "MiscHandlers", bundle: .module) }
 }

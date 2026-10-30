@@ -108,18 +108,20 @@ extension AppActions {
         }
         // Delete Conversation from List: off this account's Home list until a newer message (the
         // row's Delete Conversation… asks first, then runs this). The page showing it moves to its neighbor.
-        registry.bind("home.hideConversation", invoke: { invocation in
-            guard let id = conversation(invocation, services) else { return }
+        registry.bindEffect("home.hideConversation", effect: { invocation in
+            guard let id = conversation(invocation, services) else { return .done }
             let page = shownPage(services)
             let next = page.flatMap { $0.shown == id ? $0.sidebar.model().neighbor(of: id, offset: 1) : nil }
-            guard pinSource(services).hide(id) else { return registry.refuse(RefusalStrings.homeNotReady) }
+            guard pinSource(services).hide(id) else { return .refused(RefusalStrings.homeNotReady) }
             page?.listPinsChanged()
             if let page, page.shown == id { page.conversationLeft(id, next: next) }
+            return .done
         })
-        registry.bind("home.showHiddenConversations") {
+        registry.bindEffect("home.showHiddenConversations", effect: { _ in
             pinSource(services).unhideAll()
             shownPage(services)?.listPinsChanged()
-        }
+            return .done
+        })
         // A chat's own colours: arguments set them (`cmux chat colors`, MCP); a person's run with none opens the panel.
         registry.bindEffect("home.chatColors", requires: nil, effect: { invocation in
             guard let id = conversation(invocation, services) else { return .done }

@@ -606,18 +606,15 @@ final class TopHomePageView: NSView {
         window.beginSheet(panel)
     }
 
-    /// Delete Conversation…'s question (as Messages asks); `delete` runs on Delete.
+    /// Delete Conversation…'s question (as Messages asks, the cmux dialog so the debug socket can answer it);
+    /// `delete` runs on Delete.
     private func confirmDelete(_ delete: @escaping @MainActor () -> Void) {
-        let alert = NSAlert()
-        alert.messageText = MiscHandlerStrings.deleteConversationTitle
-        alert.informativeText = MiscHandlerStrings.deleteConversationMessage
-        alert.addButton(withTitle: MiscHandlerStrings.deleteConversationConfirm)
-        alert.addButton(withTitle: MiscHandlerStrings.deleteConversationCancel)
-        alert.buttons.first?.hasDestructiveAction = true
-        guard let window else { return }
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn else { return }
-            MainActor.assumeIsolated { delete() }
+        let spec = CmuxDialogSpec(title: MiscHandlerStrings.deleteConversationTitle, lines: [MiscHandlerStrings.deleteConversationMessage],
+                                  buttons: [.cancel(), CmuxDialogButton(id: "delete", title: MiscHandlerStrings.deleteConversationConfirm, role: .destructive)],
+                                  identifier: "cmux.dialog.home.deleteConversation")
+        CmuxDialogCenter.shared.present(spec, in: window.map(CmuxDialogScope.window) ?? .app) { answer in
+            guard answer.button == "delete" else { return }
+            delete()
         }
     }
 
