@@ -48,19 +48,21 @@ extension SidebarListViewComponents {
             self.external = external
             setHovered(nil)
         }
-        if displayed.hostHeadersShowing {
-            switch external.proposal {
-            case .intoWorkspace?, .beforeTab?: break
-            default:
-                external.proposal = nil
-                reload(animated: true)
-                return nil
-            }
-        }
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
+<<<<<<< HEAD
             var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine)
+=======
+            var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
+                                                         reordersTabRows: reordersTabRows)
+            if displayed.hostHeadersShowing {
+                switch proposal {
+                case .intoWorkspace?, .beforeTab?: break
+                default: proposal = nil
+                }
+            }
+>>>>>>> c38ae523adcf (fix(sidebar): stabilize host refusal and tab proposals)
             external.slotDeadline = nil
             if slotDwell > 0, let slot = proposal, case .newWorkspace = slot {
                 let now = CACurrentMediaTime()

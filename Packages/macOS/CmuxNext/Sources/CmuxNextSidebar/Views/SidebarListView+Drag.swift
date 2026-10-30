@@ -80,6 +80,10 @@ extension SidebarListViewComponents {
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.standingWorkspace = standing
         drag.refusedAtBegin = displayed.hostHeadersShowing
+        if drag.refusedAtBegin {
+            drag.target = nil
+            drag.lift.setRefused(true)
+        }
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
         // A grouped row lifts at the list's inset; its indent comes back only for a drop into a group (morphLift).
@@ -106,12 +110,6 @@ extension SidebarListViewComponents {
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
         if offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
-        if drag.refusedAtBegin {
-            drag.target = nil; drag.docTarget = nil; drag.blockTarget = nil
-            drag.lift.setRefused(true)
-            return
-        }
-        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
@@ -120,6 +118,8 @@ extension SidebarListViewComponents {
         } else {
             SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
         }
+        if drag.refusedAtBegin { return }
+        if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         autoscroll.update(windowPoint: windowPoint)
         let card = drag.probeCard
         if point.y != drag.lastY {
@@ -195,14 +195,6 @@ extension SidebarListViewComponents {
     /// pass after the first), then the list shows the drop as before.
     private func updateDocDrag(_ drag: Drag, point: NSPoint) {
         guard let doc = model.docDrag else { return }
-        guard !drag.refusedAtBegin else {
-            drag.docTarget = nil
-            drag.target = nil
-            drag.blockTarget = nil
-            drag.lift.setRefused(true)
-            showDragLayout()
-            return
-        }
         if drag.docGeometry == nil {
             drag.geometryRevision = model.sectionsRevision
             drag.blockBases = blockBases()
