@@ -76,6 +76,7 @@ public final class DaemonPrestart: Sendable {
                     return .failure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
                 }
             } onCancel: {
+                // concurrency-allow: cancellation cleanup is actor-isolated and joined by outcome teardown.
                 Task { await holder.cancel() }
             }
         }
