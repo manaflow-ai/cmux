@@ -200,9 +200,10 @@ export function IncomingMessageLine({
           </span>
         </>
       }
-      onOpen={sessionId ? () => onOpen(sessionId) : undefined}
-      openLabel={sessionId ? t("subsession.openChat") : undefined}
-      openTitle={sessionId ? openTitle : undefined}
+      // A Chief's turn session is no chat to open.
+      onOpen={sessionId && !message.chief ? () => onOpen(sessionId) : undefined}
+      openLabel={sessionId && !message.chief ? t("subsession.openChat") : undefined}
+      openTitle={sessionId && !message.chief ? openTitle : undefined}
       // It opens at once, its height alone moving, as the message's card always did; closing fades.
       fadeIn={false}
       actions={

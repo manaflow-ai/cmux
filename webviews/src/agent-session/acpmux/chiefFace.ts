@@ -2,8 +2,9 @@
 // chat names the Chief by its participant id (acpmux `fromChief`), and its line shows the name and
 // avatar the sidebar and Home show for that Chief, never the turn's session name
 // (`optchat-<home>-<n>`) with a robot. The host answers `chief.face {chief}` with `name`, and `src`
-// (a small data URL) or `text` (a text avatar: letters or an emoji) (HomeService+AgentPageFace.swift).
-// An answer is kept for the page; a failed ask (an older host, the page not yet connected) is not.
+// (a small data URL) or `text` (a text avatar: letters or an emoji) (HomeService.agentPageFace).
+// An answer is kept for the page; a failed or empty one (an older host, the page not yet connected,
+// Home not read yet) is not.
 import { useEffect, useSyncExternalStore } from "react";
 import { postNative } from "./native";
 
@@ -51,6 +52,9 @@ export function loadChiefFace(chief: string): Promise<ChiefFace | undefined> {
     .then(
       (reply) => {
         const value = face(reply);
+        // An empty answer (Home not read yet, a Chief this Mac does not know) is not kept: the next
+        // line that draws the Chief asks again.
+        if (Object.keys(value).length === 0) return undefined;
         faces.set(chief, value);
         for (const listener of listeners) listener();
         return value;

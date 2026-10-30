@@ -33,6 +33,9 @@ export type IncomingRelation = "parent" | "subsession" | "ancestor" | "descendan
 const RELATIONS: readonly string[] = ["parent", "subsession", "ancestor", "descendant"];
 /// A Chief's participant id (acpmux `fromChief`): `agent_mux`, `agent_…`.
 const CHIEF_ID = /^agent_[A-Za-z0-9_-]{1,58}$/;
+/// The Chief whose turn sent a message (acpmux `prompt_provenance::stamp_chief`).
+const chiefOf = (provenance: Record<string, unknown>): string | undefined =>
+  typeof provenance.fromChief === "string" && CHIEF_ID.test(provenance.fromChief) ? provenance.fromChief : undefined;
 
 export type IncomingMessage = {
   /// The sender's name, or its address when it gives none.
@@ -254,10 +257,7 @@ export function incomingPrompt(
     provenance?.kind === "task_result";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // A Chief's turn: the Chief, whose turn session is its own and is no chat to open.
-    const chief =
-      typeof provenance.fromChief === "string" && CHIEF_ID.test(provenance.fromChief)
-        ? provenance.fromChief
-        : undefined;
+    const chief = chiefOf(provenance);
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
     // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).
     const sessionId = chief ? undefined : provenance.from.replace(/^acp:/, "") || undefined;
@@ -311,6 +311,8 @@ export function incomingPrompt(
     // here, which the card opens; a terminal agent (`term_…`) or a person at a shell (`cli`) is not
     // one.
     const sessionId = provenance.from.startsWith("acp:") ? provenance.from.slice(4) || undefined : undefined;
+    // A Chief's turn (`agents_chat_send`): the line names the Chief; Reply still answers its turn.
+    const chief = chiefOf(provenance);
     const body = (renderedBody(text, provenance.msgId) ?? text).trim();
     const signed = agentSigned(body, [provenance.fromName]);
     const id = (key: string) =>
@@ -320,6 +322,7 @@ export function incomingPrompt(
       message: {
         name: signed?.name ?? name,
         ...(sessionId && { sessionId }),
+        ...(chief && { chief }),
         ...id("msgId"),
         ...id("threadId"),
         ...remote,

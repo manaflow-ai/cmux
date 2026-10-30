@@ -290,7 +290,11 @@ extension HomeService {
     /// Chief `chief` (a participant id) as an agent chat draws a message it sent there
     /// (`chief.face`, manaflow-ai/cmux#27914): the name and avatar Home and the sidebar show for it.
     func agentPageFace(of chief: String, avatars: AgentAvatars) async -> [String: String] {
-        let name = homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
+        // The one name its tile, header and tab show (a rename being saved included): its own
+        // conversation's; else what a conversation or its record calls it.
+        let own = homeStore.rows.first { Self.soleChief(of: $0.summary.participants) == chief }
+        let name = own.flatMap { chiefName(of: $0.summary.id) }
+            ?? homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
             ?? directory.chiefs.first { $0.id == chief }?.name
         // The sidebar draws the default Chief (`agent_mux`) with no id.
         var picture = services.characterPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
