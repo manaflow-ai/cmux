@@ -5570,6 +5570,7 @@ export class AcpmuxDirectClient {
           mimeType: data.mimeType,
           size: Math.floor((data.data.length * 3) / 4),
           data: data.data,
+          ...(image.source ? { source: image.source } : {}),
         };
       }),
     );

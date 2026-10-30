@@ -74,6 +74,7 @@ export function queuedAttachments(
         mimeType: image.mimeType,
         size: 0,
         ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
+        ...(image.source ? { source: image.source } : {}),
       };
     }),
   );

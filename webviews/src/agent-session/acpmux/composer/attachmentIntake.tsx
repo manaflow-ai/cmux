@@ -12,6 +12,7 @@ import {
   installFileDropLifecycle,
   sourceOfFile,
   thumbnail,
+  withSource,
   type AttachmentError,
   type AttachmentSource,
   type ComposerAttachment,
@@ -258,7 +259,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           asked.map(({ file }) => file),
         ).then((sources) => {
           sources.forEach((source, at) => {
-            if (source) fileSource[asked[at]!.index] = source;
+            if (!source) return;
+            const { file, index } = asked[at]!;
+            fileSource[index] = source;
+            // A failed chip's Retry reads this same file again: it keeps the answer.
+            withSource(file, source);
           });
           answered = true;
         });

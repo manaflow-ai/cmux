@@ -8,6 +8,7 @@ import {
   type ComposerAttachment,
 } from "../attachments";
 import { inlinePrompt, normalizePromptContentPart, restoreInline, stripFileDisplay } from "../inlinePrompt";
+import { queuedAttachments } from "../conversation/queuedMessages";
 import { attachSources } from "./attachmentSources";
 
 const chrome = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
@@ -116,6 +117,15 @@ test("byte-identical images keep their own sources, and a video carries its sour
     { kind: "image", blockIndex: 1, source: chrome },
     { kind: "file", blockIndex: 2, source: video.source },
   ]);
+});
+
+test("Edit message on a queued prompt keeps each image's source", async () => {
+  const [kept, plain] = await queuedAttachments([
+    { id: "a", mimeType: "image/png", src: "data:image/png;base64,AQ==", source: chrome },
+    { id: "b", mimeType: "image/png", src: "data:image/png;base64,Ag==" },
+  ]);
+  expect(kept?.source).toEqual(chrome);
+  expect(plain).not.toHaveProperty("source");
 });
 
 test("Edit and Retry put a sent attachment back with its source", async () => {

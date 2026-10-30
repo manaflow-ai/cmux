@@ -380,7 +380,8 @@ impl Hub {
             if let Some(class) = q.run.class {
                 queued["class"] = json!(class);
             }
-            let images = super::prompt_images::keep(&q.run.blocks);
+            let images =
+                super::prompt_images::keep_sourced(&q.run.blocks, q.run.display_parts.as_ref());
             if !images.is_empty() {
                 queued.set("images", Value::Array(images));
             }

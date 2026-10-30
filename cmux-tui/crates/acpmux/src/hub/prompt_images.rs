@@ -164,20 +164,23 @@ pub(super) fn id_of(block: &Value) -> Option<String> {
     decode(block).and_then(|(_, named)| named["id"].as_str().map(str::to_owned))
 }
 
-/// What `keep` would record of `blocks`' images, without keeping them (a queued prompt's row,
-/// `views.rs`).
+/// What `keep_sourced` would record of `blocks`' images, without keeping them (a queued
+/// prompt's row, `views.rs`).
 pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
     blocks.iter().filter_map(decode).map(|(_, named)| named).collect()
 }
 
 /// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` (and a
-/// queued prompt's `queued` and `queue_updated`) records of them. An image that cannot be read
-/// or kept is left out: the prompt still goes.
-pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
-    keep_indexed(blocks).into_iter().map(|(_, image)| image).collect()
+/// queued prompt's `queued` and `queue_updated`) records of them, each with its source from the
+/// prompt's display metadata (`name_image_sources`), so Edit message and a reload keep it. An image
+/// that cannot be read or kept is left out: the prompt still goes.
+pub(super) fn keep_sourced(blocks: &[Value], display_parts: Option<&Value>) -> Vec<Value> {
+    let mut kept = keep_indexed(blocks);
+    name_image_sources(&mut kept, blocks, display_parts);
+    kept.into_iter().map(|(_, image)| image).collect()
 }
 
-/// `keep`'s records, each with its block's index in `blocks`.
+/// The kept image records, each with its block's index in `blocks`.
 fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
     blocks
         .iter()
@@ -219,10 +222,10 @@ fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
 /// metadata. The web transcript uses this field to interleave text and attachments after a reload.
-/// Every image gets its content id here even when `keep` could not write its bytes: this preserves
-/// identity across a later image in the same prompt, while the separate `images` field remains the
-/// authoritative list of ids that `_acpmux/attachment` can actually read. No block's base64 payload
-/// is copied into the event log.
+/// Every image gets its content id here even when `keep_sourced` could not write its bytes: this
+/// preserves identity across a later image in the same prompt, while the separate `images` field
+/// remains the authoritative list of ids that `_acpmux/attachment` can actually read. No block's
+/// base64 payload is copied into the event log.
 pub(super) fn inline_parts(
     blocks: &[Value],
     images: &[Value],
@@ -444,10 +447,10 @@ fn block_size(block: &Value) -> Option<u64> {
     let data = block.get("data").and_then(Value::as_str)?;
     u64::try_from(base64::engine::general_purpose::STANDARD.decode(data).ok()?.len()).ok()
 }
-/// The `image` blocks of images a record names (`keep`'s `{id, mimeType, name}`), read back
-/// from where `keep` put them, so a prompt that is sent again (a restart's continuation,
-/// `restart_resume.rs`) carries them. One that is gone or whose id is not one `keep` makes is
-/// left out.
+/// The `image` blocks of images a record names (`keep_sourced`'s `{id, mimeType, name}`), read
+/// back from where `keep_sourced` put them, so a prompt that is sent again (a restart's
+/// continuation, `restart_resume.rs`) carries them. One that is gone or whose id is not one
+/// `keep_sourced` makes is left out.
 pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
     use base64::Engine;
     images
@@ -472,8 +475,8 @@ pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// Puts each image's source from the prompt's display metadata on its record (`keep`'s
-/// `{id, mimeType, name}`, with its block's index), so the transcript's thumbnail has it after a
+/// Puts each image's source from the prompt's display metadata on its record
+/// (`{id, mimeType, name}`, with its block's index), so the transcript's thumbnail has it after a
 /// reload. Each record takes only its own block's source: byte-identical images share an id but
 /// not a source.
 fn name_image_sources(
@@ -500,9 +503,7 @@ impl Hub {
         blocks: &[Value],
         display_parts: Option<&Value>,
     ) {
-        let mut kept = keep_indexed(blocks);
-        name_image_sources(&mut kept, blocks, display_parts);
-        let images: Vec<Value> = kept.into_iter().map(|(_, image)| image).collect();
+        let images = keep_sourced(blocks, display_parts);
         if !images.is_empty() {
             msg.set("images", Value::Array(images));
         }
