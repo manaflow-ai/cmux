@@ -8,8 +8,8 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
     case here
     /// A tab in this pane of the scrolling strip.
     case tab(in: PaneID)
-    /// The chat is alone on its screen: it moves into a new left dock with
-    /// the agent chat role, and the new tab stays in its pane.
+    /// The chat is alone on its screen, with nothing on its right: it moves into
+    /// a new left dock with the agent chat role, and the new tab stays in its pane.
     case dockChat
     /// The chat dock is a pinned column alone on its screen (Home with
     /// nothing beside it, `pinned-dock-alone-v1`): the new tab opens in a new
@@ -34,6 +34,12 @@ public nonisolated enum ChatColumnPlacement: Equatable, Sendable {
         }
         guard column.dock == nil, strip.count == 1, !columns.contains(where: { $0.dock?.role == .agentChat }),
               isLoneChat(column) else { return .here }
+        // A pane already on the chat's right (a right dock that takes tabs) is where what it opens goes: the
+        // chat does not dock to make another one beside it. Leo 2026-10-30: "stupid to not reuse the existing
+        // opened fucking right pane".
+        if let right = columns.first(where: { $0.dock?.edge == .right && ($0.dock?.isPinned != true || $0.dock?.allowsTabs == true) }) {
+            return .tab(in: recent.first { right.root.contains($0) } ?? right.root.panes[0])
+        }
         return .dockChat
     }
 

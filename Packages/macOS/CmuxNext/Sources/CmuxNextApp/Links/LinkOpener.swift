@@ -89,7 +89,13 @@ final class LinkOpener {
                                                                      takesTabs: takes, recency: content.recentPanes) {
                 return found
             }
-            return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
+            // The pane drawn on the source's right, else the first one after it in column order: a right dock,
+            // or a column the drawn frames miss, is still reused instead of a new split (Leo 2026-10-30: "stupid
+            // to not reuse the existing opened fucking right pane").
+            if let drawn = PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content), takes(drawn) { return drawn }
+            guard let screen = content.layoutModel.screen(containing: source.layoutPaneID) else { return nil }
+            return LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID, columns: screen.layout.visualColumns.map(\.root.panes),
+                                                             takesTabs: takes, recency: content.recentPanes)
         }
         return LinkOpenPlacement(setting: placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
     }
