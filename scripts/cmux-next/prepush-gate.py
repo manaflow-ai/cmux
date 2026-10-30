@@ -426,19 +426,40 @@ def _literal(node: ast.AST, names: dict[str, str] | None = None):
     raise ValueError(ast.dump(node))
 
 
-def pushed_import_baseline(repo: Path, head: str) -> frozenset[str] | None:
-    """The pushed head's IMPORT_BASELINE (the dependency check's), parsed and never executed; None when unreadable.
-    The hook runs the installed checker, whose baseline is the one before the push: a push that declares a pair and
-    drops its line (the cleanup the checker asks for) would be told to drop a line it already dropped."""
+def import_baseline(source: bytes) -> frozenset[str] | None:
+    """The IMPORT_BASELINE of the dependency check's SOURCE, parsed and never executed; None when unreadable."""
     try:
-        source = git(repo, "show", f"{head}:{DEPS_CHECKER}").decode("utf-8")
-        for node in ast.parse(source).body:
+        for node in ast.parse(source.decode("utf-8")).body:
             if (isinstance(node, ast.Assign) and len(node.targets) == 1
                     and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "IMPORT_BASELINE"):
                 return frozenset(_literal(node.value))
-    except (subprocess.CalledProcessError, SyntaxError, UnicodeDecodeError, ValueError, TypeError):
+    except (SyntaxError, UnicodeDecodeError, ValueError, TypeError):
         return None
     return None
+
+
+def pushed_import_baseline(repo: Path, head: str) -> frozenset[str] | None:
+    """The pushed head's IMPORT_BASELINE (the dependency check's); None when unreadable.
+    The hook runs the installed checker, whose baseline is the one before the push: a push that declares a pair and
+    drops its line (the cleanup the checker asks for) would be told to drop a line it already dropped."""
+    try:
+        return import_baseline(git(repo, "show", f"{head}:{DEPS_CHECKER}"))
+    except subprocess.CalledProcessError:
+        return None
+
+
+def dropped_baseline_pairs(repo: Path, head: str, trusted_scripts: Path | None) -> frozenset[str]:
+    """Pairs the installed checker's IMPORT_BASELINE lists and the pushed head's no longer does. The installed checker
+    still excuses them, so it would report neither a missing import nor a stale line for them: deps_findings judges
+    them itself, over the whole package (gate() gives the check full trees when this is not empty)."""
+    if trusted_scripts is None:
+        return frozenset()  # the trees run the head's own checker, with the head's own baseline
+    try:
+        installed = import_baseline((trusted_scripts / Path(DEPS_CHECKER).name).read_bytes())
+    except OSError:
+        return frozenset()
+    pushed = pushed_import_baseline(repo, head)
+    return installed - pushed if installed is not None and pushed is not None else frozenset()
 
 
 def stale_pairs(output: str) -> set[str]:
@@ -460,6 +481,14 @@ def deps_findings(repo: Path, base: str, head: str, base_out: str, head_out: str
     the same files at the base) and the whole package at the head confirms it (WORK gets that tree, only then)."""
     pushed = pushed_import_baseline(repo, head)
     head_stale = stale_pairs(head_out)
+    # A pair the push dropped from IMPORT_BASELINE that the installed checker (which still excuses it) does not call
+    # stale is still imported and undeclared: CI's pushed checker fails on it. The trees hold the whole package then.
+    dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if full_package else frozenset()
+    missing = [f"{MANIFEST}: {target}: imports {module} but does not declare it in its dependencies, and this push "
+               f"drops its IMPORT_BASELINE line. Fix: add \"{module}\" to the dependencies of {target}, or keep the line"
+               for target, module in (p.split(": ", 1) for p in sorted(dropped - head_stale))]
+    if missing:
+        head_out, head_code = "\n".join(missing + records(head_out)), head_code or 1
     if not head_stale:
         return head_out, head_code
     if full_package:
@@ -901,7 +930,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     changed = changed_files(repo, base, head)
     if restrict is not None:
         changed = [p for p in changed if p in restrict]
-    if not changed:
+    # The checker lies outside SCOPES: a push that only drops IMPORT_BASELINE lines still needs the dependency check.
+    dropped = dropped_baseline_pairs(repo, head, trusted_scripts) if only is None or "scanners" in only else ()
+    if not changed and not dropped:
         return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
@@ -921,7 +952,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 continue  # a commit older than this check
             if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
-        if DEPS_CHECK in jobs and MANIFEST in changed:
+        if dropped and DEPS_CHECK not in jobs:
+            jobs[DEPS_CHECK] = ("cmd", next(cmd for name, cmd, _ in SCANNERS if name == DEPS_CHECK))
+        if DEPS_CHECK in jobs and (MANIFEST in changed or dropped):
             # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
             # ast-grep's, the changed production files only.
             package = sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
