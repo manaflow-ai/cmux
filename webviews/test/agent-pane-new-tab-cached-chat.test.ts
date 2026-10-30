@@ -339,6 +339,23 @@ test("the actions that open a chat in a tab hand the chat over first", async () 
   }
 });
 
+/// A subagent's pane is a tab on the chat's own session too (subagentPanes.ts), so the action that
+/// asks the app for one hands the chat over first, the same way. Without it the pane opens blank
+/// and waits on its own attach.
+test("opening a subagent in its own pane hands the chat over first", async () => {
+  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
+  const sites = [...app.matchAll(/openSubagentPane\(callNative/g)];
+  expect(sites.length).toBe(1);
+  for (const site of sites) {
+    const before = app.slice(Math.max(0, site.index - 400), site.index);
+    expect(
+      before.includes("handOverCurrentTail()"),
+      "showSubagent does not hand the chat over before asking for the subagent pane, so the pane " +
+        "opens cold (tailCache.ts). Call directClient.current?.handOverCurrentTail() before it.",
+    ).toBe(true);
+  }
+});
+
 /// A tab closing on a chat leaves it warm too: the page is gone before anything else could hand it
 /// over, so `close` does it (and `pagehide`, which no test here can fire).
 test("a tab closed on a chat hands that chat over", async () => {
