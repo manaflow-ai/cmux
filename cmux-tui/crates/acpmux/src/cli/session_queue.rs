@@ -116,9 +116,6 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
             // Before anything leaves: the session's own daemon (a peer's, for `host/name`) must
             // check `fromAgentsOnly` as each prompt leaves, or an agent message the person edits
             // meanwhile (theirs now) would go by the list read above.
-            if !targets.is_empty() && !checks_agents_only(client, &id).await? {
-                return Err(agents_only_unsupported("nothing was removed"));
-            }
             let mut results = Vec::with_capacity(targets.len());
             for item in &targets {
                 let prompt_id = item["promptId"].as_str().unwrap_or_default();
