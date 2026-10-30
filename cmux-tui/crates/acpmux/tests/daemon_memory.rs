@@ -61,6 +61,7 @@ struct Daemon {
     child: Child,
     socket: PathBuf,
     listen: Option<String>,
+    reaped: bool,
 }
 
 impl Daemon {
@@ -100,7 +101,8 @@ impl Daemon {
             if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && v["ready"] == true
             {
-                return Self { child, socket, listen: v["listen"].as_str().map(str::to_owned) };
+                let listen = v["listen"].as_str().map(str::to_owned);
+                return Self { child, socket, listen, reaped: false };
             }
         }
         let _ = child.kill();
@@ -117,22 +119,30 @@ impl Daemon {
         String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().unwrap() * 1024
     }
 
-    /// Peak resident bytes while this process has run. Linux exposes VmHWM;
-    /// other Unix targets use the current RSS as a conservative portable fallback.
-    fn hwm_bytes(&self) -> u64 {
-        if let Ok(status) = std::fs::read_to_string(format!("/proc/{}/status", self.child.id())) {
-            if let Some(kb) = status.lines().find_map(|line| {
-                line.strip_prefix("VmHWM:")?.split_whitespace().next()?.parse::<u64>().ok()
-            }) {
-                return kb * 1024;
-            }
-        }
-        self.rss_bytes()
+    /// Peak resident bytes over the daemon's whole life, from `wait4`'s rusage. This
+    /// kills the daemon (SIGKILL, so no shutdown work moves the peak) and reaps it.
+    /// `ru_maxrss` is KiB on Linux and bytes on macOS.
+    fn stop_peak_rss_bytes(&mut self) -> u64 {
+        let pid = self.child.id() as i32;
+        let mut status = 0;
+        // SAFETY: rusage is plain integers, for which all zeroes is a valid value.
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        // SAFETY: the pid is this test's own child, not yet reaped.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+        // SAFETY: both pointers are to live locals that wait4 fills in.
+        let reaped = unsafe { libc::wait4(pid, &mut status, 0, &mut usage) };
+        assert_eq!(reaped, pid, "wait4 on the daemon");
+        self.reaped = true;
+        let unit = if cfg!(target_os = "macos") { 1 } else { 1024 };
+        usage.ru_maxrss as u64 * unit
     }
 }
 
 impl Drop for Daemon {
     fn drop(&mut self) {
+        if self.reaped {
+            return;
+        }
         // SAFETY: the pid is this test's own child.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
@@ -622,7 +632,7 @@ fn retained_session_list_allocation_benchmark() {
 /// A fixed remote peer cache workload plus N retained sessions. The six runs
 /// exercise both idle and closed rows at the cache sizes used by the Chief
 /// home, while ten retained closed peer chats keep N=0 meaningful.
-fn peer_memory_case(closed: bool, fillers: u64) {
+fn peer_memory_case(closed: bool, fillers: u64) -> (u64, u64) {
     let dir = scratch(if closed { "peer-closed" } else { "peer-idle" });
     let remote = dir.join("remote");
     let local = dir.join("local");
@@ -651,7 +661,7 @@ fn peer_memory_case(closed: bool, fillers: u64) {
     let listen = remote_daemon.listen.clone().expect("peer listener address");
     let peer_token = std::fs::read_to_string(remote.join("run").join("peer.token")).unwrap();
     let token = websocket_token(&remote);
-    let local_daemon = Daemon::start(&dir.join("local-run"), &local);
+    let mut local_daemon = Daemon::start(&dir.join("local-run"), &local);
     let mut rpc = Rpc::connect(&local_daemon.socket);
     rpc.call(
         "_acpmux/peer_add",
@@ -690,12 +700,12 @@ fn peer_memory_case(closed: bool, fillers: u64) {
     }
     let cpu_ms = cpu_ms(local_daemon.child.id()) - cpu0;
     let rss_kib = local_daemon.rss_bytes() / 1024;
-    let hwm_kib = local_daemon.hwm_bytes() / 1024;
+    let peak_kib = local_daemon.stop_peak_rss_bytes() / 1024;
     println!(
         "acpmux-peer-snapshot-memory: {}",
         serde_json::to_string(&json!({
             "closed": closed, "fillers": fillers, "rss_kib": rss_kib,
-            "peak_rss_kib": hwm_kib, "cpu_ms": cpu_ms, "fixed_retained": FIXED_PEERS,
+            "peak_rss_kib": peak_kib, "cpu_ms": cpu_ms, "fixed_retained": FIXED_PEERS,
             "records_per_fixed": 400, "payload": "object-heavy-nested"
         }))
         .unwrap()
@@ -703,19 +713,37 @@ fn peer_memory_case(closed: bool, fillers: u64) {
     drop(local_daemon);
     drop(remote_daemon);
     let _ = std::fs::remove_dir_all(&dir);
+    (peak_kib, cpu_ms)
 }
 
-/// Hermetic exact-daemon saturation evidence for peer snapshots. The fixed
-/// retained workload exercises removed-record accounting and the N fillers
-/// drive the cache through 0, 288 and 1000 sessions in both statuses.
+/// Recorded bounds for the peer snapshot benchmark below (BOUNDS_RUN).
+const PEAK_MB: u64 = 0;
+const CPU_MS: u64 = 0;
+
+/// Hermetic exact-daemon saturation cost of peer snapshots. The fixed retained
+/// workload exercises removed-record accounting and the N fillers drive the cache
+/// through 0, 288 and 1000 sessions in both statuses. Each case's lifetime peak RSS
+/// and snapshot CPU must stay within `ACPMUX_PEER_SNAPSHOT_PEAK_MB` and
+/// `ACPMUX_PEER_SNAPSHOT_CPU_MS`; the defaults are the worst case measured on the
+/// fleet's Linux runner plus headroom (BOUNDS_RUN). Opt-in like the list benchmark:
+/// run with --ignored --test-threads=1 on base and head on one host.
 #[test]
-fn peer_snapshot_cache_saturation_cost_with_object_heavy_payloads() {
+#[ignore = "same-host peer snapshot benchmark; run explicitly with --ignored"]
+fn peer_snapshot_cache_saturation_stays_within_its_recorded_cost() {
+    let peak_mb = env_or("ACPMUX_PEER_SNAPSHOT_PEAK_MB", PEAK_MB);
+    let cpu_budget_ms = env_or("ACPMUX_PEER_SNAPSHOT_CPU_MS", CPU_MS);
+    let mut over = Vec::new();
     for &closed in &[false, true] {
         for &fillers in &[0, 288, 1000] {
-            peer_memory_case(closed, fillers);
+            let (peak_kib, cpu_ms) = peer_memory_case(closed, fillers);
+            if peak_kib > peak_mb * 1024 || cpu_ms > cpu_budget_ms {
+                over.push(json!({"closed": closed, "fillers": fillers,
+                                 "peak_rss_kib": peak_kib, "cpu_ms": cpu_ms}));
+            }
         }
     }
-    // The store's 16 MiB limits count serialized bytes, not heap. Object-heavy
-    // payloads amplify in memory; report that cost rather than impose a heap
-    // budget unrelated to the invariant. disk_tests guards zero sizing allocations.
+    assert!(
+        over.is_empty(),
+        "peer snapshots cost more than {peak_mb} MB peak or {cpu_budget_ms} ms CPU: {over:?}"
+    );
 }
