@@ -109,6 +109,9 @@ import CmuxNextCompat
     /// (peer-route approvals, ``AcpmuxMacApprover``): it has not enrolled this Mac, or the allow
     /// was not a one-time allow. nil: a later answer counted, and what was said no longer holds.
     public var onPeerApprovalsOff: (@MainActor (AgentPanePeerApprovals?) -> Void)?
+    /// This app's approver key and Enroll this Mac (``AgentPanePeerApprover``), from the app's pane
+    /// factory; nil: a peer's prompt gets no signed allow and the notice offers no Enroll.
+    public var peerApprover: AgentPanePeerApprover?
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
     /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).

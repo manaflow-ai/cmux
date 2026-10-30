@@ -31,8 +31,7 @@ struct AgentPanePeerApprovalsNoticeTests {
     @Test func aNewReasonReplacesTheNoticeAndACountedAnswerRemovesIt() throws {
         let (view, directory) = try pane()
         defer { view.close(); try? FileManager.default.removeItem(at: directory) }
-        AgentPanePeerApprovals.enroll = { _, _ in nil }
-        defer { AgentPanePeerApprovals.enroll = nil }
+        view.model.transport.peerApprover = AgentPanePeerApprover(key: AcpmuxMacApprover()) { _, _ in nil }
 
         view.showPeerApprovalsOff(.onceOnly)
         #expect(view.remoteApprovalsNoticeLines?.lines == [AgentPaneView.peerApprovalsOnceOnly])
@@ -57,8 +56,7 @@ struct AgentPanePeerApprovalsNoticeTests {
         var asked: [String] = []
         var through: [[String: String]] = []
         var failure: String? = "ssh: far: no route"
-        AgentPanePeerApprovals.enroll = { peer, daemon in asked.append(peer); through.append(daemon); return failure }
-        defer { AgentPanePeerApprovals.enroll = nil }
+        view.model.transport.peerApprover = AgentPanePeerApprover(key: AcpmuxMacApprover()) { peer, daemon in asked.append(peer); through.append(daemon); return failure }
 
         // A pane with no daemon enrolls nowhere.
         view.showPeerApprovalsOff(.notEnrolled(peer: "far"))
@@ -112,10 +110,10 @@ struct AgentPanePeerApprovalsNoticeTests {
     /// Enroll runs against the daemon this app registered its key with on the pane's socket (a
     /// DEV or tagged build's own acpmux home), not the default one.
     @Test func enrollGoesToTheDaemonThePaneTalksTo() {
-        AgentPanePeerApprovals.daemons["/tmp/a.sock"] = ["ACPMUX_HOME": "/tmp/a", "ACPMUX_SOCKET": "/tmp/a.sock"]
-        defer { AgentPanePeerApprovals.daemons["/tmp/a.sock"] = nil }
-        #expect(AgentPanePeerApprovals.daemon(socket: "/tmp/a.sock") == ["ACPMUX_HOME": "/tmp/a", "ACPMUX_SOCKET": "/tmp/a.sock"])
-        #expect(AgentPanePeerApprovals.daemon(socket: "/tmp/b.sock") == ["ACPMUX_SOCKET": "/tmp/b.sock"])
-        #expect(AgentPanePeerApprovals.daemon(socket: nil).isEmpty)
+        let approver = AgentPanePeerApprover(key: AcpmuxMacApprover())
+        approver.daemons["/tmp/a.sock"] = ["ACPMUX_HOME": "/tmp/a", "ACPMUX_SOCKET": "/tmp/a.sock"]
+        #expect(approver.daemon(socket: "/tmp/a.sock") == ["ACPMUX_HOME": "/tmp/a", "ACPMUX_SOCKET": "/tmp/a.sock"])
+        #expect(approver.daemon(socket: "/tmp/b.sock") == ["ACPMUX_SOCKET": "/tmp/b.sock"])
+        #expect(approver.daemon(socket: nil).isEmpty)
     }
 }

@@ -22,7 +22,6 @@ public import Observation
 /// per `refreshInterval`, from the lanes' states and titles only (a new step changes nothing).
 @Observable @MainActor
 public final class RemoteMachinesSidebar {
-    public static let shared = RemoteMachinesSidebar()
     /// Rows shown per page of an unfolded group; Show More adds one.
     public static let pageSize = 10
     /// The longest a lane change waits before the groups show it.
