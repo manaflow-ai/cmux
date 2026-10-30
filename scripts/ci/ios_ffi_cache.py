@@ -82,10 +82,14 @@ BUSY_SECONDS = 3600
 # variable cargo, rustc or the C toolchain reads for a build (CARGO_*, RUST*, the iOS target and
 # SDK, compiler and linker flags). Paths that only say where things live are left out, so the key
 # stays the same from step to step; CARGO_HOME's config files are keyed by their content.
-BUILD_ENV_PREFIXES = ("CARGO_", "RUST", "IPHONEOS_", "CC_", "CXX_", "AR_", "CFLAGS_", "CXXFLAGS_",
-                      "TARGET_CC", "TARGET_CFLAGS", "TARGET_AR")  # cc-rs per-target names
-BUILD_ENV_NAMES = {"CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "SDKROOT",
-                   "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET"}
+# cc-rs reads each of its names bare and as NAME_<target>, NAME_<target_with_underscores>,
+# HOST_NAME and TARGET_NAME, so a prefix match covers them all. Keying an unrelated variable that
+# shares a prefix costs at most a miss; leaving one out could restore another build's bytes.
+BUILD_ENV_PREFIXES = ("CARGO_", "RUST", "IPHONEOS_", "CC", "CXX", "AR", "RANLIB", "CFLAGS",
+                      "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "HOST_", "TARGET_", "CRATE_CC_", "SDKROOT",
+                      "DEVELOPER_DIR", "MACOSX_DEPLOYMENT_TARGET", "LIBCLANG", "CLANG_PATH",
+                      "BINDGEN_", "OBJC", "SWIFT")
+BUILD_ENV_NAMES = {"LD", "NM", "STRIP"}
 BUILD_ENV_LOCATIONS = {"CARGO_HOME", "RUSTUP_HOME", "CARGO_TARGET_DIR", "CARGO_TERM_COLOR",
                        "CARGO_TERM_PROGRESS_WHEN", "CARGO_TERM_QUIET", "CARGO_TERM_VERBOSE",
                        "CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_NET_RETRY", "CARGO_HTTP_TIMEOUT",
@@ -421,10 +425,12 @@ def store(root, inputs_file, tip_file):
                     "files": listing(tmp / "payload"), "created_at": int(time.time())}
         (tmp / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
         try:
-            os.rename(tmp, cache / key)  # fails when another step published the key first; either serves
-        except OSError:
+            os.rename(tmp, cache / key)
+        except OSError as e:
             shutil.rmtree(tmp, ignore_errors=True)
-            return 0
+            if verify(cache / key, key)[0]:
+                return 0  # another step published the key first; either build serves
+            raise RuntimeError("could not publish %s: %s" % (key[:12], e))
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise

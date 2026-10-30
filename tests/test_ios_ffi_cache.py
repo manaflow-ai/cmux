@@ -138,6 +138,19 @@ class FFICacheTest(unittest.TestCase):
         self.assertIn("cmux-tui/crates/cmux-wg", p.stdout)
         self.assertFalse((self.cache / "ios-ffi" / key).exists())
 
+    def test_failed_publish_is_an_error_not_a_quiet_success(self):
+        key = self.key()
+        self.build()
+        p = self.run_helper("probe", str(self.work / "inputs.json"), str(self.work / "tip.json"))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        # A file holds the key's path: the rename of the new entry onto it fails, and no entry
+        # stands there, so this is not the benign "another step published it first" race.
+        (self.cache / "ios-ffi").mkdir(parents=True)
+        (self.cache / "ios-ffi" / key).write_text("not an entry")
+        p = self.run_helper("store", str(self.checkout), str(self.work / "inputs.json"), str(self.work / "tip.json"))
+        self.assertEqual(p.returncode, 5, p.stdout + p.stderr)
+        self.assertIn("could not publish", p.stderr)
+
     def test_tampered_entry_is_dropped(self):
         key = self.key()
         self.build()
@@ -179,7 +192,10 @@ class FFICacheTest(unittest.TestCase):
             return p.stdout.strip()
         for name, value in (("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1"), ("CARGO_PROFILE_RELEASE_PANIC", "abort"),
                             ("CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS", "-Copt-level=1"),
-                            ("CC_aarch64_apple_ios", "/opt/cc"), ("RUSTUP_TOOLCHAIN", "nightly")):
+                            ("CC_aarch64_apple_ios", "/opt/cc"), ("RUSTUP_TOOLCHAIN", "nightly"),
+                            ("RANLIB", "/opt/ranlib"), ("ARFLAGS", "crsD"), ("RANLIB_aarch64-apple-ios", "x"),
+                            ("ARFLAGS_aarch64_apple_ios_sim", "x"), ("CRATE_CC_NO_DEFAULTS", "1"),
+                            ("TARGET_CFLAGS", "-O0"), ("HOST_CC", "/opt/hcc")):
             self.assertNotEqual(key_with(**{name: value}), key, name)
         self.assertEqual(key_with(CARGO_TARGET_DIR=str(self.tmp / "t"), CARGO_BUILD_JOBS="3"), key)
 
