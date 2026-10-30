@@ -159,7 +159,7 @@ const diffActions: LatencyAction[] = [
   {
     name: "sidebar toggle",
     async prepare(page) {
-      // The panel slides at once; the diff column changes width when the slide ends.
+      // The panel slides at once; the diff column changes width two frames after the toggle.
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
       const target = hidden === "true" ? "open" : "closed";
@@ -505,14 +505,14 @@ const agentPaneActions: LatencyAction[] = [
     async prepare(page) {
       await page.waitForSelector(".acpmux-model .acpmux-picker-button");
       await page.keyboard.press("Escape");
-      return `document.querySelector(".acpmux-model .acpmux-mp") !== null`;
+      return `document.querySelector(".acpmux-quick-menu") !== null`;
     },
     async input(page) {
       await page.click(".acpmux-model .acpmux-picker-button");
     },
     async settle(page) {
       await page.keyboard.press("Escape");
-      await page.waitForFunction(() => document.querySelector(".acpmux-model .acpmux-mp") === null);
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-menu") === null);
       await quiet(page);
     },
   },

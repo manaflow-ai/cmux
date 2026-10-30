@@ -55,6 +55,27 @@ fn text(args: &[String]) -> Option<String> {
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
+        ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
+        ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
+        ["cloud", "exec"] => {
+            return Some(
+                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
+                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
+                } else {
+                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
+                }
+                .into(),
+            );
+        }
+        ["cloud", ..] => {
+            return Some(
+                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
+                    super::super::CLOUD_HELP.to_owned()
+                } else {
+                    super::super::CLOUD_HELP_JA.to_owned()
+                },
+            );
+        }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
@@ -85,6 +106,7 @@ fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) ->
         "open" => OPEN_HELP,
         "ghostty" => GHOSTTY_HELP,
         "errors" => ERRORS_HELP,
+        "team" => TEAM_HELP,
         _ => return None,
     };
     Some(format!("{}\n", text.trim_end()))
@@ -161,6 +183,17 @@ journal (`--source page` matches every page). --level shows that level and
 worse (warning, error, fault, crash); --top orders by count instead of most
 recent. Each list reads new log lines first unless --no-harvest. The journal
 is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
+
+const TEAM_HELP: &str = "\
+usage: cmux team invite --email <address>[,<address>...] [--team <name|id>]
+                        [--role member|admin] [--reason <text>]
+Emails an invite to join a cmux team as the person signed in to the app. The
+app first shows a confirmation with who asked, the reason, the addresses, the
+team and the role; nothing is sent until the person clicks Send Invite, and
+Don't Send or 3 minutes without an answer sends nothing. An accepted invite
+adds a member, which can raise the team's bill. An agent must give --reason.
+Without --team the one shared team is used. The result lists each invitation
+with state pending.";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

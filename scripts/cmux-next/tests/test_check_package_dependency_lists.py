@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -85,6 +86,63 @@ class CheckTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPT), "--fix", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(path.read_text(encoding="utf-8"), manifest('"CmuxNextFeed",', '"CmuxNextTabs",'))
+
+
+class ImportTests(unittest.TestCase):
+    """A target that imports another local target declares it (2026-10-24: CmuxNextDaemonTests imported
+    CmuxNextCompat undeclared, and incremental builds linked a stale object against an old Mutex symbol)."""
+
+    PACKAGE = (
+        "let package = Package(\n"
+        "    targets: [\n"
+        "        .target(\n"
+        '            name: "CmuxNextCompat",\n'
+        "            dependencies: []\n"
+        "        ),\n"
+        "        .target(\n"
+        '            name: "CmuxNextDaemon",\n'
+        '            dependencies: ["CmuxNextCompat"]\n'
+        "        ),\n"
+        "        .testTarget(\n"
+        '            name: "CmuxNextDaemonTests",\n'
+        "            dependencies: [DEPS]\n"
+        "        ),\n"
+        "    ]\n"
+        ")\n"
+    )
+
+    def problems(self, deps: str, source: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for folder in ("Sources/CmuxNextCompat", "Sources/CmuxNextDaemon", "Tests/CmuxNextDaemonTests"):
+                (root / folder).mkdir(parents=True)
+            (root / "Sources/CmuxNextDaemon/A.swift").write_text("import CmuxNextCompat\n", encoding="utf-8")
+            (root / "Tests/CmuxNextDaemonTests/RetryWakeFolderTests.swift").write_text(source, encoding="utf-8")
+            text = self.PACKAGE.replace("DEPS", deps)
+            with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset()):
+                return lint.import_problems(text, root)
+
+    def test_an_undeclared_local_import_fails(self):
+        problems = self.problems('"CmuxNextDaemon"', "import CmuxNextCompat\n@testable import CmuxNextDaemon\n")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("CmuxNextDaemonTests: imports CmuxNextCompat but does not declare it", problems[0])
+
+    def test_a_declared_import_and_a_system_import_pass(self):
+        self.assertEqual(self.problems('"CmuxNextCompat", "CmuxNextDaemon"',
+                                       "import Foundation\nimport CmuxNextCompat\n@testable import CmuxNextDaemon\n"), [])
+
+    def test_a_baseline_line_that_is_fixed_must_go(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Sources/CmuxNextCompat").mkdir(parents=True)
+            text = "let package = Package(\n    targets: [\n        .target(\n            name: \"CmuxNextCompat\"\n        ),\n    ]\n)\n"
+            with unittest.mock.patch.object(lint, "IMPORT_BASELINE", frozenset({"CmuxNextApp: CmuxNextFileGrid"})):
+                problems = lint.import_problems(text, root)
+        self.assertEqual(problems, ["IMPORT_BASELINE lists CmuxNextApp: CmuxNextFileGrid, which is declared or gone now: drop its line"])
+
+    def test_the_committed_package_declares_its_imports(self):
+        root = lint.DEFAULT_MANIFEST.parent
+        self.assertEqual(lint.import_problems(lint.DEFAULT_MANIFEST.read_text(encoding="utf-8"), root), [])
 
 
 class MergeTests(unittest.TestCase):

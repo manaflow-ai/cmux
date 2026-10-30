@@ -107,9 +107,10 @@ pub struct StatsSummary {
     pub permission_wait_ms: u64,
     pub permission_wait_max_ms: u64,
     /// Times an agent could not serve on its account (`hub::is_limit_error`,
-    /// the failover rule: usage, rate or credit limits, rejected credentials,
-    /// an overloaded provider): a turn that failed on one, or a failover to
-    /// the fallback (which may fail too, and then counts again).
+    /// the failover rule: usage, rate or credit limits, rejected credentials;
+    /// not an overloaded provider, which retries in place): a turn that failed
+    /// on one, or a failover to the fallback (which may fail too, and then
+    /// counts again).
     pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,

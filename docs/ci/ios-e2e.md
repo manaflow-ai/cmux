@@ -198,7 +198,7 @@ terminal step.
 Tailnet join, backend start-up, backend serving, missing runner tools,
 simulator boot, and cleanup failures emit `[infra-preflight]` when the failure
 is outside the product path. A driver failure ends with `E2E FAIL step=<id>`
-and is treated as a product-path result. Evidence is uploaded with seven-day
+and is treated as a product-path result. Evidence is uploaded with three-day
 retention on every run.
 
 ## Promotion plan

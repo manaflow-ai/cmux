@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDevices
+public import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 
@@ -90,9 +91,12 @@ public final class MacScreenPages {
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
 
-    public init(store: MacScreenStore) {
+    /// - Parameters:
+    ///   - store: the saved Mac Screen records.
+    ///   - work: the app's blocking-work lanes (the permission checks run on its system lane).
+    public init(store: MacScreenStore, work: BackgroundWork) {
         self.store = store
-        host = MacScreenShareHost()
+        host = MacScreenShareHost(work: work)
         hubHost = MacScreenHubHost(share: host)
         systemShortcuts = MacScreenSystemShortcuts(host: host)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
@@ -191,7 +195,7 @@ public final class MacScreenPages {
     }
 
     /// The title of a tab known only by its route (a restored tab not yet
-    /// shown): the device's name, else "Mac Screen"; nil for no route.
+    /// shown): the device's name, else "Screen Sharing"; nil for no route.
     public func title(forRoute route: String?) -> String? {
         guard let route, let record = Self.record(route: route) else { return route == nil ? nil : Self.homeTitle }
         return record.deviceID.map(deviceName) ?? Self.homeTitle
@@ -282,10 +286,10 @@ public final class MacScreenPages {
         }
     }
 
-    /// The home page's title, "Mac Screen".
-    public static var homeTitle: String { L.t("macScreen.tab.homeTitle", "Mac Screen") }
+    /// The home page's title, "Screen Sharing".
+    public static var homeTitle: String { L.t("macScreen.tab.homeTitle", "Screen Sharing") }
 
-    /// The title of tab `key`: the device's name, or "Mac Screen".
+    /// The title of tab `key`: the device's name, or "Screen Sharing".
     public func title(for key: String) -> String {
         if let tab = tabs[key] { return tab.title }
         return records[key]?.deviceID.map(deviceName) ?? Self.homeTitle

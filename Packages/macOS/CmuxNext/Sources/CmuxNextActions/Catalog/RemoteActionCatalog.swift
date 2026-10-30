@@ -87,8 +87,20 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 id: "remote.openTerminalHere",
                 title: String(localized: "action.remote.openTerminalHere", defaultValue: "Open Terminal on Machine Here…", table: "RemoteActions", bundle: .module),
                 keywords: ["ssh", "remote", "machine", "session", "terminal", "mixed"], category: .remote, symbol: "terminal",
-                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine], targets: [.pane],
-                cliName: "remote open-terminal-here", startsTerminal: true
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine, CatalogArgument.directionChoice.optional, CatalogArgument.cwdString.optional],
+                targets: [.pane], cliName: "remote open-terminal-here", startsTerminal: true
+            ),
+            // `cmux open-remote <host>`: one idempotent verb (manaflow-ai/cmux#25092).
+            ActionDescriptor(
+                id: "remote.openRemote",
+                title: String(localized: "action.remote.openRemote", defaultValue: "Open Remote Terminal", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "machine", "host", "open-remote", "split", "attach", "terminal"], category: .remote, symbol: "network",
+                surfaces: [.palette], arguments: [
+                    CatalogArgument.openRemoteHost, CatalogArgument.openRemoteSplit, CatalogArgument.cwdString.optional,
+                    CatalogArgument.openRemoteCmd, CatalogArgument.nameString.optional, CatalogArgument.openRemoteLabel,
+                    CatalogArgument.openRemoteAttach, CatalogArgument.openRemoteRatio, CatalogArgument.focusBool.optional,
+                ],
+                targets: [.pane], cliName: "open-remote", startsTerminal: true
             ),
             ActionDescriptor(
                 id: "remote.reconnect",

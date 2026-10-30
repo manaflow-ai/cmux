@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "បង្កើតម៉ាស៊ីននេះឡើងវិញ",
       "message": "ម៉ាស៊ីននេះត្រូវបានបង្កើតមុនការធ្វើបច្ចុប្បន្នភាព Cloud ហើយមិនអាចភ្ជាប់បានទេ។",
-      "action": "បង្កើតម៉ាស៊ីនថ្មី ចម្លងឯកសាររបស់អ្នកដោយប្រើ cmux vm pull និង cmux vm push រួចលុបម៉ាស៊ីននេះ។"
+      "action": "បង្កើតម៉ាស៊ីនថ្មី។ រៀបចំចំណុចតភ្ជាប់ SCP ដោយប្រើ `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` រួចចម្លងឯកសារតាម SCP មុនពេលលុបម៉ាស៊ីននេះ។"
     },
     "guestUnresponsive": {
       "title": "ម៉ាស៊ីនមិនឆ្លើយតប",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "នៅតែកំពុងដំណើរការ",
       "message": "អ្នកផ្ដល់សេវាពពកមិនទាន់បញ្ចប់ការផ្លាស់ប្ដូរនេះនៅឡើយទេ។ វាអាចនឹងបញ្ចប់នៅពេលក្រោយ។",
-      "action": "ពិនិត្យស្ថានភាពម៉ាស៊ីនដោយប្រើ cmux vm ls ឬក្នុងបញ្ជីម៉ាស៊ីន មុនពេលព្យាយាមម្ដងទៀត។"
+      "action": "ពិនិត្យស្ថានភាពម៉ាស៊ីនដោយប្រើ cmux cloud list-machines ឬក្នុងបញ្ជីម៉ាស៊ីន មុនពេលព្យាយាមម្ដងទៀត។"
     },
     "providerTimeout": {
       "title": "អ្នកផ្ដល់សេវាពពកយឺត",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "ម៉ាស៊ីនកំពុងរវល់",
       "message": "ម៉ាស៊ីននេះកំពុងចាប់ផ្ដើម កំពុងផ្អាក ឬមិនដំណើរការ ដូច្នេះវាមិនអាចធ្វើការនេះឥឡូវបានទេ។",
-      "action": "រង់ចាំបន្តិច ហើយព្យាយាមម្ដងទៀត។ ពិនិត្យស្ថានភាពម៉ាស៊ីនដោយប្រើ cmux vm ls ហើយបន្តវាមុនសិន ប្រសិនបើវាត្រូវបានផ្អាក។"
+      "action": "រង់ចាំបន្តិច ហើយព្យាយាមម្ដងទៀត។ ពិនិត្យស្ថានភាពម៉ាស៊ីនដោយប្រើ cmux cloud list-machines ហើយបន្តវាមុនសិន ប្រសិនបើវាត្រូវបានផ្អាក។"
     },
     "networkRuleCapacity": {
       "title": "ច្បាប់បណ្ដាញបានដល់កម្រិតអតិបរមា",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "កុំ​ព្យាយាម​ម្តងទៀត។ ការងារលើប្រភេទម៉ាស៊ីននេះត្រូវបានរក្សាទុកក្នុង home volume អចិន្ត្រៃយ៍។",
         "restore": "កុំ​ព្យាយាម​ម្តងទៀត។ ការងារលើប្រភេទម៉ាស៊ីននេះត្រូវបានរក្សាទុកក្នុង home volume អចិន្ត្រៃយ៍។",
-        "fork": "កុំ​ព្យាយាម​ម្តងទៀត។ បង្កើត VM ថ្មីដោយប្រើ `cmux vm new`។",
-        "openPort": "កុំ​ព្យាយាម​ម្តងទៀត។ ចូលប្រើសេវាពីក្នុងម៉ាស៊ីនដោយប្រើ `cmux vm exec` ឬប្រើប្រភេទម៉ាស៊ីនដែលអាចបើកច្រកបាន។",
-        "default": "កុំ​ព្យាយាម​ម្តងទៀត។ ដំណើរការ `cmux vm ls` ឬទាក់ទងជំនួយ ប្រសិនបើអ្នកគិតថានេះជាកំហុស។"
+        "fork": "កុំ​ព្យាយាម​ម្តងទៀត។ បង្កើត VM ថ្មីដោយប្រើ `cmux cloud new-machine`។",
+        "openPort": "កុំ​ព្យាយាម​ម្តងទៀត។ ចូលប្រើសេវាពីក្នុងម៉ាស៊ីនដោយប្រើ `cmux cloud exec --target machine:<id> --command <command>` ឬប្រើប្រភេទម៉ាស៊ីនដែលអាចបើកច្រកបាន។",
+        "default": "កុំ​ព្យាយាម​ម្តងទៀត។ ដំណើរការ `cmux cloud list-machines` ឬទាក់ទងជំនួយ ប្រសិនបើអ្នកគិតថានេះជាកំហុស។"
       }
     },
     "requiresPro": {
-      "title": "ត្រូវការ cmux Pro",
-      "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
-      "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+      "title": "ត្រូវការ cmux {plan}",
+      "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux {plan}។",
+      "action": "ដំឡើងកំណែទៅ cmux {plan} នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     },
     "displayName": {
       "title": "ឈ្មោះម៉ាស៊ីនមិនត្រឹមត្រូវ",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "ទំហំម៉ាស៊ីននេះមិនអាចប្រើបានទេ។ សូមជ្រើសរើសរហូតដល់ {max} GiB។",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go រួមបញ្ចូល VM ដែលបានរក្សាទុកពីរ រួមទាំង VM ដែលកំពុងដំណើរការ។",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go អនុញ្ញាតឱ្យដំណើរការ VM មួយក្នុងពេលតែមួយ។",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go បានប្រើអស់ 40 ម៉ោង VM សម្រាប់ខែនេះ។ VM ដែលបានរក្សាទុកអាចប្រើវិញនៅរយៈពេលចេញវិក្កយបត្របន្ទាប់។",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go គាំទ្រ 2 vCPU, RAM 4 GiB និងថាស 16 GiB។",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "បានប្រើកូតាគណនា {plan} អស់ហើយ",
       "computeMessage": "គម្រោង {plan} របស់អ្នកបានប្រើម៉ោងគណនា {included} សម្រាប់រយៈពេលចេញវិក្កយបត្រនេះអស់ហើយ។ ម៉ោងគណនាមួយគឺ 1 vCPU ជាមួយអង្គចងចាំ 2 GB ដំណើរការរយៈពេលមួយម៉ោង។ ម៉ាស៊ីនរបស់អ្នកអាចចាប់ផ្តើមម្តងទៀតនៅ {resetDate}។",
       "computeAction": "ម៉ាស៊ីនដែលបានផ្អាករក្សាទុកឯកសាររបស់វា។ សូមទាក់ទងផ្នែកជំនួយ ប្រសិនបើអ្នកត្រូវការការគណនាបន្ថែមមុន {resetDate}។",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "បានប្រើកូតាឌីស {plan} អស់ហើយ",
       "storageMessage": "គម្រោង {plan} របស់អ្នករួមបញ្ចូលឌីសសរុប {included} GB សម្រាប់ម៉ាស៊ីនដែលបានរក្សាទុកទាំងអស់។ ម៉ាស៊ីនដែលបានរក្សាទុកប្រើ {used} GB ហើយសំណើនេះត្រូវការ {requested} GB។",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "ធនធាន Cloud VM មិនគ្រប់គ្រាន់",

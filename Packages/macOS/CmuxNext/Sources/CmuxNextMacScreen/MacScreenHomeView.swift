@@ -119,7 +119,7 @@ final class MacScreenHomeView: MacScreenThemedView {
             return
         }
         // The page appears: read the permissions again (granted in System Settings meanwhile).
-        host.refreshPermissions()
+        Task { [host] in await host.refreshPermissions() }
         systemShortcuts?.refreshAccessibility()
         readPermissions(shown?.deviceIDs ?? [])
     }
@@ -135,7 +135,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         let hadSharing = shown?.sharing != nil
         shown = snapshot
         build(snapshot)
-        if snapshot.sharing != nil, !hadSharing, window != nil { host.refreshPermissions() }
+        if snapshot.sharing != nil, !hadSharing, window != nil { Task { [host] in await host.refreshPermissions() } }
         readPermissions(snapshot.deviceIDs)
     }
 
@@ -175,7 +175,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     private func header() -> NSView {
         let title = MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, [
             MacScreenGlyph("display", font: MacScreenType.title, ink: \.primary),
-            MacScreenText(L.t("macScreen.home.title", "Mac Screen"), font: MacScreenType.title),
+            MacScreenText(L.t("macScreen.home.title", "Screen Sharing"), font: MacScreenType.title),
         ])
         let column = MacScreenStack.make(.vertical, spacing: 6, alignment: .leading)
         column.addArrangedSubview(title)

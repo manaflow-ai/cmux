@@ -60,24 +60,10 @@ extension NotificationCenterService {
     /// Home's unread conversations (`homeUnread`, conversation ids) add one
     /// each, as Messages' Dock badge counts its unread; a conversation that a
     /// workspace tab shows with its own unread marker is already counted.
+    /// The store keeps the counts per workspace (``DaemonStore/unreadTotals``): an observer of this
+    /// count observes one value, never the tabs.
     static func unreadCount(_ store: DaemonStore?, homeUnread: [String] = []) -> Int {
-        let workspaces = store?.workspaces ?? []
-        let tabs = workspaces.reduce(0) { total, workspace in
-            let count = workspace.unreadCount
-            return total + (count == 0 && workspace.markedUnread ? 1 : count)
-        }
-        guard !homeUnread.isEmpty else { return tabs }
-        var counted = Set<String>()
-        for workspace in workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs where tab.hasUnread {
-                        if let id = tab.snapshot.conversation?.conversation, tab.kind == .conversation { counted.insert(id) }
-                    }
-                }
-            }
-        }
-        return tabs + Set(homeUnread).subtracting(counted).count
+        store?.unreadBadge(homeUnread: homeUnread) ?? Set(homeUnread).count
     }
 
     /// The badge count now: the store's unread tabs and Home's unread conversations.
@@ -86,14 +72,11 @@ extension NotificationCenterService {
         return Self.unreadCount(services?.daemon.store, homeUnread: home.map(\.rawValue))
     }
 
-    /// Sets the Dock tile's unread count. Compares with the label it set
-    /// last: reading `dockTile.badgeLabel` asks the Dock and can block.
+    /// Sets the Dock tile's unread count (``DockBadge``: written only when it changes, and again
+    /// when the Dock icon comes back).
     func updateDockBadge(_ count: Int) {
         dockAttention.unreadChanged(count)
-        let label = preferences.dockBadge && count > 0 ? String(count) : nil
-        guard label != dockBadgeLabel else { return }
-        dockBadgeLabel = label
-        NSApp.dockTile.badgeLabel = label
+        dockBadge.show(preferences.dockBadge && count > 0 ? String(count) : nil)
     }
 
     /// The handoff driver over the local daemon and this Mac's install
@@ -107,7 +90,7 @@ extension NotificationCenterService {
         }
         return FeedHandoffDriver(
             daemon: .init(
-                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.feedLocalOwner) == true },
+                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapability.feedLocalOwner.rawValue) == true },
                 list: { state, unread in
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },

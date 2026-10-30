@@ -2,6 +2,7 @@
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
+import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
@@ -76,6 +77,24 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
 });
+/** The Active Team menu and the Teams group over sample teams, after `edit` (a gesture or a flag). */
+const activeTeamRow = (teams: MockTeams): NonNullable<AccountsState["teams"]> => ({
+  title: "Active Team",
+  help: "Cloud machines, CodeRouter and phone access use this team.",
+  options: teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === teams.active })),
+  disabled: false,
+  note: null,
+  error: null,
+});
+const withTeams = (edit: (teams: MockTeams) => void = () => {}): AccountsState => {
+  const teams = new MockTeams();
+  teams.teams = teams.teams.map((team) => ({
+    ...team,
+    name: team.role === "admin" ? "Sample team" : "Another sample team",
+  }));
+  edit(teams);
+  return accounts({}, { teams: activeTeamRow(teams), teamList: teams.state() });
+};
 const host: Partial<HostLists> = {
   machines: [
     {
@@ -86,8 +105,42 @@ const host: Partial<HostLists> = {
       color: "#7F5FA8",
       color_key: "research build machine",
     },
+    // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
+    {
+      id: "sample-cloud",
+      title: "Sample cloud machine",
+      subtitle: null,
+      active: true,
+      color: "#3F7FBF",
+      color_key: "sample cloud machine",
+      vm_host: { on: true, busy: false, error: null },
+    },
   ],
   settings_file: "/Users/sample/.config/cmux/cmux.json",
+  // Settings › Server (ServerCard), its only card: the servers the host heard from, sent with every
+  // host list since fe482b41. Without it the category draws nothing (serverCard.gallery.ts has its states).
+  server: {
+    title: "Server",
+    empty: "No server has answered yet.",
+    socket_title: "Local Socket",
+    tailnet_title: "Tailscale Address",
+    copy_title: "Copy",
+    pair_title: "Pair",
+    servers: [
+      {
+        id: "cmux-tui|local",
+        kind: "cmux-tui",
+        host: null,
+        name: "cmux-tui",
+        running: true,
+        status: "Running",
+        version_line: "Version 0.67.0 · Build 7a3c9e1 · Protocol 12",
+        restart: null,
+        socket: "/Users/sample/.cmux/sockets/main.sock",
+        tailnet: "100.64.0.7:7777",
+      },
+    ],
+  },
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
   // Settings › Import: what the host's scan found (ImportSuggestionsCenter.settingsJSON), sent by
@@ -298,6 +351,15 @@ Object.assign(variants, {
           attribution: "macOS system wallpaper · Grid Green",
           collection: "apple",
           collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "macOS system wallpaper · Iceland Dusk",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
           downloaded: false,
         },
       ],
@@ -747,6 +809,17 @@ Object.assign(variants, {
     steps: [wait('[data-card="computer-use"]'), focusComputerUse],
     note: "Computer Use off: both grants Unknown, the card says to turn it on.",
   }),
+  "computer-use-failed": variant("agents", {
+    host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
+    steps: [
+      wait('[data-card="computer-use"]'),
+      {
+        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
+        action: "focus",
+      },
+    ],
+    note: "The helper did not respond. Restart Helper is the only action.",
+  }),
   "computer-use-granted": variant("agents", {
     host: {
       ...host,
@@ -754,6 +827,34 @@ Object.assign(variants, {
     },
     steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
     note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+  }),
+  "computer-use-host-unverified": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        host_unverified: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
+  }),
+  "computer-use-upstream-fallback": variant("agents", {
+    host: {
+      ...host,
+      computer_use: {
+        phase: "ready",
+        accessibility: true,
+        screen_recording: true,
+        helper: "cmux Computer Use",
+        upstream_fallback: true,
+      },
+    },
+    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
+    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
   }),
   "computer-use-not-granted": variant("agents", {
     host: {
@@ -768,6 +869,120 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  "agents-harness-update-ready": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          ownerUpdate: true,
+        },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.5",
+          latest: "2.0.9",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+          ownerUpdate: false,
+        },
+        {
+          id: "github-copilot-cli",
+          name: "GitHub Copilot",
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "1.4.0",
+          latest: "1.4.0",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="codex"]'),
+      { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
+    ],
+    note: "Harness health with an in-app Codex update and a separate manual command for an elevated Claude Code install.",
+  }),
+  "agents-harness-update-manual": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.5",
+          latest: "2.0.9",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "sudo npm install -g @anthropic-ai/claude-code@latest", elevated: true },
+          ownerUpdate: false,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="claude"]'),
+      { selector: "[data-harness-update-command]", action: "focus" },
+    ],
+    note: "An outdated harness whose installer needs admin rights: the card gives the exact manual command and no unsafe one-click action.",
+  }),
+  "agents-harness-update-failed": variant("agents", {
+    harnesses: {
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          ownerUpdate: true,
+        },
+      ],
+      jobs: [
+        {
+          machine: "sample-machine",
+          session: "sample-session",
+          cli: "codex",
+          profiles: ["codex"],
+          terminal: "sample-terminal",
+          state: "exited",
+          exit_code: 23,
+        },
+      ],
+    },
+    steps: [
+      wait('[data-harness-update-card="codex"]'),
+      { selector: '[data-agent-update-job="exited"]', action: "focus" },
+    ],
+    note: "An update that finished with an error: the receipt stays visible while the card keeps a retryable Update action.",
+  }),
   // Settings > Chief > Chiefs (u2586): every Chief; a row opens the same editor as Home.
   "chief-chiefs": variant("chief", {
     steps: [wait('[data-card="chiefs"] [data-chief]')],
@@ -781,6 +996,12 @@ Object.assign(variants, {
   "chief-pet-off": variant("chief", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
+  }),
+  // Settings > Chief > Chief Pet with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("chief", {
+    focus: "home.chiefPetMascot",
+    options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
+    note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",
   }),
   // Settings > Chief > Look's foot: the chat's Bubble Style, the row a search for it lands on.
   "chief-look-bubbles": variant("chief", {
@@ -847,6 +1068,57 @@ Object.assign(variants, {
     }),
     note: "Empty credential form; fixtures never contain credentials.",
   }),
+  "accounts-team-roles": variant("accounts", {
+    accounts: withTeams(),
+    note: "Teams: each team with your role (Admin or Member), the active one marked, and New Team.",
+  }),
+  "accounts-team-roles-unknown": variant("accounts", {
+    accounts: withTeams((teams) => (teams.rolesUnknown = true)),
+    note: "Only the sign-in service answered: roles read Role unknown.",
+  }),
+  "accounts-team-admin": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-personal" })),
+    note: "Details as an admin: your role, member count and plan, members (You marked), pending invitations, Rename and Delete.",
+  }),
+  "accounts-team-member": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-acme" })),
+    note: "Details as a member: read-only, no invitations, no Rename or Delete.",
+  }),
+  "accounts-team-rename": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.rename", team: "team-personal" });
+    }),
+    note: "Rename Team: the field starts at the current name, up to 64 characters.",
+  }),
+  "accounts-team-delete": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+    }),
+    note: "Delete Team asks first and names the team.",
+  }),
+  "accounts-team-delete-blocked": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.teams = teams.teams.map((team) => ({ ...team, subscribed: team.id === "team-personal" }));
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "A team with an active subscription cannot be deleted: the confirmation says why.",
+  }),
+  "accounts-team-create": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.new" })),
+    note: "New Team: you become its admin and it becomes your active team.",
+  }),
+  "accounts-team-deleted": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "After deleting the active team, the other team is active and the notice says so.",
+  }),
   "accounts-teams": variant("accounts", {
     accounts: accounts(
       {},
@@ -862,6 +1134,7 @@ Object.assign(variants, {
           note: null,
           error: null,
         },
+        teamList: null,
       },
     ),
     note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",
@@ -957,6 +1230,7 @@ export default settingsPageEntry({
     "page:cmux.settings",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",

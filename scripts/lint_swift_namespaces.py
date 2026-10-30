@@ -84,8 +84,13 @@ STATIC_KEY_PROTOCOLS = re.compile(
 )
 
 
-def schedule_fix(path, original, masked, match):
-    """Convert a safe namespace declaration and add its explicit initializer."""
+def schedule_fix(path, original, masked, match, declares_init):
+    """Convert a safe namespace declaration and add its explicit initializer.
+
+    DECLARES_INIT: the type (its body or an extension in the file) already declares an initializer, so an added
+    `init() {}` could redeclare it (2081d2319a4 added `public init() {}` next to DaemonCapabilities' `private
+    init() {}` and the package stopped compiling); such a type is left for a manual conversion.
+    """
     declaration = (path, match.start())
     if declaration in fixed_declarations:
         return
@@ -93,10 +98,18 @@ def schedule_fix(path, original, masked, match):
     if brace < 0:
         return
     kind = match.group("kind")
+    line = original.count(chr(10), 0, match.start()) + 1
     if kind in ("class", "actor"):
         print(
-            f"SKIP   namespace-type autofix     {path}:{original.count(chr(10), 0, match.start()) + 1} "
+            f"SKIP   namespace-type autofix     {path}:{line} "
             f"{kind} {match.group('name')} requires a manual conversion; --fix will not change its semantics"
+        )
+        return
+    if declares_init:
+        print(
+            f"SKIP   namespace-type autofix     {path}:{line} "
+            f"{kind} {match.group('name')} already declares an init: make one init visible by hand; "
+            "--fix will not add a second one"
         )
         return
     visibility = "public" if "public" in match.group("head") else "package"
@@ -180,6 +193,19 @@ for root in roots:
             src = mask_swift_source(original)
             lines = original.split("\n")
 
+            ext_counts = {}
+            for em in EXT.finditer(src):
+                brace = src.find("{", em.end())
+                if brace < 0:
+                    continue
+                name = em.group("name").split(".")[-1]
+                counts = ext_counts.setdefault(
+                    name,
+                    {"cases": 0, "private_inits": 0, "open_inits": 0,
+                     "statics": 0, "instances": 0},
+                )
+                tally(body_and_end(src, brace), counts)
+
             if any(Path(path).is_relative_to(root) for root in enum_roots):
                 for enum in re.finditer(r'\benum\s+(\w+)[^{]*\{', src):
                     name = enum.group(1)
@@ -197,25 +223,18 @@ for root in roots:
                         # The matching namespace-type finding adds the same
                         # initializer; this schedules the enum conversion once.
                         m = re.search(
-                            rf"(?m)^(?P<indent>[ \t]*)(?P<head>(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|open|final|private|fileprivate|nonisolated|indirect)[ \t]+)*)(?P<kind>enum)[ \t]+{re.escape(name)}",
+                            rf"(?m)^(?P<indent>[ \t]*)(?P<head>(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|open|final|private|fileprivate|nonisolated|indirect)[ \t]+)*)(?P<kind>enum)[ \t]+(?P<name>{re.escape(name)})\b",
                             src,
                         )
                         if m:
-                            schedule_fix(path, original, src, m)
+                            inits = {"cases": 0, "private_inits": 0, "open_inits": 0,
+                                     "statics": 0, "instances": 0}
+                            tally(body, inits)
+                            ext = ext_counts.get(name, {})
+                            declared = inits["private_inits"] + inits["open_inits"]
+                            declared += ext.get("private_inits", 0) + ext.get("open_inits", 0)
+                            schedule_fix(path, original, src, m, declares_init=declared > 0)
                     fail = True
-
-            ext_counts = {}
-            for em in EXT.finditer(src):
-                brace = src.find("{", em.end())
-                if brace < 0:
-                    continue
-                name = em.group("name").split(".")[-1]
-                counts = ext_counts.setdefault(
-                    name,
-                    {"cases": 0, "private_inits": 0, "open_inits": 0,
-                     "statics": 0, "instances": 0},
-                )
-                tally(body_and_end(src, brace), counts)
 
             for m in DECL.finditer(src):
                 head = m.group("head")
@@ -264,7 +283,7 @@ for root in roots:
                     "type or an instantiated value with injected dependencies"
                 )
                 if args.fix:
-                    schedule_fix(path, original, src, m)
+                    schedule_fix(path, original, src, m, declares_init=counts["private_inits"] > 0)
                 fail = True
 
 RATCHET_HEADER = """\

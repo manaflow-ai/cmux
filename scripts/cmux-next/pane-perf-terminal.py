@@ -15,6 +15,8 @@ the panes rest:
               (toggleRightSidebar, sidepanel-close): the main pane loses and regains its width at once, no spring
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
+  page        a browser page opening on the right (splitBrowserRight, Leo's "opening up a new thing on the
+              right"), then its close (page-close)
 
 The bench app activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed from
 the bench environment), as for a person. Each layout reads whether the window really is key (`debug.window_list`)
@@ -24,7 +26,8 @@ main screen at the STRESS size (perf-stress-session.py `place_window`). A layout
 STRESS shape refused, a Chromium page that never ran) fails the run, --gate or not.
 
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
-work per frame (`debug.motion` clock), frames the springs moved, grids sent to the PTY owner
+work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
+pages it holds the resize wait of fork API 27), frames the springs moved, grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
 
@@ -37,7 +40,7 @@ frames (page_frames), of `debug.layers` divider catcher panel updates and child 
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
-       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
+       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
 import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, time
@@ -353,7 +356,8 @@ def perform(name):
     """Runs one action; returns an error string or None."""
     verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane",
              "column": "newColumn", "column-close": "closePane", "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom",
-             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar"}
+             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar",
+             "page": "splitBrowserRight", "page-close": "closePane"}
     if name == "drag":
         return drag_divider()
     if name == "idle":
@@ -400,6 +404,9 @@ def measure(label, name):
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
+    # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
+    # resize wait (fork API 27 resize sync) held the frame. None on builds without the probe.
+    commit = (motion.get("work") or {}).get("ca.commit") if isinstance(motion, dict) else None
     moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
         if isinstance(motion, dict) else 0
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
@@ -409,6 +416,9 @@ def measure(label, name):
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
+        "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
+        "commit_max_ms": (commit or {}).get("max_ms"), "commit_over_4": (commit or {}).get("over_4_ms"),
+        "commits": (commit or {}).get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
@@ -432,13 +442,15 @@ def measure(label, name):
     print(f"  {label:<22} moved {moving:>3}  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
+          f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
           f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}{extra}", flush=True)
     return result
 
 
 SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [],
             "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "drag": ["drag"],
-            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"]}
+            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "page": ["page", "page-close"]}
 
 
 def steps():
@@ -467,7 +479,8 @@ def profile(name, label):
     pair = {"split": ["split", "close"], "close": ["split", "close"], "split-down": ["split-down", "close-down"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
             "drag": ["drag"], "sidepanel": ["sidepanel", "sidepanel-close"],
-            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"]}[name]
+            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "page": ["page", "page-close"], "page-close": ["page", "page-close"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
@@ -636,7 +649,7 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close"):
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
                 run.update(layout=label, panes=panes, round=index)
@@ -672,7 +685,7 @@ def main():
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
                                                  "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
-                                                 "resizes_sent"] + browser_keys}
+                                                 "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms"] + browser_keys}
             report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
 
             def f(v):

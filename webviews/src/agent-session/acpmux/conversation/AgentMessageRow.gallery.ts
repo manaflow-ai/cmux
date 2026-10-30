@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample messages between agents), not shipped UI.
 // Messages between agents as the shared one-line row (AgentMessageRow.tsx): this agent's sends
-// (MessageCard.tsx: Claude Code's SendMessage, tell-coordinator, cmux send) collapsed
+// (MessageCard.tsx: Claude Code's SendMessage, acpmux_send, tell-coordinator, cmux send) collapsed
 // to "Sent to <name>", the message's first line and how far it got as one muted word (Sent,
 // Queued, Delivered), never the send's raw result; the recipient a name, never a hex agentId.
 // Opened, the message grows in place, capped near eight lines. A message another agent sent this
@@ -131,6 +131,38 @@ const sends = () =>
     ),
   ]);
 
+// acpmux_send (acpmux_mcp.rs) as Claude Code and Codex name it: to a lane, and to a session on a peer.
+const lanes = () =>
+  chat([
+    user("Ask lane-a to rebase, then tell the reviewer on build-box.", 3),
+    activity(
+      [
+        tool("mcp__cmux__acpmux_send", "other", "completed", {
+          inputSummary: JSON.stringify({
+            to: "lane-a",
+            text: "Rebase on feat-cmux-next.\nThen push and report the head.",
+          }),
+          output: "Sent to lane-a: steered into its running turn: it reads it at its next tool step (promptId 4f1c9e).",
+        }),
+      ],
+      2.9,
+    ),
+    activity(
+      [
+        tool("cmux", "other", "completed", {
+          inputSummary: JSON.stringify({
+            server: "cmux",
+            tool: "acpmux_send",
+            arguments: { to: "build-box/reviewer", text: "#23377 is ready for review at dce64b66.", steer: false },
+          }),
+          output:
+            "Sent to build-box/reviewer: queued behind its running turn: it reads it when that turn ends (promptId 81ab07).",
+        }),
+      ],
+      2.8,
+    ),
+  ]);
+
 const STOPPED_ID = "a5b7309ddf7afa44d";
 const stoppedAgent = (minutes: number) =>
   row(SUBAGENTS, minutes, {
@@ -223,6 +255,28 @@ const both = () =>
     summary(5.5, { status: "completed" }),
   ]);
 
+const received = (name: string, text: string, minutes: number) =>
+  user("", minutes, {
+    incoming: { kind: "message", message: { name, sessionId: name, text, raw: text } },
+    untyped: true,
+  });
+
+const foldedRun = () =>
+  chat([
+    received("claude-sr2", "The coordinator has the green build.", 4),
+    received("claude-sr2", "The exact head is 2a7ce36.", 3.8),
+    received("claude-sr2", "I am checking the final screenshots now.", 3.6),
+    received("claude-sr2", "I will report back when the review lands.", 3.4),
+  ]);
+
+const foldedMixedRun = () =>
+  chat([
+    received("claude-sr2", "The coordinator has the green build.", 4),
+    received("codex-review", "Astra found no blocking findings.", 3.8),
+    received("claude-sr2", "The exact head is 2a7ce36.", 3.6),
+    received("codex-review", "The visual check is ready.", 3.4),
+  ]);
+
 export default agentPaneEntry({
   id: "agent-pane.agent-message-row",
   title: "Messages between agents",
@@ -231,11 +285,24 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/AgentMessageRow.tsx",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/agentMessages.ts",
   ],
   variants: {
+    "unicode-boundary": {
+      note: "The first line puts an emoji across the 240-code-unit preview boundary in both directions. At wide width the cutoff is visible; narrow width retains the normal CSS ellipsis.",
+      theme: { chatWidth: "wide" },
+      snapshot: chat([
+        activity([sendMessage("Jo", `${"i".repeat(239)}🦊 later`)], 3),
+        received("Jo", `${"i".repeat(239)}🦊 later`, 2),
+      ]),
+    },
     sent: {
       note: 'Sends start collapsed: an envelope, "Sent to" and the recipient as a chip (a subagent by its description, never its agentId), the first line muted, a chevron, and one muted word for how far it got: Queued, Delivered, Sent. A send still going out reads "Sending to" with the working mark.',
       snapshot: sends(),
+    },
+    lanes: {
+      note: "acpmux_send to a lane and to a session on a peer (host/name), as Claude Code and Codex name the call: the same collapsed line, never an MCP row.",
+      snapshot: lanes(),
     },
     "sent-subagents": {
       note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Each chip's tooltip holds the full id.",
@@ -278,8 +345,26 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body"));
+        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
+      },
+    },
+    "folded-run": {
+      note: "Four consecutive messages from claude-sr2: four lines, each where it arrived (they no longer fold into one card); each line opens its whole message.",
+      snapshot: foldedRun(),
+    },
+    "folded-run-mixed": {
+      note: "A consecutive burst from two agents: one line per message, each naming its sender.",
+      snapshot: foldedMixedRun(),
+    },
+    "folded-run-opened": {
+      note: "The burst with every line opened: each received message's panel holds its whole body.",
+      snapshot: foldedRun(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
+        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
+          toggle.click();
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },
     },
   },

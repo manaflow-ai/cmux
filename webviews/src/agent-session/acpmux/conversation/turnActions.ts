@@ -1,3 +1,9 @@
+/// What the X's take-back of a waiting steer came to: its text went back into the composer
+/// (`back`), acpmux answered that it stays (`refused`: the agent took it already, or its harness
+/// cannot drop one), or it failed on the way (`failed`: an RPC error, attachments not read yet),
+/// so the X may be tried again.
+export type TakeBack = "back" | "refused" | "failed";
+
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
@@ -5,10 +11,13 @@ import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
+import type { RetryNote, RetryTarget } from "../subagents/retryState";
 import type { MessageBranch } from "./branches";
+import type { SlashCommand } from "../slashCommands";
 import type { RetryModel } from "./retryModelSections";
+import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
@@ -30,6 +39,7 @@ export type TurnActions = {
   /// and the open that shows one of them in this pane.
   branches?: {
     of: ReadonlyMap<string, MessageBranch>;
+    running?: ReadonlySet<string>;
     open: (sessionId: string) => void;
   };
   /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux
@@ -52,13 +62,23 @@ export type TurnActions = {
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
   resume?: () => Promise<void>;
+  /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
+  /// the composer's send path. Only where the agent lists `compact` among its slash commands.
+  compact?: () => Promise<void>;
   /// Restart on a subagent's end line (subagents/restart.ts): asks the chat to run it again with
   /// its prompt.
   restartSubagent?: (agent: Subagent) => void;
+  /// Retry on a failed subagent's or sub-session's row (subagents/retryState.ts `runRetry`):
+  /// settles with the note a refusal leaves on the row.
+  retryAgent?: (agent: RetryTarget) => Promise<RetryNote | undefined>;
+  /// The capabilities acpmux named (retryState.ts `retryActionOf`): which Retry a row offers.
+  retryCapabilities?: ReadonlySet<string>;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
+  /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
+  transferCloudCredentials?: (rowId: string, prompt: string) => Promise<void>;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
-  route?: { name?: string; harness?: string };
+  route?: { name?: string; harness?: string; hostKind?: "local" | "cloud"; host?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
   /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's
@@ -68,6 +88,12 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
+  /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
+  /// the chat offers it now; undefined while the chat is not connected.
+  queuedMessages?: () => QueuedMessageActionsValue | undefined;
+  /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
+  /// (PendingSteer.tsx `takeBackSteer`).
+  unsteer?: (row: AcpmuxRow) => Promise<TakeBack>;
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so
   /// the view shows them as requested too.
   review?: HunkReview;
@@ -85,6 +111,24 @@ export const CONTINUE_PROMPT = "Continue";
 export const resumeThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
     callNative("chat.send", { text: CONTINUE_PROMPT }).then(
+      () => undefined,
+      () => undefined,
+    );
+
+/// The prompt Compact sends: the harness's own slash command (Claude Code's and Codex's).
+/// l10n-allow: a command to the agent, not UI
+export const COMPACT_PROMPT = "/compact";
+
+/// Whether the chat's agent serves `/compact` (its `available_commands_update`).
+export function offersCompact(commands: readonly SlashCommand[] | undefined): boolean {
+  return commands?.some((command) => (command.source ?? "agent") === "agent" && command.name === "compact") ?? false;
+}
+
+/// A context-full failure's Compact: `COMPACT_PROMPT` through the composer's send (`chat.send`), as
+/// Continue sends its prompt. A send that fails says so on its own row. Settles once the send does.
+export const compactThrough =
+  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
+    callNative("chat.send", { text: COMPACT_PROMPT }).then(
       () => undefined,
       () => undefined,
     );

@@ -140,7 +140,7 @@ public actor DaemonConnection {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
         var request = request
-        if identity?.supports(DaemonCapabilities.terminalShellArgs) == true,
+        if identity?.supports(DaemonCapability.terminalShellArgs.rawValue) == true,
            let carrier = request as? any ShellIntegrationArgumentCarrying,
            let integrated = carrier.addingShellIntegrationArguments() as? R {
             request = integrated
@@ -323,6 +323,8 @@ public actor DaemonConnection {
                     logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(error.description, privacy: .public)")
                     // A restoring owner keeps the timed budget (`DaemonStartup.ownerIsRestoring`).
                     if DaemonStartup.shared.ownerIsRestoring(error) { pacer.reset() }
+                    // A daemon at its connection limit is alive: keep asking, never wait for an event only.
+                    if error.isBusyRefusal { pacer.refusedBusy() }
                 }
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")

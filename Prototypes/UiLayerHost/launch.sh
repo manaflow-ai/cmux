@@ -87,6 +87,12 @@ wait_host() {
 
 if (( watch )); then
   watch_args=(--package "$package")
+  # Follow the host and the real leaf modules it imports. A save in one of
+  # these modules must restart the host; the running cmux app is untouched.
+  watch_args+=(--watch-root "$package/Sources/UiLayerHost")
+  watch_args+=(--watch-root "$root/Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview")
+  watch_args+=(--watch-root "$root/Packages/macOS/CmuxNext/Sources/CmuxNextDesign")
+  watch_args+=(--watch-root "$root/Packages/macOS/CmuxNext/Sources/CmuxNextIcons")
   if [[ -n "$attach" ]]; then
     watch_args+=(--attach "$attach")
   else

@@ -78,13 +78,34 @@ struct HomeDockOpensTests {
         }
     }
 
+    /// A person's foreground browser tab aimed at the focused Home (the update card's Release Notes
+    /// link after an update, New Browser Tab) opens beside it, so Home keeps no tab bar. Lawrence
+    /// 2026-10-29 on NIGHTLY 6c1a5ab: "chief in home should not have horizontal tabbar"; the release
+    /// page's stand-in tab stayed in Home's dock and brought its strip back.
+    @Test(arguments: ["update link", "new tab"])
+    func aForegroundBrowserTabFromHomeOpensBesideIt(_ via: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home, dock) = try await Self.openHome(services, connection)
+            #expect(window.focusedPane === dock)
+            let url = try #require(URL(string: "https://example.com/release"))
+            if via == "update link" {
+                SidebarCardFeed.openUpdateLink(url, services: services)
+            } else {
+                #expect(dock.newBrowserTab(url: url))
+            }
+            let right = try await Self.untilBeside(home, dock.pane, via)
+            #expect(right.tabs.contains { $0.kind == .browser })
+            #expect(dock.view.hidesStrip, "Home's dock shows a tab bar")
+        }
+    }
+
     /// A page the engine already made and the pane adopts (Duplicate Tab on a browser tab dragged into
     /// Home, a popup) opens beside Home too.
     @Test func anAdoptedPageInHomeOpensBesideIt() async throws {
         try await PasswordManagerRouteTests.withApp { services, connection in
             let (_, home, dock) = try await Self.openHome(services, connection)
             let url = URL(string: "https://example.com/")
-            let page = WebKitEngine().makeWebKitTab(initialURL: url)
+            let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab(initialURL: url)
             #expect(dock.newBrowserTab(url: url, inherited: BrowserEngineTag.webkit.rawValue, adopting: page))
             let right = try await Self.untilBeside(home, dock.pane, "adopted page")
             #expect(right.tabs.contains { $0.kind == .browser })

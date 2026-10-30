@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Which page the palette opens on.
@@ -29,7 +30,11 @@ public final class PaletteController {
     /// Called synchronously when the panel opens (true) or closes (false),
     /// before any key-window change it causes, so the owner's focus overlay
     /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
-    public var onVisibilityChange: ((Bool) -> Void)?
+    /// The window is the one the panel is a child of, so the owner puts the
+    /// overlay on the window the palette is actually over (W5, W6) instead
+    /// of guessing it from the active window, which the palette's own
+    /// `relativeTo:` and the key window can both disagree with.
+    public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
     /// Main-thread phases of each open, request to committed first frame
     /// (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
@@ -50,8 +55,6 @@ public final class PaletteController {
     private var panel: PalettePanel?
     private weak var parentWindow: NSWindow?
     private var presentationGeneration = 0
-    /// The open panel sits on a control (`show(scope:anchoredTo:)`), not centered over its window.
-    private var isAnchored = false
 
     public init(
         registry: ActionRegistry,
@@ -82,25 +85,16 @@ public final class PaletteController {
 
     /// Opens `scope` above the root (`palette.open`, a scope's shortcut).
     /// Returns false for a scope the graph does not have.
-    /// - Parameter anchor: a control the panel opens from (the sidebar's
-    ///   Search button): the panel sits just above it, its leading edge on the
-    ///   control's, inside the screen. Nil centers it over the window.
     @discardableResult
-    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil, anchoredTo anchor: NSView? = nil) -> Bool {
+    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
         configureScopes()
         guard model.navigation.graph.contains(scope) else { return false }
         markOpenStarted()
         captureContext()
         model.open(scope: scope, query: query)
         modelReady = .now
-        present(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)))
+        present(relativeTo: window)
         return true
-    }
-
-    /// `view`'s frame on the screen, or nil when it is in no window.
-    private static func screenRect(of view: NSView) -> NSRect? {
-        guard let window = view.window else { return nil }
-        return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
 
     // MARK: Registry wiring
@@ -257,8 +251,7 @@ public final class PaletteController {
         }
     }
 
-    /// `anchor`: the screen rect of the control the panel opens from, or nil.
-    private func present(relativeTo window: NSWindow?, anchor: NSRect? = nil) {
+    private func present(relativeTo window: NSWindow?) {
         model.usage.prepare()
         let started = openStarted ?? .now
         let modelDone = modelReady ?? started
@@ -283,13 +276,12 @@ public final class PaletteController {
             return
         }
         isVisible = true
-        onVisibilityChange?(true)
         parentWindow = parent
+        onVisibilityChange?(true, parent)
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
-        isAnchored = anchor != nil
         let size = PaletteLayout.windowSize
-        panel.setFrame(anchor.map { frame(above: $0, on: parent?.screen, size: size) } ?? frame(for: parent, size: size), display: false)
+        panel.setFrame(frame(for: parent, size: size), display: false)
         if let parent, panel.parent !== parent {
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
@@ -300,7 +292,7 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setCompletionBlock {
+            CATransaction.setMainCompletion {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
@@ -343,7 +335,7 @@ public final class PaletteController {
         guard isVisible, let panel else { return }
         isVisible = false
         registry.context.remove(.paletteOpen)
-        onVisibilityChange?(false)
+        onVisibilityChange?(false, parentWindow)
         model.closeActionsMenu()
         shortcutRecorder.abandon()
         model.shortcutRecorder = nil
@@ -371,19 +363,17 @@ public final class PaletteController {
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
             guard let self, let panel, self.isVisible else { return }
-            // Keep the top edge fixed when density changes while open; an
-            // anchored panel keeps its bottom-left corner on its control.
+            // Keep the top edge fixed when density changes while open.
             var frame = panel.frame
-            if !self.isAnchored {
-                frame.origin.y += frame.height - size.height
-                frame.origin.x += (frame.width - size.width) / 2
-            }
+            frame.origin.y += frame.height - size.height
+            frame.origin.x += (frame.width - size.width) / 2
             frame.size = size
             panel.setFrame(frame, display: true)
         }
         content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
         panel.keyHandler = { [weak self, weak panel] event in self?.handleKeyDown(event, in: panel) ?? false }
+        panel.onBecomeKey = { [weak self] in self?.contentView?.focusField() }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
@@ -401,18 +391,6 @@ public final class PaletteController {
         }
         self.panel = panel
         return panel
-    }
-
-    /// Just above `anchor` (a control's screen rect), the card's leading edge
-    /// on the control's, clamped to the visible screen when there is one.
-    private func frame(above anchor: NSRect, on screen: NSScreen?, size: CGSize) -> NSRect {
-        let margin = PaletteLayout.shadowMargin
-        var origin = NSPoint(x: anchor.minX - margin, y: anchor.maxY + Metrics.space2 - margin)
-        if let visible = (screen ?? NSScreen.screens.first(where: { $0.frame.intersects(anchor) }))?.visibleFrame {
-            origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
-            origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
-        }
-        return NSRect(origin: origin, size: size)
     }
 
     /// Top-centered over the parent window at about a sixth of its height,

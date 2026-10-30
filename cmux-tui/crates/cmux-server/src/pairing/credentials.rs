@@ -14,6 +14,7 @@ pub struct EnrolledIdentity {
     api: String,
     paired: Paired,
     wireguard_key: Zeroizing<[u8; 32]>,
+    native: Option<cmux_server_core::pairing::native::Registration>,
 }
 
 impl EnrolledIdentity {
@@ -30,8 +31,9 @@ impl EnrolledIdentity {
             .clone();
         // Verify that the stored public identity still matches its private key.
         record.signing_key()?;
+        let native = super::native::registration_for_link(&record)?;
         let wireguard_key = record.wg_private()?;
-        Ok(Self { api: record.api, paired, wireguard_key })
+        Ok(Self { api: record.api, paired, wireguard_key, native })
     }
 
     pub fn api_origin(&self) -> &str {
@@ -40,6 +42,9 @@ impl EnrolledIdentity {
 
     pub fn paired(&self) -> &Paired {
         &self.paired
+    }
+    pub fn native_network(&self) -> Option<&cmux_server_core::pairing::native::Registration> {
+        self.native.as_ref()
     }
 
     /// The key used in `pair/begin`, for an in-process WireGuard transport.

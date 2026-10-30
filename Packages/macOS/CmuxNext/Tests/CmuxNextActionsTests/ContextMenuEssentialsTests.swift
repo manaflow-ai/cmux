@@ -34,6 +34,15 @@ struct ContextMenuEssentialsTests {
         return registry
     }
 
+    private static let sidebarTrimmedActions: [ActionID] = [
+        "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
+        "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
+        // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
+        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
+        "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
+        "palette.openWorkspacePullRequests", "workspace.setRemoteLocalhost",
+    ]
+
     @Test func theWorkspaceMenuShowsTheFrequentRowsThenMore() {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
@@ -46,8 +55,42 @@ struct ContextMenuEssentialsTests {
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
         #expect(frontend?.arguments["group"] == .target(ActionTargetRef(kind: .workspaceGroup, id: "g1")))
         // The rest moved, not gone.
-        #expect(allActions(menu).contains("palette.copyWorkspaceID"))
+        #expect(allActions(menu).contains("palette.markWorkspaceUnread"))
         #expect(allActions(menu).contains("workspace.duplicate"))
+    }
+
+    /// Classic's row menu copies the workspace's id and link (#27709); here they sit in More > Copy,
+    /// so the top level keeps its essentials.
+    @Test func theWorkspaceMenuCopiesTheIDAndLinkUnderMore() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        #expect(!rows(menu).contains("palette.copyWorkspaceID"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceID") == true)
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceLink") == true)
+    }
+
+    /// The link comes before the ID, as on the tab and pane menus (Leo 2026-10-29: "there's no link to
+    /// workspace, which is, I mean, that seems pretty important, doesn't it?").
+    @Test func theWorkspaceRowMenuCopiesItsLinkThenItsID() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more != nil, "the workspace row menu has no More")
+        let ids = more.map(allActions) ?? []
+        let link = ids.firstIndex(of: "palette.copyWorkspaceLink"), id = ids.firstIndex(of: "palette.copyWorkspaceID")
+        #expect(link != nil, "More has no Copy Workspace Link: \(ids)")
+        #expect(id != nil, "More has no Copy Workspace ID: \(ids)")
+        if let link, let id { #expect(link < id, "the link comes before the ID") }
+    }
+
+    /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
+    /// ... obviously don't remove things from being searchable in the command palette". The row's
+    /// menu drops the global, copy and diagnostic long tail; the palette and the sidebar
+    /// background menu keep them (SidebarMenuPaletteReachabilityTests).
+    @Test func theWorkspaceRowMenuDropsTheGlobalAndDiagnosticLongTail() {
+        let ids = Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .workspaceRow)))
+        for id in Self.sidebarTrimmedActions {
+            #expect(!ids.contains(id), "\(id) is still in the workspace row menu")
+        }
     }
 
     /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
@@ -57,13 +100,15 @@ struct ContextMenuEssentialsTests {
         let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
         let shown = rows(menu)
-        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "workspace.moveToNewGroup", "—",
+        // One verb for a selection: the row is Group Selected Workspaces, the action Cmd-Shift-G runs,
+        // not a second "Add to New Group" that does the same thing under another name.
+        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "groupSelectedWorkspaces", "—",
                           "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
                           "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
                           "reopenClosedWorkspace"])
         #expect(shown.filter { $0 != "—" }.count <= 12)
         // The rest moved into More, not gone.
-        for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.copyWorkspaceID"] {
+        for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.markWorkspaceUnread"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
     }
@@ -84,7 +129,7 @@ struct ContextMenuEssentialsTests {
             return Dictionary(menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { ($0.id, item.title) } }) { first, _ in first }
         }
         let on = titles(pins: true, mutes: true), off = titles(pins: false, mutes: false)
-        for id: ActionID in ["workspace.moveToNewGroup", "workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
+        for id: ActionID in ["workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
             #expect(on[id] == NSMenu.workspaceSelectionTitle(id, pins: true, mutes: true), "\(id)")
         }
         #expect(on["palette.toggleWorkspacePin"] != off["palette.toggleWorkspacePin"])

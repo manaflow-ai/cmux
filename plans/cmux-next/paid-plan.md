@@ -50,6 +50,13 @@ Default picked: keep the `pricing-DESIGN.md` §4 numbers. One unit everywhere: *
 | Cloud VMs at once / largest | 1 / 2 vCPU 4 GB | 5 / 8 vCPU 16 GB | 20 / 32 vCPU 64 GB | 5 / 8 vCPU 16 GB |
 | Own API key or own Claude/Codex sign-in | free, unmetered | same | same | same |
 
+Free DeepSeek fallback (user, 2026-10-27): a signed-out Mac that passes App Attest gets DeepSeek V4 Flash
+through our Vercel AI Gateway route only (`freeProviders: ["vercel"]`, `inference/catalog.ts`). Free quota
+defaults: 300,000 tokens a day and 20 requests a minute per device (`INFERENCE_FREE_DAILY_TOKENS`,
+`INFERENCE_FREE_PER_MINUTE`); a spent quota answers 429 `free.quota` ("sign in to continue").
+Paid DeepSeek price: **PLACEHOLDER, not set (the user decides)**. Until then the paid path is the plan and
+credits table above.
+
 Prepaid credits are open to everyone, with or without a plan (this change). A prepaid charge is never
 a billable fact, so a call is never paid twice.
 
@@ -122,9 +129,28 @@ included credits then prepaid credits. a205 owns the VM ledger merge; this plan 
 4. Add credits fast path and auto-retry; measure click to usable. (app + backend)
 5. Staging: real turns through DeepInfra, OpenRouter and Vercel with the pin. (§8)
 
-## 8. Results
+## 8. Results (2026-10-23)
 
-(filled as steps land)
+Landed on feat-cmux-next: steps 1, 2 and the one-tap Checkout part of 4 (backend), with red then green commits.
+
+Staging (https://cloud-api-staging.cmux.dev, commit a689aab, staging e2e account, `openai/gpt-oss-120b`,
+pinned with `x-cmux-provider`), each provider JSON and SSE:
+
+| Provider | JSON | ms | tokens in/out | provider cost USD | SSE | ms | usage chunk |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DeepInfra | 200 "ok" | 3180 | 61/45 | 0.000009907 | 200, 35 chunks | 1061 | yes |
+| OpenRouter | 200 "ok" | 937 | 74/51 | 0.000011757 | 200, 16 chunks | 1842 | yes |
+| Vercel AI Gateway | 200 "ok" | 1289 | 85/53 | 0.000035 | 200, 32 chunks | 958 | yes |
+| auto (cheapest first) | 200 "ok" | 911 | 61/42 | 0.000009397 | 200, 38 chunks | 1195 | yes |
+
+Development (https://cmux-api-development.debussy.workers.dev, Stripe test mode, same account, no plan):
+- No plan, no credits: 402 `inference.plan_required`, `details.actions = [add_credits, add_api_key, see_plans]`.
+- `POST /v1/credits/topup {usd: 10}`: Checkout URL in 380-500 ms.
+- First top-up (new card 4242): click Pay to usable (balance $10 seen, then a turn answered 200 on
+  credits) **6.4 s**.
+- Second top-up: Checkout opens with the email and the saved card (•••• 4242) filled in, so Pay is one
+  tap; click to the return page that grants the credits **3.4 s**; balance 19.99 USD after.
+- Staging has no Stripe key by design: it shares the development Stripe sandbox (usage-billing.md §9).
 
 ## 9. Needs Lawrence (not done by agents)
 

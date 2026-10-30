@@ -37,15 +37,25 @@ echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
 echo one > "$src/cmux-tui/a"
 cdn="$TMP/cdn"
-# The trusted uploader, write-once into the CDN directory.
+# The trusted uploader, write-once into the CDN directory. It also reads
+# (--download-to), as the publish step's fetch does: exit 22 on a missing object.
 cat > "$src/scripts/ci/upload-r2-object.py" <<PY
 import argparse, pathlib, shutil, sys
 parser = argparse.ArgumentParser()
 parser.add_argument("--write-once", action="store_true")
 parser.add_argument("--conflict-exit-code", type=int)
-for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control"):
+for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control", "--download-to"):
     parser.add_argument(name)
 args = parser.parse_args()
+if args.download_to:
+    if args.key.startswith("cmux-tui-windows/"):
+        source = pathlib.Path("$cdn") / "windows" / args.key.removeprefix("cmux-tui-windows/")
+    else:
+        source = pathlib.Path("$cdn") / args.key.removeprefix("cmux-tui/")
+    if not args.key.startswith("cmux-tui") or not source.is_file():
+        sys.exit(22)
+    shutil.copy(source, args.download_to)
+    sys.exit(0)
 target = pathlib.Path("$cdn") / args.key.removeprefix("cmux-tui/")
 if target.exists():
     if target.read_bytes() == pathlib.Path(args.file).read_bytes():

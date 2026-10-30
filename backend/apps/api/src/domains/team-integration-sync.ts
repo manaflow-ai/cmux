@@ -63,6 +63,7 @@ export const keysFromConnectionPolicy = (fields: IntegrationFields): Partial<Rec
   if (fields.github.require_org_admin) set("github.requireOrgAdmin", true)
   // [] in ConnectionDO denies every repository: copy it as "none", never drop it.
   if (fields.github.repo_allowlist) set("github.repoAllowList", fields.github.repo_allowlist.length === 0 ? "none" : fields.github.repo_allowlist)
+  if (fields.github.allow_workflows) set("github.allowWorkflows", true)
   return out
 }
 

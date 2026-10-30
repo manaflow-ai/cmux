@@ -86,22 +86,26 @@ extension ScreenContentView {
         guard force || host.stripClipInput != input else { return false }
         host.stripClipInput = input
         stripClipsComputed += 1
-        var visible = host.frame
+        // Everything below is in the host's own coordinates: the input's clip, area window and covers
+        // are already local and cut to the host's bounds (a screen-space rect met with a local one
+        // cut a right pane's mask to its width minus its x, Leo 2026-10-24).
+        let bounds = CGRect(origin: .zero, size: input.size)
+        var visible = bounds
         if let clip = input.clip { visible = visible.intersection(clip) }
-        if let areaWindow { visible = visible.intersection(areaWindow) }
-        host.areaHitClip = areaWindow.map { $0.intersection(host.frame).offsetBy(dx: -host.frame.minX, dy: -host.frame.minY) }
+        if let areaWindow = input.areaWindow { visible = visible.intersection(areaWindow) }
+        host.areaHitClip = input.areaWindow
         var cutouts: [CGRect] = []
         for cover in input.covers {
             let rest = visible.remainder(outside: cover), shared = visible.intersection(cover)
             if rest == visible, !shared.isNull, shared.width > 0.5, shared.height > 0.5 {
-                cutouts.append(shared.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
+                cutouts.append(shared)
             } else {
                 visible = rest
             }
         }
-        let changed = visible == host.frame && cutouts.isEmpty
+        let changed = visible == bounds && cutouts.isEmpty
             ? host.setStripClip(nil)
-            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY), cutouts: cutouts)
+            : host.setStripClip(visible.isNull ? .zero : visible, cutouts: cutouts)
         // A clip can change while the pane stays put (a dock growing over it): the window's
         // Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }

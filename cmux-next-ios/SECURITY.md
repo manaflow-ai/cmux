@@ -84,6 +84,17 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     LocalApp token, so the pane-only methods stay closed.
   - The endpoint comes from the app over hostd's stdin and is never written to
     disk.
+  - **A phone's own credential.** When the app gives a paired phone its own
+    acpmux credential (`phone_credentials` on stdin; acpmux pairing role `phone`,
+    which only the person issues), that phone's channel presents it instead of
+    the dashboard token. acpmux still serves it as `Web`, with every Web rule,
+    but knows which phone it is. What hostd's phone filter refuses (a mode that
+    does not ask, a chat in one) then goes on marked
+    `_meta.acpmux.requireFullAccess`, and acpmux runs it only when that phone's
+    Full-access setting is on (Settings > Devices on the Mac, off by default,
+    off again at once when turned off or the phone is removed). Without a
+    credential, or when acpmux refuses it, the dashboard token and hostd's own
+    refusal apply as before.
 - **Executing commands.** The phone can prompt agents, and agents run commands
   on the Mac. This is the product, and it runs under acpmux's permission
   policy: tool approvals reach the phone as questions, and the agent waits for
@@ -298,6 +309,45 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Executes commands or opens content on local objects? | It renders pages in an isolated host, as the Mac's own browser would: web pages, and local files only inside the folders the Mac shares with the phone or a page the Mac's own browser already shows. No script URL or app scheme is opened. |
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open (that page, not its folder's other files); the host checks every file load, subresources included. |
+
+## `surface`: streamed simulator tabs (2026-10-22)
+
+A phone streams a Mac phone tab's iOS simulator (PROTOCOL.md `surface`,
+verify/simulator-surface.md). This reuses the `browser` trust model; it adds
+no new path for a peer and no new trust decision.
+
+- **Who.** Only a paired phone of this Mac's owner opens the channel (the
+  same gate as every service). It reaches only a tab the app's own daemon
+  lists now as a phone page tab of an open workspace: hostd checks the
+  `list-workspaces` answer, and the app checks its own store again before it
+  starts a source (`PhoneSurfaceHosts`). No answer from the daemon streams
+  nothing.
+- **What it sees.** Only the simulator's own framebuffer: SimulatorKit's
+  IOSurface of that device, the one the Mac's phone tab draws. No screen,
+  window or other app is captured.
+- **What it can do.** Touch the simulator, type text, press a short list of
+  keys and Home or Lock: what a person at the Mac's phone tab can do. No
+  install, launch, open-URL, location, appearance or recording reaches a
+  phone; hostd drops any other input, and the source takes only those lines.
+  One indirect effect: text a US keyboard cannot type (accents, emoji) is put
+  on the simulator's pasteboard with `simctl pbcopy` and pasted, as the Mac's
+  own phone tab does, so it also lands on that simulator's pasteboard (which
+  Simulator.app may sync to the Mac's while it is open). The source applies
+  input one event at a time from a bounded queue (256), so a flood cannot
+  start more than one `simctl` at once.
+- **Lifetime.** The source stops when its tab closes or shows another phone
+  (checked at the start, on every input, frame and encode), and hostd hears
+  `surface_gone`.
+- **Loopback.** The app's source listens on `127.0.0.1` (accept local only),
+  with a per-launch secret it gives hostd over stdin, compared in constant
+  time. hostd's own host for each tab is on loopback with its own secret, as
+  for a browser host.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No command or content: touches, text, keys and Home / Lock on the simulator the person already shows in a phone tab. |
+| Mutates or destroys objects the session does not own? | Only the simulator's UI state, as the owner at the Mac's phone tab could change it. Nothing else on the Mac. |
+| Reads local state the remote should not see? | The pictures of that simulator's screen, which the Mac shows in its phone tab. Nothing else. |
 
 ## Link transport: TURN over TLS, and no backend relay (`feat-cnx-ios-turntls`)
 
@@ -747,17 +797,16 @@ sent as an ACP `resource_link` to that path.
 | Rule 2 question | Answer |
 | --- | --- |
 | Executes commands or opens content on local objects? | No. It creates one regular file. Nothing is executed, opened or indexed. The file mode follows the umask, without the executable bit. |
-| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short, long or oversized upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first and capped at `CMUX_MOBILE_UPLOAD_MAX_BYTES` (100 MiB by default). Receiving more than the declared size is refused. |
+| Mutates or destroys objects the session does not own? | It never overwrites. The bytes go to a hidden `.<uuid>.part` file created with `O_EXCL`. That file is hard-linked to `<name>`, or to `<name> 2`, `<name> 3` and so on when the name is taken, and only then removed. A short or long upload removes the part and leaves nothing. The name is reduced to its last path component. Separators, `:` and control characters are replaced, leading dots and spaces are trimmed, and the name is cut at 120 bytes (`safe_file_name`). The size is declared first, with no cap (attachments take files of any size), and the bytes stream to the part file as they arrive. Receiving more than the declared size, or fewer before the channel ends, is refused. |
 | Where can it write? | With `cwd`, the folder must exist and be either the folder of a tab the daemon lists right now (`list-workspaces`, canonicalized) or inside `CMUX_MOBILE_FILE_ROOTS`. The file goes to `<cwd>/.cmux/attachments/phone-<link session>/`, next to acpmux's own attachments, so the workspace's agent can read it without leaving its folder. hostd canonicalizes that folder again after creating it, so a `.cmux` or `attachments` symlink that points out of the workspace is refused. Without `cwd`, the file goes to `<CMUX_MOBILE_STATE_DIR>/uploads/<link session>/` (mode 0700). The phone never picks any other part of the path. |
 | Reads local state the remote should not see? | No. The reply contains only the path of the file the phone just wrote. |
 
 - **Rule 6 (tests):** `upload_names_are_safe`, `publish_never_replaces`, and
   the `upload` cases in `tests/host.rs`: a plain upload, a workspace folder, a
-  folder that is no tab's and outside the roots (`forbidden`), and an
-  oversized upload (`too_large`).
+  folder that is no tab's and outside the roots (`forbidden`), and
+  `an_upload_past_the_old_100_mib_cap_is_saved_whole` (no size cap).
 - **Open:** there is no total quota per phone, and old uploads are not
-  cleaned up. Both are bounded only by the per-file cap and the person's
-  disk.
+  cleaned up. Both are bounded only by the person's disk.
 
 ## `auth`: pairing a phone with this Mac
 

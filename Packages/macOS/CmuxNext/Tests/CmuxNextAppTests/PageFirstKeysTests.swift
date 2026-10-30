@@ -25,6 +25,14 @@ import Testing
         Key(name: "Opt-Cmd-G", characters: "g", keyCode: 5, modifiers: [.command, .option]),
     ]
 
+    /// Rich-text editing chords bound to a cmux navigation action (Cmd-B Toggle Sidebar, Cmd-I New
+    /// Agent Chat, Shift-Cmd-E Focus Right Sidebar): Bold, Italic and Center in Google Docs (#27619).
+    nonisolated static let editingKeys: [Key] = [
+        Key(name: "Cmd-B", characters: "b", keyCode: 11),
+        Key(name: "Cmd-I", characters: "i", keyCode: 34),
+        Key(name: "Shift-Cmd-E", characters: "E", keyCode: 14, modifiers: [.command, .shift]),
+    ]
+
     /// Window-level keys: cmux runs them before any page.
     nonisolated static let windowKeys: [Key] = [
         Key(name: "Cmd-T", characters: "t", keyCode: 17),
@@ -78,6 +86,46 @@ import Testing
         #expect(["find", "findNext", "findPrevious"].contains(candidate.id.rawValue))
     }
 
+    /// Cmd-B in a Chromium page is the page's Bold first; cmux toggles the sidebar only if the page
+    /// leaves the key unhandled (#27619).
+    @Test(arguments: editingKeys) func chromiumPageGetsEditingChordsFirst(_ key: Key) throws {
+        guard case .offerToPage = try Self.decision(key, facts: Self.chromium) else {
+            Issue.record("\(key) ran a cmux action before the page saw it")
+            return
+        }
+    }
+
+    /// The page left Cmd-B unhandled (a page with no Bold): cmux's Toggle Sidebar runs, once.
+    @Test func unhandledEditingChordRunsTheCmuxAction() throws {
+        let ran = Ran()
+        let registry = Self.registry(recording: ran)
+        let router = KeyRouter(registry: registry) // the router holds its registry unowned
+        defer { withExtendedLifetime(registry) {} }
+        let key = try Self.event(Self.editingKeys[0])
+        guard case .offerToPage(let candidate) = router.decide(key, focus: Self.pageFocus, keyWindow: .content, facts: Self.chromium) else {
+            Issue.record("Cmd-B was not offered to the page")
+            return
+        }
+        let tab = ObjectIdentifier(Self.tab)
+        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win", tab: tab)
+        #expect(ran.ids.isEmpty, "Toggle Sidebar ran before the page answered")
+        #expect(router.runUnhandledPageKey(key, from: tab))
+        #expect(ran.ids == ["toggleSidebar"])
+    }
+
+    /// Outside a page (a terminal has the keyboard), Cmd-B still toggles the sidebar at once.
+    @Test func editingChordOutsideAPageRunsAtOnce() throws {
+        var focus = FocusState()
+        focus.resolved = .terminal(pane: "pane_term", tab: "tab_term")
+        let decision = KeyRouter(registry: Self.sharedRegistry).decide(try Self.event(Self.editingKeys[0]), focus: focus,
+                                                                       keyWindow: .content, facts: Self.chromium)
+        guard case .run(let candidate) = decision else {
+            Issue.record("Cmd-B did not run Toggle Sidebar from a terminal")
+            return
+        }
+        #expect(candidate.id == "toggleSidebar")
+    }
+
     /// Window-level keys never wait for the page.
     @Test(arguments: windowKeys) func windowKeysStayWithCmux(_ key: Key) throws {
         guard case .run = try Self.decision(key, facts: Self.chromium) else {
@@ -95,6 +143,9 @@ import Testing
         #expect(candidate.id == "find")
     }
 
+    /// Stands for the Chromium tab the keys go to (its identity is what an offer records).
+    private static let tab = NSObject()
+
     /// The page did not handle Cmd-F (no `preventDefault`): cmux's Find runs, once.
     @Test func unhandledKeyRunsTheHeldActionOnce() throws {
         let ran = Ran()
@@ -106,16 +157,18 @@ import Testing
             Issue.record("Cmd-F was not offered to the page")
             return
         }
-        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win")
+        let tab = ObjectIdentifier(Self.tab)
+        router.offerToPage(key, candidate: candidate, context: router.keyContext(for: Self.pageFocus, facts: Self.chromium), window: "win", tab: tab)
         #expect(ran.ids.isEmpty, "Find ran before the page answered")
-        #expect(router.runUnhandledPageKey(key))
+        #expect(router.runUnhandledPageKey(key, from: tab))
         #expect(ran.ids == ["find"])
-        #expect(!router.runUnhandledPageKey(key), "a second report ran Find again")
+        #expect(!router.runUnhandledPageKey(key, from: tab), "a second report ran Find again")
         #expect(ran.ids == ["find"])
     }
 
-    /// The page handled Cmd-F (Google Sheets' own search): Chromium reports nothing, and a later
-    /// key's report never runs the held Find.
+    /// The page handled Cmd-F (Google Sheets' own search): Chromium reports nothing for it, and the
+    /// report of the next key (Cmd-G, unhandled) releases the held Find without running it, so a late
+    /// report of Cmd-F runs nothing.
     @Test func handledKeyRunsNothing() throws {
         let ran = Ran()
         let registry = Self.registry(recording: ran)
@@ -127,15 +180,16 @@ import Testing
             Issue.record("Cmd-F was not offered to the page")
             return
         }
-        router.offerToPage(handled, candidate: find, context: context, window: "win")
+        let tab = ObjectIdentifier(Self.tab)
+        router.offerToPage(handled, candidate: find, context: context, window: "win", tab: tab)
         let next = try Self.event(Self.pageOwnedKeys[1], timestamp: 2)
         guard case .offerToPage(let findNext) = router.decide(next, focus: Self.pageFocus, keyWindow: .content, facts: Self.chromium) else {
             Issue.record("Cmd-G was not offered to the page")
             return
         }
-        router.offerToPage(next, candidate: findNext, context: context, window: "win")
-        #expect(!router.runUnhandledPageKey(handled), "a stale report ran Find")
-        #expect(router.runUnhandledPageKey(next))
+        router.offerToPage(next, candidate: findNext, context: context, window: "win", tab: tab)
+        #expect(router.runUnhandledPageKey(next, from: tab))
+        #expect(!router.runUnhandledPageKey(handled, from: tab), "a stale report ran Find")
         #expect(ran.ids == ["findNext"])
     }
 }

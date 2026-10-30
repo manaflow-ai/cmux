@@ -6,11 +6,14 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
 import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
-import type { SessionSummary } from "./sessionSummary";
+import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
 import { SourcesAddMenu, type ChatToolsControl } from "./SourcesAddMenu";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 import { SummaryTasks } from "./SummaryTasks";
+import { WorkflowSummaries, WorkflowSummaryRow, type WorkflowActions } from "./WorkflowSummary";
+import type { WorkflowSummary } from "./workflow";
+import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -33,7 +36,7 @@ const ROW_ICON = rowIconSize(12);
 export type SummaryChanges = {
   additions: number;
   deletions: number;
-  files?: readonly Pick<TurnFile, "path" | "displayPath" | "additions" | "deletions" | "created">[];
+  files?: readonly Pick<TurnFile, "path" | "displayPath" | "canonical" | "additions" | "deletions" | "created">[];
 };
 
 export function SummaryBody({
@@ -49,6 +52,11 @@ export function SummaryBody({
   subagents,
   commands,
   onStopCommand,
+  workflow,
+  workflowActions,
+  workflows,
+  workflowActionsFor,
+  workflowCapacity,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
@@ -69,6 +77,12 @@ export function SummaryBody({
   commands?: readonly BackgroundCommand[];
   /// Stop for a running command the registry lists.
   onStopCommand?: (processId: string) => Promise<unknown>;
+  /// Labs-only workflow data; absent until acpmux sends the typed workflow event.
+  workflow?: WorkflowSummary;
+  workflowActions?: WorkflowActions;
+  workflows?: readonly WorkflowSummary[];
+  workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
+  workflowCapacity?: WorkflowCapacitySignal;
 }) {
   const t = useT();
   // With tools to offer, Sources' + is a menu (Attach files or folders, Use tools), and Sources
@@ -95,9 +109,15 @@ export function SummaryBody({
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
+    // When the session has a project root, reject checkpoint paths outside it before matching by
+    // display suffix. Otherwise an unrelated `outside/src/index.ts` could replace the allowed
+    // `project/src/index.ts` output merely because both display as `src/index.ts`.
+    const inProject = summary.cwd === undefined || projectPathAllowed(file.canonical ?? file.path, summary.cwd);
+    if (!inProject) continue;
     const output = outputOf(file);
-    if (output === undefined) checkpointOnly.push(file);
-    else if (!turnOf.has(output)) turnOf.set(output, file);
+    if (output === undefined) {
+      checkpointOnly.push(file);
+    } else if (!turnOf.has(output)) turnOf.set(output, file);
   }
   const outputs = [
     ...summary.outputs.map((output) => {
@@ -108,6 +128,8 @@ export function SummaryBody({
   ];
   const empty =
     !subagents &&
+    !workflow &&
+    !workflows?.length &&
     tasks.length === 0 &&
     outputs.length === 0 &&
     galleryCount === 0 &&
@@ -119,6 +141,13 @@ export function SummaryBody({
   return (
     <>
       <SummaryTasks commands={tasks} onStop={onStopCommand} onFollow={onFollow} />
+      <WorkflowSummaryRow workflow={workflow} actions={workflowActions} />
+      <WorkflowSummaries
+        key={workflows?.[0]?.sessionId}
+        workflows={workflows}
+        actionsFor={workflowActionsFor}
+        daemonCapacity={workflowCapacity}
+      />
       <SummarySection
         title={t("summary.outputs")}
         items={outputs}

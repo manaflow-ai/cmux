@@ -112,7 +112,7 @@ echoes the token),
 | `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId,machineId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji, transparent}` for the caller (per user per team; `transparent` added in 0.12.0, always `false` without an icon) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null, transparent?: boolean}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace). `transparent` (0.12.0) draws that grapheme with no background; `true` needs one (`400` otherwise; `false` is always accepted), `color` stays stored as the fallback for clients that predate it, an `emoji` change to `null` or `""` turns it off, and a PUT that sets `color` without `transparent` (any older build) turns it off. Answers the stored `{color, emoji, transparent}` |
-| `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation). `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. |
+| `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation), then grants the caller `team_admin` so the web team settings treat them as its admin. If that grant fails, the team is deleted again and the route answers `502 team_create_failed`. `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. New clients list, create, rename and delete teams through the web team API (`/api/teams`, docs/team-settings-and-invites.md); this route stays for older builds. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,machineId,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
@@ -552,10 +552,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   a new file and answers one data frame `{"path","size"}`, then `eof`. With
   `cwd`, which must be a folder of one of the Mac's tabs or inside a workspace
   root, the file goes to `<cwd>/.cmux/attachments/phone-<session>/`.
-  Otherwise it goes to the host's uploads folder. A refusal (`too_large`,
-  `forbidden`, `not_found`, `bad_request`, `io`) is answered
-  `{"error","message"}` before the channel closes with that code. The name is
-  made safe, and an existing file is never replaced (`name 2.ext`, ...).
+  Otherwise it goes to the host's uploads folder. Any size is accepted; the
+  bytes stream to disk as they arrive. A refusal (`forbidden`, `not_found`,
+  `bad_request`, `io`) is answered `{"error","message"}` before the channel
+  closes with that code. The name is made safe, and an existing file is never
+  replaced (`name 2.ext`, ...).
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -691,6 +692,48 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   the phone hides New Browser Tab for that Mac.
   `browser-video-track-v1`: the host honors `browser {"video":"track"}`
   (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
+  `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
+  (`surface`, below).
+- `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
+  booted iOS simulator, streamed like a browser tab
+  (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
+  hostd opens it only when the daemon's `list-workspaces` lists that surface
+  as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
+  tab key: `bad_request`; a Mac that streams no simulators: `no_surface_host`,
+  an older Mac: `unknown_service`, and the phone says simulators are not
+  available from that Mac). The channel is the `browser` channel's
+  `cmux.rd/1` stream carrier of a `cmux.rb/1` session, and goes through the
+  same splice: `video: "track"` and `video_tag` ride the link's one media
+  lane, and the shown tab owns it among browser and simulator tabs alike
+  (`rb.visibility`). The host answers `rb.open` and `rb.screen` with
+  `rb.opened` and `rb.screen_applied` at the simulator's encoded size (its
+  framebuffer scaled to at most 1920 px on the long side), sends a new
+  `rb.screen_applied` (seq 0) when the simulator rotates, and sends no `rb.page`. The phone sends only rd datagrams, `stop` and
+  `rb.open`, `rb.close`, `rb.visibility`, `rb.screen`, `rb.vsync`; hostd drops
+  every other rb message. Input is `rb` input events in rd `service` input:
+  `pointer` `down`/`move`/`up` at `x`, `y` in 0...1 of the simulator's screen
+  (top-left origin, as shown; clamped), `ime_commit` text (at most 4 KiB, no
+  control characters but newline and tab), `key` for `Backspace`, `Enter`,
+  `Tab`, `Escape`, `Delete` and the arrows, and `{"e":"button","button":
+  "home"|"lock"}`; anything else is dropped. A finger left down when the
+  viewer goes is lifted. At most `CMUX_MOBILE_RB_MAX_TABS` surface hosts run,
+  apart from browser hosts, with the same eviction. Under
+  `CMUX_MOBILE_CONTROL=stdio` (and `CMUX_MOBILE_SURFACE_HOSTS=1`) hostd asks
+  the app `{"type":"need_surface","request","tab"}`, the app answers
+  `{"type":"surface","request","addr":"127.0.0.1:PORT","secret"}` or
+  `{"type":"surface_failed","request","reason"}`, reports
+  `{"type":"surface_gone","tab"}` and is asked `{"type":"surface_stop","tab"}`.
+  hostd and the app's source speak `sf/1` on loopback (`surface.rs`
+  `SourceFrame`): hostd's hello with the source's secret first, then `encode
+  {idr,kbps}`, `visible`, `touch`, `text`, `key`, `button`; the source sends
+  `size`, `damage`, `skip`, `error` and access units (flags, capture time on
+  `CLOCK_UPTIME_RAW`, Annex B H.264). hostd runs the rd media engine (frame
+  gate, congestion control, FEC, recovery keyframes) itself, so the source
+  encodes only when asked.
+  The phone declares `page-tabs-v1` on its `daemon` channel (2026-10-23), so
+  page tabs read as `conversation` with their `page` instead of a blank
+  browser tab: a phone tab shows as a simulator tab, and other page tabs
+  (Settings, the App Store) are not shown on the phone.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
