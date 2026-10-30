@@ -1181,6 +1181,8 @@ describe("a failed sub-session's line", () => {
     } finally {
       await done();
     }
+  });
+});
 
 describe("workflow progress in the default tray and Inspector", () => {
   const waiting = new Set<string>();
