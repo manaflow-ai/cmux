@@ -15,10 +15,14 @@ import Testing
         let stream = AgentChatsPalettePage.answers("nothing matches", windows: windows, open: { _ in })
         let generation = try #require(sent.last?["gen"] as? UInt64)
         windows.apply(.init(window: AgentChatsPalettePage.window, generation: generation, revision: 1, full: true, keys: [], rows: []))
-        var answers: [[PaletteItem]] = []
-        for await answer in stream { answers.append(answer) }
-        #expect(answers.count == 1, "one answer, then the stream ends")
-        #expect(answers.first?.isEmpty == true, "an empty answer shows the empty state")
+        var answers = stream.makeAsyncIterator()
+        let first = await answers.next()
+        #expect(first?.isEmpty == true, "an empty answer shows the empty state")
+        // acpmux sends the window again: an ended stream gets nothing more (with no end, this second
+        // read would get the second answer and the spinner would never stop).
+        windows.apply(.init(window: AgentChatsPalettePage.window, generation: generation, revision: 2, full: true, keys: [], rows: []))
+        let second = await answers.next()
+        #expect(second == nil, "one answer, then the stream ends")
     }
 
     /// No regression (review of #28090): acpmux ranks every chat and says how many matched; when
