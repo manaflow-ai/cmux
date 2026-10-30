@@ -179,6 +179,10 @@ public final class ConversationStore {
     /// current value still equals it takes the recovered revision; one a live
     /// event or local edit changed since keeps that change.
     private var recoveryBaseline: [String: ConversationMessage]?
+    /// Rows outside that baseline that a live event touched while recovery
+    /// fetches. The live stream is whole again after reconnect, so their
+    /// live copy is at least as new as any page; a page never overwrites it.
+    private var liveDuringRecovery: Set<String> = []
     /// The backend's own polls at reconnect, before local intent. A server
     /// poll that differs from it by the time history lands came live and is
     /// newer than the page.
@@ -341,6 +345,9 @@ public final class ConversationStore {
         if indexByID[incoming.id] == nil, let seq = incoming.seq,
            let oldest = messages.first(where: { $0.seq != nil })?.seq, seq < oldest {
             return
+        }
+        if recoveryBaseline?[incoming.id] == nil, recoveryBaseline != nil {
+            liveDuringRecovery.insert(incoming.id)
         }
         let isNew = upsert(incoming)
         if isNew {
@@ -579,6 +586,7 @@ public final class ConversationStore {
             ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
         let overlap = retained?.values.compactMap(\.seq).min()
         recoveryBaseline = retained
+        liveDuringRecovery = []
         recoveryPollBaseline = retained == nil ? nil : polls.server
         if rebase {
             olderGeneration += 1
@@ -648,6 +656,10 @@ public final class ConversationStore {
                     // Current state changed after this fetch began: it wins
                     // over the snapshot, including a send acknowledged live.
                     var incoming = message
+                    if retained[message.id] == nil, liveDuringRecovery.contains(message.id),
+                       self.message(id: message.id) != nil {
+                        continue
+                    }
                     if let live = self.message(id: message.id), let kept = retained[message.id] {
                         // Local state is layered over the server's copy, not
                         // a newer revision of it: a URL card loaded here, a
@@ -660,9 +672,17 @@ public final class ConversationStore {
                         var current = live
                         current.linkPreview = kept.linkPreview
                         current.delivery = kept.delivery
+                        // A reaction is per participant: mine (pending or
+                        // refused here) comes from the live row, and everyone
+                        // else's from the page unless theirs changed live.
                         if current.reactions != kept.reactions {
                             current.reactions = kept.reactions
-                            if !incoming.isUnsent { incoming.reactions = live.reactions }
+                            if !incoming.isUnsent {
+                                let others = { (marks: [ConversationReactionMark]) in marks.filter { $0.participantID != self.meID } }
+                                let othersChangedLive = others(live.reactions) != others(kept.reactions)
+                                incoming.reactions = (othersChangedLive ? others(live.reactions) : others(incoming.reactions))
+                                    + live.reactions.filter { $0.participantID == self.meID }
+                            }
                         }
                         // upsert layers my unconfirmed votes and choices over
                         // the page's poll; a server poll that changed live
@@ -726,6 +746,7 @@ public final class ConversationStore {
         }
         hasLoadedNewest = true
         recoveryBaseline = nil
+        liveDuringRecovery = []
         recoveryPollBaseline = nil
         let buffered = bufferedLive
         bufferedLive = []
