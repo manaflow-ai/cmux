@@ -904,7 +904,9 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if clock() - started > READ_BUDGET_SECONDS:
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
-        return live, None, None
+        # Gates are local repository-variable data; reading them consumes no
+        # remaining API budget and must still reject a full owned label.
+        return live, None, seen(_fleet_gates(None, env), now)
     # The snapshot never stands in for the runner groups: it counts this repository's jobs, while the pool is
     # the organization's, so a refused runner read leaves `live` and `waiting` None and only FRESH_JOBS move
     # (place()). Its waits are still read then, so a feed's compile skips a stalled queue (fresh_stalled()).

@@ -151,6 +151,19 @@ class Counts(unittest.TestCase):
         self.assertEqual(seen.reserved, {SMALL: 1})
         self.assertFalse(seen.owned_full[GUI])
 
+    def test_slow_runner_read_still_evaluates_local_fleet_gates(self):
+        gates = {"version": 1, "labels": {GUI: {
+            "as_of": "2026-10-19T21:59:00Z", "listening": 0,
+            "held_offline": {"total": 1}, "queued": 1, "oldest_queued_s": 240}}}
+        clock = iter([0, cascade.READ_BUDGET_SECONDS + 1])
+        with mock.patch.object(cascade, "Api") as api:
+            api.return_value.in_flight.return_value = {LARGE: 0, SMALL: 0}
+            live, waiting, seen = cascade.read(
+                env(CI_FLEET_GATES=json.dumps(gates), ROUTE_TOKEN="test", GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                mock.Mock(), now=NOW, clock=lambda: next(clock), log=lambda _: None)
+        self.assertIsNone(waiting)
+        self.assertTrue(seen.owned_full[GUI])
+
     def test_gate_missing_timestamp_does_not_claim_a_live_listener(self):
         shot = {"gates": {"labels": {GUI: {"listening": 1}}}}
         self.assertTrue(cascade.owned_label_full(shot, GUI, NOW, queued_wait_s=240))
