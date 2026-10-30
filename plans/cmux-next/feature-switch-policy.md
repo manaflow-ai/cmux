@@ -121,8 +121,11 @@ name is not a claim: write it as "not measured".
    HangBanner, PopupMenus, Suggestions, Widgets), `fatalHangReports`, `featureFlagsCard`, `highEnergyTabs`,
    `memoryFreezeEligibility`, `memorySaverBackgroundActivity`, `pageHangNotice`, `recentlyAudibleProtection`,
    `sidebarDocChunkedShow`, `taskManagerMemorySaved` and `traceControl`. Turning one on again under rules 1 and 2
-   is a later slice's change, with its proof. `terminalHolder` is back in `FeatureDogfoodSet.chromeParity`, where
-   it was before it was on by default.
+   is a later slice's change, with its proof. So that chrome-parity dogfood builds keep what they ran,
+   `FeatureDogfoodSet.chromeParity` holds `terminalHolder` again (where it was before it was on by default) and
+   `chromiumHostChoosers`, `chromiumHostHangBanner`, `fatalHangReports`, `memoryFreezeEligibility`,
+   `sidebarDocChunkedShow` and `traceControl`; `drainCauseSplit`, `terminalStreams` and every `perfLab` switch
+   stay off there too.
 
 ## The switch table
 

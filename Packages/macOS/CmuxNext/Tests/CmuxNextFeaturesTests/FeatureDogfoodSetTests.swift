@@ -81,12 +81,19 @@ struct FeatureDogfoodSetTests {
         #expect(unknown.isEmpty, "not declared in this build's registry: \(unknown)")
     }
 
-    /// The PTY holder is off by default again in every channel (slice 1 turns on no switch that feat-cmux-next lacks,
-    /// cmux-ad 2026-10-30), so the chrome-parity dogfood builds turn it on through their set, as before it was on by
-    /// default.
-    @Test func theChromeParitySetTurnsOnTheHolder() {
-        #expect(FeatureDogfoodSet.chromeParity.names.contains("terminalHolder"))
-        #expect(!Feature.terminalHolder.defaults.dev, "the holder is on in DEV: the set entry is redundant")
+    /// Slice 1 turns on no switch that feat-cmux-next lacks (cmux-ad 2026-10-30), so these are off by default in every
+    /// channel; the chrome-parity dogfood builds (DEV-kind builds) turn them on through their set and keep what they
+    /// ran before. drainCauseSplit, terminalStreams and every perfLab switch stay off in the dogfood builds too.
+    @Test func theChromeParitySetKeepsWhatTheSliceOneSwitchesTurnedOff() {
+        let names = FeatureDogfoodSet.chromeParity.names
+        for feature in [Feature.terminalHolder, .chromiumHostChoosers, .chromiumHostHangBanner, .fatalHangReports,
+                        .memoryFreezeEligibility, .sidebarDocChunkedShow, .traceControl] {
+            #expect(names.contains(feature.name), "\(feature.name) is not in the chrome-parity set")
+            #expect(!feature.defaults.dev, "\(feature.name) is on in DEV: the set entry is redundant")
+        }
+        for name in ["drainCauseSplit", "terminalStreams"] {
+            #expect(!names.contains(name), "\(name) stays off in the dogfood builds")
+        }
     }
 
     /// The chrome-parity dogfood builds keep the built-in ad blocker: with chromiumAdBlockerAtFirstTab on, a fork without
