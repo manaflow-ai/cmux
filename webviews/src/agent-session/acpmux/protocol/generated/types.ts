@@ -839,6 +839,12 @@ export type SessionDetail = {
   models?: unknown;
   /** The agent's ACP session modes. */
   modes?: unknown;
+  /**
+   * Moved to another daemon (`acpmux session move`): where it runs now,
+   * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+   * and from a peer on an older acpmux.
+   */
+  movedTo?: unknown;
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
@@ -907,7 +913,7 @@ export type SessionDetail = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**
@@ -1042,6 +1048,12 @@ export type SessionSummary = {
    */
   mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
+  /**
+   * Moved to another daemon (`acpmux session move`): where it runs now,
+   * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+   * and from a peer on an older acpmux.
+   */
+  movedTo?: unknown;
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
@@ -1106,7 +1118,7 @@ export type SessionSummary = {
    * the tree from these links at any depth.
    */
   startedBy?: (string | null);
-  /** Effective liveness: `stuck` after three classified harness failures, else `status`. */
+  /** Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`. */
   state?: string;
   stateSeq: number;
   /**

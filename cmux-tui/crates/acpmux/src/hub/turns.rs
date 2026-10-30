@@ -626,6 +626,8 @@ impl Hub {
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
         session.stderr_tail.lock().unwrap().clear();
+        // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
+        session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
         let turn_seq = self
             .append(
                 session,
@@ -944,6 +946,9 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // The agent a Stop ended starts again on the same conversation now, while this turn's
+        // lock is still held: the next queued turn finds it running (`cancel.rs`).
+        self.respawn_stopped_agent(session, &turn_id, stops).await;
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
@@ -981,6 +986,19 @@ impl Hub {
             self.take_turn(session, turn_id, in_place).is_none_or(|t| t.turn_id != turn_id);
         // Named in this turn's `turn_result`, so a restart before it starts still runs it.
         let carried_next = next.filter(|_| !detached);
+        // The turn a Stop was stopping has ended (`cancel.rs`): it no longer reads `stopping`,
+        // unless its agent runs on in the turn that takes its place (`carried_turn.rs`).
+        if take_if_turn(&session.stopping, turn_id)
+            && let Some(n) = carried_next
+        {
+            *session.stopping.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(n.next.turn_id.clone());
+        }
+        // A Stop ended the process of an agent that worked on through it (`cancel.rs`): the
+        // prompt that failed as that process ended answers as the forced cancel.
+        if take_if_turn(&session.stop_restart, turn_id) && result.is_err() {
+            result = Ok(super::cancel::forced_answer(true));
+        }
         let carries_on = carried_next.is_some();
         // Read as the turn result is written: a Web steer may raise the next turn meanwhile.
         let carried_to = || {
@@ -1112,8 +1130,13 @@ impl Hub {
                 }
                 self.write_turn_result(session, msg, git);
                 // The chat works again: agent messages a failed turn held go in (`digest.rs`).
-                if status == "completed" {
-                    self.release_held_agent_messages(session);
+                // Not while a person's Stop that came after this turn began holds them
+                // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.
+                let hold = session.stop_hold.load(Ordering::SeqCst);
+                if status == "completed"
+                    && (hold == 0 || hold == session.turn_hold.load(Ordering::SeqCst))
+                {
+                    self.release_held_agent_messages(session, hold);
                 }
             }
             Err(e) => {
@@ -1720,5 +1743,16 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+}
+
+/// Clears `slot` when it names `turn_id`; whether it did.
+fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
+    let mut slot = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if slot.as_deref() == Some(turn_id) {
+        *slot = None;
+        true
+    } else {
+        false
     }
 }
