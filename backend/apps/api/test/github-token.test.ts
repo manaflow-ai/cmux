@@ -284,6 +284,38 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     })
   })
 
+  it("reuses a short-TTL machine token while half its life remains instead of minting on every ask", async () => {
+    const a = await signedInWithInstall("gh-token-short-ttl-reuse", "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const start = Date.now()
+      const clock = vi.spyOn(Date, "now").mockReturnValue(start)
+      const p: Principal = { identity: `install:${a.install}`, kind: "install", install_kind: "vm", install: a.install, user: a.user, team: a.team }
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState, register: vi.fn(async () => true), audit: vi.fn() }
+      let n = 0
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ token: `ghs_short_${++n}_${crypto.randomUUID()}`, expires_at: new Date(start + 3600_000).toISOString(), permissions: { contents: "read" } }, 201)
+      try {
+        const ask = { repo: "acme/web", permissions: { contents: "read" as const }, ttlSec: 300 }
+        const first = await githubToken(h, p, ask, start)
+        expect(first).toMatchObject({ ok: true, value: { expires_at: new Date(start + 300_000).toISOString() } })
+        if (!first.ok) throw new Error("first mint must succeed")
+        // Two minutes on, 180 s of 300 s remain: the same token.
+        clock.mockReturnValue(start + 120_000)
+        expect(await githubToken(h, p, ask, start + 120_000)).toMatchObject({ ok: true, value: { token_id: first.value.token_id } })
+        expect(gh.mints()).toHaveLength(1)
+        // Under half its life left (100 s): a fresh one.
+        clock.mockReturnValue(start + 200_000)
+        const later = await githubToken(h, p, ask, start + 200_000)
+        expect(later).toMatchObject({ ok: true })
+        if (!later.ok) throw new Error("second mint must succeed")
+        expect(later.value.token_id).not.toBe(first.value.token_id)
+        expect(gh.mints()).toHaveLength(2)
+      } finally {
+        clock.mockRestore()
+      }
+    })
+  })
+
   it("a refusal that arrives after the connection was relinked does not mark the relinked connection", async () => {
     const a = await signedInWithInstall("gh-token-repo-relink-race", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
