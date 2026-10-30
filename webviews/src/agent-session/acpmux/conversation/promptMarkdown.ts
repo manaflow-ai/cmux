@@ -4,13 +4,14 @@
 // and a bare address stay the literal text the person typed, line breaks and all (Leo 2026-10-29:
 // "how do you want to detect if it's Markdown?"). Copy and Edit keep the source either way.
 
-/// Block syntax at a line start, after at most three spaces of indent: a quote (`> `), a list item
-/// (`- `, `* `, `+ `, `1. `, `1) `), a fence (```` ``` ```` or `~~~`) or an ATX heading (`#` to
-/// `######` and a space). `#123` and `#tag` have no space, so they are text.
-const BLOCK = /(?:^|\n) {0,3}(?:>(?:[ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|```|~~~|#{1,6}[ \t]+\S)/m;
+/// Block syntax at a line start, as Markdown.tsx parses it: after at most three spaces of indent, a
+/// quote (`> `), a list item (`- `, `* `, `+ `, `1. `, `1) `) or a ```` ``` ```` fence; at the
+/// line's very start, a heading (`#` to `######` and a space). `#123` and `#tag` have no space, so
+/// they are text.
+const BLOCK = /(?:^|\n)(?: {0,3}(?:>(?:[ \t]|$)|[-*+][ \t]+\S|\d{1,9}[.)][ \t]+\S|```)|#{1,6}[ \t]+\S)/;
 
 /// A pipe table: a row holding a `|`, then its separator row (`---|---`, `| :-- | --: |`).
-const TABLE = /(?:^|\n)[^\n]*\|[^\n]*\n {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*(?:\n|$)/;
+const TABLE = /(?:^|\n)[^\n]*\|[^\n]*\n {0,3}\|?[ \t]*:?-{2,}:?[ \t]*(?:\|[ \t]*:?-{2,}:?[ \t]*)+\|?[ \t]*(?:\n|$)/;
 
 /// Paired inline syntax on one line: a code span (`` `x` ``), strong text (`**x**`, not touching
 /// spaces inside its markers) or a link (`[t](url)`, an image's `![t](url)` included).

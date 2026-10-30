@@ -30,6 +30,7 @@ const LITERAL: [string, string][] = [
   ["minus number", "-5 degrees outside"],
   ["decimal", "1.5 is the version"],
   ["c sharp", "C# and F# both"],
+  ["indented hash", "  # not a heading here"],
   ["multiline", "first line\nsecond line\n\nafter a blank"],
 ];
 
@@ -39,7 +40,6 @@ const MARKDOWN: [string, string, string][] = [
   ["ordered list", "1. first\n2. second", "<ol"],
   ["list after prose", "do these:\n- one\n- two", "<li>"],
   ["fence", "```ts\nconst a_b = 1;\n```", "<pre"],
-  ["tilde fence", "~~~\nplain\n~~~", "<pre"],
   ["heading", "# Title\nbody", "<h"],
   ["sub heading", "### Sub head", "<h"],
   ["quote", "> quoted line\nreply", "cv-quote"],
@@ -72,7 +72,10 @@ describe("sent prompt Markdown gate", () => {
     const span = draw(text);
     // The bubble is `white-space: pre-wrap`; the span holds the newlines as typed, no <br> or <p>.
     expect(span).not.toContain("<p");
-    const textOnly = span.replace(/<[^>]+>/g, "").replaceAll("&lt;", "<").replaceAll("&amp;", "&");
+    const textOnly = span
+      .replace(/<[^>]+>/g, "")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&amp;", "&");
     expect(textOnly).toBe(text);
   });
 
