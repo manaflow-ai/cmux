@@ -234,7 +234,11 @@ impl Hub {
         if !session.caught_up.load(Ordering::SeqCst) {
             let (hub, s) = (self.clone(), session.clone());
             if let Err(e) = cmux_blocking::spawn_blocking(move || hub.catch_up(&s)).await {
-                tracing::warn!(session = %session.id, "replaying the log tail failed: {e}");
+                // Fail closed: the tail may hold a grant the replay would clear, so its host is
+                // never adopted (the chat's next start runs a new agent in its policy's mode).
+                tracing::warn!(session = %session.id, "replaying the log tail failed: {e}; the host is not adopted");
+                self.mark_unadoptable(session, json!({"reason": "grant_replay_failed"}));
+                return true;
             }
         }
         if session.meta().policy_source.as_deref() != Some(CLEARED_HOST) {
