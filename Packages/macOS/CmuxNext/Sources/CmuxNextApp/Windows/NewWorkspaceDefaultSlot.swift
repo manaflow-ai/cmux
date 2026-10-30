@@ -153,7 +153,8 @@ enum NewWorkspacePlacements {
     /// `layout` that shows in the window's space `room` (pinned, the top region, a custom section), or, while
     /// the sidebar layout is unavailable (`legacy`), a pin (`workspace-pin-v1`, the Pinned list section).
     static func shownInBand(_ id: String, layout: SidebarLayoutDocument, room: String?, legacy: Bool, machines: MachineRegistry) -> Bool {
-        if machines.workspace(id: id)?.0.pinned == true { return true }
+        // The list's own projection (`SidebarTopProjection`): the pin flag only while pins are not layout tiles.
+        if legacy { return machines.workspace(id: id)?.0.pinned == true }
         guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
         return layout.sections.contains { $0.isVisible(inRoom: room) && $0.items.contains { $0.ref == ref } }
     }
