@@ -162,6 +162,8 @@ describe("ChatUnavailableState", () => {
   test("a chat still loading shows nothing: no session id, text or buttons", () => {
     // Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD". Past the grace it is offline (above).
     const html = render({ reason: "connecting", machine: "box" }, "Studio");
-    expect(html).toBe('<div class="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true"></div>');
+    expect(html).toBe(
+      '<div class="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true"></div>',
+    );
   });
 });
