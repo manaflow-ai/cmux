@@ -212,7 +212,8 @@ impl Load {
                             }
                         }
                     }
-                    let c = &mut chunks[i % chunks.len()];
+                    let at = i % chunks.len();
+                    let c = &mut chunks[at];
                     let mut j = 0;
                     while j < c.len() {
                         c[j] = c[j].wrapping_add(1);
