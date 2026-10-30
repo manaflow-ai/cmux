@@ -273,13 +273,22 @@ async fn create(client: &Client, args: &RunArgs, local: &Path) -> Result<String,
         }
         Err(error) => return Err(error),
     };
-    let vm: Value = serde_json::from_slice(&created)
-        .map_err(|_| CliError::unexpected("the create response was not a VM"))?;
-    let id = vm["id"]
-        .as_str()
-        .ok_or_else(|| CliError::unexpected("the create response named no VM"))?
-        .to_owned();
-    Ok(id)
+    let id = serde_json::from_slice::<Value>(&created)
+        .ok()
+        .and_then(|vm| vm["id"].as_str().map(str::to_owned));
+    match id {
+        Some(id) => Ok(id),
+        // A 2xx whose body names no VM may still have allocated one: read it
+        // back by its key, as for a lost answer.
+        None => {
+            let error = CliError::unexpected("the create response named no VM");
+            match recover_creation(client, &key_text).await {
+                Recovered::Vm(id) => Ok(id),
+                Recovered::Settled(what) => Err(error.with_recovery(what)),
+                Recovered::Open(what) => Err(error.with_recovery(&what)),
+            }
+        }
+    }
 }
 
 /// A create that failed without a definite answer (the connection dropped, or

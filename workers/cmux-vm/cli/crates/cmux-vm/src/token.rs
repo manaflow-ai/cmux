@@ -315,17 +315,19 @@ pub fn parse_ttl(text: &str) -> Result<u64, CliError> {
     let value: u64 = number
         .parse()
         .map_err(|_| CliError::usage(format!("invalid --ttl {text:?}")))?;
-    let seconds = match unit {
-        "s" => value,
-        "m" => value * 60,
-        "h" => value * 3600,
-        "d" => value * 86_400,
+    let scale: u64 = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
         _ => {
             return Err(CliError::usage(format!(
                 "invalid --ttl {text:?}: use s, m, h or d"
             )));
         }
     };
+    // An overflowing product is out of range, never a wrapped small one.
+    let seconds = value.checked_mul(scale).unwrap_or(u64::MAX);
     if !(60..=MAX_TTL_SECONDS).contains(&seconds) {
         return Err(CliError::usage("--ttl must be between 1m and 24h"));
     }
@@ -460,6 +462,9 @@ mod tests {
         assert!(parse_ttl("25h").is_err());
         assert!(parse_ttl("10s").is_err());
         assert!(parse_ttl("1w").is_err());
+        // 307445734561825862 minutes wraps to 104 seconds in a u64.
+        assert!(parse_ttl("307445734561825862m").is_err());
+        assert!(parse_ttl("99999999999999999999").is_err());
     }
 
     #[test]
