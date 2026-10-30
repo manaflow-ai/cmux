@@ -535,6 +535,17 @@ impl Hub {
             _ => (None, false),
         };
         let id = session.id.clone();
+        let unrestored = if ending.is_none() && session.turn().is_none() {
+            session.meta().last_turn.as_ref().and_then(|last| {
+                let turn = last["turnId"].as_str()?;
+                let error = last["errorText"].as_str().unwrap_or_default();
+                (last["status"] == "failed"
+                    && super::turn_errors::resume_cause(error, error).is_some())
+                .then(|| turn.to_owned())
+            })
+        } else {
+            None
+        };
         match (session.turn().map(|t| t.turn_id), ending) {
             (Some(t), _) => pending.insert(id, Mark::Stopped(t)),
             (None, Some(t)) if fired => pending.insert(id, Mark::Stopping(t)),
@@ -544,7 +555,7 @@ impl Hub {
         drop(pending);
         // A row may have shown this turn's retry being decided: watchers and peers hear it
         // settle, though an idle Stop records nothing else (Codex review, round 3).
-        if let Some(turn) = settles {
+        if let Some(turn) = settles.or(unrestored) {
             self.settled_unretried(session, &turn, "stopped");
         }
     }
