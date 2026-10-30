@@ -102,7 +102,11 @@ export function UserBubble({
     (placed
       ? orderedParts!.some((part) => !isStripMedia(part))
       : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
-  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
+  // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
+  // row while the DOM draws nothing and the next virtualized row jumps into that space.
+  const inlineAttachmentOnly = Boolean(orderedParts?.length && orderedParts.every((part) => !readsAsText(part)));
+  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));

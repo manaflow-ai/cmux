@@ -123,6 +123,19 @@ test("a delivered image-only prompt exposes retry, fork, and version actions", a
     expect(container.querySelector(`button[aria-label="${translate(label)}"]`)).not.toBeNull();
 });
 
+test("an inline attachment-only prompt keeps its media strip and footer", async () => {
+  const row: AcpmuxRow = {
+    ...baseRow(),
+    images: undefined,
+    inlineParts: [{ kind: "file", name: "notes.txt", mimeType: "text/plain", size: 12 }],
+  };
+  const container = await render(row, { retry: () => {} });
+
+  expect(container.querySelector(".cv-user__inline-strip")).not.toBeNull();
+  expect(container.querySelector(".cv-user__inline-file")).not.toBeNull();
+  expect(container.querySelector(".cv-user__actions")).not.toBeNull();
+});
+
 test("an image-only prompt still hides retry while its send is pending", async () => {
   const row: AcpmuxRow = {
     ...baseRow(),
