@@ -428,7 +428,7 @@ for (const outcome of ["resolve", "reject", "edited"] as const) {
     const accepted = new Promise<void>((resolve, reject) => {
       settle = outcome === "reject" ? () => reject(new Error("refused")) : resolve;
     });
-    const page = await composer(chat(), "/btw question", () => accepted);
+    const page = await composer(chat(), "/continue codex", () => accepted);
     const paste = new window.Event("paste", { bubbles: true, cancelable: true });
     Object.defineProperty(paste, "clipboardData", {
       value: { files: [new File([PNG], "staged.png", { type: "image/png" })], types: ["Files"], getData: () => "" },
@@ -436,7 +436,7 @@ for (const outcome of ["resolve", "reject", "edited"] as const) {
     await act(async () => page.field.dispatchEvent(paste));
     expect(host.querySelector(".acpmux-attachment-image")).not.toBeNull();
     await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
-    expect(page.field.textContent).toBe("/btw question");
+    expect(page.field.textContent).toBe("/continue codex");
     expect(host.querySelector(".acpmux-attachment-image")).toBeNull();
     if (outcome === "edited") {
       await act(async () => {
@@ -446,7 +446,7 @@ for (const outcome of ["resolve", "reject", "edited"] as const) {
     }
     await act(async () => settle());
     expect(page.field.textContent).toBe(
-      outcome === "edited" ? "A later edit" : outcome === "reject" ? "/btw question" : "",
+      outcome === "edited" ? "A later edit" : outcome === "reject" ? "/continue codex" : "",
     );
     if (outcome === "reject") expect(host.querySelector(".acpmux-attachment-note")).not.toBeNull();
     expect(page.sent).toEqual([]);
