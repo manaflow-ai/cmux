@@ -200,13 +200,16 @@ test("a marked tab in Home opens through its tab action", async () => {
         atMs: Date.now(),
       },
     ],
-    onOpen: (item) => opened.push(item),
+    onOpen: (item) => {
+      opened.push(item);
+    },
   });
   const row = inbox.rowOf("Confirm demo access");
   expect(row.getAttribute("data-kind")).toBe("tab");
   await act(async () => (row.querySelector(".acpmux-home-inbox-open") as HTMLElement).click());
   expect(opened).toHaveLength(1);
   expect(opened[0]).toMatchObject({ kind: "tab", tabId: "tab-login", sessionId: "" });
+  expect(inbox.opened).toEqual([]);
   await inbox.unmount();
 });
 
