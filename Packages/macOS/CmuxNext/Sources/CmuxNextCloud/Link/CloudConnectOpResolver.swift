@@ -32,11 +32,22 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
         var state: String
         var generation: UInt64?
         var socket: String?
+        /// `vm_kind` when it is a string; any other JSON type reads as absent (not the owner),
+        /// never as a refused connect.
         var vmKind: String?
 
         enum CodingKeys: String, CodingKey {
             case machine, state, generation, socket
             case vmKind = "vm_kind"
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            machine = try c.decode(String.self, forKey: .machine)
+            state = try c.decode(String.self, forKey: .state)
+            generation = try c.decodeIfPresent(UInt64.self, forKey: .generation)
+            socket = try c.decodeIfPresent(String.self, forKey: .socket)
+            vmKind = try? c.decodeIfPresent(String.self, forKey: .vmKind)
         }
     }
 

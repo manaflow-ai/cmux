@@ -1,3 +1,4 @@
+@testable import CmuxNextApp
 @testable import CmuxNextCloud
 import Foundation
 import Testing
@@ -29,6 +30,17 @@ struct CloudAppLinkOwnerAnswerTests {
         }
     }
 
+    /// A `vm_kind` that is not a string (a server mid-rollout) is no owner answer, and the machine
+    /// still connects as it did before the field existed.
+    @Test(arguments: ["0", "true", "[\"owner\"]", "{\"kind\":\"owner\"}", "null"])
+    func aVMKindOfAnotherTypeIsNotTheOwnerAndStillConnects(raw: String) async throws {
+        let body = #"{"machine":"vm_aaaaaaaaaaaaaaaaaaaa","state":"up","generation":3,"socket":"/tmp/cmux-link.sock","vm_kind":"# + raw + "}"
+        let resolver = CloudConnectOpResolver(run: { _, _, _, _ in Data(body.utf8) }, check: { _ in })
+        let socket = try await resolver.open(Self.key, intent: "i", origin: .user)
+        #expect(socket.path == "/tmp/cmux-link.sock")
+        #expect(!socket.callerOwnsVM)
+    }
+
     @Test func theOwnerAnswerHoldsOnlyWhileItsOwnConnectIsUp() async throws {
         let link = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
         #expect(await link.ownerLink == nil, "no connect yet")
@@ -42,13 +54,43 @@ struct CloudAppLinkOwnerAnswerTests {
         let second = try #require(await link.ownerLink)
         #expect(second != id)
 
-        // A down, a revoke or a pause ends the answer with its link.
+        // A down, a revoke, a second endpoint call (the connection dropped) or a pause ends the
+        // answer with its link.
         _ = await link.apply(CloudLinkChange(key: Self.key, state: .down, generation: 3, reason: "eof"))
+        #expect(await link.ownerLink == nil)
+        _ = try await link.connect(origin: .user)
+        #expect(await link.ownerLink != nil)
+        _ = await link.apply(CloudLinkChange(key: Self.key, state: .revoked, generation: 3, reason: "revoked"))
+        #expect(await link.ownerLink == nil)
+        let dropped = try await link.connect(origin: .user)
+        _ = try await link.endpoint(dropped)
+        _ = try? await link.endpoint(dropped)
         #expect(await link.ownerLink == nil)
         _ = try await link.connect(origin: .user)
         #expect(await link.ownerLink != nil)
         await link.end(reason: "paused")
         #expect(await link.ownerLink == nil)
+    }
+
+    /// The closure the tab's chat start and trust calls read (AgentTabs+Wiring): the app link's own
+    /// answer. AgentSessionAttachClient sends the owner word only when its two reads (before the
+    /// connection, as the call goes out) give the same non-nil id (AgentSessionStartOwnerLinkTests),
+    /// so a reconnect or a revoke between them refuses the call.
+    @Test func theTabsOwnerClosureFollowsTheAppLinkAcrossAReconnectAndARevoke() async throws {
+        let appLink = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
+        let ownerLink = AgentTabRemoteHost.ownerLink(appLink: appLink, link: nil)
+        #expect(await ownerLink() == nil, "not connected: refused")
+        _ = try await appLink.connect(origin: .user)
+        let before = try #require(await ownerLink())
+        #expect(await ownerLink() == before, "the same link: the owner word goes out")
+        _ = try await appLink.connect(origin: .user)
+        #expect(await ownerLink() != before, "a reconnect between the reads: refused")
+        _ = await appLink.apply(CloudLinkChange(key: Self.key, state: .revoked, generation: 3, reason: "revoked"))
+        #expect(await ownerLink() == nil, "revoked: refused")
+
+        let team = CloudLinkSession(key: Self.key, resolver: Self.resolver("team"))
+        _ = try await team.connect(origin: .user)
+        #expect(await AgentTabRemoteHost.ownerLink(appLink: team, link: nil)() == nil, "a teammate: refused")
     }
 
     @Test func aConnectThatDoesNotSayOwnerGivesNoOwnerAnswer() async throws {
