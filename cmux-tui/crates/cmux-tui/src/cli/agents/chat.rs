@@ -57,6 +57,12 @@ pub(in crate::cli) enum ChatCommand {
     },
     /// Start a GUI agent chat (chat_control.rs).
     New(super::chat_control::NewChat),
+    /// Change a chat's model or mode, as its composer pickers do (chat_control.rs).
+    Set {
+        target: String,
+        model: Option<String>,
+        mode: Option<String>,
+    },
     /// What a chat is doing.
     State {
         target: String,
@@ -73,6 +79,7 @@ pub(in crate::cli) enum ChatCommand {
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
         ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["set", target, rest @ ..] => super::chat_control::parse_set(chat_word(target)?, rest),
         ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
         ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
         // A nudge: a send whose text defaults to "Continue.".
@@ -157,7 +164,8 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
         _ => Err(UsageError::new(
             "agents chat: use `chat new [flags] [<prompt>]`, `chat send <chat> <text>`, \
              `chat read <chat> [--after N] [--limit N]`, `chat state <chat>`, \
-             `chat interrupt <chat>` or `chat continue <chat> [<text>]`",
+             `chat set <chat> [--model M] [--mode M]`, `chat interrupt <chat>` or \
+             `chat continue <chat> [<text>]`",
         )),
     }
 }
@@ -181,6 +189,9 @@ pub(in crate::cli) fn run(
         ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
         ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
         ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
+        ChatCommand::Set { target, model, mode } => {
+            super::chat_control::set(global, target, model.as_deref(), mode.as_deref(), origin)
+        }
         ChatCommand::State { target } => super::chat_control::state(global, target),
         ChatCommand::Interrupt { target } => super::chat_control::interrupt(global, target, origin),
     }
@@ -798,6 +809,11 @@ pub(super) mod acp {
                 .await?;
             Ok(())
         })
+    }
+
+    /// Sends `method` (`session/set_model`, `session/set_mode`) with `params` to the session.
+    pub(in crate::cli) fn set(method: &str, params: Value, socket: Option<&Path>) -> Result<Value, String> {
+        block_on(async { client(socket).await?.request(method, params).await })
     }
 
     /// Cancels the session's running turn (`session/cancel`).

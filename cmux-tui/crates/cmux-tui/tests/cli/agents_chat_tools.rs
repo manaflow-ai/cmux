@@ -701,6 +701,17 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     assert_eq!(code, Some(0), "{stopped}");
     assert_eq!(stopped["result"]["state"], "cancel_requested", "{stopped}");
 
+    // Its mode, as the chat's mode picker sets it; `state` reads it back.
+    let (code, set) = chat_json(as_caller(), &["set", &started, "--mode", "strict"]);
+    assert_eq!(code, Some(0), "{set}");
+    assert_eq!(set["action"], "chat.set", "{set}");
+    assert_eq!(set["result"]["mode"], "strict", "{set}");
+    let (code, state) = chat_json(as_caller(), &["state", &started]);
+    assert_eq!(code, Some(0), "{state}");
+    assert_eq!(state["result"]["mode"], "strict", "{state}");
+    let (code, nothing) = chat_json(as_caller(), &["set", &started]);
+    assert_eq!(code, Some(2), "a set that names nothing: {nothing}");
+
     // Never the caller's own chat, never a chat outside this session.
     let (code, own) = chat_json(as_caller(), &["interrupt", &caller]);
     assert_eq!(code, Some(3), "{own}");
@@ -762,6 +773,7 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     };
     assert_eq!(tool("agents_chat_state")["annotations"]["readOnlyHint"], true);
     assert_eq!(tool("agents_chat_interrupt")["annotations"]["destructiveHint"], true);
+    assert_eq!(tool("agents_chat_set")["inputSchema"]["required"], json!(["target"]));
     assert_eq!(tool("agents_chat_new")["inputSchema"]["additionalProperties"], false);
 }
 
@@ -930,5 +942,51 @@ fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
     assert!(
         answers.iter().any(|item| item["text"].as_str().unwrap_or_default().starts_with("echo: ")),
         "the resumed agent answered the send: {later:?}"
+    );
+}
+
+/// The rows of `cmux --json <args>` that list tabs: the result's array, or its `tabs`/`items`.
+fn tab_rows(value: &Value) -> Vec<Value> {
+    let result = value.get("result").unwrap_or(value);
+    [result, &result["tabs"], &result["items"], &result["daemon"]["tabs"]]
+        .into_iter()
+        .find_map(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// #27934: an agent chat tab (a store tab bound to an acpmux session, as the app files one) lists
+/// as a chat with its session in `cmux tab list` and `cmux agents snapshot`, not as a plain
+/// `browser` at `about:blank` whose session no CLI reader could see.
+#[test]
+fn an_agent_chat_tab_lists_as_a_chat_with_its_session() {
+    let daemon = machine("chat-tab-kind");
+    let session = "01a20c11-7a0e-7c55-9d7b-27934ddddddd";
+    assert_eq!(daemon.rpc(json!({"id": 2, "cmd": "new-workspace"}))["ok"], true);
+    let tab = daemon.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
+        "agent_session": {"host": "install:chat-tab-kind", "session": session}}));
+    assert_eq!(tab["ok"], true, "{tab}");
+    let chat_row = |rows: &[Value]| {
+        rows.iter()
+            .find(|row| row["extra"]["conversation"]["agent_session"]["session"] == session)
+            .cloned()
+    };
+
+    let output = cmux(&daemon, None).args(["--json", "tab", "list"]).output().unwrap();
+    let listed: Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|_| panic!("tab list: {}", String::from_utf8_lossy(&output.stderr)));
+    let row = chat_row(&tab_rows(&listed)).unwrap_or_else(|| panic!("no chat tab in {listed}"));
+    assert_eq!(row["content_kind"], "conversation", "{row}");
+    assert_eq!(row["extra"]["conversation"]["agent_session"]["host"], "install:chat-tab-kind");
+
+    let output = cmux(&daemon, None).args(["--json", "agents", "snapshot"]).output().unwrap();
+    let snapshot: Value = serde_json::from_slice(&output.stdout)
+        .unwrap_or_else(|_| panic!("snapshot: {}", String::from_utf8_lossy(&output.stderr)));
+    let row = chat_row(&tab_rows(&snapshot)).unwrap_or_else(|| panic!("no chat tab in {snapshot}"));
+    assert_eq!(row["content_kind"], "conversation", "{row}");
+    let browsers = snapshot.get("daemon").unwrap_or(&snapshot)["browsers"].clone();
+    assert!(
+        !browsers.as_array().into_iter().flatten().any(|browser| browser["tab_id"] == row["id"]),
+        "the chat is listed as a browser too: {browsers}"
     );
 }

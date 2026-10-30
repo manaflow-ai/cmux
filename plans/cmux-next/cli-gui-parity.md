@@ -28,6 +28,8 @@ Gaps the issue named, and what this change does:
 | New Agent Chat (harness, model, effort, permissions) in a given workspace or pane, unfocused | `agent new-chat` needs a mounted pane ("That pane is no longer open"); `acp new` + `agent open` only in a new workspace | `cmux agents chat new [--workspace W\|--pane P] [--harness] [--model] [--effort] [--mode] [--policy] [--cwd] [--name] [-- prompt]`, MCP `agents_chat_new`; `agent open --pane P\|--workspace W` |
 | Send to an existing chat | `agents chat send` | unchanged; `agents chat continue <chat> [text]` nudges |
 | Read a chat's state | transcript only (`agents chat read`) | `agents chat state <chat>`, MCP `agents_chat_state` |
+| Set a chat's model or mode (its composer pickers) | `cmux acp session set <id> mode=M` (any chat, no session scope) | `agents chat set <chat> [--model M] [--mode M]`, MCP `agents_chat_set` (this session's chats; acpmux refuses a mode that does not ask, which is the person's) |
+| See agent chat tabs | `tab list` / `agents snapshot` showed a `browser` at `about:blank`, no session | `content_kind: conversation` with `extra.conversation.agent_session` (host, session); the snapshot lists no browser for it (#27934) |
 | Stop a chat's turn | `cmux acp session cancel` (any chat, no session scope) | `agents chat interrupt <chat>`, MCP `agents_chat_interrupt` (this session's chats, never the caller's own) |
 | Screenshot a pane or tab | person only | agents may capture terminal and page panes and tabs (the window alone, no overlay or floating window); browser and agent-chat pixels stay refused (`cmux browser page screenshot` and `cmux agents chat read` mask secrets) |
 

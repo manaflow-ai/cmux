@@ -26,6 +26,7 @@ enum Verb {
     ChatRead,
     ChatNew,
     ChatState,
+    ChatSet,
     ChatInterrupt,
 }
 
@@ -151,6 +152,15 @@ pub(super) const TOOLS: &[AgentTool] = &[
             Changes nothing.",
     },
     AgentTool {
+        name: "agents_chat_set",
+        verb: Verb::ChatSet,
+        title: "Set a chat's model or mode",
+        description: "Change the model or mode of an agent chat of this cmux session (`cmux \
+            agents chat set`), as its composer pickers do. acpmux refuses a mode that does not \
+            ask before it acts: the person chooses that in cmux. Answers {action, origin, \
+            result: {chat, model, mode}} with the fields it set.",
+    },
+    AgentTool {
         name: "agents_chat_interrupt",
         verb: Verb::ChatInterrupt,
         title: "Interrupt a chat",
@@ -183,6 +193,7 @@ impl AgentTool {
                 | Verb::ChatRead
                 | Verb::ChatNew
                 | Verb::ChatState
+                | Verb::ChatSet
                 | Verb::ChatInterrupt
         )
     }
@@ -203,7 +214,12 @@ impl AgentTool {
     fn chat(&self) -> bool {
         matches!(
             self.verb,
-            Verb::ChatSend | Verb::ChatRead | Verb::ChatNew | Verb::ChatState | Verb::ChatInterrupt
+            Verb::ChatSend
+                | Verb::ChatRead
+                | Verb::ChatNew
+                | Verb::ChatState
+                | Verb::ChatSet
+                | Verb::ChatInterrupt
         )
     }
 
@@ -382,6 +398,22 @@ impl AgentTool {
                 );
                 required.push("target");
             }
+            Verb::ChatSet => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                required.push("target");
+                for (name, description) in [
+                    ("model", "The model to switch to, as the chat's model picker lists it."),
+                    ("mode", "The harness mode to switch to; acpmux decides whether a caller may."),
+                ] {
+                    properties.insert(
+                        name.into(),
+                        json!({"type": "string", "minLength": 1, "description": description}),
+                    );
+                }
+            }
         }
         if self.routed() {
             properties.insert(
@@ -551,6 +583,14 @@ impl AgentTool {
             }
             Verb::ChatInterrupt => {
                 words.extend(["chat".into(), "interrupt".into(), args.word("target")?]);
+            }
+            Verb::ChatSet => {
+                words.extend(["chat".into(), "set".into(), args.word("target")?]);
+                for name in ["model", "mode"] {
+                    if let Some(value) = args.text(name)? {
+                        words.push(format!("--{name}={value}"));
+                    }
+                }
             }
         }
         let key = match args.text("idempotency_key")? {

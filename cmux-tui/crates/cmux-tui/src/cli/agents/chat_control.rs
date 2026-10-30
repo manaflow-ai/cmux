@@ -1,4 +1,4 @@
-//! `cmux agents chat new|state|interrupt|continue` and their MCP tools
+//! `cmux agents chat new|set|state|interrupt|continue` and their MCP tools
 //! (#23026, #23016): an agent starts a GUI agent chat in a given workspace or
 //! pane without moving the person's focus, reads a chat's state, stops its
 //! turn, and nudges it on.
@@ -391,6 +391,83 @@ pub(in crate::cli) fn new(
     Ok(json!({
         "schema_version": 1,
         "action": "chat.new",
+        "origin": origin,
+        "result": result,
+    }))
+}
+
+/// `chat set <chat> [--model M] [--mode M]` (the words after the chat).
+pub(in crate::cli) fn parse_set(target: String, words: &[&str]) -> Result<chat::ChatCommand, UsageError> {
+    const USAGE: &str = "agents chat set <chat> [--model <m>] [--mode <m>]";
+    let (mut model, mut mode) = (None, None);
+    let mut index = 0;
+    while let Some(&word) = words.get(index) {
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, value)) => (flag, Some(value)),
+            None => (word, None),
+        };
+        let value = match inline {
+            Some(value) => value,
+            None => {
+                index += 1;
+                *words.get(index).ok_or_else(|| {
+                    UsageError::new(format!("agents chat set: {flag} needs a value"))
+                })?
+            }
+        };
+        if value.is_empty() {
+            return Err(UsageError::new(format!("agents chat set: {flag} needs a value")));
+        }
+        let slot = match flag {
+            "--model" => &mut model,
+            "--mode" => &mut mode,
+            other => {
+                return Err(UsageError::new(format!(
+                    "agents chat set: unexpected argument {other:?}; usage: {USAGE}"
+                )));
+            }
+        };
+        *slot = Some(value.to_owned());
+        index += 1;
+    }
+    if model.is_none() && mode.is_none() {
+        return Err(UsageError::new(format!("agents chat set: name --model or --mode; usage: {USAGE}")));
+    }
+    Ok(chat::ChatCommand::Set { target, model, mode })
+}
+
+/// `chat set <chat>`: its model (`session/set_model`), then its mode (`session/set_mode`), as
+/// the chat's composer pickers set them. acpmux decides whether this caller may: a mode that
+/// does not ask before it acts is the person's to choose.
+pub(in crate::cli) fn set(
+    global: &GlobalArgs,
+    target: &str,
+    model: Option<&str>,
+    mode: Option<&str>,
+    origin: &str,
+) -> Result<Value, CallFailure> {
+    let found = chat::scoped_chat(global, target)?;
+    let chat = &found.id;
+    let mut result = json!({"chat": chat});
+    for (field, method, param, value) in [
+        ("model", "session/set_model", "modelId", model),
+        ("mode", "session/set_mode", "modeId", mode),
+    ] {
+        let Some(value) = value else { continue };
+        chat::acp::set(method, json!({"sessionId": chat, param: value}), found.socket()).map_err(
+            |error| {
+                let mut failure =
+                    not_run("chat.set_refused", format!("cannot set {field} of {chat}: {error}"));
+                // What an earlier field already changed.
+                failure.error["details"] = result.clone();
+                failure
+            },
+        )?;
+        result.set(field, json!(value));
+    }
+    Ok(json!({
+        "schema_version": 1,
+        "action": "chat.set",
         "origin": origin,
         "result": result,
     }))
