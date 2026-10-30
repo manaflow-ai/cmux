@@ -171,8 +171,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, let launchImageSize, launchImageSize != contentHost.bounds.size {
-            clearLaunchImage()
+        if launchImageView != nil, let launchImageSize, launchImageSize != .zero, launchImageSize != contentHost.bounds.size {
+            // A move cover owns the clear callback that reveals the page on its next frame. A
+            // resize must discard old-size pixels without consuming that hand-off early.
+            clearLaunchImage(invokeCallback: false)
         }
         // After the host frame: a strip pinned to a browser's band reads its
         // frame from constraints that depend on the host frame.

@@ -51,7 +51,7 @@ extension PaneContentView {
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).
-    func clearLaunchImage() {
+    func clearLaunchImage(invokeCallback: Bool = true) {
         launchImageDeadline.cancel()
         // The next frame says for itself whether its limit may take it; `showLaunchImage` clears
         // first, so a frame held over a painted page never inherits a relaunch's answer.
@@ -64,6 +64,10 @@ extension PaneContentView {
             LaunchImageHold.shared.ended()
         }
         // A page that has not painted when the image goes (its limit) shows its loading state.
+        guard invokeCallback else {
+            onLaunchImageCleared = nil
+            return
+        }
         let cleared = onLaunchImageCleared
         onLaunchImageCleared = nil
         cleared?()
