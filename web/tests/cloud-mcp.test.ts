@@ -359,6 +359,7 @@ describe("cloud MCP scoping", () => {
 function vmRow(overrides: Partial<CloudVmRow>): CloudVmRow {
   const now = new Date();
   return {
+    visibility: "team",
     id: "00000000-0000-4000-8000-000000000000",
     userId: "user",
     billingTeamId: overrides.ownerTeamId ?? "user",

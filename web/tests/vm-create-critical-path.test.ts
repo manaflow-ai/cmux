@@ -19,6 +19,7 @@ type UsageEvent = Parameters<VmRepositoryShape["recordUsageEvent"]>[0];
 function row(): CloudVmRow {
   const now = new Date();
   return {
+    visibility: "team",
     id: ROW_ID,
     userId: "user-fast",
     billingTeamId: "team-fast",

@@ -125,6 +125,7 @@ describe("hugeBlueInspectionView", () => {
 
 function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   return {
+    visibility: "team",
     id: "row-1",
     userId: "user-1",
     billingTeamId: "team-1",

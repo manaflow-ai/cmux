@@ -21,6 +21,7 @@ const T0 = new Date("2026-09-29T12:00:00.000Z");
 
 function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   return {
+    visibility: "team",
     id: "00000000-0000-4000-8000-000000000001",
     userId: "user-a",
     billingTeamId: "team-1",

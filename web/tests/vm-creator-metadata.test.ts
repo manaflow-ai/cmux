@@ -305,13 +305,14 @@ describe("cloud machine creator metadata", () => {
     expect(entries.map((entry) => entry.ownerTeamId)).toEqual(["team-shared"]);
   });
 
-  test("listUserVms carries the account that made each machine", async () => {
+  test("listUserVms carries the account that made each machine and hides private rows", async () => {
     const rows = [
-      creatorRow({ providerVmId: "vm-one", userId: "user-a" }),
+      creatorRow({ providerVmId: "vm-one", userId: "user-a", visibility: "team" }),
       creatorRow({
         id: "00000000-0000-4000-8000-0000000000ab",
         providerVmId: "vm-two",
         userId: "user-b",
+        visibility: "private",
       }),
     ];
     const repo = {
@@ -322,9 +323,15 @@ describe("cloud machine creator metadata", () => {
         Effect.provide(Layer.succeed(VmRepository, repo)),
       ),
     );
-    expect(entries.map((entry) => entry.createdByUserId)).toEqual([
-      "user-a",
-      "user-b",
-    ]);
+    expect(entries.map((entry) => entry.createdByUserId)).toEqual(["user-a"]);
+    expect(entries[0]?.visibility).toBe("team");
+
+    const creatorEntries = await Effect.runPromise(
+      listUserVms("user-b", "team-shared").pipe(
+        Effect.provide(Layer.succeed(VmRepository, repo)),
+      ),
+    );
+    expect(creatorEntries.map((entry) => entry.createdByUserId)).toEqual(["user-a", "user-b"]);
+    expect(creatorEntries.find((entry) => entry.providerVmId === "vm-two")?.visibility).toBe("private");
   });
 });

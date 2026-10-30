@@ -46,6 +46,7 @@ type CreateFailed = Parameters<VmRepositoryShape["markCreateFailed"]>[0];
 function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   const now = new Date();
   return {
+    visibility: "team",
     id: ROW_ID,
     userId: "user-mp",
     billingTeamId: "team-mp",

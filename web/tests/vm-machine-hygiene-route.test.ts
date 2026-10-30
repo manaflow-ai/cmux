@@ -187,6 +187,7 @@ describe("runMachineHygiene", () => {
   function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     const now = new Date();
     return {
+      visibility: "team",
       id: "00000000-0000-4000-8000-0000000c1ea0", userId: OWNER, billingTeamId: TEAM, billingPlanId: "pro",
       provider: "freestyle", providerVmId: "vm-clean", displayName: null, slug: null, imageId: "snapshot-test",
       imageVersion: null, status: "running", idempotencyKey: null, createdAt: now, updatedAt: now, destroyedAt: null,

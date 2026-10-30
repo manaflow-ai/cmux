@@ -32,6 +32,7 @@ const PROVIDER_VM_ID = "provider-vm-go-woken";
 function goRow(status: CloudVmRow["status"]): CloudVmRow {
   const now = new Date();
   return {
+    visibility: "team",
     id: "00000000-0000-4000-8000-00000000a60e",
     userId: "user-go-wake",
     billingTeamId: null,

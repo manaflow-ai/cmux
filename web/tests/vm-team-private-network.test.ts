@@ -118,6 +118,7 @@ function enrollmentRepo(): VmRepositoryShape {
 
 function createRepo(): VmRepositoryShape {
   const vm: CloudVmRow = {
+    visibility: "team",
     id: "00000000-0000-4000-8000-000000000010",
     userId: "user-1",
     ownerTeamId: "team-1",

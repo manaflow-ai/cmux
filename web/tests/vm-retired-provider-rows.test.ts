@@ -20,6 +20,7 @@ const USER_ID = "user-retired-provider";
 function row(overrides: Partial<CloudVmRow>): CloudVmRow {
   const now = new Date("2026-09-01T00:00:00Z");
   return {
+    visibility: "team",
     id: "00000000-0000-0000-0000-000000000001",
     userId: USER_ID,
     billingTeamId: USER_ID,

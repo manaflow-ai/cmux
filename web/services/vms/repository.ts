@@ -2394,6 +2394,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .values({
                 userId: input.userId,
                 billingTeamId: input.billingTeamId,
+                // Personal machines remain private; machines in a selected
+                // team are shared by default.
+                visibility: input.billingTeamId === input.userId ? "private" : "team",
                 billingPlanId: input.billingPlanId,
                 provider: input.provider,
                 imageId: input.image,
@@ -2543,6 +2546,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               .values({
                 userId: input.userId,
                 billingTeamId: input.billingTeamId,
+                // Personal machines remain private; machines in a selected
+                // team are shared by default.
+                visibility: input.billingTeamId === input.userId ? "private" : "team",
                 billingPlanId: input.billingPlanId,
                 provider: input.provider,
                 imageId: input.image,
@@ -2762,6 +2768,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             .values({
               userId: input.userId,
               billingTeamId: input.billingTeamId,
+              // Personal machines remain private; machines in a selected
+              // team are shared by default.
+              visibility: input.billingTeamId === input.userId ? "private" : "team",
               billingPlanId: input.billingPlanId,
               provider: input.provider,
               imageId: input.image,

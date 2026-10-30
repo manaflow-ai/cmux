@@ -18,6 +18,7 @@ const KEY = "sandbox-run:run-1:attempt:a-1";
 
 function row(overrides: Partial<CloudVmRow>): CloudVmRow {
   return {
+    visibility: "team",
     id: "00000000-0000-4000-8000-000000000201", userId: "user-1", billingTeamId: "team-1", billingPlanId: "pro",
     provider: "freestyle", providerVmId: null, displayName: null, slug: null, imageId: "snapshot", imageVersion: null,
     status: "provisioning", idempotencyKey: KEY, createdAt: NOW, updatedAt: NOW, destroyedAt: null, failureCode: null,

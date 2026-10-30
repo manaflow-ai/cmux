@@ -8100,6 +8100,7 @@ describe("VM Effect workflows", () => {
 function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   const now = new Date();
   const row: CloudVmRow = {
+    visibility: "team",
     id: "00000000-0000-4000-8000-000000000001",
     userId: "user-workflow-usage-events",
     billingTeamId: "user-workflow-usage-events",

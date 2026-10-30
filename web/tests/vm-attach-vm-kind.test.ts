@@ -18,6 +18,7 @@ const TEAM = "team-shared";
 
 function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   return {
+    visibility: "team",
     id: "00000000-0000-4000-8000-000000000501",
     userId: CREATOR,
     billingTeamId: CREATOR,

@@ -235,6 +235,8 @@ export type VmEntry = {
    * created (20260425062520_keen_kronos).
    */
   readonly createdByUserId: string;
+  /** Explicit sharing state; absent on legacy rows before the visibility migration. */
+  readonly visibility?: "private" | "team";
   /**
    * The team that owns the machine, or the creator's own id for a personal
    * machine. Creator names resolve only for current members of this team.
@@ -521,6 +523,10 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
     const rows = yield* repo.listUserVms(userId, billingTeamId);
     return rows
       .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
+      // A private row can still be in the owning team's SQL scope, but it is
+      // listed only to its creator. Missing visibility is legacy and remains
+      // shared until explicit enrollment.
+      .filter((row) => row.visibility !== "private" || row.userId === userId)
       .map(vmEntryFromRow);
   });
 }
@@ -6842,6 +6848,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
     createdByUserId: row.userId,
+    visibility: row.visibility,
     ownerTeamId: row.ownerTeamId,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
