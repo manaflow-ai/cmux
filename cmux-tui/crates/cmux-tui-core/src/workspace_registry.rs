@@ -51,6 +51,8 @@ mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+mod projection_size;
+use projection_size::{MAX_PROJECTION_BYTES, note_projection_size};
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
@@ -186,7 +188,6 @@ const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=OFF;";
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
-const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
@@ -3521,15 +3522,16 @@ impl WorkspaceRegistry {
             let stored: FrontendProjection = serde_json::from_str(&result_json)?;
             return Ok(ProjectionCommit { projection: stored, replayed: true });
         }
-        let current = tx
+        let stored_now = tx
             .query_row(
-                "SELECT projection_revision FROM frontend_projections
+                "SELECT projection_revision, length(CAST(payload AS BLOB)) FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
                 params![frontend, scope, subject_key],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
             )
-            .optional()?
-            .map(u64::try_from)
+            .optional()?;
+        let current = stored_now
+            .map(|(revision, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3538,6 +3540,8 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
+        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
+        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
         let projection_revision = current
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
