@@ -46,7 +46,7 @@ pub(super) fn stopped_before_prompt() -> RpcError {
 
 /// Whether `e` is [`stopped_before_prompt`]: the turn it ends is the Stop's, cancelled, not failed.
 fn is_stopped_before_prompt(e: &RpcError) -> bool {
-    e.data.as_ref().is_some_and(|d| d["reason"] == "stopped")
+    e.data.as_ref().is_some_and(|d| d.get("reason").and_then(Value::as_str) == Some("stopped"))
 }
 
 /// What a turn a Stop ended before its prompt reached the agent answers in its `turn_result`.
@@ -210,6 +210,18 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
+        // A resent inbox message answers as its notice did, a failure as the same error.
+        if opts.resend
+            && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
+        {
+            if let Some(f) = opts.on_accepted.take() {
+                f(duplicate(answer.clone().unwrap_or(Value::Null)));
+            }
+            let mut ledger = session.prompts.lock().unwrap();
+            outcome.send_replace(Some(answer.clone()));
+            prompt_ledger::prune(&mut ledger);
+            return answer;
+        }
         if opts.resend
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
@@ -345,8 +357,43 @@ impl Hub {
         let capped = running.is_some()
             && !opts.send_now
             && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
-        let steer_now =
-            steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
+        // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
+        // (`inbox.rs`). Boxed, out of this future.
+        if let Some(inbox) = self.inbox_route(
+            session,
+            &blocks,
+            control,
+            opts.send_now,
+            opts.class,
+            opts.provenance.as_ref(),
+            opts.agent.as_deref(),
+            opts.inbox,
+        ) {
+            let (agent, class) = inbox;
+            return Box::pin(self.inbox_accept(
+                session,
+                &blocks,
+                client,
+                &prompt_id,
+                &agent,
+                class,
+                opts.thread.as_deref(),
+                opts.provenance.as_ref(),
+                &mut accept,
+            ))
+            .await;
+        }
+        // An inbox notice steers in only while the turn is under its cap and no prompt waits
+        // (`inbox.rs`), checked again here at dispatch.
+        let notice_held = steer
+            && running.is_some()
+            && super::inbox::is_notice(opts.provenance.as_ref())
+            && super::inbox::notice_held(session);
+        let steer_now = steer
+            && session.steering.load(Ordering::SeqCst)
+            && running.is_some()
+            && !capped
+            && !notice_held;
         if steer && opts.steer_only && !steer_now {
             return Err(super::turn_cap::steer_unavailable(capped));
         }
@@ -488,6 +535,9 @@ impl Hub {
             return Err(e);
         }
         self.arm_turn_cap(session, &turn_id);
+        // The inbox's notice this turn is lands (`inbox.rs`): noticed once its prompt is written
+        // (below), and what is new steers in then.
+        self.inbox_turn_started(session);
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
@@ -624,8 +674,11 @@ impl Hub {
             Vec::new()
         };
         super::team_information::prepend(&mut blocks, &team_messages);
+        // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
+        // harness writer took its prompt: `on_sent` then logs it.
         let confirm_team_write = !team_messages.is_empty()
-            || (team_enabled && self.has_team_work(session, &team_prompt_ids));
+            || (team_enabled && self.has_team_work(session, &team_prompt_ids))
+            || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -721,12 +774,16 @@ impl Hub {
             false,
             fence.as_ref(),
             confirm_team_write,
+            None,
             || {
                 self.mark_team_messages(session, &team_messages);
                 if team_enabled {
                     self.mark_team_work(session, &team_prompt_ids);
                 }
                 self.watch_stalled_turn(session, None);
+                // Written: a notice this is went in, and what is new in the inbox may steer in
+                // behind it (`inbox.rs`).
+                self.inbox_prompt_written(session, &prompt_id);
                 self.title_after_prompt(session)
             },
         )
@@ -868,12 +925,14 @@ impl Hub {
                                         false,
                                         fence.as_ref(),
                                         confirm_team_write,
+                                        None,
                                         || {
                                             self.mark_team_messages(session, &team_messages);
                                             if team_enabled {
                                                 self.mark_team_work(session, &team_prompt_ids);
                                             }
                                             self.watch_stalled_turn(session, None);
+                                            self.inbox_prompt_written(session, &prompt_id);
                                         },
                                     )
                                     .await
@@ -1228,6 +1287,7 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
+        self.inbox_turn_ended(session);
         match stopped_early {
             Some(e) => Err(e),
             None => result,
@@ -1294,7 +1354,7 @@ impl Hub {
         self.requeue_joined(session, joined, false);
         let stopped_early = is_stopped_before_prompt(e);
         if stopped_early || was_stopping {
-            let stop = stopped_answer()["stopReason"].clone();
+            let stop = stopped_answer().get("stopReason").cloned().unwrap_or_default();
             self.append(
                 session,
                 "mux",
@@ -1341,6 +1401,7 @@ impl Hub {
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
+        self.inbox_turn_ended(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -1743,6 +1804,8 @@ impl Hub {
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
+        // Its inbox's timer stops and its senders are answered (`inbox.rs`).
+        self.inbox_closed(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).
         self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.

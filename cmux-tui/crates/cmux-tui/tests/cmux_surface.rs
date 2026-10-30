@@ -165,6 +165,11 @@ fn a_classic_verb_names_its_resource_command() {
         ),
         (&["list-workspaces"][..], "cmux workspace list"),
         (&["send", "ls"][..], "cmux terminal <terminal> write --text <text>"),
+        (&["list-surfaces"][..], "cmux tab list"),
+        (&["list-pane-surfaces"][..], "cmux tab list"),
+        (&["new-surface"][..], "cmux tab create terminal"),
+        (&["rename-surface", "x"][..], "cmux tab <tab> rename <name>"),
+        (&["close-surface"][..], "cmux tab <tab> close"),
     ] {
         let output = names.run("cmux", args);
         let stderr = text(&output.stderr);

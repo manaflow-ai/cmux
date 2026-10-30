@@ -47,6 +47,11 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Show coord's state, model, policy and pending requests", "acpmux session info coord"),
             ("Show a session on a peer", "acpmux session info mini-3/review-27"),
             ("Print the details as JSON for a script", "acpmux session info coord --json"),
+            ("Print only coord's session id", "acpmux session info coord --fields sessionId"),
+            (
+                "Print a few fields, nested ones by a dotted path",
+                "acpmux session info review-27 --fields status,turn.activity,stuckReason",
+            ),
         ],
     ),
     (
@@ -175,7 +180,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "session import",
         &[
             (
-                "Restore an exported bundle on this machine",
+                "Restore a bundle exported with --dest ~/bundles",
                 "acpmux session import ~/bundles/mini-3-review-27",
             ),
             (

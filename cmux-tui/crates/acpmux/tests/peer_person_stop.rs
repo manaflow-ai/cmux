@@ -36,6 +36,9 @@ fn config() -> Config {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    // The Stop holds the agent messages queued behind the turn: a plain send queues as before
+    // the inbox (`hub/inbox.rs`), as the other queue tests pin it.
+    cfg.agent_inbox = Some(false);
     cfg
 }
 
