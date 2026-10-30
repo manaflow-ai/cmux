@@ -450,6 +450,34 @@ test("a native subagent's MCP start can also compete for the parent's child reco
   expect(fold.isRun("shell")).toBe(false);
 });
 
+test("a native subagent's own acpmux run --parent start competes for the parent's child record", () => {
+  // The native subagent runs the same command as the parent: acpmux tags its update with the
+  // subagent, so it never becomes the parent's call, but its child can still claim `fix` first.
+  const { fold, send } = folder();
+  send(call("shell", PARENT_RUN));
+  const update = call("nested-shell", PARENT_RUN);
+  fold.reduce(
+    {
+      seq: 2,
+      at: 2000,
+      msg: {
+        params: {
+          update,
+          _meta: {
+            acpmux: {
+              subagent: "native-agent",
+              subagents: [{ id: "native-agent", parent: null, name: "native", state: "running" }],
+            },
+          },
+        },
+      },
+    },
+    update,
+  );
+  expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
+  expect(fold.isRun("shell")).toBe(false);
+});
+
 test("a child's different explicit name cannot fall back to a matching prompt", () => {
   const { fold, send } = folder();
   send(call("shell", PARENT_RUN));
