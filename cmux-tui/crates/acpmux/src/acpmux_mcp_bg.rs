@@ -8,6 +8,7 @@
 use super::{error_result, ok, refusal};
 use crate::client::Client;
 use crate::rpc::method;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -40,7 +41,7 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         Value::Null => json!({}),
         _ => return error_result("arguments must be an object".to_owned()),
     };
-    params["sessionId"] = json!(session);
+    params.set("sessionId", json!(session));
     let m = match name {
         "bg_start" => method::MUX_BG_START,
         "bg_list" => method::MUX_BG_LIST,

@@ -31,6 +31,23 @@ fn session_task_caps_are_typed_config_values() {
     assert!(config.set_session_resource("session.tasks_max", "lots").is_err());
 }
 
+#[test]
+fn cli_session_cpu_class_is_a_config_value() {
+    use crate::cpu_class::CpuClass;
+    let mut config = Config::default();
+    config.set_session_resource("session.cpu_class", "normal").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Normal));
+    let saved = serde_json::to_value(&config).unwrap();
+    assert_eq!(saved["session"]["cpuClass"], "normal");
+    let loaded: Config = serde_json::from_value(saved).unwrap();
+    assert_eq!(loaded.session.cpu_class, Some(CpuClass::Normal));
+    config.set_session_resource("session.cpu-class", "Background").unwrap();
+    assert_eq!(config.session.cpu_class, Some(CpuClass::Background));
+    assert!(config.set_session_resource("session.cpu_class", "utility").is_err());
+    config.set_session_resource("session.cpu_class", "default").unwrap();
+    assert_eq!(config.session.cpu_class, None);
+}
+
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
         kind,
