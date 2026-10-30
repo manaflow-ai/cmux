@@ -166,7 +166,13 @@ fn http_date_ms(s: &str) -> Option<u64> {
         .iter()
         .position(|m| m.eq_ignore_ascii_case(p[1]))? as u32
         + 1;
-    let year = p[2].parse::<i64>().ok()?;
+    if p[2].len() != 4 || !p[2].bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let year = p[2].parse::<i32>().ok()?;
+    if !(1970..=9999).contains(&year) {
+        return None;
+    }
     let t: Vec<&str> = p[3].split(':').collect();
     if t.len() != 3 {
         return None;
@@ -177,7 +183,7 @@ fn http_date_ms(s: &str) -> Option<u64> {
     if !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 60 {
         return None;
     }
-    let y = year - i64::from(month <= 2);
+    let y = i64::from(year) - i64::from(month <= 2);
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
     let mp = i64::from(month) + if month > 2 { -3 } else { 9 };

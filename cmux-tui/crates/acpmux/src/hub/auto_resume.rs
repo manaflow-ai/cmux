@@ -412,6 +412,24 @@ impl Hub {
         let (control, trust_gate, not_before) = (cut.control, cut.trust_gate, cut.not_before);
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
+        // Leave a quiet durable marker before the spawned task can be interrupted by a daemon
+        // shutdown. The task replaces it with the exact deadline once it has read configuration
+        // and usage state; a restart can safely retry immediately from this provisional marker.
+        hub.append_quiet(
+            &session,
+            "mux",
+            "auto_resume_scheduled",
+            json!({
+                "promptId": root.clone(),
+                "turnId": turn_id.clone(),
+                "reason": reason.as_str(),
+                "error": error,
+                "control": control.as_str(),
+                "trustGate": trust_gate,
+                "nextAt": super::now_ms(),
+                "from": from.as_deref(),
+            }),
+        );
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
             let delays = {
