@@ -139,7 +139,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
         await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, { recursive: true });
         await panel.screenshot({ path: path.join(process.env.CMUX_SUMMARY_CAPTURE_DIR, "summary-environment.png") });
       }
-      expect(await panel.locator(".acpmux-summary-card__head").count()).toBe(0);
+      expect(await panel.locator(".acpmux-summary-card__title").count()).toBe(0);
       expect(await panel.locator("h3").first().textContent()).toBe("Environment");
       const environment = panel.locator('[data-section="environment"]');
       expect(await environment.textContent()).toContain("Development Mac");
