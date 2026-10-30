@@ -221,17 +221,6 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
-        "ls",
-        &[
-            ("List sessions on every host", "acpmux ls"),
-            ("List them as JSON for a script", "acpmux ls --json"),
-            (
-                "Show running sessions updated in the last day",
-                "acpmux ls --status running --since 24h --fields name,harness,state",
-            ),
-        ],
-    ),
-    (
         "attach",
         &[
             ("Open the TUI on coord", "acpmux attach coord"),

@@ -2,7 +2,8 @@
 //! live in tables here, one file per command group, keyed by the command's
 //! path (`"session cancel"`; `""` is `acpmux` itself), so the grammar in
 //! `command.rs` stays readable. `attach` adds them to the clap tree that
-//! `entry` parses with. The tests fail on a visible command without an about
+//! `entry` parses with; a command whose after-help has its own `Examples:`
+//! (`ls`) needs no entry. The tests fail on a visible command without an about
 //! line or examples, on an example for a command that is gone, and on an
 //! example that does not parse.
 
@@ -31,6 +32,11 @@ fn examples(path: &str) -> Option<&'static [Example]> {
     GROUPS.iter().flat_map(|group| group.iter()).find(|(key, _)| *key == path).map(|(_, e)| *e)
 }
 
+/// A command whose own after-help already has an `Examples:` section (`ls`) keeps it alone.
+fn has_own_examples(command: &Command) -> bool {
+    command.get_after_help().is_some_and(|text| text.to_string().contains("Examples:"))
+}
+
 fn render(examples: &[Example]) -> String {
     let mut text = String::from("Examples:");
     for (what, line) in examples {
@@ -45,7 +51,7 @@ pub(crate) fn attach(command: Command) -> Command {
 }
 
 fn attach_at(mut command: Command, path: &mut Vec<String>) -> Command {
-    if let Some(examples) = examples(&path.join(" ")) {
+    if let Some(examples) = examples(&path.join(" ")).filter(|_| !has_own_examples(&command)) {
         let text = match command.get_after_help() {
             Some(before) => format!("{before}\n\n{}", render(examples)),
             None => render(examples),

@@ -88,6 +88,30 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session inbox",
+        &[
+            (
+                "Print the digest of other agents' messages waiting on coord",
+                "acpmux session inbox coord",
+            ),
+            ("Send them to coord now as one prompt", "acpmux session inbox coord --digest"),
+        ],
+    ),
+    (
+        "session move",
+        &[
+            (
+                "Say where coord would go, changing nothing",
+                "acpmux session move coord --host mini-3 --dry-run",
+            ),
+            ("Move coord and its history to a peer", "acpmux session move coord --host mini-3"),
+            (
+                "Move every idle chat to the placement's pick",
+                "acpmux session move --all-idle --host auto",
+            ),
+        ],
+    ),
+    (
         "session resume",
         &[
             ("Run the prompts a failed turn held", "acpmux session resume coord"),

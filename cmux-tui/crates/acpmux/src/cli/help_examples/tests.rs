@@ -72,7 +72,7 @@ fn every_visible_command_has_an_about_line_and_examples() {
         if command.get_about().is_none() && command.get_long_about().is_none() && !key.is_empty() {
             missing.push(format!("acpmux {key}: no about line"));
         }
-        if examples(&key).is_none_or(|e| e.is_empty()) {
+        if examples(&key).is_none_or(|e| e.is_empty()) && !has_own_examples(command) {
             missing.push(format!("acpmux {key}: no examples"));
         }
         for sub in command.get_subcommands().filter(|sub| !sub.is_hide_set()) {
@@ -92,11 +92,26 @@ fn every_visible_command_has_an_about_line_and_examples() {
 #[test]
 fn every_example_entry_names_a_visible_command_once() {
     let visible: HashSet<String> = all_visible().into_iter().collect();
+    let mut own = Vec::new();
+    fn walk(command: &Command, path: &mut Vec<String>, own: &mut Vec<String>) {
+        if has_own_examples(command) {
+            own.push(path.join(" "));
+        }
+        for sub in command.get_subcommands() {
+            path.push(sub.get_name().to_owned());
+            walk(sub, path, own);
+            path.pop();
+        }
+    }
+    walk(&Cli::command(), &mut Vec::new(), &mut own);
     let mut seen = HashSet::new();
     let mut wrong = Vec::new();
     for (key, _) in GROUPS.iter().flat_map(|group| group.iter()) {
         if !visible.contains(*key) {
             wrong.push(format!("\"{key}\": no visible command has this path"));
+        }
+        if own.iter().any(|path| path == key) {
+            wrong.push(format!("\"{key}\": its after-help has its own Examples:"));
         }
         if !seen.insert(*key) {
             wrong.push(format!("\"{key}\": listed twice"));
