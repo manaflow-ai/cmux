@@ -102,9 +102,8 @@ await requireBrowserLane("reasoning-own-control.test.ts", async () => {
           );
           await current.first().waitFor();
           expect(await current.count()).toBe(1);
-          expect(
-            await current.locator('.acpmux-quick-effort-segment[role="menuitemradio"]').count(),
-          ).toBeGreaterThan(1);
+          const segments = await current.locator('.acpmux-quick-effort-segment[role="menuitemradio"]').count();
+          expect(segments).toBeGreaterThan(1);
           expect(await current.locator('.acpmux-quick-effort-segment[aria-checked="true"]').count()).toBe(1);
           expect(await effortRow.count()).toBe(0);
           await page.keyboard.press("Escape");
