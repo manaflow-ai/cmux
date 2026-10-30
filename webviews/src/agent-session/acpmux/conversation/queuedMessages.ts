@@ -44,7 +44,11 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         kind: QUEUED_MESSAGE,
         text: message.text,
         incoming: { kind: "message", message },
-        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}) },
+        queuedMessage: {
+          promptId: entry.id,
+          ...(entry.next ? { next: true } : {}),
+          ...(entry.heldByStop ? { heldByStop: true } : {}),
+        },
         untyped: true,
         ...(entry.images?.length ? { images: entry.images } : {}),
       };

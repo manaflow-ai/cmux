@@ -37,6 +37,7 @@ import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
+import { CardCopy } from "./CardCopy";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { useAgentAvatar } from "../agentAvatar";
@@ -250,6 +251,8 @@ export function IncomingMessageLine({
         </span>
       }
     >
+      {/* The sender's words, as written, from the card's corner. */}
+      <CardCopy text={text} />
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
         <div className="cv-received__text selectable">

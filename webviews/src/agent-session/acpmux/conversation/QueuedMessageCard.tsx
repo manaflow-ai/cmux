@@ -6,7 +6,8 @@
 // MESSAGES????"): Copy as the line's icon, then ⋯ with Send now (into the running turn, `send_now`,
 // once) and Dismiss (the agent never gets it), in one group as on a delivered message's line. No
 // Edit message, Move up or down, or queueing switch: those are the person's own prompts'
-// (ComposerQueue.tsx). The sender's chat opens from its name (IncomingMessageCard.tsx).
+// (ComposerQueue.tsx). The sender's chat opens from its name (IncomingMessageCard.tsx). While the
+// person's Stop holds them the group says so, once (PendingMessagesCard.tsx).
 import { useContext, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";

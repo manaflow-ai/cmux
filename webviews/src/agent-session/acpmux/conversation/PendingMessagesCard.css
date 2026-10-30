@@ -50,6 +50,17 @@
   flex: none;
   color: var(--cv-text);
 }
+/* The Stop's hold: one muted subhead line under the head, in the count's column. */
+.cv-pending__held {
+  display: flex;
+  align-items: center;
+  height: var(--cv-message-subhead);
+  padding-inline-start: calc(var(--ds-space-1) + 16px + var(--ds-space-2));
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cv-text-dim);
+}
 .cv-pending__senders {
   flex: 0 1 auto;
   min-width: 0;
