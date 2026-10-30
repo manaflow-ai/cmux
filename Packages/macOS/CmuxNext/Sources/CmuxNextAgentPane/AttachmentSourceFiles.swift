@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -40,7 +41,7 @@ nonisolated extension AttachmentSource {
     /// Where the file at `url` came from, or nil when its metadata does not say.
     public static func source(of url: URL, apps: AttachmentSourceApps = .live) -> AttachmentSource? {
         let read = { (name: String) in attribute(name, of: url) }
-        let quarantine = (try? url.resourceValues(forKeys: [.quarantinePropertiesKey]))?.quarantineProperties
+        let quarantine = (try? url.blockingResourceValues(forKeys: [.quarantinePropertiesKey]))?.quarantineProperties
         return source(attribute: read, quarantine: quarantine, apps: apps)
     }
 
