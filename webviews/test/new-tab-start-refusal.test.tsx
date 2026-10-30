@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { translate as t } from "../src/agent-session/acpmux/i18n";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -239,14 +240,14 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       expect(host.querySelector(".nt-field")).toBe(field);
       if (decline) {
         const notNow = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask button")].find(
-          (button) => button.textContent === "Not now",
+          (button) => button.textContent === t("trust.notNow"),
         )!;
         await act(async () => notNow.click());
         await until(() => !!host.querySelector('[role="alert"]'), "declined start settles with the draft retained");
         expect(host.querySelector(".nt-field")).toBe(field);
         expect(prompts).toHaveLength(0);
         const undo = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
-          (button) => button.textContent === "Undo",
+          (button) => button.textContent === t("trust.undo"),
         )!;
         await act(async () => undo.click());
         await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Undo offers Trust again");

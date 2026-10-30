@@ -6873,7 +6873,8 @@ export class AcpmuxDirectClient {
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
-  /// `waitForTrust`: New Tab still owns the first prompt; keep this start pending through its Trust answer.
+  /// `waitForTrust`: New Tab still owns the first prompt; keep this start pending through its Trust answer
+  /// only when this connection can record one. Other origins reject so the retained draft can retry later.
   create(
     harness: string | undefined = this.host.harness,
     cwd?: string,
@@ -6887,43 +6888,45 @@ export class AcpmuxDirectClient {
     const started = (async () => {
       // The New Tab request still owns its draft, attachments and machine. Trust resumes this
       // same promise, so its sender runs once and never targets an unmounted chat composer.
-      const sessionId = waitForTrust
-        ? await new Promise<string | undefined>((resolve, reject) => {
-            let settled = false;
-            let running = false;
-            const finish = (id?: string, error?: unknown) => {
-              if (settled) return;
-              settled = true;
-              if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
-              if (error) reject(error);
-              else resolve(id);
-            };
-            const cancel = () => finish();
-            this.cancelTrustStart = cancel;
-            const run = () => {
-              if (this.closed || generation !== this.selectionGeneration) return cancel();
-              if (settled || running) return;
-              running = true;
-              void this.startSession(harness, cwd, peer, run, noProject, model, () =>
-                finish(undefined, new Error(translate("switch.cancelled"))),
-              ).then(
-                (id) => finish(id),
-                (error: unknown) => {
-                  running = false;
-                  if (!isTrustRefusal(error)) finish(undefined, error);
-                },
-              );
-            };
-            run();
-          })
-        : await this.startSession(
-            harness,
-            cwd,
-            peer,
-            () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
-            noProject,
-            model,
-          );
+      const canAnswerTrust = this.origin !== "remote" || this.extensions.includes("acp.trust.set");
+      const sessionId =
+        waitForTrust && canAnswerTrust
+          ? await new Promise<string | undefined>((resolve, reject) => {
+              let settled = false;
+              let running = false;
+              const finish = (id?: string, error?: unknown) => {
+                if (settled) return;
+                settled = true;
+                if (this.cancelTrustStart === cancel) this.cancelTrustStart = undefined;
+                if (error) reject(error);
+                else resolve(id);
+              };
+              const cancel = () => finish();
+              this.cancelTrustStart = cancel;
+              const run = () => {
+                if (this.closed || generation !== this.selectionGeneration) return cancel();
+                if (settled || running) return;
+                running = true;
+                void this.startSession(harness, cwd, peer, run, noProject, model, () =>
+                  finish(undefined, new Error(translate("switch.cancelled"))),
+                ).then(
+                  (id) => finish(id),
+                  (error: unknown) => {
+                    running = false;
+                    if (!isTrustRefusal(error)) finish(undefined, error);
+                  },
+                );
+              };
+              run();
+            })
+          : await this.startSession(
+              harness,
+              cwd,
+              peer,
+              () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
+              noProject,
+              model,
+            );
       // A user who opened another chat while session/new was out owns that selection.
       if (this.closed || generation !== this.selectionGeneration) return undefined;
       return sessionId ? this.select(sessionId) : undefined;
