@@ -166,3 +166,13 @@ test("stored title and submenu actions become inert when their chat changes", ()
   if (guarded[1] !== "separator") guarded[1]!.children?.[0]?.onSelect();
   expect(ran).toEqual(["A"]);
 });
+
+test("a guarded title row passes its selection event on (Option-click Fork opens the chooser)", () => {
+  const seen: unknown[] = [];
+  const [row] = guardedChatMenu(
+    [{ key: "fork", label: "Fork", icon: "agent.fork", onSelect: (event) => seen.push(event?.altKey) }],
+    () => true,
+  );
+  if (row !== "separator") row!.onSelect?.({ altKey: true } as never);
+  expect(seen).toEqual([true]);
+});

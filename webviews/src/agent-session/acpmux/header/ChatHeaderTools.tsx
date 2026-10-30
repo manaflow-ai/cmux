@@ -119,9 +119,12 @@ export function menuItemForShortcut(
 /** A popup may outlive the selected chat until React commits the new view. Its callbacks must
  * remain bound to the chat that opened it, including submenu callbacks. */
 export function guardedChatMenu(items: ChatMenuItem[], current: () => boolean): ChatMenuItem[] {
-  const guard = (run: () => void) => () => {
-    if (current()) run();
-  };
+  // The selection event goes through: Fork's Option-click opens its destination chooser (forkMenu.ts).
+  const guard =
+    <E,>(run: (event?: E) => void) =>
+    (event?: E) => {
+      if (current()) run(event);
+    };
   return items.map((item) =>
     item === "separator"
       ? item
