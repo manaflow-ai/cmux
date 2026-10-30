@@ -346,6 +346,29 @@ struct CloudMachineChangeStateTests {
         #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .running)) == nil)
     }
 
+    @Test(arguments: [CloudMachine.Status.pausing, .starting])
+    func appServerTerminalRecordsWithoutUpdatedAtRespectReadOrdering(change: CloudMachine.Status) async throws {
+        let services = MachineIconTests.services()
+        let cloud = services.cloud
+        let session = MachineIconTests.cloudMachine(services, id: "terminal-without-timestamp")
+        defer { cloud.changes.stop(); session.disconnect() }
+        session.machine.status = change == .pausing ? .running : .paused
+        let target = change == .pausing ? "paused" : "running"
+        let terminal = try Self.next("{\"id\":\"terminal-without-timestamp\",\"status\":\"\(target)\"}")
+        #expect(terminal.updatedAt == nil)
+        let staleRead = cloud.beginRecordRead(machineID: session.machineID)
+        try await cloud.changes.run(change, machineID: session.machineID, of: { session }) {}
+        cloud.apply(terminal, to: session, read: staleRead)
+        #expect(session.machine.pendingChange == change, "pre-acknowledgement terminal reads cannot settle")
+        cloud.changes.listed([session.machine], refresh: {})
+        #expect(session.machine.pendingChange == change)
+        #expect(cloud.changes.isSettling, "polling cannot bypass the read fence")
+        cloud.apply(terminal, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+        #expect(session.machine.pendingChange == nil, "fresh matching terminal state needs no timestamp")
+        cloud.changes.listed([session.machine], refresh: {})
+        #expect(!cloud.changes.isSettling)
+    }
+
     @Test func aResumeRefreshFailureKeepsTheRawPausedRecord() async {
         let session = Self.session(status: .paused)
         session.resumer = { [session] _ in

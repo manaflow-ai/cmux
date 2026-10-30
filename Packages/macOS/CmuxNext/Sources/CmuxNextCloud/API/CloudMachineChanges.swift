@@ -155,15 +155,16 @@ public final class CloudMachineChanges {
                 guard let baseline = mutation.baselineUpdatedAt else { return true }
                 return recordRevision > baseline
             }()
-            // A direct pendingStatus inspection has no transport read and retains the old
-            // compatibility behavior. A real read must be newer than acceptance *and* carry
-            // a newer server row revision; a same-shaped stale response cannot retire it.
-            let authoritative = read == nil ? true : (readIsAfterAcceptance && isNewerServerRevision)
+            // Completion needs a read issued after acknowledgement, but older app servers
+            // need not supply updatedAt. Only an opposite terminal state (supersession)
+            // requires explicit server freshness evidence as well as an ordered read.
+            guard readIsAfterAcceptance else { return false }
+            let superseded = read != nil && isNewerServerRevision
             switch mutation.status {
             case .pausing:
-                return authoritative && (record.status == .paused || record.status == .running)
+                return record.status == .paused || (record.status == .running && superseded)
             case .starting:
-                return authoritative && (record.status == .running || record.status == .paused)
+                return record.status == .running || (record.status == .paused && superseded)
             default: return false
             }
         }
@@ -190,7 +191,8 @@ public final class CloudMachineChanges {
         // began/stop cancel the old task, including callbacks delivered from inside its refresh.
         guard !stopped, !Task.isCancelled else { return }
         listRevision += 1
-        for machine in list { _ = pendingStatus(for: machine) }
+        // CloudService already reconciled these records with their read tickets. Replaying
+        // settlement here without tickets could let a rejected stale response clear a mutation.
         delay = Self.settleDelay
         pending = list.contains(where: \.status.isChanging) || !mutations.isEmpty
         guard pending else {
