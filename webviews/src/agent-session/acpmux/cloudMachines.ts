@@ -125,7 +125,8 @@ function publishAccount(next: boolean | undefined): void {
   for (const listener of listeners) listener();
 }
 
-/// Reads the app's list again. Outside the app, or when the app refuses, the list is left as it was.
+/// Reads the app's list again. A failed revalidation clears both snapshots: the previous
+/// account's machines and signed-in state cannot be trusted after a refused read.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   const asked = generation;
   inFlight ??= call("cloudMachine.list", {})
@@ -135,7 +136,12 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
         publish(cloudMachinesFromReply(reply));
       }
     })
-    .catch(() => undefined)
+    .catch(() => {
+      if (asked === generation) {
+        publishAccount(undefined);
+        publish([]);
+      }
+    })
     .finally(() => {
       if (asked === generation) inFlight = undefined;
     });
