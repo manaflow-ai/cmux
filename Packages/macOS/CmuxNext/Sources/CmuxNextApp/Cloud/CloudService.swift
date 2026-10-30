@@ -403,6 +403,9 @@ final class CloudService {
     @ObservationIgnored private var recordReads = 0
     /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
     @ObservationIgnored private var recordReadApplied: [String: Int] = [:]
+    /// Record reads that have been issued but whose answers have not landed yet. A list
+    /// cannot remove a session while a newer one-record read may still reintroduce it.
+    @ObservationIgnored private var recordReadsOutstanding: Set<Int> = []
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -467,10 +470,13 @@ final class CloudService {
     /// Takes the ticket of a machine-record read, before it is sent (``apply(_:to:read:)``).
     func beginRecordRead() -> Int {
         recordReads += 1
+        recordReadsOutstanding.insert(recordReads)
         return recordReads
     }
 
     func reconcile(_ list: [CloudMachine], read: Int) {
+        // This list has landed; newer record reads remain outstanding while we reconcile.
+        recordReadsOutstanding.remove(read)
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
@@ -485,7 +491,9 @@ final class CloudService {
         }
         let ids = Set(visible.map(\.id))
         // A machine whose record came from a read asked after this list stays: that read saw it.
-        for session in machines.cloud where !ids.contains(session.machineID) && recordReadApplied[session.machineID, default: 0] < read {
+        let newerReadOutstanding = recordReadsOutstanding.contains { $0 > read }
+        for session in machines.cloud where !ids.contains(session.machineID) &&
+            recordReadApplied[session.machineID, default: 0] < read && !newerReadOutstanding {
             if let user = auth.user {
                 let scope = CloudCodexBrokerScope(userID: user.id, teamID: auth.teamID)
                 let machineID = session.machineID
@@ -503,6 +511,8 @@ final class CloudService {
     /// `read` (``beginRecordRead()``): a record from a read asked before the one the session
     /// holds changes nothing, so answers that land out of order run no stale transition.
     func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
+        // The one-record response has landed, so it no longer protects a list from removal.
+        recordReadsOutstanding.remove(read)
         guard read > recordReadApplied[machine.id, default: 0] else { return }
         recordReadApplied[machine.id] = read
         let wasLive = session.machine.status.isLive
@@ -549,6 +559,7 @@ final class CloudService {
         for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         recordReadApplied = [:]
+        recordReadsOutstanding = []
         machines.cloudLimits = nil
         hasLoadedMachines = false
         listLoadedAt = nil
