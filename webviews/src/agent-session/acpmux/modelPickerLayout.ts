@@ -89,7 +89,7 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
-  /// A signed-out harness's other ways in, Add API Key… and Add Credits… after Log In (accessOffer.ts).
+  /// A signed-out harness's other way in, Add Credits… after Log In (accessOffer.ts).
   access?: AccessOffer;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
   /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker

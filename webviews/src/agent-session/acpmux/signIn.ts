@@ -18,7 +18,7 @@ export type SignIn = {
   signedOut: Readonly<Record<string, string>>;
   /// Runs `login` for `harness` in a terminal tab; the pane checks again when it is back.
   logIn(harness: string, login: string): void;
-  /// Add API Key… and Add Credits… beside Log In (accessOffer.ts); absent where the pane cannot run them.
+  /// Add Credits… beside Log In (accessOffer.ts); absent where the pane cannot run it.
   access?: AccessOffer;
 };
 

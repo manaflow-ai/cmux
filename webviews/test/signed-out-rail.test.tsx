@@ -217,9 +217,10 @@ test("a signed-out harness offers Log In, never its models", async () => {
 });
 
 // Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
-// their own api key". After Log In, the signed-out tab offers Add API Key… for the harness's provider
-// and Add Credits…; neither starts a chat.
-test("a signed-out harness also offers Add API Key and Add Credits", async () => {
+// their own api key". A signed-out local harness's own Log In is where its API key goes (Claude Code's
+// Console sign-in, Codex's own API key, Gemini's API key): a key saved in Settings > Accounts never
+// reaches the harness's process, so the tab offers Log In and Add Credits…, never Add API Key….
+test("a signed-out harness offers Log In and Add Credits, never an API key it cannot use", async () => {
   const asked: string[] = [];
   const { sent, catalog } = await mount({
     harness: "claude",
@@ -235,26 +236,16 @@ test("a signed-out harness also offers Add API Key and Add Credits", async () =>
   });
   await act(async () => tabFor(codex.name)!.click());
   const items = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item")];
-  expect(items().map((item) => item.textContent)).toEqual(
-    expect.arrayContaining(["Log In", "Add API Key…", "Add Credits…"]),
-  );
   const labels = items().map((item) => item.textContent);
-  expect(labels.indexOf("Log In")).toBeLessThan(labels.indexOf("Add API Key…"));
-  await act(async () =>
-    items()
-      .find((item) => item.textContent === "Add API Key…")!
-      .click(),
-  );
-  await act(async () => {
-    openQuickPicker();
-  });
-  await act(async () => tabFor(codex.name)!.click());
+  expect(labels).toEqual(expect.arrayContaining(["Log In", "Add Credits…"]));
+  expect(labels).not.toContain("Add API Key…");
+  expect(labels.indexOf("Log In")).toBeLessThan(labels.indexOf("Add Credits…"));
   await act(async () =>
     items()
       .find((item) => item.textContent === "Add Credits…")!
       .click(),
   );
-  expect(asked).toEqual(["key:codex", "credits"]);
+  expect(asked).toEqual(["credits"]);
   expect(sent).toEqual([]);
 });
 

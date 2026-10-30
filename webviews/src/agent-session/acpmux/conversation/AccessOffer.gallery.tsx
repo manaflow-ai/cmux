@@ -1,9 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample models and router errors), not shipped UI.
 // A model the person cannot use is never a dead end (Leo 2026-10-26: "if user picks a model they
 // don't have api key, we offer them to add credits or add their own api key"; accessOffer.ts). In
-// the model picker a signed-out harness lists Add API Key… and Add Credits… after Log In; on a turn
-// the cmux model router refused for want of credits, the card offers the same two. Compare arms
-// shows the `access-offer` experiment's three placements on the card.
+// the model picker a signed-out harness lists Add Credits… after Log In (its own key goes in through
+// Log In); on a turn the cmux model router refused for want of credits, the card offers Add Credits…
+// and Add API Key…. Compare arms shows the `access-offer` experiment's three placements on the card.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { ModelPickerProps } from "../modelPickerLayout";
@@ -136,7 +136,7 @@ export default componentEntry<Props>({
       props: { surface: "turn", access: false, error: noCredits },
     },
     "picker-signed-out": {
-      note: "Codex is signed out: Log In, then Add API Key… and Add Credits…, in place of its models.",
+      note: "Codex is signed out: Log In, then Add Credits…, in place of its models; its API key goes in through Log In.",
       props: { surface: "picker", access: true },
       play: openSignedOut,
     },
