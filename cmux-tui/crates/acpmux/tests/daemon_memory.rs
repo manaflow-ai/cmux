@@ -8,14 +8,17 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// The benchmarks' bounds and sizes, read by `env_or`; numbers, no credential.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(BENCH_VARS);
+/// The benchmarks' bounds and sizes: numbers, no credential. The hermetic re-start
+/// keeps only these, so `env_or` refuses any other name.
+const BENCH_VARS: &[&str] = &[
     "ACPMUX_MEMORY_BENCH_LEFTOVERS",
     "ACPMUX_MEMORY_BENCH_CHATS",
     "ACPMUX_MEMORY_BUDGET_MB",
+    "ACPMUX_WAIT_BENCH_SECS",
     "ACPMUX_PEER_SNAPSHOT_PEAK_MB",
     "ACPMUX_PEER_SNAPSHOT_CPU_MS",
-]);
+];
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -299,6 +302,10 @@ fn a_start_skips_purged_sessions_a_late_save_wrote_back_and_keeps_every_chat() {
 }
 
 fn env_or(name: &str, default: u64) -> u64 {
+    assert!(
+        BENCH_VARS.contains(&name),
+        "{name} is not in BENCH_VARS, so the hermetic re-start drops it"
+    );
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
