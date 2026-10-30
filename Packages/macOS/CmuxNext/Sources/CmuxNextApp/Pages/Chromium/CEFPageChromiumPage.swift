@@ -52,6 +52,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         guard onEvent != nil, !closed else {
             tab.pageFilesDragged = nil
             tab.pageUserInput = nil
+            tab.pagePasted = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
@@ -61,6 +62,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
                            onEnd: { [weak self] in self?.renderEnded() })
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
+        tab.pagePasted = { [weak self] in self?.onEvent?(.pasted) }
         guard crashWatch == nil else { return }
         let tab = tab
         crashWatch = Task { [weak self] in
@@ -91,6 +93,10 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
+    func setAnswersFileChooser(_ on: Bool) {
+        tab.pageFilesChosen = on ? { [weak self] urls in self?.onEvent?(.filesChosen(urls)) } : nil
+    }
+
     func close() {
         guard !closed else { return }
         closed = true
@@ -100,6 +106,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.pageResources = nil
         tab.pageFilesDragged = nil
         tab.pageUserInput = nil
+        tab.pagePasted = nil
+        tab.pageFilesChosen = nil
         tab.delegate = nil
         tab.close()
     }

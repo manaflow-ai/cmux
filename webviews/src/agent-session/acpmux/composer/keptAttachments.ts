@@ -213,4 +213,7 @@ export function useKeptAttachments(
   }, []);
 }
 
-const signature = (chips: readonly ComposerAttachment[]) => chips.map((chip) => chip.id).join("\n");
+/// What a write would change: each chip's id, and its source, which the host may say a moment after
+/// the chip appears (composer/attachmentSources.ts).
+const signature = (chips: readonly ComposerAttachment[]) =>
+  chips.map((chip) => (chip.source ? `${chip.id}\t${JSON.stringify(chip.source)}` : chip.id)).join("\n");

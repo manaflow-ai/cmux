@@ -13,9 +13,11 @@ import CmuxNextWakeups
 /// names, with the same names in any order. Any other ask uses it up and answers nothing.
 public final class AgentPaneDroppedPaths {
     /// Which gesture brought the files in. A drop's record and a paste's are kept apart, so one never
-    /// answers for the other.
+    /// answers for the other. `choose`: the person's pick in the page's file input (+ > Attach files,
+    /// ``PageOpenPanel``), which only fills a source record (``stashSource(_:items:claimed:kind:)``):
+    /// the page already has those files' bytes, so `chat.attach.dropped` never asks for it.
     public nonisolated enum Kind: String, Sendable {
-        case drop, paste
+        case drop, paste, choose
     }
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
@@ -37,6 +39,11 @@ public final class AgentPaneDroppedPaths {
     }
 
     private var held: [Kind: Record] = [:]
+    /// What the last drop's or paste's pasteboard said about where its contents came from, for the
+    /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs,
+    /// how many items it held, and the app it says wrote it. Kept apart from ``held``, since each
+    /// record answers one ask.
+    private var sourced: [Kind: (urls: [URL], items: Int, claimed: String?, at: TimeInterval)] = [:]
     private let now: @MainActor () -> TimeInterval
     /// Exact copies of the person's recording drops, never their parent folders. These remain
     /// usable by this pane's existing file open/drag actions after the preview path disappears.
@@ -70,6 +77,37 @@ public final class AgentPaneDroppedPaths {
             guard self?.held[kind]?.id == id else { return }
             self?.held[kind] = nil
         }
+    }
+
+    /// Records what a drop's or paste's pasteboard said, with its file URLs and its item count:
+    /// where its contents came from, as only the person's own drop or paste can say
+    /// (``source(_:names:)``). One with no files and no claim says nothing, and clears the record.
+    public func stashSource(_ urls: [URL], items: Int, claimed: String?, kind: Kind) {
+        let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
+        sourced[kind] = paths.isEmpty && claimed == nil ? nil : (paths, max(items, paths.count), claimed, now())
+    }
+
+    /// What the last drop or paste of `kind` said, for the files `names` names, within ``lifetime``:
+    /// the file URLs among them, and its claim. Only an ask for that gesture's own files answers,
+    /// and uses the record up: no more files than the pasteboard held items, and every file URL it
+    /// held named (a drop of files and pictures names both). Any other ask answers nothing and
+    /// leaves the record for the page's own ask.
+    func source(_ kind: Kind, names: [String]) -> (urls: [URL], claimed: String?)? {
+        guard let record = sourced[kind] else { return nil }
+        guard now() - record.at <= Self.lifetime else {
+            sourced[kind] = nil
+            return nil
+        }
+        guard !names.isEmpty, names.count <= record.items else { return nil }
+        var left = record.urls
+        var picked: [URL] = []
+        for name in names {
+            guard let index = left.firstIndex(where: { Self.named($0, name) }) else { continue }
+            picked.append(left.remove(at: index))
+        }
+        guard left.isEmpty else { return nil }
+        sourced[kind] = nil
+        return (picked, record.claimed)
     }
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last
@@ -113,6 +151,7 @@ public final class AgentPaneDroppedPaths {
         generation = UUID()
         held.values.forEach { $0.expiry.cancel() }
         held.removeAll()
+        sourced.removeAll()
         retainedPaths.removeAll()
     }
 

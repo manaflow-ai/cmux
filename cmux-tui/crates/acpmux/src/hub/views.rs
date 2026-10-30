@@ -452,14 +452,18 @@ impl Hub {
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
-                    images: super::prompt_images::named(&q.run.blocks)
-                        .into_iter()
-                        .map(|image| QueuedImage {
-                            id: image["id"].as_str().unwrap_or_default().to_owned(),
-                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
-                            name: image["name"].as_str().map(str::to_owned),
-                        })
-                        .collect(),
+                    images: super::prompt_images::named_sourced(
+                        &q.run.blocks,
+                        q.run.display_parts.as_ref(),
+                    )
+                    .into_iter()
+                    .map(|image| QueuedImage {
+                        id: image["id"].as_str().unwrap_or_default().to_owned(),
+                        mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                        name: image["name"].as_str().map(str::to_owned),
+                        source: image.get("source").cloned(),
+                    })
+                    .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,

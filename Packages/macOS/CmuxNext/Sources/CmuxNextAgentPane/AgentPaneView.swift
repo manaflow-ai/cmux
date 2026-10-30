@@ -62,7 +62,7 @@ public final class AgentPaneView: NSView {
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
     /// The page's file chooser over ``openPanel`` (the web view holds its UI delegate weakly).
-    private let fileChooser: PageOpenPanel?
+    let fileChooser: PageOpenPanel?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).

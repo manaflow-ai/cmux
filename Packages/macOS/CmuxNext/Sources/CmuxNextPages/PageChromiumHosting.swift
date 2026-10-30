@@ -68,6 +68,10 @@ public protocol PageChromiumPage: AnyObject {
     /// draws no background of its own, the view under the page shows, as under a WebKit page that
     /// draws no background.
     func setSeeThrough(_ seeThrough: Bool)
+    /// Whether the page's file choosers come to the app's own panel (on: its picks are reported as
+    /// ``PageChromiumEvent/filesChosen(_:)``) or stay Chromium's panel with its accept filters (off,
+    /// the default). Only this page's choosers change.
+    func setAnswersFileChooser(_ on: Bool)
     /// Tears the page down. Idempotent.
     func close()
 }
@@ -95,4 +99,10 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case userInput(TimeInterval)
     /// The person right-clicked in the page: the host shows its own menu (``PageChromiumContextMenu``).
     case contextMenu(PageChromiumContextMenu)
+    /// The person pressed Cmd-V in the page, before Chromium pastes (an AppKit key event is in
+    /// dispatch: page script cannot make one).
+    case pasted
+    /// The person picked these files in the app's panel for the page's file input
+    /// (``PageChromiumPage/setAnswersFileChooser(_:)``), before the page gets them.
+    case filesChosen([URL])
 }
