@@ -642,6 +642,50 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
+    def test_a_source_only_push_that_removes_a_baseline_import_s_last_use_must_drop_its_line(self):
+        # Review of befae46a: with the manifest unchanged the gate dropped every "drop its line" finding, so a push
+        # that removed the last import of a baseline pair passed and left the pair in IMPORT_BASELINE. Only a line
+        # the push itself made stale is kept: base stale lines and pairs an untouched file still imports stay out.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import Foundation\n")
+        self.commit("its last file stops importing it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("IMPORT_BASELINE lists CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop its baseline line")
+        dropped = self.push()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+
     def test_a_manifest_edit_does_not_put_a_changed_test_under_production_rules(self):
         # Review of 115ed33e: the package's file list for the dependency check replaced ast-grep's list of changed
         # production sources, so a test's try! failed only when the push also changed Package.swift.

@@ -360,13 +360,30 @@ class FixImportsTests(unittest.TestCase):
             fixed = self.run_script(root, "--fix-imports", "--json")
 
             # The fixture holds none of IMPORT_BASELINE's targets, so its lines read as stale here; nothing else is red.
-            after = json.loads(fixed.stdout.splitlines()[-1])
+            # With --json, stdout is the one JSON object: the fixer's lines go to stderr (review of befae46a).
+            after = json.loads(fixed.stdout)
             self.assertEqual(after["missing"], [])
             self.assertEqual([p for p in after["problems"] if "IMPORT_BASELINE lists" not in p], [])
-            self.assertIn("declared CmuxNextHome in the dependencies of CmuxNextHomeEngineTests", fixed.stdout)
+            self.assertIn("declared CmuxNextHome in the dependencies of CmuxNextHomeEngineTests", fixed.stderr)
             again = self.run_script(root, "--json")
             self.assertNotIn("does not declare", again.stderr)
 
+
+    def test_fix_with_json_prints_only_the_json_object_on_stdout(self):
+        # Review of befae46a: --fix printed "sorted the dependency lists in ..." on stdout before the JSON object.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Package.swift").write_text(manifest('"CmuxNextTabs",', '"CmuxNextFeed",'), encoding="utf-8")
+            (root / "Sources").mkdir()
+            (root / "Tests/CmuxNextAppTests").mkdir(parents=True)
+
+            fixed = self.run_script(root, "--fix", "--json")
+
+            self.assertEqual(json.loads(fixed.stdout), {"problems": [p for p in json.loads(fixed.stdout)["problems"]
+                                                                     if "IMPORT_BASELINE lists" in p], "missing": []})
+            self.assertIn("sorted the dependency lists in", fixed.stderr)
+            self.assertEqual((root / "Package.swift").read_text(encoding="utf-8"),
+                             manifest('"CmuxNextFeed",', '"CmuxNextTabs",'))
 
 if __name__ == "__main__":
     unittest.main()
