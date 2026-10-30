@@ -811,9 +811,14 @@ function normalizesAcrossCells(selection: Selection, next: Selection): boolean {
  * it at once, and its drag then stayed on the first cell ("Ada" for a drag from Ada to Navy).
  */
 export const tableTextSelectPlugin = $prose(() => {
-  // Whether the primary button went down in a cell of this editor and is still down.
+  // Whether the primary button went down in a cell of this editor and is still down; `release`
+  // ends it. A press can end without a mouseup reaching the page (released over another app or
+  // after a switch away), so blur, a key, and a move with the button up end it too, as does the
+  // editor's destroy: a stuck flag would drop a keyboard caret move out of a cross-cell selection.
   let dragging = false;
+  let release: (() => void) | undefined;
   return new Plugin({
+    view: () => ({ destroy: () => release?.() }),
     filterTransaction(tr, state) {
       if (
         dragging &&
@@ -835,14 +840,25 @@ export const tableTextSelectPlugin = $prose(() => {
           if (!event.shiftKey) {
             const window = view.dom.ownerDocument.defaultView;
             if (!window) return false;
+            release?.();
             dragging = true;
+            const ends = ["mouseup", "dragstart", "keydown"] as const;
+            const moved = (move: MouseEvent) => {
+              if ((move.buttons & 1) === 0) stop();
+            };
             const stop = () => {
               dragging = false;
-              window.removeEventListener("mouseup", stop, true);
-              window.removeEventListener("dragstart", stop, true);
+              release = undefined;
+              for (const type of ends) window.removeEventListener(type, stop, true);
+              window.removeEventListener("mousemove", moved, true);
+              window.removeEventListener("blur", stop);
             };
-            window.addEventListener("mouseup", stop, true);
-            window.addEventListener("dragstart", stop, true);
+            for (const type of ends) window.addEventListener(type, stop, true);
+            window.addEventListener("mousemove", moved, true);
+            // Not capturing: the press itself moves focus into the editor, and that element's blur
+            // reaches a capturing window listener. Only the window's own blur ends the press.
+            window.addEventListener("blur", stop);
+            release = stop;
             return false;
           }
           const { state } = view;
